@@ -18,8 +18,10 @@ endef
 .PHONY: build-all build-debug build-release build-relwithdebinfo build \
         test-all test clean clean-all format \
         launch-g1-dummy-sim launch-g1-sim launch-wb-g1-dummy-sim launch-wb-g1-sim \
+        launch-drc-atlas-dummy-sim launch-drc-atlas-sandbox \
         start-vnc stop-vnc \
         launch-g1-dummy-sim-vnc launch-g1-sim-vnc launch-wb-g1-dummy-sim-vnc launch-wb-g1-sim-vnc \
+        launch-drc-atlas-dummy-sim-vnc launch-drc-atlas-sandbox-vnc \
         run-ocs2-tests run-mpc-tests echo-packages update-submodules git-lfs
 
 ## Build everything
@@ -112,6 +114,14 @@ launch-wb-g1-sim:
 	@bazel build //humanoid_nmpc/humanoid_wb_mpc_ros2:all //humanoid_nmpc/humanoid_common_mpc_ros2:all && \
 	$(source_env) && ros2 launch g1_wb_mpc mujoco_sim.launch.py
 
+launch-drc-atlas-dummy-sim:
+	@bazel build //... && \
+	$(source_env) && ros2 launch drc_atlas_centroidal_mpc dummy_sim.launch.py
+
+launch-drc-atlas-sandbox:
+	@bazel build //... && \
+	$(source_env) && ros2 launch drc_atlas_description display.launch.py
+
 ############################################################
 # VNC visualization (for macOS host)
 ############################################################
@@ -124,7 +134,7 @@ stop-vnc:
 	$(current_path)/.devcontainer/start_vnc.sh stop
 
 # Environment overrides for VNC display + Mesa software GLX
-VNC_GL_ENV := export DISPLAY=:1 && \
+VNC_GL_ENV := export DISPLAY=:99 && \
 	export LIBGL_ALWAYS_SOFTWARE=1 && \
 	export LIBGL_ALWAYS_INDIRECT=0 && \
 	export GALLIUM_DRIVER=llvmpipe && \
@@ -142,3 +152,11 @@ launch-wb-g1-dummy-sim-vnc: start-vnc
 
 launch-wb-g1-sim-vnc: start-vnc
 	@$(source_env) && $(VNC_GL_ENV) && ros2 launch g1_wb_mpc mujoco_sim.launch.py
+
+launch-drc-atlas-dummy-sim-vnc: start-vnc
+	@bazel build //... && \
+	$(source_env) && $(VNC_GL_ENV) && ros2 launch drc_atlas_centroidal_mpc dummy_sim.launch.py
+
+launch-drc-atlas-sandbox-vnc: start-vnc
+	@bazel build //... && \
+	$(source_env) && $(VNC_GL_ENV) && ros2 launch drc_atlas_description display.launch.py

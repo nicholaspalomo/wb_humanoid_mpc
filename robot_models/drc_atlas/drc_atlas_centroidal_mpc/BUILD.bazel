@@ -1,0 +1,49 @@
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+# drc_atlas_centroidal_mpc - DRC Atlas robot centroidal MPC configuration and tests
+
+package(default_visibility = ["//visibility:public"])
+
+# Configuration and launch files
+filegroup(
+    name = "drc_atlas_centroidal_mpc",
+    srcs = glob([
+        "config/**",
+        "launch/**",
+    ]),
+)
+
+# Test executable for Pinocchio model
+cc_binary(
+    name = "test_pinocchio_model",
+    srcs = ["test/testPinocchioModel.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+        "-DBOOST_VARIANT_LIMIT_TYPES=50",
+        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+    ],
+    data = [
+        ":drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_centroidal_mpc",
+        "//humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_dummy_sim_node",
+        "//lib/ocs2:ocs2_pinocchio_interface",
+        "//lib/ocs2:ocs2_centroidal_model",
+        "//lib/ocs2:ocs2_core",
+        "@eigen",
+        "@boost",
+        "@pinocchio",
+        "@urdf",
+        "@ros2_rclcpp",
+        "@ros2_ament_index_cpp",
+        "@abseil-cpp//absl/log:initialize",
+    ],
+)
