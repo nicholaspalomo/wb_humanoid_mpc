@@ -18,7 +18,7 @@ endef
 .PHONY: build-all build-debug build-release build-relwithdebinfo build \
         test-all test clean clean-all format \
         launch-g1-dummy-sim launch-g1-sim launch-wb-g1-dummy-sim launch-wb-g1-sim \
-        launch-drc-atlas-dummy-sim launch-drc-atlas-sandbox \
+        launch-drc-atlas-dummy-sim launch-drc-atlas-sandbox test-pinocchio-model-atlas \
         start-vnc stop-vnc \
         launch-g1-dummy-sim-vnc launch-g1-sim-vnc launch-wb-g1-dummy-sim-vnc launch-wb-g1-sim-vnc \
         launch-drc-atlas-dummy-sim-vnc launch-drc-atlas-sandbox-vnc \
@@ -63,6 +63,11 @@ run-ocs2-tests:
 ## Run MPC tests
 run-mpc-tests:
 	bazel test //humanoid_nmpc/...
+
+## Run Pinocchio Model Atlas test
+test-pinocchio-model-atlas:
+	@bazel build //... && \
+	$(source_env) && ros2 run drc_atlas_centroidal_mpc test_pinocchio_model
 
 ############################################################
 # Utility targets
