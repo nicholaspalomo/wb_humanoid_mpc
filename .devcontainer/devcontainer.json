@@ -37,7 +37,15 @@
         "xaver.clang-format",
         "eamodio.gitlens",
         "GitHub.copilot",
-        "GitHub.copilot-chat"
+        "GitHub.copilot-chat",
+        "twxs.cmake",
+        "cheshirekow.cmake-format",
+        "ms-toolsai.jupyter-keymap",
+        "ms-vscode-remote.remote-ssh",
+        "ms-vscode-remote.remote-ssh-edit",
+        "ms-vscode.remote-explorer",
+        "sankethdev.vscode-proto",
+        "Continue.continue"
       ]
     }
   },
@@ -47,7 +55,7 @@
     "source=${localEnv:HOME}/.ssh,target=/tmp/host_ssh,type=bind,consistency=cached"
   ],
   "containerEnv": {
-    "DISPLAY": ":1",
+    "DISPLAY": ":99",
     "ROS_DOMAIN_ID": "0",
     "LIBGL_ALWAYS_SOFTWARE": "1",
     "MESA_LOADER_DRIVER_OVERRIDE": "llvmpipe",
