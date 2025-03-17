@@ -3,6 +3,7 @@ ARG BASE_IMAGE=ros:${ROS_DISTRO}-ros-base
 FROM ${BASE_IMAGE} AS base
 
 ARG CPP_VERSION=20
+
 ARG WB_HUMANOID_MPC_DIR="/wb_humanoid_mpc_ws"
 ARG PYTHON_VERSION=3.12
 ENV DEBIAN_FRONTEND=noninteractive
@@ -85,7 +86,6 @@ RUN if [ ! -f /usr/local/lib/libabsl_base.a ]; then \
     else \
       echo "Abseil already installed in volume, skipping compilation"; \
     fi
-
 COPY dependencies.txt /tmp/dependencies.txt
 
 # Install dependencies from dependencies.txt
