@@ -10,6 +10,30 @@ ARG PYTHON_VERSION=3.12
 ENV DEBIAN_FRONTEND=noninteractive
 ENV ROS_DISTRO=${ROS_DISTRO}
 
+# Install clang-format (for linting).
+ARG CLANG_VERSION=18
+
+# Install LLVM GPG key and add repository.
+RUN UBUNTU_DISTRO=$(lsb_release -cs) && \
+    apt-get update && \
+    apt-get install -y wget gnupg && \
+    wget https://apt.llvm.org/llvm-snapshot.gpg.key && \
+    apt-key add llvm-snapshot.gpg.key && \
+    rm llvm-snapshot.gpg.key && \
+    echo "deb http://apt.llvm.org/${UBUNTU_DISTRO}/ llvm-toolchain-${UBUNTU_DISTRO}-${CLANG_VERSION} main" | tee /etc/apt/sources.list.d/llvm.list
+
+# Update package list and install clang-format.
+RUN apt-get update && \
+    apt-get install -y clang-format-${CLANG_VERSION} && \
+    ln -s /usr/bin/clang-format-${CLANG_VERSION} /usr/bin/clang-format
+
+# Update package list and install clang-tidy.
+RUN apt-get update && \
+    apt-get install -y clang-tidy-${CLANG_VERSION} && \
+    ln -s /usr/bin/clang-tidy-${CLANG_VERSION} /usr/bin/clang-tidy && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
 # Install system dependencies, ROS, Python, and development tools in a single step
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl gnupg2 lsb-release software-properties-common \

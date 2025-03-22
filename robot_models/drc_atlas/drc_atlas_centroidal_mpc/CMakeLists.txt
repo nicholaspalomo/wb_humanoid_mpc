@@ -8,6 +8,7 @@ endif ()
 # Generate compile_commands.json for clang tools
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+find_package(absl REQUIRED)
 find_package(ament_cmake REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 find_package(rclcpp REQUIRED)
@@ -50,6 +51,7 @@ link_directories(
 set(FLAGS ${OCS2_CXX_FLAGS} -Wno-invalid-partial-specialization)
 
 set(dependencies
+  absl
   ament_cmake
   ament_index_cpp
   rclcpp
@@ -65,6 +67,7 @@ ament_target_dependencies(test_pinocchio_model
 target_link_libraries(test_pinocchio_model
   ${Boost_LIBRARIES}
   ${pinocchio_LIBRARIES}
+  absl::log_initialize
 )
 target_compile_options(test_pinocchio_model PUBLIC ${FLAGS})
 

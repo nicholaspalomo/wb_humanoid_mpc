@@ -220,7 +220,15 @@ test-pinocchio-model:
 	source install/setup.bash && \
 	ros2 run humanoid_centroidal_mpc test_pinocchio_model
 
-test-pinocchio-model-atlas:
+build-atlas-model:
+	cd ${build_dir} && \
+	export MAKEFLAGS="-j ${PARALLEL_JOBS} -d" && \
+	source ${ros_source_file} && \
+	colcon build ${COMMON_COLCON_BUILD_FLAGS} --packages-up-to drc_atlas_centroidal_mpc \
+	--cmake-args ${COMMON_CMAKE_ARGS} $(EXTRA_CMAKE_ARGS) && \
+	source $(build_dir)/install/setup.bash
+
+test-pinocchio-model-atlas: build-atlas-model
 	cd ${build_dir} && \
 	source ${ros_source_file} && \
 	source install/setup.bash && \

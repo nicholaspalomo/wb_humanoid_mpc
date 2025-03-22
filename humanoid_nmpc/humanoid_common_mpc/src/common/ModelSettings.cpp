@@ -176,13 +176,16 @@ ModelSettings::ModelSettings(const std::string &configFile,
   this->jointIndexMap = createJointIndexMap(this->mpcModelJointNames);
   this->contactNames =
       concatenateStringVectors(this->contactNames3DoF, this->contactNames6DoF);
-
   this->mpc_joint_dim = this->mpcModelJointNames.size();
   this->full_joint_dim = this->fullJointNames.size();
-
+  CHECK(this->jointIndexMap.find(j_l_shoulder_y_name) !=
+        this->jointIndexMap.end());
   j_l_shoulder_y_index = this->jointIndexMap.at(j_l_shoulder_y_name);
+  CHECK(this->jointIndexMap.find(j_r_shoulder_y_name) != this->jointIndexMap.end());
   j_r_shoulder_y_index = this->jointIndexMap.at(j_r_shoulder_y_name);
+  CHECK(this->jointIndexMap.find(j_l_elbow_y_name) != this->jointIndexMap.end());
   j_l_elbow_y_index = this->jointIndexMap.at(j_l_elbow_y_name);
+  CHECK(this->jointIndexMap.find(j_r_elbow_y_name) != this->jointIndexMap.end());
   j_r_elbow_y_index = this->jointIndexMap.at(j_r_elbow_y_name);
 
   const std::string footConstraintPrefix = prefix + "foot_constraint.";
