@@ -60,7 +60,6 @@ install/
 **/.gdb_history
 
 .git-completion.bash
-
 # Bazel
 bazel-*
 .bazel-cache/
@@ -69,3 +68,4 @@ MODULE.bazel.lock
 
 # CppAD generated code (runtime)
 cppad_code_gen/
+.env
