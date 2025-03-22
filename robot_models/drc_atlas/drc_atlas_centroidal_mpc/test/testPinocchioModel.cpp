@@ -33,6 +33,8 @@ Copyright (c) 2022, Halodi Robotics AS. All rights reserved.
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
 
+#include <absl/log/initialize.h>
+
 using namespace ocs2;
 using namespace ocs2::humanoid;
 
@@ -146,6 +148,8 @@ void computeInverseDyanmics(PinocchioInterface pin_interface, Eigen::VectorXd q,
 }
 
 int main(int argc, char** argv) {
+  absl::InitializeLog();
+
   const std::string path(__FILE__);
   const std::string dir = path.substr(0, path.find_last_of("/"));
 
@@ -161,46 +165,31 @@ int main(int argc, char** argv) {
   std::cout << "urdf filename: " << urdfFile << std::endl;
 
   /// Test default model
-
-  std::cout << __LINE__ << " Hello world!"  << std::endl;
-
   PinocchioInterface pin_interface = createDefaultPinocchioInterface(urdfFile);
 
   std::cout << "Default PinocchioInterface initialized " << std::endl;
 
-  std::cout << __LINE__ << " Hello world!"  << std::endl;
-
   printModelDimensionality(pin_interface);
   printJointNames(pin_interface);
-
-  std::cout << __LINE__ << " Hello world!"  << std::endl;
 
   // Initialize states
   Eigen::VectorXd q = Eigen::VectorXd::Zero(kStateDim);
   q[2] = kNominalBaseHeight;
-
   computeForwardKinematics(pin_interface, q);
   std::string leftFootFrameName("foot_l_contact");
   std::string rightFootFrameName("foot_r_contact");
   printFrameRotation(pin_interface, q, leftFootFrameName);
   printFrameRotation(pin_interface, q, rightFootFrameName);
-  std::cout << __LINE__ << " Hello world!"  << std::endl;
 
   /// Test custom model
   ModelSettings modelSettings(taskFile, urdfFile, "test_pinocchio", "true");
 
-  std::cout << __LINE__ << " Hello world!"  << std::endl;
-
   pin_interface = createCustomPinocchioInterface(taskFile, urdfFile, modelSettings);
-
-  std::cout << __LINE__ << " Hello world!"  << std::endl;
 
   std::cout << "Custom PinocchioInterface initialized " << std::endl;
 
   printModelDimensionality(pin_interface);
   printJointNames(pin_interface);
-
-  std::cout << __LINE__ << " Hello world!"  << std::endl;
 
   // // Initialize states
   // q = Eigen::VectorXd::Zero(29);
