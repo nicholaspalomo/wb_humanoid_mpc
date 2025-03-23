@@ -3,7 +3,7 @@
   "initializeCommand": [
     "bash",
     "-c",
-    "xhost +local: && echo GIT_USER_NAME=\"$(git config --global user.name)\" > \"${localWorkspaceFolder}/.devcontainer/git-env\" && echo GIT_USER_EMAIL=\"$(git config --global user.email)\" >> \"${localWorkspaceFolder}/.devcontainer/git-env\""
+    "xhost +local:"
   ],
   "build": {
     "dockerfile": "${localWorkspaceFolder}/docker/Dockerfile",
@@ -18,11 +18,16 @@
     "-it",
     "--net=host",
     "--privileged",
-    "-e", "DISPLAY",
-    "-e", "QT_X11_NO_MITSHM=1",
-    "-e", "XDG_RUNTIME_DIR=${localEnv:XDG_RUNTIME_DIR}",
-    "-v", "/tmp/.X11-unix:/tmp/.X11-unix",
-    "-v", "${localEnv:XDG_RUNTIME_DIR}:${localEnv:XDG_RUNTIME_DIR}"
+    "-e",
+    "DISPLAY",
+    "-e",
+    "QT_X11_NO_MITSHM=1",
+    "-e",
+    "XDG_RUNTIME_DIR=${localEnv:XDG_RUNTIME_DIR}",
+    "-v",
+    "/tmp/.X11-unix:/tmp/.X11-unix",
+    "-v",
+    "${localEnv:XDG_RUNTIME_DIR}:${localEnv:XDG_RUNTIME_DIR}"
   ],
   "remoteUser": "ubuntu",
   "containerUser": "ubuntu",
@@ -68,5 +73,5 @@
   "mounts": [
     "source=${localWorkspaceFolder}/../..,target=/wb_humanoid_mpc_ws,type=bind,consistency=cached"
   ],
-  "postCreateCommand": "if [ -f \"${containerWorkspaceFolder}/.devcontainer/git-env\" ]; then source \"${containerWorkspaceFolder}/.devcontainer/git-env\"; git config --global user.name \"$GIT_USER_NAME\"; git config --global user.email \"$GIT_USER_EMAIL\"; fi && git config --global --add safe.directory /wb_humanoid_mpc_ws/src/wb_humanoid_mpc && curl -o .git-completion.bash https://raw.githubusercontent.com/git/git/master/contrib/completion/git-completion.bash && echo 'source ./.git-completion.bash' >> ~/.bashrc"
+  "postCreateCommand": "bash -c 'git config --global user.name \"$(git config --global user.name)\"; git config --global user.email \"$(git config --global user.email)\"; git config --global --add safe.directory /wb_humanoid_mpc_ws/src/wb_humanoid_mpc; find /wb_humanoid_mpc_ws/src/wb_humanoid_mpc/lib -type d -name .git | while read repo; do git config --global --add safe.directory \"$(dirname $repo)\"; done; curl -o .git-completion.bash https://raw.githubusercontent.com/git/git/master/contrib/completion/git-completion.bash && echo \"source ./.git-completion.bash\" >> ~/.bashrc'"
 }
