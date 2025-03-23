@@ -64,3 +64,4 @@ install/
 
 .git-completion.bash
 .env
+.devcontainer/git-env
