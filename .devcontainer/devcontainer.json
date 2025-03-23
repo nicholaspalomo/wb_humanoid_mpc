@@ -73,5 +73,5 @@
   "mounts": [
     "source=${localWorkspaceFolder}/../..,target=/wb_humanoid_mpc_ws,type=bind,consistency=cached"
   ],
-  "postCreateCommand": "bash -c 'git config --global user.name \"$(git config --global user.name)\"; git config --global user.email \"$(git config --global user.email)\"; git config --global --add safe.directory /wb_humanoid_mpc_ws/src/wb_humanoid_mpc; find /wb_humanoid_mpc_ws/src/wb_humanoid_mpc/lib -type d -name .git | while read repo; do git config --global --add safe.directory \"$(dirname $repo)\"; done; curl -o .git-completion.bash https://raw.githubusercontent.com/git/git/master/contrib/completion/git-completion.bash && echo \"source ./.git-completion.bash\" >> ~/.bashrc'"
+  "postCreateCommand": "bash -c 'git config --global user.name \"$(git config --global user.name || echo Default User)\"; git config --global user.email \"$(git config --global user.email || echo user@example.com)\"; git config --global --add safe.directory /wb_humanoid_mpc_ws/src/wb_humanoid_mpc; git submodule foreach --recursive bash -c \"git config --global --add safe.directory $(realpath .)\"; curl -o ~/.git-completion.bash https://raw.githubusercontent.com/git/git/master/contrib/completion/git-completion.bash && echo \"source ~/.git-completion.bash\" >> ~/.bashrc'"
 }
