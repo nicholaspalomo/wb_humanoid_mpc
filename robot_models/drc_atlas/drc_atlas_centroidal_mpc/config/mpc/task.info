@@ -1,3 +1,5 @@
+centroidalModelType             0      // 0: FullCentroidalDynamics, 1: Single Rigid Body Dynamics
+
 interface
 {
   verbose                               true  // show the loaded parameters
@@ -52,10 +54,10 @@ model_settings
 
   ;; Used for arm swing reference
   armJointNames {
-    l_arm_shx        ; left_shoulder_pitch_joint
-    r_arm_shx        ; right_shoulder_pitch_joint
-    l_arm_elx        ; left_elbow_joint
-    r_arm_elx        ; right_elbow_joint
+    left_shoulder_y           l_arm_shx
+    right_shoulder_y          r_arm_shx
+    left_elbow_y              l_arm_elx
+    right_elbow_y             r_arm_elx
   }
 }
 
