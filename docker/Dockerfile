@@ -1,10 +1,8 @@
 ARG ROS_DISTRO=jazzy
 ARG BASE_IMAGE=ros:${ROS_DISTRO}-ros-base
-FROM ${BASE_IMAGE} AS base
+FROM ${BASE_IMAGE} 
 
 ARG CPP_VERSION=20
-ARG USER_ID=1000
-ARG GROUP_ID=1000
 ARG WB_HUMANOID_MPC_DIR="/wb_humanoid_mpc_ws"
 ARG PYTHON_VERSION=3.12
 ENV DEBIAN_FRONTEND=noninteractive
@@ -42,6 +40,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     x11-apps \
     mesa-utils \
     gettext-base \
+    sudo \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Abseil
@@ -57,7 +56,7 @@ RUN git clone -b 20240722.0 https://github.com/abseil/abseil-cpp.git && \
 COPY dependencies.txt /tmp/dependencies.txt
 
 # Set up environment variables
-ENV CMAKE_PREFIX_PATH="/opt/ros/${ROS_DISTRO}:${CMAKE_PREFIX_PATH}"
+ENV CMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}:/opt/ros/${ROS_DISTRO}" 
 ENV DISPLAY=${DISPLAY:-:0} QT_X11_NO_MITSHM=1
 
 # Install dependencies from dependencies.txt
@@ -68,14 +67,29 @@ RUN apt-get update && \
 # Set default shell to bash
 SHELL ["/bin/bash", "-c"]
 
-# Set up user and workspace
+# Set up workspace
 WORKDIR ${WB_HUMANOID_MPC_DIR}
 RUN mkdir -p ${WB_HUMANOID_MPC_DIR}/src/wb_humanoid_mpc
 
-# Ensure correct UID/GID
-RUN if ! getent group $GROUP_ID > /dev/null; then groupadd --gid $GROUP_ID devgroup; fi && \
-    if ! getent passwd $USER_ID > /dev/null; then useradd --uid $USER_ID --gid $GROUP_ID --create-home devuser; fi && \
-    chown -R $USER_ID:$GROUP_ID .
-
 # Copy the Makefile and other necessary files
 COPY . ${WB_HUMANOID_MPC_DIR}/src/wb_humanoid_mpc
+
+# SIMPLIFIED USER SETUP: Use the ubuntu user that already exists in the base image
+RUN USERNAME=$(getent passwd 1000 | cut -d: -f1) && \
+    echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
+    # Create symbolic link from /home/devuser to ubuntu's home dir for compatibility
+    ln -sf /home/${USERNAME} /home/devuser && \
+    # Set up directories and permissions
+    chown -R ${USERNAME}:${USERNAME} /home/${USERNAME} && \
+    chown -R ${USERNAME}:${USERNAME} ${WB_HUMANOID_MPC_DIR} && \
+    # Check if we found the right username
+    echo "Found user with UID 1000: ${USERNAME}"
+
+# Set up colorful bash prompt for ubuntu user
+RUN USERNAME=$(getent passwd 1000 | cut -d: -f1) && \
+    echo 'export PS1="\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ "' >> /home/${USERNAME}/.bashrc && \
+    echo 'alias ls="ls --color=auto"' >> /home/${USERNAME}/.bashrc && \
+    echo 'source /opt/ros/jazzy/setup.bash' >> /home/${USERNAME}/.bashrc
+
+# Switch to ubuntu user for subsequent commands
+USER 1000
