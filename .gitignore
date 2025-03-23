@@ -69,5 +69,3 @@ MODULE.bazel.lock
 # CppAD generated code (runtime)
 cppad_code_gen/
 .env
-.devcontainer/git-env
-git-env
