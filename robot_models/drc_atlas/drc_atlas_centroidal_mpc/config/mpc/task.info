@@ -129,35 +129,35 @@ initialState
   ;; Base Pose: [position, orientation] ;;
   (6,0)   0.0       ; p_base_x
   (7,0)   0.0       ; p_base_y
-  (8,0)   0.79      ; p_base_z
+  (8,0)   0.8      ; p_base_z
   (9,0)   0.0       ; theta_base_z
   (10,0)  0.0       ; theta_base_y
   (11,0)  0.0       ; theta_base_x
 
   ;; Joint Positions: ;;
-  (12,0)  0.0       ; back_bkz
-  (13,0)  0.0       ; back_bky
-  (14,0)  0.0       ; back_bkx
-  (15,0)  0.0       ; l_arm_shz
-  (16,0)  0.0       ; l_arm_shx
-  (17,0)  0.0       ; l_arm_ely
-  (18,0)  0.0       ; l_arm_elx
-  (19,0)  0.0       ; neck_ry
-  (20,0)  0.0       ; r_arm_shz
-  (21,0)  0.0       ; r_arm_shx
-  (22,0)  0.0       ; r_arm_ely
-  (23,0)  0.0       ; r_arm_elx
+  (12,0)   0.0       ; back_bkz
+  (13,0)   0.0       ; back_bky
+  (14,0)   0.0       ; back_bkx
+  (15,0)   0.3       ; l_arm_shz
+  (16,0)   -1.2      ; l_arm_shx
+  (17,0)   2.2       ; l_arm_ely
+  (18,0)   0.55      ; l_arm_elx
+  (19,0)   0.0       ; neck_ry
+  (20,0)   -0.3      ; r_arm_shz
+  (21,0)   1.2       ; r_arm_shx
+  (22,0)  2.2       ; r_arm_ely
+  (23,0)  -0.55     ; r_arm_elx
   (24,0)  0.0       ; l_leg_hpz
   (25,0)  0.0       ; l_leg_hpx
-  (26,0)  0.0       ; l_leg_hpy
-  (27,0)  0.0       ; l_leg_kny
-  (28,0)  0.0       ; l_leg_aky
+  (26,0)  -0.42     ; l_leg_hpy
+  (27,0)  0.84      ; l_leg_kny
+  (28,0)  -0.42     ; l_leg_aky
   (29,0)  0.0       ; l_leg_akx
   (30,0)  0.0       ; r_leg_hpz
   (31,0)  0.0       ; r_leg_hpx
-  (32,0)  0.0       ; r_leg_hpy
-  (33,0)  0.0       ; r_leg_kny
-  (34,0)  0.0       ; r_leg_aky
+  (32,0)  -0.42     ; r_leg_hpy
+  (33,0)  0.84      ; r_leg_kny
+  (34,0)  -0.42     ; r_leg_aky
   (35,0)  0.0       ; r_leg_akx
 }
 
