@@ -59,7 +59,7 @@ BUILD_TESTING ?= ON
 BUILD_WITH_NINJA ?= ON
 NPROC = $(shell nproc 2>/dev/null || echo 1)
 PARALLEL_JOBS ?= $(NPROC)
-CPP_VERSION ?= -std=c++17
+CPP_VERSION ?= -std=c++20
 
 ############################################################
 # Set flags based on configuration
@@ -70,7 +70,6 @@ COMMON_CMAKE_ARGS ?= \
 	-DCMAKE_BUILD_TYPE=$(BUILD_TYPE) \
 	-DBUILD_TESTING=$(BUILD_TESTING) \
 	-DCMAKE_SHARED_LINKER_FLAGS=$(LINKER_FLAGS) \
-	-DBUILD_HOST_ONEX_OS=$(BUILD_HOST_ONEX_OS) \
 	-DCMAKE_CXX_FLAGS=$(CPP_VERSION)
 
 # Conditionally add flags specific for the Ninja build system
