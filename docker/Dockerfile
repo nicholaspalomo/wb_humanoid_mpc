@@ -1,6 +1,6 @@
 ARG ROS_DISTRO=jazzy
 ARG BASE_IMAGE=ros:${ROS_DISTRO}-ros-base
-FROM ${BASE_IMAGE} 
+FROM ${BASE_IMAGE}
 
 ARG CPP_VERSION=20
 ARG WB_HUMANOID_MPC_DIR="/wb_humanoid_mpc_ws"
@@ -56,7 +56,7 @@ RUN git clone -b 20240722.0 https://github.com/abseil/abseil-cpp.git && \
 COPY dependencies.txt /tmp/dependencies.txt
 
 # Set up environment variables
-ENV CMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}:/opt/ros/${ROS_DISTRO}" 
+ENV CMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}:/opt/ros/${ROS_DISTRO}"
 ENV DISPLAY=${DISPLAY:-:0} QT_X11_NO_MITSHM=1
 
 # Install dependencies from dependencies.txt
@@ -74,7 +74,7 @@ RUN mkdir -p ${WB_HUMANOID_MPC_DIR}/src/wb_humanoid_mpc
 # Copy the Makefile and other necessary files
 COPY . ${WB_HUMANOID_MPC_DIR}/src/wb_humanoid_mpc
 
-# SIMPLIFIED USER SETUP: Use the ubuntu user that already exists in the base image
+# Use the ubuntu user that already exists in the base image
 RUN USERNAME=$(getent passwd 1000 | cut -d: -f1) && \
     echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
     # Create symbolic link from /home/devuser to ubuntu's home dir for compatibility
