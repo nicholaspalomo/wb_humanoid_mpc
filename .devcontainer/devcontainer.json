@@ -71,7 +71,8 @@
     }
   },
   "mounts": [
-    "source=${localWorkspaceFolder}/../..,target=/wb_humanoid_mpc_ws,type=bind,consistency=cached"
+    "source=${localWorkspaceFolder}/../..,target=/wb_humanoid_mpc_ws,type=bind,consistency=cached",
+    "source=absl-libs,target=/usr/local,type=volume"
   ],
   "postCreateCommand": "${containerWorkspaceFolder}/.devcontainer/post_create.sh"
 }

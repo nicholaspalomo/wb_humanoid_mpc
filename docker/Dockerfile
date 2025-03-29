@@ -41,23 +41,36 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     mesa-utils \
     gettext-base \
     sudo \
+    ccache \
     && rm -rf /var/lib/apt/lists/*
-
-# Install Abseil
-RUN git clone -b 20240722.0 https://github.com/abseil/abseil-cpp.git && \
-    cd abseil-cpp && \
-    mkdir -p build && \
-    cd build && \
-    cmake -DCMAKE_INSTALL_PREFIX=/usr/local -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCMAKE_BUILD_TYPE=Release .. && \
-    cmake --build . --target install && \
-    ldconfig
-
-# Copy dependencies file
-COPY dependencies.txt /tmp/dependencies.txt
 
 # Set up environment variables
 ENV CMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}:/opt/ros/${ROS_DISTRO}"
 ENV DISPLAY=${DISPLAY:-:0} QT_X11_NO_MITSHM=1
+
+# Create directory for the Abseil volume mount and set appropriate permissions
+RUN mkdir -p /usr/local/include/absl /usr/local/lib && \
+    chmod -R 777 /usr/local
+
+# Install Abseil with better volume persistence handling
+RUN if [ ! -f /usr/local/lib/libabsl_base.a ]; then \
+      echo "Installing Abseil from source..." && \
+      git clone -b 20240722.0 https://github.com/abseil/abseil-cpp.git && \
+      cd abseil-cpp && \
+      mkdir -p build && \
+      cd build && \
+      cmake -DCMAKE_INSTALL_PREFIX=/usr/local -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCMAKE_BUILD_TYPE=Release .. && \
+      cmake --build . --target install -j$(nproc) && \
+      ldconfig && \
+      cd / && \
+      rm -rf abseil-cpp && \
+      echo "Abseil installation completed."; \
+    else \
+      echo "Abseil already installed in volume, skipping compilation"; \
+    fi
+
+# Copy dependencies file
+COPY dependencies.txt /tmp/dependencies.txt
 
 # Install dependencies from dependencies.txt
 RUN apt-get update && \
@@ -82,6 +95,8 @@ RUN USERNAME=$(getent passwd 1000 | cut -d: -f1) && \
     # Set up directories and permissions
     chown -R ${USERNAME}:${USERNAME} /home/${USERNAME} && \
     chown -R ${USERNAME}:${USERNAME} ${WB_HUMANOID_MPC_DIR} && \
+    # Ensure volume-mounted directories have correct permissions
+    chown -R ${USERNAME}:${USERNAME} /usr/local && \
     # Check if we found the right username
     echo "Found user with UID 1000: ${USERNAME}"
 
