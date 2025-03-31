@@ -360,6 +360,54 @@ task_space_costs
   }
 }
 
+left_leg_torque_cost
+{
+  activeJointNames
+  {
+    [0] "l_leg_hpz"
+    [1] "l_leg_hpx"
+    [2] "l_leg_hpy"
+    [3] "l_leg_kny"
+    [4] "l_leg_aky"
+    [5] "l_leg_akx"
+  }
+
+  weights {
+    scaling 1e-4
+
+    (0,0)  2.0     ;
+    (1,0)  2.0     ;
+    (2,0)  1.0     ;
+    (3,0)  8.0     ;
+    (4,0)  0.2     ;
+    (5,0)  0.2     ;
+  }
+}
+
+right_leg_torque_cost
+{
+  activeJointNames
+  {
+    [0] "r_leg_hpz"
+    [1] "r_leg_hpx"
+    [2] "r_leg_hpy"
+    [3] "r_leg_kny"
+    [4] "r_leg_aky"
+    [5] "r_leg_akx"
+  }
+
+  weights {
+    scaling 1e-4
+
+    (0,0)  2.0     ;
+    (1,0)  2.0     ;
+    (2,0)  1.0     ;
+    (3,0)  8.0     ;
+    (4,0)  0.2     ;
+    (5,0)  0.2     ;
+  }
+}
+
 contacts
 {
   contact_frame_translation
