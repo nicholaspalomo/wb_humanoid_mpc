@@ -34,8 +34,8 @@ model_settings
   {
     [0] "l_arm_wry"
     [1] "l_arm_wrx"
-    [0] "r_arm_wry"
-    [1] "r_arm_wrx"
+    [2] "r_arm_wry"
+    [3] "r_arm_wrx"
   }
 
   ; Pinocchio Frame names for the contact frames
@@ -48,8 +48,8 @@ model_settings
   ; The Parent frames on which the contact frames are added.
   contactParentJointNames
   {
-    [0] "l_leg_aky"
-    [1] "r_leg_aky"
+    [0] "l_leg_akx"
+    [1] "r_leg_akx"
   }
 
   ;; Used for arm swing reference
@@ -129,7 +129,7 @@ initialState
   ;; Base Pose: [position, orientation] ;;
   (6,0)   0.0       ; p_base_x
   (7,0)   0.0       ; p_base_y
-  (8,0)   0.8      ; p_base_z
+  (8,0)   0.7       ; p_base_z
   (9,0)   0.0       ; theta_base_z
   (10,0)  0.0       ; theta_base_y
   (11,0)  0.0       ; theta_base_x
@@ -175,22 +175,22 @@ Q
   (5,5)   2.0     ; L_z / robotMass
 
   ;; Base Pose: [position, orientation] ;;
-  (6,6)   0.0     ; p_base_x
-  (7,7)   0.0     ; p_base_y
+  (6,6)   1.0     ; p_base_x
+  (7,7)   1.0     ; p_base_y
   (8,8)   40.0    ; p_base_z
   ; euler angles for base to world rotation
-  (9,9)   0.0     ; theta_base_z
-  (10,10) 5.0     ; theta_base_y
-  (11,11) 5.0     ; theta_base_x
+  (9,9)   10.0     ; theta_base_z
+  (10,10) 10.0     ; theta_base_y
+  (11,11) 10.0     ; theta_base_x
 
   ;; Joint Positions ;;
-  (12,12)  0.05   ; back_bkz
-  (13,13)  0.05    ; back_bky
-  (14,14)  0.05    ; back_bkx
+  (12,12)  0.5    ; back_bkz
+  (13,13)  0.5    ; back_bky
+  (14,14)  0.5    ; back_bkx
   (15,15)  0.1    ; l_arm_shz
   (16,16)  0.1    ; l_arm_shx
   (17,17)  0.1    ; l_arm_ely
-  (18,18)  0.1   ; l_arm_elx
+  (18,18)  0.1    ; l_arm_elx
   (19,19)  0.2    ; neck_ry
   (20,20)  0.1    ; r_arm_shz
   (21,21)  0.1    ; r_arm_shx
@@ -200,14 +200,14 @@ Q
   (25,25)  2.0    ; l_leg_hpx
   (26,26)  2.0    ; l_leg_hpy
   (27,27)  0.4    ; l_leg_kny
-  (28,28)  2.0    ; l_leg_aky
-  (29,29)  2.0    ; l_leg_akx
+  (28,28)  4.0    ; l_leg_aky
+  (29,29)  4.0    ; l_leg_akx
   (30,30)  2.0    ; r_leg_hpz
   (31,31)  2.0    ; r_leg_hpx
   (32,32)  2.0    ; r_leg_hpy
   (33,33)  0.4    ; r_leg_kny
-  (34,34)  2.0    ; r_leg_aky
-  (35,35)  2.0    ; r_leg_akx
+  (34,34)  4.0    ; r_leg_aky
+  (35,35)  4.0    ; r_leg_akx
 }
 
 ; control weight matrix
@@ -271,22 +271,22 @@ Q_final
   (5,5)   2.0     ; L_z / robotMass
 
   ;; Base Pose: [position, orientation] ;;
-  (6,6)   0.0     ; p_base_x
-  (7,7)   0.0     ; p_base_y
+  (6,6)   1.0     ; p_base_x
+  (7,7)   1.0     ; p_base_y
   (8,8)   40.0    ; p_base_z
   ; euler angles for base to world rotation
-  (9,9)   0.0     ; theta_base_z
-  (10,10) 5.0     ; theta_base_y
-  (11,11) 5.0     ; theta_base_x
+  (9,9)   10.0     ; theta_base_z
+  (10,10) 10.0     ; theta_base_y
+  (11,11) 10.0     ; theta_base_x
 
   ;; Joint Positions ;;
-  (12,12)  0.05   ; back_bkz
-  (13,13)  0.05    ; back_bky
-  (14,14)  0.05    ; back_bkx
+  (12,12)  0.5    ; back_bkz
+  (13,13)  0.5    ; back_bky
+  (14,14)  0.5    ; back_bkx
   (15,15)  0.1    ; l_arm_shz
   (16,16)  0.1    ; l_arm_shx
   (17,17)  0.1    ; l_arm_ely
-  (18,18)  0.1   ; l_arm_elx
+  (18,18)  0.1    ; l_arm_elx
   (19,19)  0.2    ; neck_ry
   (20,20)  0.1    ; r_arm_shz
   (21,21)  0.1    ; r_arm_shx
@@ -296,14 +296,14 @@ Q_final
   (25,25)  2.0    ; l_leg_hpx
   (26,26)  2.0    ; l_leg_hpy
   (27,27)  0.4    ; l_leg_kny
-  (28,28)  2.0    ; l_leg_aky
-  (29,29)  2.0    ; l_leg_akx
+  (28,28)  4.0    ; l_leg_aky
+  (29,29)  4.0    ; l_leg_akx
   (30,30)  2.0    ; r_leg_hpz
   (31,31)  2.0    ; r_leg_hpx
   (32,32)  2.0    ; r_leg_hpy
   (33,33)  0.4    ; r_leg_kny
-  (34,34)  2.0    ; r_leg_aky
-  (35,35)  2.0    ; r_leg_akx
+  (34,34)  4.0    ; r_leg_aky
+  (35,35)  4.0    ; r_leg_akx
 }
 
 icp_cost_weights
@@ -413,15 +413,15 @@ contacts
   contact_frame_translation
   {
    ;; Translation vector from parent joint to contact frame ;;
-   x  0.035
+   x  0.0
    y  0.0
-   z  -0.035
+   z  -0.03
   }
   contact_rectangle
   {
     ;; length specified in contact frame ;;
-    x_max           0.09
-    x_min          -0.09
+    x_max           0.06
+    x_min          -0.03
     y_max           0.03
     y_min          -0.03
   }
