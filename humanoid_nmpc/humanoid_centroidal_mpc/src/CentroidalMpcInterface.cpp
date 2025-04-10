@@ -202,7 +202,7 @@ void CentroidalMpcInterface::setupOptimalControlProblem() {
                                                                   velocityUpdateCallback, footName, modelSettings_.modelFolderCppAd,
                                                                   modelSettings_.recompileLibrariesCppAd, modelSettings_.verboseCppAd));
 
-    problemPtr_->softConstraintPtr->add(footName + "_frictionForceCone", factory.getFrictionForceConeConstraint(i));
+    problemPtr_->softConstraintPtr->add(footName + "_frictionForceCone", factory.getFrictionForceConeLinearConstraint(i));
     problemPtr_->softConstraintPtr->add(footName + "_contactMomentXY",
                                         factory.getContactMomentXYConstraint(i, footName + "_contact_moment_XY_constraint"));
     problemPtr_->equalityConstraintPtr->add(footName + "_zeroWrench", factory.getZeroWrenchConstraint(i));
