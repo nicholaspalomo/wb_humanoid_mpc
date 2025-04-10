@@ -1,5 +1,5 @@
 centroidalModelType             0      // 0: FullCentroidalDynamics, 1: Single Rigid Body Dynamics
-  
+
 interface
 {
   verbose                               true  // show the loaded parameters
@@ -39,7 +39,7 @@ model_settings
     [4] "right_wrist_pitch_joint"
     [5] "right_wrist_yaw_joint"
   }
-  
+
   ; Pinocchio Frame names for the contact frames
   contactNames6DoF
   {
@@ -47,7 +47,7 @@ model_settings
     [1] "foot_r_contact"
   }
 
-  ; The Parent frames on which the contact frames are added. 
+  ; The Parent frames on which the contact frames are added.
   contactParentJointNames
   {
     [0] "left_ankle_roll_joint"
@@ -375,12 +375,12 @@ left_leg_torque_cost
   weights {
     scaling 1e-4
 
-    (0,0)  2.0     ; 
-    (1,0)  2.0     ; 
-    (2,0)  1.0     ; 
-    (3,0)  8.0     ; 
-    (4,0)  0.2     ; 
-    (5,0)  0.2     ; 
+    (0,0)  2.0     ;
+    (1,0)  2.0     ;
+    (2,0)  1.0     ;
+    (3,0)  8.0     ;
+    (4,0)  0.2     ;
+    (5,0)  0.2     ;
   }
 }
 
@@ -399,12 +399,12 @@ right_leg_torque_cost
   weights {
     scaling 1e-4
 
-    (0,0)  2.0     ; 
-    (1,0)  2.0     ; 
-    (2,0)  1.0     ; 
-    (3,0)  8.0     ; 
-    (4,0)  0.2     ; 
-    (5,0)  0.2     ; 
+    (0,0)  2.0     ;
+    (1,0)  2.0     ;
+    (2,0)  1.0     ;
+    (3,0)  8.0     ;
+    (4,0)  0.2     ;
+    (5,0)  0.2     ;
   }
 }
 
@@ -415,12 +415,12 @@ contacts
    ;; Translation vector from parent joint to contact frame ;;
    x  0.035
    y  0.0
-   z  -0.035    
+   z  -0.035
   }
-  contact_rectangle 
+  contact_rectangle
   {
     ;; length specified in contact frame ;;
-    x_max           0.09 
+    x_max           0.09
     x_min          -0.09
     y_max           0.03
     y_min          -0.03
@@ -429,15 +429,17 @@ contacts
   frictionForceConeSoftConstraint
   {
     frictionCoefficient    0.4
+    minimumNormalForce     25.0
+    numBasisVectors        9
     ; relaxed log barrier parameters
     mu                     0.2
-    delta                  5.0 
+    delta                  5.0
   }
   contactMomentXYSoftConstraint
   {
     ; relaxed log barrier parameters
     mu                     0.6
-    delta                  0.03 
+    delta                  0.03
   }
 }
 
@@ -445,7 +447,7 @@ jointLimits
 {
     ; relaxed log barrier parameters
     mu                     1200.0
-    delta                  0.1   
+    delta                  0.1
 }
 
 collision_constraint
@@ -464,5 +466,5 @@ collision_constraint
     }
     ; relaxed log barrier parameters
     mu                     20000
-    delta                  0.04     
+    delta                  0.04
   }

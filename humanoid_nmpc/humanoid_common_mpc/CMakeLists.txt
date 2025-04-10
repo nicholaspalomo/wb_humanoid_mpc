@@ -92,6 +92,7 @@ add_library(${PROJECT_NAME}
         src/constraint/ZeroWrenchConstraint.cpp
         src/constraint/EndEffectorKinematicsTwistConstraint.cpp
         src/constraint/FrictionForceConeConstraint.cpp
+        src/constraint/FrictionForceConeLinearConstraint.cpp
         src/constraint/ContactMomentXYConstraintCppAd.cpp
         src/constraint/EndEffectorKinematicsLinearVelConstraint.cpp
         src/cost/StateInputQuadraticCost.cpp

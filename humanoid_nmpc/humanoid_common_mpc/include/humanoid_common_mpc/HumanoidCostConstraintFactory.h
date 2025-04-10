@@ -45,22 +45,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Implements the constraint h(t,x,u) >= 0 to constrain the contact moment in the x-y plane.
+ * Implements the constraint h(t,x,u) >= 0 to constrain the contact moment in
+ * the x-y plane.
  */
 
 class HumanoidCostConstraintFactory {
  public:
-  HumanoidCostConstraintFactory(const std::string& taskFile,
-                                const std::string& referenceFile,
-                                const SwitchedModelReferenceManager& referenceManager,
-                                const PinocchioInterface& pinocchioInterface,
-                                const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                                const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
-                                const ModelSettings& modelSettings,
-                                bool verbose = false);
+  HumanoidCostConstraintFactory(
+      const std::string& taskFile, const std::string& referenceFile,
+      const SwitchedModelReferenceManager& referenceManager,
+      const PinocchioInterface& pinocchioInterface,
+      const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+      const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
+      const ModelSettings& modelSettings, bool verbose = false);
 
   ~HumanoidCostConstraintFactory() = default;
-  HumanoidCostConstraintFactory(const HumanoidCostConstraintFactory& other) = delete;
+  HumanoidCostConstraintFactory(const HumanoidCostConstraintFactory& other) =
+      delete;
 
   std::unique_ptr<StateInputCost> getStateInputQuadraticCost() const;
 
@@ -70,13 +71,20 @@ class HumanoidCostConstraintFactory {
 
   std::unique_ptr<StateCost> getJointLimitsConstraint() const;
 
-  std::unique_ptr<StateInputCost> getContactMomentXYConstraint(size_t contactPointIndex, const std::string& name) const;
+  std::unique_ptr<StateInputCost> getContactMomentXYConstraint(
+      size_t contactPointIndex, const std::string& name) const;
 
-  std::unique_ptr<StateInputConstraint> getZeroWrenchConstraint(size_t contactPointIndex) const;
+  std::unique_ptr<StateInputConstraint> getZeroWrenchConstraint(
+      size_t contactPointIndex) const;
 
-  std::unique_ptr<StateInputCost> getFrictionForceConeConstraint(size_t contactPointIndex) const;
+  std::unique_ptr<StateInputCost> getFrictionForceConeConstraint(
+      size_t contactPointIndex) const;
 
-  std::unique_ptr<StateInputCost> getExternalTorqueQuadraticCost(size_t contactPointIndex) const;
+  std::unique_ptr<StateInputCost> getFrictionForceConeLinearConstraint(
+      size_t contactPointIndex) const;
+
+  std::unique_ptr<StateInputCost> getExternalTorqueQuadraticCost(
+      size_t contactPointIndex) const;
 
  private:
   std::string taskFile_;

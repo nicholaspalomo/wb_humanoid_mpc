@@ -32,77 +32,71 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-constexpr scalar_t kForceSize = 3;
+constexpr size_t kForceSize = 3;
 
 FrictionForceConeLinearConstraint::FrictionForceConeLinearConstraint(
     const SwitchedModelReferenceManager& referenceManager, const Config& config,
-    size_t contactPointIndex, const MpcRobotModelBase<scalar_t>& mpcRobotModel)
-    : StateInputConstraint(ConstraintOrder::Quadratic),
+    size_t contactPointIndex, const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+    PreComputationCallback callback)
+    : StateInputConstraint(ConstraintOrder::Linear),
       referenceManagerPtr_(&referenceManager),
       config_(config),
       mpcRobotModelPtr_(&mpcRobotModel),
-      contactPointIndex_(contactPointIndex) {}
-{}
-
-FrictionForceConeLinearConstraint::FrictionForceConeLinearConstraint(
-    const FrictionForceConeLinearConstraint& rhs)
-    : StateInputConstraint(rhs),
-      referenceManagerPtr_(rhs.referenceManagerPtr_),
-      config_(rhs.config_),
-      mpcRobotModelPtr_(rhs.mpcRobotModelPtr_),
-      contactPointIndex_(rhs.contactPointIndex_) {}
+      contactPointIndex_(contactPointIndex),
+      preCompCallback_(callback) {}
 
 bool FrictionForceConeLinearConstraint::isActive(scalar_t time) const {
   return referenceManagerPtr_->getContactFlags(time)[contactPointIndex_];
 }
 
-size_t FrictionForceConeLinearConstraint::getNumConstraints(
-    scalar_t time) const {
-  return config_.numBasisVectors;
+size_t FrictionForceConeLinearConstraint::getNumConstraints(scalar_t) const {
+  return config_.numBasisVectors + 1;
 }
 
-vector_t FrictionForceConeLinearConstraint::getValue(
-    scalar_t time, const vector_t& state, const vector_t& input,
-    const PreComputation& preComp) const {
-  const vector3_t& forcesInWorldFrame =
-      mpcRobotModelPtr_->getContactForce(input, contactPointIndex_);
-  const matrix3_t& t_R_w =
-      pinocchioInterfacePtr_->getRotationMatrixLocalToWorld(
-          preComp.pinocchioData,
-          contactPointIndex_);  // TODO: Pass in precomputation callback to
-                                // class constructor
-  const vector3_t& localForce = t_R_w * forcesInWorldFrame;
-
+matrix_t FrictionForceConeLinearConstraint::getBasisVectors(
+    scalar_t time) const {
   size_t numBasisVectors = config_.numBasisVectors;
-  matrix_t basisVectors(numBasisVectors, kForceSize);
+  matrix_t basisVectors(getNumConstraints(time), kForceSize);
   basisVectors.setZero();
-  for (int i = 0; i < numBasisVectors; i++) {
+  for (size_t i = 0; i < numBasisVectors; i++) {
     scalar_t theta = i * 2 * M_PI / numBasisVectors;
     basisVectors(i, 0) = cos(theta);
     basisVectors(i, 1) = sin(theta);
     basisVectors(i, 2) = -config_.frictionCoefficient;
   }
 
-  return basisVectors * localForce;
+  basisVectors(numBasisVectors, 2) = 1.0;
+  return basisVectors;
+}
+
+vector_t FrictionForceConeLinearConstraint::getValue(
+    scalar_t time, const vector_t& state, const vector_t& input,
+    const PreComputation& preComp) const {
+  matrix_t basisVectors = getBasisVectors(time);
+  const vector3_t& forcesInWorldFrame =
+      mpcRobotModelPtr_->getContactForce(input, contactPointIndex_);
+  const matrix3_t& t_R_w = preCompCallback_(state, input, preComp);
+  const vector3_t& localForce = t_R_w * forcesInWorldFrame;
+  vector_t f(basisVectors.rows());
+  f.setZero();
+  size_t numBasisVectors = config_.numBasisVectors;
+  f(numBasisVectors) = -config_.minimumNormalForce;
+  return f - basisVectors * localForce;
 }
 
 VectorFunctionLinearApproximation
 FrictionForceConeLinearConstraint::getLinearApproximation(
     scalar_t time, const vector_t& state, const vector_t& input,
     const PreComputation& preComp) const {
-  numBasisVectors = config_.numBasisVectors;
-  VectorFunctionLinearApproximation linearApproximation;
+  size_t numConstraints = getNumConstraints(time);
+  VectorFunctionLinearApproximation linearApproximation =
+      VectorFunctionLinearApproximation::Zero(numConstraints, state.size(),
+                                              input.size());
   linearApproximation.f = getValue(time, state, input, preComp);
-  linearApproximation.dfdx = matrix_t::Zero(numBasisVectors, state.size());
-  const matrix3_t& t_R_w =
-      pinocchioInterfacePtr_->getRotationMatrixLocalToWorld(
-          preComp.pinocchioData,
-          contactPointIndex_);  // TODO: Pass in precomputation callback to
-                                // class constructor
-  linearApproximation.dfdu.setZero(numBasisVectors, input.size());
-  linearApproximation.dfdu.middleCols(
-      mpcRobotModelPtr_->getContactForceStartIndices(contactPointIndex_),
-      kForceSize) = basisVectors * t_R_w;
+  const matrix3_t& t_R_w = preCompCallback_(state, input, preComp);
+  linearApproximation.dfdu.block(
+      0, mpcRobotModelPtr_->getContactForceStartIndices(contactPointIndex_),
+      numConstraints, kForceSize) = -getBasisVectors(time) * t_R_w;
   return linearApproximation;
 }
 

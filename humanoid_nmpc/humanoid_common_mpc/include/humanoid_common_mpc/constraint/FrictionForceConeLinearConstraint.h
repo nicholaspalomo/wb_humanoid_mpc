@@ -42,6 +42,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
+using PreComputationCallback =
+    std::function<matrix3_t(const vector_t& state, const vector_t& input,
+                            const PreComputation& preComp)>;
+
 class FrictionForceConeLinearConstraint final
     : public ocs2::StateInputConstraint {
  public:
@@ -67,7 +71,8 @@ class FrictionForceConeLinearConstraint final
   FrictionForceConeLinearConstraint(
       const SwitchedModelReferenceManager& referenceManager,
       const Config& config, size_t contactPointIndex,
-      const MpcRobotModelBase<scalar_t>& mpcRobotModel);
+      const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+      PreComputationCallback callback);
 
   ~FrictionForceConeLinearConstraint() override = default;
   FrictionForceConeLinearConstraint* clone() const override {
@@ -78,20 +83,19 @@ class FrictionForceConeLinearConstraint final
   void setActive(bool active) override { isActive_ = active; }
   bool getActive() const override { return isActive_; }
   size_t getNumConstraints(scalar_t time) const override;
+  matrix_t getBasisVectors(scalar_t time) const;
   vector_t getValue(scalar_t time, const vector_t& state, const vector_t& input,
                     const PreComputation& preComp) const override;
   VectorFunctionLinearApproximation getLinearApproximation(
       scalar_t time, const vector_t& state, const vector_t& input,
       const PreComputation& preComp) const override;
-  VectorFunctionQuadraticApproximation getQuadraticApproximation(
-      scalar_t time, const vector_t& state, const vector_t& input,
-      const PreComputation& preComp) const override;
 
  private:
-  const std::shared_ptr<SwitchedModelReferenceManager> referenceManagerPtr_;
-  const std::shared_ptr<MpcRobotModelBase<scalar_t>> mpcRobotModelPtr_;
+  const SwitchedModelReferenceManager* referenceManagerPtr_;
   const Config config_;
+  const MpcRobotModelBase<scalar_t>* mpcRobotModelPtr_;
   const size_t contactPointIndex_;
+  PreComputationCallback preCompCallback_;
   bool isActive_ = true;
 };
 

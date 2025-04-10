@@ -47,19 +47,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <humanoid_common_mpc/pinocchio_model/pinocchioUtils.h>
 #include "humanoid_common_mpc/constraint/ContactMomentXYConstraintCppAd.h"
 #include "humanoid_common_mpc/constraint/FootCollisionConstraint.h"
+#include "humanoid_common_mpc/constraint/FrictionForceConeLinearConstraint.h"
 #include "humanoid_common_mpc/constraint/JointLimitsSoftConstraint.h"
 #include "humanoid_common_mpc/cost/ExternalTorqueQuadraticCostAD.h"
+#include "humanoid_common_mpc/pinocchio_model/PinocchioFrameConversions.h"
 
 namespace ocs2::humanoid {
 
-HumanoidCostConstraintFactory::HumanoidCostConstraintFactory(const std::string& taskFile,
-                                                             const std::string& referenceFile,
-                                                             const SwitchedModelReferenceManager& referenceManager,
-                                                             const PinocchioInterface& pinocchioInterface,
-                                                             const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                                                             const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
-                                                             const ModelSettings& modelSettings,
-                                                             bool verbose)
+HumanoidCostConstraintFactory::HumanoidCostConstraintFactory(
+    const std::string& taskFile, const std::string& referenceFile,
+    const SwitchedModelReferenceManager& referenceManager,
+    const PinocchioInterface& pinocchioInterface,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+    const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
+    const ModelSettings& modelSettings, bool verbose)
     : taskFile_(taskFile),
       referenceFile_(referenceFile),
       referenceManagerPtr_(&referenceManager),
@@ -73,53 +74,71 @@ HumanoidCostConstraintFactory::HumanoidCostConstraintFactory(const std::string& 
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getStateInputQuadraticCost() const {
-  matrix_t Q(mpcRobotModelADPtr_->getStateDim(), mpcRobotModelADPtr_->getStateDim());
+std::unique_ptr<StateInputCost>
+HumanoidCostConstraintFactory::getStateInputQuadraticCost() const {
+  matrix_t Q(mpcRobotModelADPtr_->getStateDim(),
+             mpcRobotModelADPtr_->getStateDim());
   loadData::loadEigenMatrix(taskFile_, "Q", Q);
-  matrix_t R(mpcRobotModelADPtr_->getInputDim(), mpcRobotModelADPtr_->getInputDim());
+  matrix_t R(mpcRobotModelADPtr_->getInputDim(),
+             mpcRobotModelADPtr_->getInputDim());
   loadData::loadEigenMatrix(taskFile_, "R", R);
 
   if (verbose_) {
     std::cerr << "\n #### Base Tracking Cost Coefficients: ";
-    std::cerr << "\n #### =============================================================================\n";
+    std::cerr << "\n #### "
+                 "============================================================="
+                 "================\n";
     std::cerr << "Q:\n" << Q << "\n";
     std::cerr << "R:\n" << R << "\n";
-    std::cerr << " #### =============================================================================\n";
+    std::cerr << " #### "
+                 "============================================================="
+                 "================\n";
   }
 
-  return std::unique_ptr<StateInputCost>(
-      new StateInputQuadraticCost(std::move(Q), std::move(R), *referenceManagerPtr_, *pinocchioInterfacePtr_, *mpcRobotModelPtr_));
+  return std::unique_ptr<StateInputCost>(new StateInputQuadraticCost(
+      std::move(Q), std::move(R), *referenceManagerPtr_,
+      *pinocchioInterfacePtr_, *mpcRobotModelPtr_));
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-std::unique_ptr<StateCost> HumanoidCostConstraintFactory::getFootCollisionConstraint() const {
+std::unique_ptr<StateCost>
+HumanoidCostConstraintFactory::getFootCollisionConstraint() const {
   boost::property_tree::ptree pt;
   boost::property_tree::read_info(taskFile_, pt);
   const std::string prefix = "collision_constraint.";
 
-  FootCollisionConstraint::Config collisionConfig = FootCollisionConstraint::loadFootCollisionConstraintConfig(taskFile_, verbose_);
+  FootCollisionConstraint::Config collisionConfig =
+      FootCollisionConstraint::loadFootCollisionConstraintConfig(taskFile_,
+                                                                 verbose_);
   PieceWisePolynomialBarrierPenalty::Config barrierPenaltyConfig;
 
-  loadData::loadPtreeValue(pt, barrierPenaltyConfig.mu, prefix + "mu", verbose_);
-  loadData::loadPtreeValue(pt, barrierPenaltyConfig.delta, prefix + "delta", verbose_);
+  loadData::loadPtreeValue(pt, barrierPenaltyConfig.mu, prefix + "mu",
+                           verbose_);
+  loadData::loadPtreeValue(pt, barrierPenaltyConfig.delta, prefix + "delta",
+                           verbose_);
 
-  std::unique_ptr<PieceWisePolynomialBarrierPenalty> penalty(new PieceWisePolynomialBarrierPenalty(barrierPenaltyConfig));
+  std::unique_ptr<PieceWisePolynomialBarrierPenalty> penalty(
+      new PieceWisePolynomialBarrierPenalty(barrierPenaltyConfig));
 
   std::unique_ptr<FootCollisionConstraint> footCollisionConstraintPtr(
-      new FootCollisionConstraint(*referenceManagerPtr_, *pinocchioInterfacePtr_, *mpcRobotModelADPtr_, std::move(collisionConfig),
+      new FootCollisionConstraint(*referenceManagerPtr_,
+                                  *pinocchioInterfacePtr_, *mpcRobotModelADPtr_,
+                                  std::move(collisionConfig),
                                   "FootCollisionConstraint", modelSettings_));
 
-  return std::unique_ptr<StateCost>(new StateSoftConstraint(std::move(footCollisionConstraintPtr), std::move(penalty)));
+  return std::unique_ptr<StateCost>(new StateSoftConstraint(
+      std::move(footCollisionConstraintPtr), std::move(penalty)));
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-std::unique_ptr<StateCost> HumanoidCostConstraintFactory::getJointLimitsConstraint() const {
+std::unique_ptr<StateCost>
+HumanoidCostConstraintFactory::getJointLimitsConstraint() const {
   boost::property_tree::ptree pt;
   boost::property_tree::read_info(taskFile_, pt);
   const std::string prefix = "jointLimits.";
@@ -132,58 +151,76 @@ std::unique_ptr<StateCost> HumanoidCostConstraintFactory::getJointLimitsConstrai
                  "============================================================="
                  "================\n";
   }
-  loadData::loadPtreeValue(pt, barrierPenaltyConfig.mu, prefix + "mu", verbose_);
-  loadData::loadPtreeValue(pt, barrierPenaltyConfig.delta, prefix + "delta", verbose_);
+  loadData::loadPtreeValue(pt, barrierPenaltyConfig.mu, prefix + "mu",
+                           verbose_);
+  loadData::loadPtreeValue(pt, barrierPenaltyConfig.delta, prefix + "delta",
+                           verbose_);
   if (verbose_) {
     std::cerr << " #### "
                  "============================================================="
                  "================\n";
   }
 
-  std::cout << "Initialized joint limits constraint with zero crossing cost " << barrierPenaltyConfig.getZeroCrossingValue() << "."
-            << std::endl;
+  std::cout << "Initialized joint limits constraint with zero crossing cost "
+            << barrierPenaltyConfig.getZeroCrossingValue() << "." << std::endl;
 
-  std::pair<vector_t, vector_t> jointLimits = readPinocchioJointLimits(*pinocchioInterfacePtr_, mpcRobotModelPtr_->modelSettings);
+  std::pair<vector_t, vector_t> jointLimits = readPinocchioJointLimits(
+      *pinocchioInterfacePtr_, mpcRobotModelPtr_->modelSettings);
 
-  return std::unique_ptr<StateCost>(new JointLimitsSoftConstraint(jointLimits, barrierPenaltyConfig, *mpcRobotModelPtr_));
+  return std::unique_ptr<StateCost>(new JointLimitsSoftConstraint(
+      jointLimits, barrierPenaltyConfig, *mpcRobotModelPtr_));
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getContactMomentXYConstraint(size_t contactPointIndex,
-                                                                                            const std::string& name) const {
+std::unique_ptr<StateInputCost>
+HumanoidCostConstraintFactory::getContactMomentXYConstraint(
+    size_t contactPointIndex, const std::string& name) const {
   boost::property_tree::ptree pt;
   boost::property_tree::read_info(taskFile_, pt);
   const std::string prefix = "contacts.contactMomentXYSoftConstraint.";
 
   RelaxedBarrierPenalty::Config barrierPenaltyConfig;
-  loadData::loadPtreeValue(pt, barrierPenaltyConfig.mu, prefix + "mu", verbose_);
-  loadData::loadPtreeValue(pt, barrierPenaltyConfig.delta, prefix + "delta", verbose_);
+  loadData::loadPtreeValue(pt, barrierPenaltyConfig.mu, prefix + "mu",
+                           verbose_);
+  loadData::loadPtreeValue(pt, barrierPenaltyConfig.delta, prefix + "delta",
+                           verbose_);
 
-  std::unique_ptr<ContactMomentXYConstraintCppAd> contactMomentXYConstraintPtr(new ContactMomentXYConstraintCppAd(
-      *referenceManagerPtr_, ContactRectangle::loadContactRectangle(taskFile_, mpcRobotModelPtr_->modelSettings, contactPointIndex),
-      contactPointIndex, *pinocchioInterfacePtr_, *mpcRobotModelADPtr_, name, modelSettings_));
+  std::unique_ptr<ContactMomentXYConstraintCppAd> contactMomentXYConstraintPtr(
+      new ContactMomentXYConstraintCppAd(
+          *referenceManagerPtr_,
+          ContactRectangle::loadContactRectangle(
+              taskFile_, mpcRobotModelPtr_->modelSettings, contactPointIndex),
+          contactPointIndex, *pinocchioInterfacePtr_, *mpcRobotModelADPtr_,
+          name, modelSettings_));
 
-  std::unique_ptr<PenaltyBase> penalty(new RelaxedBarrierPenalty(barrierPenaltyConfig));
+  std::unique_ptr<PenaltyBase> penalty(
+      new RelaxedBarrierPenalty(barrierPenaltyConfig));
 
-  return std::unique_ptr<StateInputCost>(new StateInputSoftConstraint(std::move(contactMomentXYConstraintPtr), std::move(penalty)));
+  return std::unique_ptr<StateInputCost>(new StateInputSoftConstraint(
+      std::move(contactMomentXYConstraintPtr), std::move(penalty)));
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-std::unique_ptr<StateInputConstraint> HumanoidCostConstraintFactory::getZeroWrenchConstraint(size_t contactPointIndex) const {
-  return std::unique_ptr<StateInputConstraint>(new ZeroWrenchConstraint(*referenceManagerPtr_, contactPointIndex, *mpcRobotModelPtr_));
+std::unique_ptr<StateInputConstraint>
+HumanoidCostConstraintFactory::getZeroWrenchConstraint(
+    size_t contactPointIndex) const {
+  return std::unique_ptr<StateInputConstraint>(new ZeroWrenchConstraint(
+      *referenceManagerPtr_, contactPointIndex, *mpcRobotModelPtr_));
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getFrictionForceConeConstraint(size_t contactPointIndex) const {
+std::unique_ptr<StateInputCost>
+HumanoidCostConstraintFactory::getFrictionForceConeConstraint(
+    size_t contactPointIndex) const {
   boost::property_tree::ptree pt;
   boost::property_tree::read_info(taskFile_, pt);
   const std::string prefix = "contacts.frictionForceConeSoftConstraint.";
@@ -192,37 +229,116 @@ std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getFrictionForceC
   RelaxedBarrierPenalty::Config barrierPenaltyConfig;
   if (verbose_) {
     std::cerr << "\n #### Friction Cone Settings: ";
-    std::cerr << "\n #### =============================================================================\n";
+    std::cerr << "\n #### "
+                 "============================================================="
+                 "================\n";
   }
-  loadData::loadPtreeValue(pt, frictionCoefficient, prefix + "frictionCoefficient", verbose_);
-  loadData::loadPtreeValue(pt, barrierPenaltyConfig.mu, prefix + "mu", verbose_);
-  loadData::loadPtreeValue(pt, barrierPenaltyConfig.delta, prefix + "delta", verbose_);
+  loadData::loadPtreeValue(pt, frictionCoefficient,
+                           prefix + "frictionCoefficient", verbose_);
+  loadData::loadPtreeValue(pt, barrierPenaltyConfig.mu, prefix + "mu",
+                           verbose_);
+  loadData::loadPtreeValue(pt, barrierPenaltyConfig.delta, prefix + "delta",
+                           verbose_);
   if (verbose_) {
-    std::cerr << " #### =============================================================================\n";
+    std::cerr << " #### "
+                 "============================================================="
+                 "================\n";
   }
 
-  FrictionForceConeConstraint::Config frictionConeConConfig(frictionCoefficient);
+  FrictionForceConeConstraint::Config frictionConeConConfig(
+      frictionCoefficient);
   std::unique_ptr<FrictionForceConeConstraint> frictionForceConeConstraintPtr(
-      new FrictionForceConeConstraint(*referenceManagerPtr_, std::move(frictionConeConConfig), contactPointIndex, *mpcRobotModelPtr_));
+      new FrictionForceConeConstraint(*referenceManagerPtr_,
+                                      std::move(frictionConeConConfig),
+                                      contactPointIndex, *mpcRobotModelPtr_));
 
-  std::unique_ptr<PenaltyBase> penalty(new RelaxedBarrierPenalty(barrierPenaltyConfig));
+  std::unique_ptr<PenaltyBase> penalty(
+      new RelaxedBarrierPenalty(barrierPenaltyConfig));
 
-  return std::unique_ptr<StateInputCost>(new StateInputSoftConstraint(std::move(frictionForceConeConstraintPtr), std::move(penalty)));
+  return std::unique_ptr<StateInputCost>(new StateInputSoftConstraint(
+      std::move(frictionForceConeConstraintPtr), std::move(penalty)));
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-std::unique_ptr<StateCost> HumanoidCostConstraintFactory::getTerminalCost() const {
+std::unique_ptr<StateInputCost>
+HumanoidCostConstraintFactory::getFrictionForceConeLinearConstraint(
+    size_t contactPointIndex) const {
+  boost::property_tree::ptree pt;
+  boost::property_tree::read_info(taskFile_, pt);
+  const std::string prefix = "contacts.frictionForceConeSoftConstraint.";
+
+  scalar_t frictionCoefficient = 1.0;
+  RelaxedBarrierPenalty::Config barrierPenaltyConfig;
+  if (verbose_) {
+    std::cerr << "\n #### Friction Cone Settings: ";
+    std::cerr << "\n #### "
+                 "============================================================="
+                 "================\n";
+  }
+  scalar_t minimumNormalForce = 0.0;
+  loadData::loadPtreeValue(pt, minimumNormalForce,
+                           prefix + "minimumNormalForce", verbose_);
+  size_t numBasisVectors = 4;
+  loadData::loadPtreeValue(pt, numBasisVectors, prefix + "numBasisVectors",
+                           verbose_);
+  loadData::loadPtreeValue(pt, frictionCoefficient,
+                           prefix + "frictionCoefficient", verbose_);
+  loadData::loadPtreeValue(pt, barrierPenaltyConfig.mu, prefix + "mu",
+                           verbose_);
+  loadData::loadPtreeValue(pt, barrierPenaltyConfig.delta, prefix + "delta",
+                           verbose_);
+  if (verbose_) {
+    std::cerr << " #### "
+                 "============================================================="
+                 "================\n";
+  }
+
+  std::unique_ptr<PenaltyBase> penalty(
+      new RelaxedBarrierPenalty(barrierPenaltyConfig));
+
+  FrictionForceConeLinearConstraint::Config config(
+      frictionCoefficient, minimumNormalForce, numBasisVectors);
+
+  std::unique_ptr<FrictionForceConeLinearConstraint>
+      frictionForceConeConstraintPtr(new FrictionForceConeLinearConstraint(
+          *referenceManagerPtr_, std::move(config), contactPointIndex,
+          *mpcRobotModelPtr_,
+          [this, contactPointIndex](const vector_t& state,
+                                    const vector_t& input,
+                                    const PreComputation& preComp) {
+            auto frameID = pinocchioInterfacePtr_->getModel().getFrameId(
+                mpcRobotModelPtr_->modelSettings
+                    .contactNames6DoF[contactPointIndex]);
+            return getRotationMatrixLocalToWorld(
+                       pinocchioInterfacePtr_->getData(), frameID)
+                .transpose();
+          }));
+
+  return std::unique_ptr<StateInputCost>(new StateInputSoftConstraint(
+      std::move(frictionForceConeConstraintPtr), std::move(penalty)));
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+std::unique_ptr<StateCost> HumanoidCostConstraintFactory::getTerminalCost()
+    const {
   scalar_t terminalCostScaling;
-  loadData::loadCppDataType<scalar_t>(taskFile_, "terminalCostScaling", terminalCostScaling);
+  loadData::loadCppDataType<scalar_t>(taskFile_, "terminalCostScaling",
+                                      terminalCostScaling);
   std::cout << "terminalCostScaling: " << terminalCostScaling << std::endl;
 
-  matrix_t Qf(mpcRobotModelPtr_->getStateDim(), mpcRobotModelPtr_->getStateDim());
+  matrix_t Qf(mpcRobotModelPtr_->getStateDim(),
+              mpcRobotModelPtr_->getStateDim());
   loadData::loadEigenMatrix(taskFile_, "Q_final", Qf);
   Qf *= terminalCostScaling;
-  if (verbose_) std::cerr << "Q_final:\n" << Qf << std::endl;
+  if (verbose_) {
+    std::cerr << "Q_final:\n" << Qf << std::endl;
+  }
   return std::unique_ptr<StateCost>(new QuadraticStateCost(Qf));
 }
 
@@ -230,7 +346,9 @@ std::unique_ptr<StateCost> HumanoidCostConstraintFactory::getTerminalCost() cons
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getExternalTorqueQuadraticCost(size_t contactPointIndex) const {
+std::unique_ptr<StateInputCost>
+HumanoidCostConstraintFactory::getExternalTorqueQuadraticCost(
+    size_t contactPointIndex) const {
   std::string fieldName;
   if (contactPointIndex == 0) {
     fieldName = "left_leg_torque_cost.";
@@ -238,9 +356,12 @@ std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getExternalTorque
   if (contactPointIndex == 1) {
     fieldName = "right_leg_torque_cost.";
   }
-  ExternalTorqueQuadraticCostAD::Config config = ExternalTorqueQuadraticCostAD::loadConfigFromFile(taskFile_, fieldName, verbose_);
-  return std::make_unique<ExternalTorqueQuadraticCostAD>(contactPointIndex, config, *referenceManagerPtr_, *pinocchioInterfacePtr_,
-                                                         *mpcRobotModelADPtr_, modelSettings_);
+  ExternalTorqueQuadraticCostAD::Config config =
+      ExternalTorqueQuadraticCostAD::loadConfigFromFile(taskFile_, fieldName,
+                                                        verbose_);
+  return std::make_unique<ExternalTorqueQuadraticCostAD>(
+      contactPointIndex, config, *referenceManagerPtr_, *pinocchioInterfacePtr_,
+      *mpcRobotModelADPtr_, modelSettings_);
 }
 
 /******************************************************************************************************/

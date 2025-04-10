@@ -429,6 +429,8 @@ contacts
   frictionForceConeSoftConstraint
   {
     frictionCoefficient    0.4
+    minimumNormalForce     25.0
+    numBasisVectors        9
     ; relaxed log barrier parameters
     mu                     0.2
     delta                  5.0
