@@ -13,3 +13,14 @@ git submodule foreach --recursive bash -c "git config --global --add safe.direct
 # Set up Git completion
 curl -o ~/.git-completion.bash https://raw.githubusercontent.com/git/git/master/contrib/completion/git-completion.bash
 echo "source ~/.git-completion.bash" >> ~/.bashrc
+
+set -e
+
+# Add colcon settings to bashrc
+echo '# Colcon settings' >> ~/.bashrc
+echo 'export COLCON_HOME=/wb_humanoid_mpc_ws' >> ~/.bashrc
+echo 'export COLCON_DEFAULTS_FILE=/wb_humanoid_mpc_ws/src/wb_humanoid_mpc/colcon.defaults.yaml' >> ~/.bashrc
+echo 'source /opt/ros/$ROS_DISTRO/setup.bash' >> ~/.bashrc
+
+# Make script executable
+chmod +x $0

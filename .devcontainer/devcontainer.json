@@ -71,8 +71,11 @@
     }
   },
   "mounts": [
-    "source=${localWorkspaceFolder}/../..,target=/wb_humanoid_mpc_ws,type=bind,consistency=cached",
-    "source=absl-libs,target=/usr/local,type=volume"
+    "source=${localWorkspaceFolder}/../..,target=/wb_humanoid_mpc_ws,type=bind,consistency=delegated"
   ],
+  "containerEnv": {
+    "COLCON_HOME": "/wb_humanoid_mpc_ws",
+    "COLCON_DEFAULTS_FILE": "/wb_humanoid_mpc_ws/src/wb_humanoid_mpc/colcon.defaults.yaml"
+  },
   "postCreateCommand": "${containerWorkspaceFolder}/.devcontainer/post_create.sh"
 }

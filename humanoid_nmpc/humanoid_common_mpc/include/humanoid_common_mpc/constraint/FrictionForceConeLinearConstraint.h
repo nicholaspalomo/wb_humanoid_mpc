@@ -42,14 +42,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-using PreComputationCallback =
-    std::function<matrix3_t(const vector_t& state, const vector_t& input,
-                            const PreComputation& preComp)>;
-
 class FrictionForceConeLinearConstraint final
     : public ocs2::StateInputConstraint {
  public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
+  using PreComputationCallback =
+  std::function<matrix3_t(const vector_t& state, const vector_t& input,
+                          const PreComputation& preComp)>;
 
   struct Config {
     explicit Config(scalar_t frictionCoefficient = 0.5,
