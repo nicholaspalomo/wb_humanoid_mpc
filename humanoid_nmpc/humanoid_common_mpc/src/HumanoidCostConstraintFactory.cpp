@@ -40,6 +40,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_core/soft_constraint/StateInputSoftConstraint.h>
 #include <ocs2_core/soft_constraint/StateSoftConstraint.h>
 
+#include <absl/log/check.h>
+
 #include <humanoid_common_mpc/constraint/FrictionForceConeConstraint.h>
 #include <humanoid_common_mpc/constraint/ZeroWrenchConstraint.h>
 #include <humanoid_common_mpc/contact/ContactRectangle.h>
@@ -68,7 +70,14 @@ HumanoidCostConstraintFactory::HumanoidCostConstraintFactory(
       mpcRobotModelPtr_(&mpcRobotModel),
       mpcRobotModelADPtr_(&mpcRobotModelAD),
       modelSettings_(modelSettings),
-      verbose_(verbose) {}
+      verbose_(verbose) {
+  CHECK(!taskFile.empty()) << "Task file is empty!";
+  CHECK(!referenceFile.empty()) << "Reference file is empty!";
+  CHECK(referenceManagerPtr_) << "Reference manager is null!";
+  CHECK(pinocchioInterfacePtr_) << "Pinocchio interface is null!";
+  CHECK(mpcRobotModelPtr_) << "MPC robot model is null!";
+  CHECK(mpcRobotModelADPtr_) << "MPC robot model AD is null!";
+}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -306,17 +315,27 @@ HumanoidCostConstraintFactory::getFrictionForceConeLinearConstraint(
       frictionForceConeConstraintPtr(new FrictionForceConeLinearConstraint(
           *referenceManagerPtr_, std::move(config), contactPointIndex,
           *mpcRobotModelPtr_,
-          [this, contactPointIndex](const vector_t& state,
-                                    const vector_t& input,
-                                    const PreComputation& preComp) {
-            auto frameID = pinocchioInterfacePtr_->getModel().getFrameId(
-                mpcRobotModelPtr_->modelSettings
-                    .contactNames6DoF[contactPointIndex]);
-            return getRotationMatrixLocalToWorld(
-                       pinocchioInterfacePtr_->getData(), frameID)
+          [contactPointIndex, pinocchioInterface = *pinocchioInterfacePtr_,
+           contactNames = mpcRobotModelPtr_->modelSettings.contactNames6DoF](
+              const vector_t& state, const vector_t& input,
+              const PreComputation& preComp) {
+            CHECK(contactPointIndex < contactNames.size())
+                << "Contact point index out of bounds: " << contactPointIndex
+                << " >= " << contactNames.size();
+            CHECK(pinocchioInterface.getModel().existFrame(
+                contactNames[contactPointIndex]))
+                << "Contact frame does not exist: "
+                << contactNames[contactPointIndex];
+            const auto& contactName = contactNames[contactPointIndex];
+            auto frameID =
+                pinocchioInterface.getModel().getFrameId(contactName);
+
+            return getRotationMatrixLocalToWorld(pinocchioInterface.getData(),
+                                                 frameID)
                 .transpose();
           }));
 
+  CHECK(frictionForceConeConstraintPtr != nullptr);
   return std::unique_ptr<StateInputCost>(new StateInputSoftConstraint(
       std::move(frictionForceConeConstraintPtr), std::move(penalty)));
 }

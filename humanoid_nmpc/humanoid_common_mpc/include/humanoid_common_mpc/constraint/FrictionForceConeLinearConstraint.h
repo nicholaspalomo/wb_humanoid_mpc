@@ -48,8 +48,8 @@ class FrictionForceConeLinearConstraint final
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
   using PreComputationCallback =
-  std::function<matrix3_t(const vector_t& state, const vector_t& input,
-                          const PreComputation& preComp)>;
+      std::function<matrix3_t(const vector_t& state, const vector_t& input,
+                              const PreComputation& preComp)>;
 
   struct Config {
     explicit Config(scalar_t frictionCoefficient = 0.5,
@@ -69,8 +69,8 @@ class FrictionForceConeLinearConstraint final
   };
 
   FrictionForceConeLinearConstraint(
-      const SwitchedModelReferenceManager& referenceManager,
-      const Config& config, size_t contactPointIndex,
+      const SwitchedModelReferenceManager& referenceManager, Config config,
+      size_t contactPointIndex,
       const MpcRobotModelBase<scalar_t>& mpcRobotModel,
       PreComputationCallback callback);
 

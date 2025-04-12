@@ -28,6 +28,8 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include <absl/log/check.h>
+
 #include "humanoid_common_mpc/constraint/FrictionForceConeLinearConstraint.h"
 
 namespace ocs2::humanoid {
@@ -35,18 +37,22 @@ namespace ocs2::humanoid {
 constexpr size_t kForceSize = 3;
 
 FrictionForceConeLinearConstraint::FrictionForceConeLinearConstraint(
-    const SwitchedModelReferenceManager& referenceManager, const Config& config,
+    const SwitchedModelReferenceManager& referenceManager, Config config,
     size_t contactPointIndex, const MpcRobotModelBase<scalar_t>& mpcRobotModel,
     PreComputationCallback callback)
     : StateInputConstraint(ConstraintOrder::Linear),
       referenceManagerPtr_(&referenceManager),
-      config_(config),
+      config_(std::move(config)),
       mpcRobotModelPtr_(&mpcRobotModel),
       contactPointIndex_(contactPointIndex),
       preCompCallback_(callback) {}
 
 bool FrictionForceConeLinearConstraint::isActive(scalar_t time) const {
-  return referenceManagerPtr_->getContactFlags(time)[contactPointIndex_];
+  const auto& contactFlags = referenceManagerPtr_->getContactFlags(time);
+  CHECK(contactPointIndex_ < contactFlags.size())
+      << "Contact point index out of bounds: " << contactPointIndex_
+      << " >= " << contactFlags.size();
+  return contactFlags[contactPointIndex_];
 }
 
 size_t FrictionForceConeLinearConstraint::getNumConstraints(scalar_t) const {
@@ -65,7 +71,7 @@ matrix_t FrictionForceConeLinearConstraint::getBasisVectors(
     basisVectors(i, 2) = -config_.frictionCoefficient;
   }
 
-  basisVectors(numBasisVectors, 2) = 1.0;
+  basisVectors(numBasisVectors, 2) = -1.0;
   return basisVectors;
 }
 
@@ -77,10 +83,10 @@ vector_t FrictionForceConeLinearConstraint::getValue(
       mpcRobotModelPtr_->getContactForce(input, contactPointIndex_);
   const matrix3_t& t_R_w = preCompCallback_(state, input, preComp);
   const vector3_t& localForce = t_R_w * forcesInWorldFrame;
-  vector_t f(basisVectors.rows());
+  vector_t f(getNumConstraints(time));
   f.setZero();
   size_t numBasisVectors = config_.numBasisVectors;
-  f(numBasisVectors) = -config_.minimumNormalForce;
+  f(numBasisVectors) = config_.minimumNormalForce;
   return f - basisVectors * localForce;
 }
 
