@@ -11,6 +11,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 find_package(absl REQUIRED)
 find_package(ament_cmake REQUIRED)
 find_package(ament_index_cpp REQUIRED)
+find_package(GTest REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(ocs2_core REQUIRED)
 find_package(ocs2_mpc REQUIRED)
@@ -139,6 +140,18 @@ target_link_libraries(test_end_effector_kinematic_cost_element
 )
 target_compile_options(test_end_effector_kinematic_cost_element PUBLIC ${FLAGS})
 
+add_executable(test_friction_force_cone_linear_constraint
+        test/testFrictionForceConeLinearConstraint.cpp
+)
+ament_target_dependencies(test_friction_force_cone_linear_constraint
+        ${dependencies}
+)
+target_link_libraries(test_friction_force_cone_linear_constraint
+        GTest::GTest
+        GTest::Main
+        ${PROJECT_NAME}
+)
+target_compile_options(test_friction_force_cone_linear_constraint PUBLIC ${FLAGS})
 
 # ############
 # # Testing ##

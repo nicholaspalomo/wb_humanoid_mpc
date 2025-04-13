@@ -28,51 +28,34 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
+#pragma once
 
-#include "humanoid_common_mpc/constraint/FrictionForceConeLinearConstraint.h"
-#include "humanoid_common_mpc/gait/MockGaitSchedule.h"
+#include "humanoid_common_mpc/gait/GaitScheduleBase.h"
 
 namespace ocs2::humanoid {
 
-constexpr scalar_t kFrictionCoefficient = 0.5;
-constexpr scalar_t kMinimumNormalForce = 10.0;
-constexpr size_t kNumBasisVectors = 4;
-constexpr size_t kContactPointIndex = 0;
+class MockGaitSchedule : public GaitScheduleBase {
+ public:
+  MockGaitSchedule() = default;
 
-FrictionForceConeLinearConstraint::Config getConfig() {
-  return FrictionForceConeLinearConstraint::Config(
-      kFrictionCoefficient, kMinimumNormalForce, kNumBasisVectors);
-}
+  ~MockGaitSchedule() override = default;
 
-class FrictionForceConeLinearConstraintTest : public ::testing::Test {
- protected:
-  FrictionForceConeLinearConstraintTest() {}
-  ~FrictionForceConeLinearConstraintTest() override = default;
+  ModeSchedule getModeSchedule(scalar_t, scalar_t) override {
+    return ModeSchedule();
+  }
 
-  FrictionForceConeLinearConstraint::Config config_ = getConfig();
-  FrictionForceConeLinearConstraint::PreComputationCallback
-      preComputationCallback_ =
-          [](const vector_t&, const vector_t&, const PreComputation&) {
-            return matrix3_t::Identity();
-          };
-  std::unique_ptr<FrictionForceConeLinearConstraint> constraint_;
+  ModeSchedule getCurrentModeSchedule() const override {
+    return ModeSchedule();
+  }
+
+  void insertModeSequenceTemplate(const ModeSequenceTemplate&, scalar_t,
+                                  scalar_t) override {
+    // No-op for mock implementation
+  }
+
+  void updateModeSchedule(const ModeSchedule&) override {
+    // No-op for mock implementation
+  }
 };
-
-TEST_F(FrictionForceConeLinearConstraintTest, TestGetNumConstraints) {
-  // TODO: Implement test
-}
-
-TEST_F(FrictionForceConeLinearConstraintTest, TestGetBasisVectors) {
-  // TODO: Implement test
-}
-
-TEST_F(FrictionForceConeLinearConstraintTest, TestGetValue) {
-  // TODO: Implement test
-}
-
-TEST_F(FrictionForceConeLinearConstraintTest, TestGetLinearApproximation) {
-  // TODO: Implement test
-}
 
 }  // namespace ocs2::humanoid
