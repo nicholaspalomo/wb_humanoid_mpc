@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <boost/property_tree/info_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 
+#include <filesystem>
 #include <stdexcept>
 
 #include <ocs2_core/misc/LoadData.h>
@@ -52,9 +53,8 @@ namespace {
  * @brief Creates a joint Index map from a list of joint names.
  */
 
-static std::unordered_map<std::string, size_t>
-createJointIndexMap(const std::vector<std::string> &jointNames,
-                    size_t offset = 0) {
+static std::unordered_map<std::string, size_t> createJointIndexMap(
+    const std::vector<std::string> &jointNames, size_t offset = 0) {
   std::unordered_map<std::string, size_t> jointIndexMap;
   for (size_t i = 0; i < jointNames.size(); ++i) {
     jointIndexMap[jointNames[i]] = i + offset;
@@ -62,9 +62,9 @@ createJointIndexMap(const std::vector<std::string> &jointNames,
   return jointIndexMap;
 }
 
-static std::vector<std::string>
-initializeJointNames(const std::vector<std::string> &fullJointNames,
-                     const std::vector<std::string> &fixedJointNames) {
+static std::vector<std::string> initializeJointNames(
+    const std::vector<std::string> &fullJointNames,
+    const std::vector<std::string> &fixedJointNames) {
   std::cout << "Initialize the following active MPC joints: " << std::endl;
   size_t n_joints = fullJointNames.size() - fixedJointNames.size();
   std::cout << "Num active joints: " << n_joints << std::endl;
@@ -94,26 +94,32 @@ std::vector<size_t> initializeMpcToFullJointIndices(
   std::vector<size_t> mpcModelJointIndices;
   mpcModelJointIndices.reserve(mpcModelJointNames.size());
   for (size_t i = 0; i < mpcModelJointNames.size(); ++i) {
-    CHECK(fullJointIndexMap.find(mpcModelJointNames[i]) != fullJointIndexMap.end())
-        << "Joint " << mpcModelJointNames[i] << " not found in full joint names";
+    CHECK(fullJointIndexMap.find(mpcModelJointNames[i]) !=
+          fullJointIndexMap.end())
+        << "Joint " << mpcModelJointNames[i]
+        << " not found in full joint names";
     mpcModelJointIndices[i] = fullJointIndexMap[mpcModelJointNames[i]];
   }
   return mpcModelJointIndices;
 }
 
-std::vector<std::string>
-concatenateStringVectors(const std::vector<std::string> &a,
-                         const std::vector<std::string> &b) {
+std::vector<std::string> concatenateStringVectors(
+    const std::vector<std::string> &a, const std::vector<std::string> &b) {
   std::vector<std::string> temp_vec(a);
   temp_vec.insert(temp_vec.begin(), b.begin(), b.end());
   return temp_vec;
 }
 
-} // namespace
+}  // namespace
 
 ModelSettings::ModelSettings(const std::string &configFile,
                              const std::string &urdfFile,
                              const std::string &mpcName, bool verbose) {
+  CHECK(std::filesystem::exists(configFile))
+      << "Config file does not exist: " << configFile;
+  CHECK(std::filesystem::exists(urdfFile))
+      << "URDF file does not exist: " << urdfFile;
+
   boost::property_tree::ptree pt;
   boost::property_tree::read_info(configFile, pt);
 
@@ -152,8 +158,9 @@ ModelSettings::ModelSettings(const std::string &configFile,
                           contactParentJointNames, verbose);
 
   std::cout << "Initializing MPC by fixing joints: " << std::endl;
-  for (std::string fixedJoint : fixedJointNames)
+  for (std::string fixedJoint : fixedJointNames) {
     std::cout << fixedJoint << std::endl;
+  }
 
   // Get full joint order from a full pinocchio interface, this removes any
   // joints marked as fix in the urdf.
@@ -162,7 +169,7 @@ ModelSettings::ModelSettings(const std::string &configFile,
   const pinocchio::Model &model = fullPinocchioInterface.getModel();
   std::cout << "Full URDF joints: " << std::endl;
   fullJointNames.reserve(model.njoints -
-                         2); // Substract universe and root joint
+                         2);  // Substract universe and root joint
   for (pinocchio::JointIndex joint_id = 2;
        joint_id < (pinocchio::JointIndex)model.njoints; ++joint_id) {
     std::cout << model.names[joint_id] << std::endl;
@@ -181,11 +188,14 @@ ModelSettings::ModelSettings(const std::string &configFile,
   CHECK(this->jointIndexMap.find(j_l_shoulder_y_name) !=
         this->jointIndexMap.end());
   j_l_shoulder_y_index = this->jointIndexMap.at(j_l_shoulder_y_name);
-  CHECK(this->jointIndexMap.find(j_r_shoulder_y_name) != this->jointIndexMap.end());
+  CHECK(this->jointIndexMap.find(j_r_shoulder_y_name) !=
+        this->jointIndexMap.end());
   j_r_shoulder_y_index = this->jointIndexMap.at(j_r_shoulder_y_name);
-  CHECK(this->jointIndexMap.find(j_l_elbow_y_name) != this->jointIndexMap.end());
+  CHECK(this->jointIndexMap.find(j_l_elbow_y_name) !=
+        this->jointIndexMap.end());
   j_l_elbow_y_index = this->jointIndexMap.at(j_l_elbow_y_name);
-  CHECK(this->jointIndexMap.find(j_r_elbow_y_name) != this->jointIndexMap.end());
+  CHECK(this->jointIndexMap.find(j_r_elbow_y_name) !=
+        this->jointIndexMap.end());
   j_r_elbow_y_index = this->jointIndexMap.at(j_r_elbow_y_name);
 
   const std::string footConstraintPrefix = prefix + "foot_constraint.";
@@ -234,4 +244,4 @@ ModelSettings::ModelSettings(const std::string &configFile,
   }
 }
 
-} // namespace ocs2::humanoid
+}  // namespace ocs2::humanoid

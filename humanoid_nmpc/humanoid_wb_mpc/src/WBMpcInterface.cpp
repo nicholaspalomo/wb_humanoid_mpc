@@ -47,6 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/HumanoidCostConstraintFactory.h"
 #include "humanoid_common_mpc/initialization/WeightCompInitializer.h"
 
+#include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_wb_mpc/WBMpcPreComputation.h"
 #include "humanoid_wb_mpc/constraint/JointMimicDynamicsConstraint.h"
 #include "humanoid_wb_mpc/constraint/SwingLegVerticalConstraintCppAd.h"
@@ -65,28 +66,40 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-WBMpcInterface::WBMpcInterface(const std::string& taskFile, const std::string& urdfFile, const std::string& referenceFile, bool setupOCP)
-    : taskFile_(taskFile), urdfFile_(urdfFile), referenceFile_(referenceFile), modelSettings_(taskFile, urdfFile, "wb_mpc_", "true") {
+WBMpcInterface::WBMpcInterface(const std::string& taskFile,
+                               const std::string& urdfFile,
+                               const std::string& referenceFile, bool setupOCP)
+    : taskFile_(taskFile),
+      urdfFile_(urdfFile),
+      referenceFile_(referenceFile),
+      modelSettings_(taskFile, urdfFile, "wb_mpc_", "true") {
   // check that task file exists
   boost::filesystem::path taskFilePath(taskFile);
   if (boost::filesystem::exists(taskFilePath)) {
-    std::cerr << "[WBMpcInterface] Loading task file: " << taskFilePath << std::endl;
+    std::cerr << "[WBMpcInterface] Loading task file: " << taskFilePath
+              << std::endl;
   } else {
-    throw std::invalid_argument("[WBMpcInterface] Task file not found: " + taskFilePath.string());
+    throw std::invalid_argument("[WBMpcInterface] Task file not found: " +
+                                taskFilePath.string());
   }
   // check that urdf file exists
   boost::filesystem::path urdfFilePath(urdfFile);
   if (boost::filesystem::exists(urdfFilePath)) {
-    std::cerr << "[WBMpcInterface] Loading Pinocchio model from: " << urdfFilePath << std::endl;
+    std::cerr << "[WBMpcInterface] Loading Pinocchio model from: "
+              << urdfFilePath << std::endl;
   } else {
-    throw std::invalid_argument("[WBMpcInterface] URDF file not found: " + urdfFilePath.string());
+    throw std::invalid_argument("[WBMpcInterface] URDF file not found: " +
+                                urdfFilePath.string());
   }
   // check that targetCommand file exists
   boost::filesystem::path referenceFilePath(referenceFile);
   if (boost::filesystem::exists(referenceFilePath)) {
-    std::cerr << "[WBMpcInterface] Loading target command settings from: " << referenceFilePath << std::endl;
+    std::cerr << "[WBMpcInterface] Loading target command settings from: "
+              << referenceFilePath << std::endl;
   } else {
-    throw std::invalid_argument("[WBMpcInterface] targetCommand file not found: " + referenceFilePath.string());
+    throw std::invalid_argument(
+        "[WBMpcInterface] targetCommand file not found: " +
+        referenceFilePath.string());
   }
 
   loadData::loadCppDataType(taskFile, "interface.verbose", verbose_);
@@ -98,20 +111,26 @@ WBMpcInterface::WBMpcInterface(const std::string& taskFile, const std::string& u
   sqpSettings_ = sqp::loadSettings(taskFile, "multiple_shooting", verbose_);
 
   // PinocchioInterface
-  pinocchioInterfacePtr_.reset(new PinocchioInterface(createCustomPinocchioInterface(taskFile, urdfFile, modelSettings_)));
+  pinocchioInterfacePtr_.reset(new PinocchioInterface(
+      createCustomPinocchioInterface(taskFile, urdfFile, modelSettings_)));
 
   // Setup WB State Input Mapping
   mpcRobotModelPtr_.reset(new WBAccelMpcRobotModel<scalar_t>(modelSettings_));
-  mpcRobotModelADPtr_.reset(new WBAccelMpcRobotModel<ad_scalar_t>(modelSettings_));
+  mpcRobotModelADPtr_.reset(
+      new WBAccelMpcRobotModel<ad_scalar_t>(modelSettings_));
 
   // Swing trajectory planner
   std::unique_ptr<SwingTrajectoryPlanner> swingTrajectoryPlanner(
-      new SwingTrajectoryPlanner(loadSwingTrajectorySettings(taskFile, "swing_trajectory_config", verbose_), N_CONTACTS));
+      new SwingTrajectoryPlanner(
+          loadSwingTrajectorySettings(taskFile, "swing_trajectory_config",
+                                      verbose_),
+          N_CONTACTS));
 
   // Mode schedule manager
-  referenceManagerPtr_ =
-      std::make_shared<SwitchedModelReferenceManager>(GaitSchedule::loadGaitSchedule(referenceFile, modelSettings_, verbose_),
-                                                      std::move(swingTrajectoryPlanner), *pinocchioInterfacePtr_, *mpcRobotModelPtr_);
+  referenceManagerPtr_ = std::make_shared<SwitchedModelReferenceManager>(
+      GaitSchedule::loadGaitSchedule(referenceFile, modelSettings_, verbose_),
+      std::move(swingTrajectoryPlanner), *pinocchioInterfacePtr_,
+      *mpcRobotModelPtr_);
   referenceManagerPtr_->setArmSwingReferenceActive(true);
 
   // initial state
@@ -128,9 +147,9 @@ WBMpcInterface::WBMpcInterface(const std::string& taskFile, const std::string& u
 /******************************************************************************************************/
 
 void WBMpcInterface::setupOptimalControlProblem() {
-  HumanoidCostConstraintFactory factory =
-      HumanoidCostConstraintFactory(taskFile_, referenceFile_, *referenceManagerPtr_, *pinocchioInterfacePtr_, *mpcRobotModelPtr_,
-                                    *mpcRobotModelADPtr_, modelSettings_, verbose_);
+  HumanoidCostConstraintFactory factory = HumanoidCostConstraintFactory(
+      taskFile_, referenceFile_, *referenceManagerPtr_, *pinocchioInterfacePtr_,
+      *mpcRobotModelPtr_, *mpcRobotModelADPtr_, modelSettings_, verbose_);
 
   // Optimal control problem
   problemPtr_.reset(new OptimalControlProblem);
@@ -138,22 +157,29 @@ void WBMpcInterface::setupOptimalControlProblem() {
   // Dynamics
   std::unique_ptr<SystemDynamicsBase> dynamicsPtr;
   const std::string modelName = "dynamics";
-  dynamicsPtr.reset(new WBAccelDynamicsAD(*pinocchioInterfacePtr_, *mpcRobotModelADPtr_, modelName, modelSettings_));
+  dynamicsPtr.reset(new WBAccelDynamicsAD(*pinocchioInterfacePtr_,
+                                          *mpcRobotModelADPtr_, modelName,
+                                          modelSettings_));
 
   problemPtr_->dynamicsPtr = std::move(dynamicsPtr);
 
   // Cost terms
-  problemPtr_->costPtr->add("stateInputQuadraticCost", factory.getStateInputQuadraticCost());
-  // problemPtr_->costPtr->add("jointTorqueCost", getJointTorqueCost(taskFile_));
+  problemPtr_->costPtr->add("stateInputQuadraticCost",
+                            factory.getStateInputQuadraticCost());
+  // problemPtr_->costPtr->add("jointTorqueCost",
+  // getJointTorqueCost(taskFile_));
   problemPtr_->finalCostPtr->add("terminalCost", factory.getTerminalCost());
 
   // Constraints
-  problemPtr_->stateSoftConstraintPtr->add("jointLimits", factory.getJointLimitsConstraint());
-  problemPtr_->stateSoftConstraintPtr->add("FootCollisionSoftConstraint", factory.getFootCollisionConstraint());
+  problemPtr_->stateSoftConstraintPtr->add("jointLimits",
+                                           factory.getJointLimitsConstraint());
+  problemPtr_->stateSoftConstraintPtr->add(
+      "FootCollisionSoftConstraint", factory.getFootCollisionConstraint());
   // Constraint terms
 
   EndEffectorDynamicsWeights footTrackingCostWeights =
-      EndEffectorDynamicsWeights::getWeights(taskFile_, "task_space_foot_cost_weights.", verbose_);
+      EndEffectorDynamicsWeights::getWeights(
+          taskFile_, "task_space_foot_cost_weights.", verbose_);
 
   // check for mimic joints
   boost::property_tree::ptree pt;
@@ -164,46 +190,63 @@ void WBMpcInterface::setupOptimalControlProblem() {
     const std::string& footName = modelSettings_.contactNames[i];
 
     std::unique_ptr<EndEffectorDynamics<scalar_t>> eeDynamicsPtr;
-    eeDynamicsPtr.reset(new PinocchioEndEffectorDynamicsCppAd(*pinocchioInterfacePtr_, *mpcRobotModelADPtr_, {footName}, footName,
-                                                              modelSettings_.modelFolderCppAd, modelSettings_.recompileLibrariesCppAd,
-                                                              modelSettings_.verboseCppAd));
+    eeDynamicsPtr.reset(new PinocchioEndEffectorDynamicsCppAd(
+        *pinocchioInterfacePtr_, *mpcRobotModelADPtr_, {footName}, footName,
+        modelSettings_.modelFolderCppAd, modelSettings_.recompileLibrariesCppAd,
+        modelSettings_.verboseCppAd));
 
-    problemPtr_->softConstraintPtr->add(footName + "_frictionForceCone", factory.getFrictionForceConeConstraint(i));
-    problemPtr_->softConstraintPtr->add(footName + "_contactMomentXY",
-                                        factory.getContactMomentXYConstraint(i, footName + "_contact_moment_XY_constraint"));
-    problemPtr_->equalityConstraintPtr->add(footName + "_zeroWrench", factory.getZeroWrenchConstraint(i));
-    problemPtr_->equalityConstraintPtr->add(footName + "_zeroVelocity", getStanceFootConstraint(*eeDynamicsPtr, i));
-    problemPtr_->equalityConstraintPtr->add(footName + "_normalVelocity", getNormalVelocityConstraint(*eeDynamicsPtr, i));
+    problemPtr_->softConstraintPtr->add(
+        footName + "_frictionForceCone",
+        factory.getFrictionForceConeConstraint(i));
+    problemPtr_->softConstraintPtr->add(
+        footName + "_contactMomentXY",
+        factory.getContactMomentXYConstraint(
+            i, footName + "_contact_moment_XY_constraint"));
+    problemPtr_->equalityConstraintPtr->add(footName + "_zeroWrench",
+                                            factory.getZeroWrenchConstraint(i));
+    problemPtr_->equalityConstraintPtr->add(
+        footName + "_zeroVelocity", getStanceFootConstraint(*eeDynamicsPtr, i));
+    problemPtr_->equalityConstraintPtr->add(
+        footName + "_normalVelocity",
+        getNormalVelocityConstraint(*eeDynamicsPtr, i));
 
     if (hasMimicJoints) {
-      problemPtr_->equalityConstraintPtr->add(footName + "_kneeJointMimic", getJointMimicConstraint(i));
+      problemPtr_->equalityConstraintPtr->add(footName + "_kneeJointMimic",
+                                              getJointMimicConstraint(i));
     }
 
     std::string footTrackingCostName = footName + "_TaskSpaceTrackingCost";
 
-    problemPtr_->costPtr->add(footTrackingCostName, std::unique_ptr<StateInputCost>(new EndEffectorDynamicsFootCost(
-                                                        *referenceManagerPtr_, footTrackingCostWeights, *pinocchioInterfacePtr_,
-                                                        *eeDynamicsPtr, *mpcRobotModelADPtr_, i, footTrackingCostName, modelSettings_)));
+    problemPtr_->costPtr->add(
+        footTrackingCostName,
+        std::unique_ptr<StateInputCost>(new EndEffectorDynamicsFootCost(
+            *referenceManagerPtr_, footTrackingCostWeights,
+            *pinocchioInterfacePtr_, *eeDynamicsPtr, *mpcRobotModelADPtr_, i,
+            footTrackingCostName, modelSettings_)));
   }
 
   // Pre-computation
-  problemPtr_->preComputationPtr.reset(
-      new WBMpcPreComputation(*pinocchioInterfacePtr_, *referenceManagerPtr_->getSwingTrajectoryPlanner(), *mpcRobotModelPtr_));
+  problemPtr_->preComputationPtr.reset(new WBMpcPreComputation(
+      *pinocchioInterfacePtr_,
+      *referenceManagerPtr_->getSwingTrajectoryPlanner(), *mpcRobotModelPtr_));
 
   // Rollout
-  rolloutPtr_.reset(new TimeTriggeredRollout(*problemPtr_->dynamicsPtr, rolloutSettings_));
+  rolloutPtr_.reset(
+      new TimeTriggeredRollout(*problemPtr_->dynamicsPtr, rolloutSettings_));
 
   // Initialization
-  initializerPtr_.reset(new WeightCompInitializer(*pinocchioInterfacePtr_, *referenceManagerPtr_, *mpcRobotModelPtr_));
+  initializerPtr_.reset(new WeightCompInitializer(
+      *pinocchioInterfacePtr_, *referenceManagerPtr_, *mpcRobotModelPtr_));
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-std::unique_ptr<StateInputConstraint> WBMpcInterface::getStanceFootConstraint(const EndEffectorDynamics<scalar_t>& eeDynamics,
-                                                                              size_t contactPointIndex) {
-  const ModelSettings::FootConstraintConfig& footCfg = modelSettings_.footConstraintConfig;
+std::unique_ptr<StateInputConstraint> WBMpcInterface::getStanceFootConstraint(
+    const EndEffectorDynamics<scalar_t>& eeDynamics, size_t contactPointIndex) {
+  const ModelSettings::FootConstraintConfig& footCfg =
+      modelSettings_.footConstraintConfig;
 
   EndEffectorDynamicsAccelerationsConstraint::Config config;
   config.b.setZero(6);
@@ -214,23 +257,30 @@ std::unique_ptr<StateInputConstraint> WBMpcInterface::getStanceFootConstraint(co
     config.Ax(2, 2) = footCfg.positionErrorGain_z;
   }
   if (!numerics::almost_eq(footCfg.orientationErrorGain, 0.0)) {
-    config.Ax.block(3, 3, 3, 3) = Eigen::MatrixXd::Identity(3, 3) * footCfg.orientationErrorGain;
+    config.Ax.block(3, 3, 3, 3) =
+        Eigen::MatrixXd::Identity(3, 3) * footCfg.orientationErrorGain;
   }
-  config.Av.block(0, 0, 2, 2) = Eigen::MatrixXd::Identity(2, 2) * footCfg.linearVelocityErrorGain_xy;
+  config.Av.block(0, 0, 2, 2) =
+      Eigen::MatrixXd::Identity(2, 2) * footCfg.linearVelocityErrorGain_xy;
   config.Av(2, 2) = footCfg.linearVelocityErrorGain_z;
-  config.Av.block(3, 3, 3, 3) = Eigen::MatrixXd::Identity(3, 3) * footCfg.angularVelocityErrorGain;
-  config.Aa.block(0, 0, 2, 2) = Eigen::MatrixXd::Identity(2, 2) * footCfg.linearAccelerationErrorGain_xy;
+  config.Av.block(3, 3, 3, 3) =
+      Eigen::MatrixXd::Identity(3, 3) * footCfg.angularVelocityErrorGain;
+  config.Aa.block(0, 0, 2, 2) =
+      Eigen::MatrixXd::Identity(2, 2) * footCfg.linearAccelerationErrorGain_xy;
   config.Aa(2, 2) = footCfg.linearAccelerationErrorGain_z;
-  config.Aa.block(3, 3, 3, 3) = Eigen::MatrixXd::Identity(3, 3) * footCfg.angularAccelerationErrorGain;
+  config.Aa.block(3, 3, 3, 3) =
+      Eigen::MatrixXd::Identity(3, 3) * footCfg.angularAccelerationErrorGain;
 
   return std::unique_ptr<StateInputConstraint>(
-      new ZeroAccelerationConstraintCppAd(*referenceManagerPtr_, eeDynamics, contactPointIndex, config));
+      new ZeroAccelerationConstraintCppAd(*referenceManagerPtr_, eeDynamics,
+                                          contactPointIndex, config));
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-std::unique_ptr<StateInputConstraint> WBMpcInterface::getJointMimicConstraint(size_t mimicIndex) {
+std::unique_ptr<StateInputConstraint> WBMpcInterface::getJointMimicConstraint(
+    size_t mimicIndex) {
   boost::property_tree::ptree pt;
   boost::property_tree::read_info(taskFile_, pt);
   std::string prefix;
@@ -239,7 +289,8 @@ std::unique_ptr<StateInputConstraint> WBMpcInterface::getJointMimicConstraint(si
   } else if (mimicIndex == 1) {
     prefix = "mimicJoints.right_knee.";
   } else {
-    throw std::runtime_error("No mimic joint for index: " + std::to_string(mimicIndex));
+    throw std::runtime_error("No mimic joint for index: " +
+                             std::to_string(mimicIndex));
   }
 
   std::string parentJointName;
@@ -254,8 +305,10 @@ std::unique_ptr<StateInputConstraint> WBMpcInterface::getJointMimicConstraint(si
                  "============================================================="
                  "================\n";
   }
-  loadData::loadPtreeValue(pt, parentJointName, prefix + "parentJointName", verbose_);
-  loadData::loadPtreeValue(pt, childJointName, prefix + "childJointName", verbose_);
+  loadData::loadPtreeValue(pt, parentJointName, prefix + "parentJointName",
+                           verbose_);
+  loadData::loadPtreeValue(pt, childJointName, prefix + "childJointName",
+                           verbose_);
   loadData::loadPtreeValue(pt, multiplier, prefix + "multiplier", verbose_);
   loadData::loadPtreeValue(pt, positionGain, prefix + "positionGain", verbose_);
   loadData::loadPtreeValue(pt, velocityGain, prefix + "velocityGain", verbose_);
@@ -265,28 +318,37 @@ std::unique_ptr<StateInputConstraint> WBMpcInterface::getJointMimicConstraint(si
                  "================\n";
   }
 
-  JointMimicDynamicsConstraint::Config config(*mpcRobotModelPtr_, parentJointName, childJointName, multiplier, positionGain, velocityGain);
+  JointMimicDynamicsConstraint::Config config(
+      *mpcRobotModelPtr_, parentJointName, childJointName, multiplier,
+      positionGain, velocityGain);
 
-  return std::unique_ptr<StateInputConstraint>(new JointMimicDynamicsConstraint(*mpcRobotModelPtr_, config));
+  return std::unique_ptr<StateInputConstraint>(
+      new JointMimicDynamicsConstraint(*mpcRobotModelPtr_, config));
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-std::unique_ptr<StateInputConstraint> WBMpcInterface::getNormalVelocityConstraint(const EndEffectorDynamics<scalar_t>& eeDynamics,
-                                                                                  size_t contactPointIndex) {
-  return std::unique_ptr<StateInputConstraint>(new SwingLegVerticalConstraintCppAd(*referenceManagerPtr_, eeDynamics, contactPointIndex));
+std::unique_ptr<StateInputConstraint>
+WBMpcInterface::getNormalVelocityConstraint(
+    const EndEffectorDynamics<scalar_t>& eeDynamics, size_t contactPointIndex) {
+  return std::unique_ptr<StateInputConstraint>(
+      new SwingLegVerticalConstraintCppAd(*referenceManagerPtr_, eeDynamics,
+                                          contactPointIndex));
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-std::unique_ptr<StateInputCost> WBMpcInterface::getJointTorqueCost(const std::string& taskFile) {
+std::unique_ptr<StateInputCost> WBMpcInterface::getJointTorqueCost(
+    const std::string& taskFile) {
   vector_t jointTorqueWeights(mpcRobotModelPtr_->getJointDim());
-  loadData::loadEigenMatrix(taskFile, "joint_torque_weights", jointTorqueWeights);
-  return std::unique_ptr<StateInputCost>(
-      new JointTorqueCostCppAd(jointTorqueWeights, *pinocchioInterfacePtr_, *mpcRobotModelADPtr_, "jointTorqueCost", modelSettings_));
+  loadData::loadEigenMatrix(taskFile, "joint_torque_weights",
+                            jointTorqueWeights);
+  return std::unique_ptr<StateInputCost>(new JointTorqueCostCppAd(
+      jointTorqueWeights, *pinocchioInterfacePtr_, *mpcRobotModelADPtr_,
+      "jointTorqueCost", modelSettings_));
 }
 
 }  // namespace ocs2::humanoid

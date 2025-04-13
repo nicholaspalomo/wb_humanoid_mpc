@@ -31,45 +31,64 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <mutex>
 
-#include <ocs2_core/reference/ModeSchedule.h>
-
 #include "humanoid_common_mpc/common/ModelSettings.h"
-#include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
+#include "humanoid_common_mpc/gait/GaitScheduleBase.h"
 
 namespace ocs2::humanoid {
 
-class GaitSchedule {
+class GaitSchedule : public GaitScheduleBase {
  public:
-  GaitSchedule(ModeSchedule initModeSchedule, ModeSequenceTemplate initModeSequenceTemplate, scalar_t phaseTransitionStanceTime);
+  GaitSchedule(ModeSchedule initModeSchedule,
+               ModeSequenceTemplate initModeSequenceTemplate,
+               scalar_t phaseTransitionStanceTime);
 
   /**
-   * @param [in] lowerBoundTime: The smallest time for which the ModeSchedule should be defined.
-   * @param [in] upperBoundTime: The greatest time for which the ModeSchedule should be defined.
+   * @param [in] lowerBoundTime: The smallest time for which the ModeSchedule
+   * should be defined.
+   * @param [in] upperBoundTime: The greatest time for which the ModeSchedule
+   * should be defined.
    */
-  ModeSchedule getModeSchedule(scalar_t lowerBoundTime, scalar_t upperBoundTime);
+  ModeSchedule getModeSchedule(scalar_t lowerBoundTime,
+                               scalar_t upperBoundTime) override;
 
-  ModeSchedule getCurrentModeSchedule() const { return modeSchedule_; };
+  ModeSchedule getCurrentModeSchedule() const override { return modeSchedule_; }
 
   /**
    * Used to insert a new user defined logic in the given time period.
    *
-   * @param [in] startTime: The initial time from which the new mode sequence template should start.
-   * @param [in] finalTime: The final time until when the new mode sequence needs to be defined.
+   * @param [in] modeSequenceTemplate: The new mode sequence template to insert.
+   * @param [in] startTime: The initial time from which the new mode sequence
+   * template should start.
+   * @param [in] finalTime: The final time until when the new mode sequence
+   * needs to be defined.
    */
-  void insertModeSequenceTemplate(const ModeSequenceTemplate& modeSequenceTemplate, scalar_t startTime, scalar_t finalTime);
+  void insertModeSequenceTemplate(
+      const ModeSequenceTemplate& modeSequenceTemplate, scalar_t startTime,
+      scalar_t finalTime) override;
 
-  static std::shared_ptr<GaitSchedule> loadGaitSchedule(const std::string& referenceFile,
-                                                        const ModelSettings& modelSettings,
-                                                        bool verbose = false);
+  /**
+   * Update the current mode schedule.
+   *
+   * @param [in] modeSchedule: The new mode schedule.
+   */
+  void updateModeSchedule(const ModeSchedule& modeSchedule) override;
 
-  void updateModeSchedule(const ModeSchedule& modeSchedule);
+  /**
+   * Factory method to create a GaitSchedule from a reference file.
+   */
+  static std::shared_ptr<GaitSchedule> loadGaitSchedule(
+      const std::string& referenceFile, const ModelSettings& modelSettings,
+      bool verbose = false);
 
  private:
   /**
-   * Extends the switch information from lowerBoundTime to upperBoundTime based on the template mode sequence.
+   * Extends the switch information from lowerBoundTime to upperBoundTime based
+   * on the template mode sequence.
    *
-   * @param [in] startTime: The initial time from which the mode schedule should be appended with the template.
-   * @param [in] finalTime: The final time to which the mode schedule should be appended with the template.
+   * @param [in] startTime: The initial time from which the mode schedule should
+   * be appended with the template.
+   * @param [in] finalTime: The final time to which the mode schedule should be
+   * appended with the template.
    */
   void tileModeSequenceTemplate(scalar_t startTime, scalar_t finalTime);
 

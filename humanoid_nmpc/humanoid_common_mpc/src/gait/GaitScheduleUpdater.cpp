@@ -41,7 +41,7 @@ GaitScheduleUpdater::GaitScheduleUpdater(std::shared_ptr<GaitSchedule> gaitSched
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-void GaitScheduleUpdater::updateGaitSchedule(std::shared_ptr<GaitSchedule>& gaitSchedulePtr,
+void GaitScheduleUpdater::updateGaitSchedule(std::shared_ptr<GaitScheduleBase>& gaitSchedulePtr,
                                              const ModeSequenceTemplate& updatedGait,
                                              scalar_t initTime,
                                              scalar_t finalTime) {

@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <ocs2_core/reference/ModeSchedule.h>
+#include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
 
 namespace ocs2::humanoid {
 
@@ -39,9 +40,39 @@ class GaitScheduleBase {
  public:
   virtual ~GaitScheduleBase() = default;
 
-  virtual ModeSchedule getModeSchedule(scalar_t lowerBoundTime, scalar_t upperBoundTime) = 0;
+  /**
+   * @param [in] lowerBoundTime: The smallest time for which the ModeSchedule
+   * should be defined.
+   * @param [in] upperBoundTime: The greatest time for which the ModeSchedule
+   * should be defined.
+   */
+  virtual ModeSchedule getModeSchedule(scalar_t lowerBoundTime,
+                                       scalar_t upperBoundTime) = 0;
+
+  /**
+   * Get the current mode schedule without extending it.
+   */
   virtual ModeSchedule getCurrentModeSchedule() const = 0;
 
+  /**
+   * Used to insert a new user defined logic in the given time period.
+   *
+   * @param [in] modeSequenceTemplate: The new mode sequence template to insert.
+   * @param [in] startTime: The initial time from which the new mode sequence
+   * template should start.
+   * @param [in] finalTime: The final time until when the new mode sequence
+   * needs to be defined.
+   */
+  virtual void insertModeSequenceTemplate(
+      const ModeSequenceTemplate& modeSequenceTemplate, scalar_t startTime,
+      scalar_t finalTime) = 0;
+
+  /**
+   * Update the current mode schedule.
+   *
+   * @param [in] modeSchedule: The new mode schedule.
+   */
+  virtual void updateModeSchedule(const ModeSchedule& modeSchedule) = 0;
 };
 
-} // namespace ocs2::humanoid
+}  // namespace ocs2::humanoid

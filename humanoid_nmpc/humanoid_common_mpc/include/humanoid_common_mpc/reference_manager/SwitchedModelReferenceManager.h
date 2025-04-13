@@ -34,7 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_pinocchio_interface/PinocchioInterface.h>
 
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
-#include "humanoid_common_mpc/gait/GaitSchedule.h"
+#include "humanoid_common_mpc/gait/GaitScheduleBase.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 
@@ -45,45 +45,61 @@ namespace ocs2::humanoid {
  */
 class SwitchedModelReferenceManager : public ReferenceManager {
  public:
-  SwitchedModelReferenceManager(std::shared_ptr<GaitSchedule> gaitSchedulePtr,
-                                std::shared_ptr<SwingTrajectoryPlanner> swingTrajectoryPtr,
-                                const PinocchioInterface& pinocchioInterface,
-                                const MpcRobotModelBase<scalar_t>& mpcRobotModel);
+  SwitchedModelReferenceManager(
+      std::shared_ptr<GaitScheduleBase> gaitSchedulePtr,
+      std::shared_ptr<SwingTrajectoryPlanner> swingTrajectoryPtr,
+      const PinocchioInterface& pinocchioInterface,
+      const MpcRobotModelBase<scalar_t>& mpcRobotModel);
 
   ~SwitchedModelReferenceManager() override = default;
 
   /** Disable copy / move */
-  SwitchedModelReferenceManager& operator=(const SwitchedModelReferenceManager&) = delete;
+  SwitchedModelReferenceManager& operator=(
+      const SwitchedModelReferenceManager&) = delete;
   SwitchedModelReferenceManager(const SwitchedModelReferenceManager&) = delete;
-  SwitchedModelReferenceManager& operator=(SwitchedModelReferenceManager&&) = delete;
+  SwitchedModelReferenceManager& operator=(SwitchedModelReferenceManager&&) =
+      delete;
   SwitchedModelReferenceManager(SwitchedModelReferenceManager&&) = delete;
 
   contact_flag_t getContactFlags(scalar_t time) const;
 
-  bool isInStancePhase(scalar_t time) const { return (getContactFlags(time)[0] && getContactFlags(time)[1]); }
+  bool isInStancePhase(scalar_t time) const {
+    return (getContactFlags(time)[0] && getContactFlags(time)[1]);
+  }
 
-  bool isInContact(scalar_t time, size_t contactIndex) const { return getContactFlags(time)[contactIndex]; };
+  bool isInContact(scalar_t time, size_t contactIndex) const {
+    return getContactFlags(time)[contactIndex];
+  };
 
-  void setArmSwingReferenceActive(bool armSwingReferenceActive) { armSwingReferenceActive_ = armSwingReferenceActive; }
+  void setArmSwingReferenceActive(bool armSwingReferenceActive) {
+    armSwingReferenceActive_ = armSwingReferenceActive;
+  }
 
-  const std::shared_ptr<GaitSchedule>& getGaitSchedule() const { return gaitSchedulePtr_; }
+  const std::shared_ptr<GaitScheduleBase>& getGaitSchedule() const {
+    return gaitSchedulePtr_;
+  }
 
-  const std::shared_ptr<SwingTrajectoryPlanner>& getSwingTrajectoryPlanner() const { return swingTrajectoryPtr_; }
+  const std::shared_ptr<SwingTrajectoryPlanner>& getSwingTrajectoryPlanner()
+      const {
+    return swingTrajectoryPtr_;
+  }
 
   scalar_t getPhaseVariable(scalar_t time) const;
 
-  vector_t getDesiredState(const TargetTrajectories& targetTrajectories, const vector_t& state, scalar_t time) const;
+  vector_t getDesiredState(const TargetTrajectories& targetTrajectories,
+                           const vector_t& state, scalar_t time) const;
 
  protected:
-  virtual void modifyReferences(scalar_t initTime,
-                                scalar_t finalTime,
-                                const vector_t& initState,
-                                size_t initMode,
+  virtual void modifyReferences(scalar_t initTime, scalar_t finalTime,
+                                const vector_t& initState, size_t initMode,
                                 TargetTrajectories& targetTrajectories,
                                 ModeSchedule& modeSchedule) override;
 
-  // Adjusts the height of the target trajectories to current terrain height and returns that height.
-  scalar_t adaptToCurrentGroundHeight(TargetTrajectories& targetTrajectories, const vector_t& initState, size_t initMode);
+  // Adjusts the height of the target trajectories to current terrain height and
+  // returns that height.
+  scalar_t adaptToCurrentGroundHeight(TargetTrajectories& targetTrajectories,
+                                      const vector_t& initState,
+                                      size_t initMode);
   scalar_t previousGroundHeightEstimate_{0.0};
 
   PinocchioInterface pinocchioInterface_;
@@ -92,7 +108,7 @@ class SwitchedModelReferenceManager : public ReferenceManager {
 
   bool armSwingReferenceActive_{false};
 
-  std::shared_ptr<GaitSchedule> gaitSchedulePtr_;
+  std::shared_ptr<GaitScheduleBase> gaitSchedulePtr_;
   std::shared_ptr<SwingTrajectoryPlanner> swingTrajectoryPtr_;
 };
 

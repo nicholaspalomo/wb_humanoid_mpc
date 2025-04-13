@@ -46,9 +46,7 @@ FrictionForceConeLinearConstraint::Config getConfig() {
 
 class FrictionForceConeLinearConstraintTest : public ::testing::Test {
  protected:
-  FrictionForceConeLinearConstraintTest() {
-
-  }
+  FrictionForceConeLinearConstraintTest() {}
   ~FrictionForceConeLinearConstraintTest() override = default;
 
   FrictionForceConeLinearConstraint::Config config_ = getConfig();

@@ -36,7 +36,7 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-SwitchedModelReferenceManager::SwitchedModelReferenceManager(std::shared_ptr<GaitSchedule> gaitSchedulePtr,
+SwitchedModelReferenceManager::SwitchedModelReferenceManager(std::shared_ptr<GaitScheduleBase> gaitSchedulePtr,
                                                              std::shared_ptr<SwingTrajectoryPlanner> swingTrajectoryPtr,
                                                              const PinocchioInterface& pinocchioInterface,
                                                              const MpcRobotModelBase<scalar_t>& mpcRobotModel)

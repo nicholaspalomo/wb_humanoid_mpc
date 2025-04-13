@@ -48,26 +48,27 @@ class GaitScheduleUpdater : public SolverSynchronizedModule {
  public:
   GaitScheduleUpdater(std::shared_ptr<GaitSchedule> gaitSchedulePtr);
 
-  virtual void preSolverRun(scalar_t initTime,
-                            scalar_t finalTime,
-                            const vector_t& currentState,
-                            const ReferenceManagerInterface& referenceManager) override;
+  virtual void preSolverRun(
+      scalar_t initTime, scalar_t finalTime, const vector_t& currentState,
+      const ReferenceManagerInterface& referenceManager) override;
 
-  void postSolverRun(const PrimalSolution&) override{};
+  void postSolverRun(const PrimalSolution&) override {};
 
-  // Override this function in case you need to e.g. access the received gait in a mutex protected way.
+  // Override this function in case you need to e.g. access the received gait in
+  // a mutex protected way.
   virtual ModeSequenceTemplate getReceivedGait() { return receivedGait_; }
 
-  // make sure this function is not called in paralell to the presolver run without proper protection against race condition.
+  // make sure this function is not called in paralell to the presolver run
+  // without proper protection against race condition.
   void updateModeSequence(const ModeSequenceTemplate& modeSequenceTemplate);
 
-  static void updateGaitSchedule(std::shared_ptr<GaitSchedule>& gaitSchedulePtr,
-                                 const ModeSequenceTemplate& updatedGait,
-                                 scalar_t initTime,
-                                 scalar_t finalTime);
+  static void updateGaitSchedule(
+      std::shared_ptr<GaitScheduleBase>& gaitSchedulePtr,
+      const ModeSequenceTemplate& updatedGait, scalar_t initTime,
+      scalar_t finalTime);
 
  protected:
-  std::shared_ptr<GaitSchedule> gaitSchedulePtr_;
+  std::shared_ptr<GaitScheduleBase> gaitSchedulePtr_;
   bool gaitUpdated_;
   ModeSequenceTemplate receivedGait_;
 };

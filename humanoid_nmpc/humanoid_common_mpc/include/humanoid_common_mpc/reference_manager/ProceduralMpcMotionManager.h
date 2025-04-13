@@ -37,7 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_mpc/SystemObservation.h>
 
 #include <humanoid_common_mpc/command/WalkingVelocityCommand.h>
-#include <humanoid_common_mpc/gait/GaitSchedule.h>
+#include <humanoid_common_mpc/gait/GaitScheduleBase.h>
 #include <humanoid_common_mpc/gait/ModeSequenceTemplate.h>
 
 #include <ocs2_oc/synchronized_module/SolverSynchronizedModule.h>
@@ -49,8 +49,9 @@ namespace ocs2::humanoid {
 
 class ProceduralMpcMotionManager : public SolverSynchronizedModule {
  public:
-  using VelocityTargetToTargetTrajectories =
-      std::function<TargetTrajectories(const vector4_t& velocityTarget, scalar_t initTime, scalar_t finalTime, const vector_t& initState)>;
+  using VelocityTargetToTargetTrajectories = std::function<TargetTrajectories(
+      const vector4_t& velocityTarget, scalar_t initTime, scalar_t finalTime,
+      const vector_t& initState)>;
 
   struct GaitModeStateConfig {
     std::string gaitCommand = "stance";
@@ -65,18 +66,24 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
   /**
    * Constructor
    *
-   * @param [in] gaitFile: The file path that contains the different gait patterns.
-   * @param [in] referenceFile: The file path containing the default references and velocity limits.
-   * @param [in] velocityTargetToTargetTrajectories: A function which transforms the commanded velocities to TargetTrajectories.
-   * @param [in] switchedModelReferenceManagerPtr: A pointer to the switched model reference manager used to update gait and references
+   * @param [in] gaitFile: The file path that contains the different gait
+   * patterns.
+   * @param [in] referenceFile: The file path containing the default references
+   * and velocity limits.
+   * @param [in] velocityTargetToTargetTrajectories: A function which transforms
+   * the commanded velocities to TargetTrajectories.
+   * @param [in] switchedModelReferenceManagerPtr: A pointer to the switched
+   * model reference manager used to update gait and references
    */
-  ProceduralMpcMotionManager(const std::string& gaitFile,
-                             const std::string& referenceFile,
-                             std::shared_ptr<SwitchedModelReferenceManager> switchedModelReferenceManagerPtr,
-                             const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                             VelocityTargetToTargetTrajectories velocityTargetToTargetTrajectories);
+  ProceduralMpcMotionManager(
+      const std::string& gaitFile, const std::string& referenceFile,
+      std::shared_ptr<SwitchedModelReferenceManager>
+          switchedModelReferenceManagerPtr,
+      const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+      VelocityTargetToTargetTrajectories velocityTargetToTargetTrajectories);
 
-  ProceduralMpcMotionManager(const ProceduralMpcMotionManager& mpcMotionManager) = delete;
+  ProceduralMpcMotionManager(
+      const ProceduralMpcMotionManager& mpcMotionManager) = delete;
 
   /**
    * Method called right before the solver runs
@@ -84,10 +91,10 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
    * @param initTime : start time of the MPC horizon
    * @param finalTime : Final time of the MPC horizon
    * @param initState : State at the start of the MPC horizon
-   * @param referenceManager : The ReferenceManager which manages both ModeSchedule and TargetTrajectories.
+   * @param referenceManager : The ReferenceManager which manages both
+   * ModeSchedule and TargetTrajectories.
    */
-  void preSolverRun(scalar_t initTime,
-                    scalar_t finalTime,
+  void preSolverRun(scalar_t initTime, scalar_t finalTime,
                     const vector_t& initState,
                     const ReferenceManagerInterface& referenceManager) override;
 
@@ -96,34 +103,43 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
    *
    * @param primalSolution : primalSolution
    */
-  void postSolverRun(const PrimalSolution& primalSolution) override{};
+  void postSolverRun(const PrimalSolution& primalSolution) override {};
 
-  virtual void setAndScaleVelocityCommand(const WalkingVelocityCommand& rawVelocityCommand);
+  virtual void setAndScaleVelocityCommand(
+      const WalkingVelocityCommand& rawVelocityCommand);
 
-  static bool transitionToFasterGait(const vector4_t& velCommandVec, const vector6_t& baseVelocity, const GaitModeStateConfig& cfg);
+  static bool transitionToFasterGait(const vector4_t& velCommandVec,
+                                     const vector6_t& baseVelocity,
+                                     const GaitModeStateConfig& cfg);
 
-  static bool transitionToSlowerGait(const vector4_t& velCommandVec, const vector6_t& baseVelocity, const GaitModeStateConfig& cfg);
+  static bool transitionToSlowerGait(const vector4_t& velCommandVec,
+                                     const vector6_t& baseVelocity,
+                                     const GaitModeStateConfig& cfg);
 
  protected:
   // clang-format off
   const std::vector<GaitModeStateConfig> gaitModeStates_ {
-    { "stance",       -0.1,  0.1, -0.1,  0.1,  10.0,   10.0 }, // Large threshold allows switching aw3ay from stance purely command based. 
+    { "stance",       -0.1,  0.1, -0.1,  0.1,  10.0,   10.0 }, // Large threshold allows switching aw3ay from stance purely command based.
     { "slow_walk",     0.05,  0.3,  0.05,  0.2,    0.05,  0.05},
     { "walk",          0.25,  0.5, 0.15,  0.35,    0.05,  0.05},
     { "slower_trot",   0.45, 0.7, 0.3,  0.55,      0.1,  0.1},
     { "slow_trot",     0.65, 0.9,  0.5,  0.7,      0.2,  0.2},
     { "trot",          0.8,  1.3,  0.65,  10.0,    0.2,  0.2},
-    { "run",           1.2,  10.0,  0.65,  10.0,   0.2,  0.2}  
+    { "run",           1.2,  10.0,  0.65,  10.0,   0.2,  0.2}
   };  // clang-format on
 
   size_t currentGaitMode_{0};
 
-  virtual WalkingVelocityCommand getScaledWalkingVelocityCommand() { return velocityCommand_; }
+  virtual WalkingVelocityCommand getScaledWalkingVelocityCommand() {
+    return velocityCommand_;
+  }
 
-  WalkingVelocityCommand scaleWalkingVelocityCommand(const WalkingVelocityCommand& rawVelocityCommand) const;
+  WalkingVelocityCommand scaleWalkingVelocityCommand(
+      const WalkingVelocityCommand& rawVelocityCommand) const;
 
-  std::shared_ptr<SwitchedModelReferenceManager> switchedModelReferenceManagerPtr_;
-  std::shared_ptr<GaitSchedule> gaitSchedulePtr_;
+  std::shared_ptr<SwitchedModelReferenceManager>
+      switchedModelReferenceManagerPtr_;
+  std::shared_ptr<GaitScheduleBase> gaitSchedulePtr_;
   const MpcRobotModelBase<scalar_t>* mpcRobotModelPtr_;
 
   const vector_t targetCommandLimits_;
