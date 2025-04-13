@@ -28,52 +28,41 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <gtest/gtest.h>
+#pragma once
 
-#include "humanoid_common_mpc/constraint/FrictionForceConeLinearConstraint.h"
-#include "humanoid_common_mpc/gait/MockGaitSchedule.h"
-#include "humanoid_common_mpc/swing_foot_planner/MockSwingTrajectoryPlanner.h"
+#include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlannerBase.h"
 
 namespace ocs2::humanoid {
 
-constexpr scalar_t kFrictionCoefficient = 0.5;
-constexpr scalar_t kMinimumNormalForce = 10.0;
-constexpr size_t kNumBasisVectors = 4;
-constexpr size_t kContactPointIndex = 0;
+class MockSwingTrajectoryPlanner : public SwingTrajectoryPlannerBase {
+ public:
+  MockSwingTrajectoryPlanner() = default;
+  ~MockSwingTrajectoryPlanner() override = default;
 
-FrictionForceConeLinearConstraint::Config getConfig() {
-  return FrictionForceConeLinearConstraint::Config(
-      kFrictionCoefficient, kMinimumNormalForce, kNumBasisVectors);
-}
+  void update(const ModeSchedule&, scalar_t) override {
+    // Mock implementation
+  }
 
-class FrictionForceConeLinearConstraintTest : public ::testing::Test {
- protected:
-  FrictionForceConeLinearConstraintTest() {}
-  ~FrictionForceConeLinearConstraintTest() override = default;
+  void update(const ModeSchedule&, const feet_array_t<scalar_array_t>&,
+              const feet_array_t<scalar_array_t>&) override {
+    // Mock implementation
+  }
 
-  FrictionForceConeLinearConstraint::Config config_ = getConfig();
-  FrictionForceConeLinearConstraint::PreComputationCallback
-      preComputationCallback_ =
-          [](const vector_t&, const vector_t&, const PreComputation&) {
-            return matrix3_t::Identity();
-          };
-  std::unique_ptr<FrictionForceConeLinearConstraint> constraint_;
+  scalar_t getZaccelerationConstraint(size_t, scalar_t) const override {
+    return 0.0;  // Mock implementation
+  }
+
+  scalar_t getZvelocityConstraint(size_t, scalar_t) const override {
+    return 0.0;  // Mock implementation
+  }
+
+  scalar_t getZpositionConstraint(size_t, scalar_t) const override {
+    return 0.0;  // Mock implementation
+  }
+
+  scalar_t getImpactProximityFactor(size_t, scalar_t) const override {
+    return 0.0;  // Mock implementation
+  }
 };
-
-TEST_F(FrictionForceConeLinearConstraintTest, TestGetNumConstraints) {
-  // TODO: Implement test
-}
-
-TEST_F(FrictionForceConeLinearConstraintTest, TestGetBasisVectors) {
-  // TODO: Implement test
-}
-
-TEST_F(FrictionForceConeLinearConstraintTest, TestGetValue) {
-  // TODO: Implement test
-}
-
-TEST_F(FrictionForceConeLinearConstraintTest, TestGetLinearApproximation) {
-  // TODO: Implement test
-}
 
 }  // namespace ocs2::humanoid

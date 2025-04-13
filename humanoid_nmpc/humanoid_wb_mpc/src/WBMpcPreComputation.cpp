@@ -41,7 +41,7 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 WBMpcPreComputation::WBMpcPreComputation(PinocchioInterface pinocchioInterface,
-                                         const SwingTrajectoryPlanner& swingTrajectoryPlanner,
+                                         const SwingTrajectoryPlannerBase& swingTrajectoryPlanner,
                                          const MpcRobotModelBase<scalar_t>& mpcRobotModel)
     : HumanoidPreComputation(pinocchioInterface, swingTrajectoryPlanner, mpcRobotModel) {
   eeNormalAccConConfigs_.resize(N_CONTACTS);

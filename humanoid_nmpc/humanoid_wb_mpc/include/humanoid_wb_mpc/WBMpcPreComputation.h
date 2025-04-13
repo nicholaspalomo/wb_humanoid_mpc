@@ -42,7 +42,7 @@ namespace ocs2::humanoid {
 class WBMpcPreComputation : public HumanoidPreComputation {
  public:
   WBMpcPreComputation(PinocchioInterface pinocchioInterface,
-                      const SwingTrajectoryPlanner& swingTrajectoryPlanner,
+                      const SwingTrajectoryPlannerBase& swingTrajectoryPlanner,
                       const MpcRobotModelBase<scalar_t>& mpcRobotModel);
   ~WBMpcPreComputation() override = default;
 

@@ -43,7 +43,7 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 HumanoidPreComputation::HumanoidPreComputation(PinocchioInterface pinocchioInterface,
-                                               const SwingTrajectoryPlanner& swingTrajectoryPlanner,
+                                               const SwingTrajectoryPlannerBase& swingTrajectoryPlanner,
                                                const MpcRobotModelBase<scalar_t>& mpcRobotModel)
     : pinocchioInterface_(std::move(pinocchioInterface)),
       swingTrajectoryPlannerPtr_(&swingTrajectoryPlanner),

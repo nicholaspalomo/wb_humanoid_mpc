@@ -36,7 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/gait/GaitScheduleBase.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
-#include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
+#include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlannerBase.h"
 
 namespace ocs2::humanoid {
 
@@ -47,7 +47,7 @@ class SwitchedModelReferenceManager : public ReferenceManager {
  public:
   SwitchedModelReferenceManager(
       std::shared_ptr<GaitScheduleBase> gaitSchedulePtr,
-      std::shared_ptr<SwingTrajectoryPlanner> swingTrajectoryPtr,
+      std::shared_ptr<SwingTrajectoryPlannerBase> swingTrajectoryPtr,
       const PinocchioInterface& pinocchioInterface,
       const MpcRobotModelBase<scalar_t>& mpcRobotModel);
 
@@ -79,7 +79,7 @@ class SwitchedModelReferenceManager : public ReferenceManager {
     return gaitSchedulePtr_;
   }
 
-  const std::shared_ptr<SwingTrajectoryPlanner>& getSwingTrajectoryPlanner()
+  const std::shared_ptr<SwingTrajectoryPlannerBase>& getSwingTrajectoryPlanner()
       const {
     return swingTrajectoryPtr_;
   }
@@ -109,7 +109,7 @@ class SwitchedModelReferenceManager : public ReferenceManager {
   bool armSwingReferenceActive_{false};
 
   std::shared_ptr<GaitScheduleBase> gaitSchedulePtr_;
-  std::shared_ptr<SwingTrajectoryPlanner> swingTrajectoryPtr_;
+  std::shared_ptr<SwingTrajectoryPlannerBase> swingTrajectoryPtr_;
 };
 
 }  // namespace ocs2::humanoid

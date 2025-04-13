@@ -40,7 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
-#include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
+#include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlannerBase.h"
 
 namespace ocs2::humanoid {
 
@@ -48,7 +48,7 @@ namespace ocs2::humanoid {
 class HumanoidPreComputation : public PreComputation {
  public:
   HumanoidPreComputation(PinocchioInterface pinocchioInterface,
-                         const SwingTrajectoryPlanner& swingTrajectoryPlanner,
+                         const SwingTrajectoryPlannerBase& swingTrajectoryPlanner,
                          const MpcRobotModelBase<scalar_t>& mpcRobotModel);
   virtual ~HumanoidPreComputation() override = default;
 
@@ -71,7 +71,7 @@ class HumanoidPreComputation : public PreComputation {
   void updatePinocchioModelKinematics(const vector_t& generalizedCoordinates);
 
   PinocchioInterface pinocchioInterface_;
-  const SwingTrajectoryPlanner* swingTrajectoryPlannerPtr_;
+  const SwingTrajectoryPlannerBase* swingTrajectoryPlannerPtr_;
   const MpcRobotModelBase<scalar_t>* mpcRobotModelPtr_;
 
   std::vector<matrix3_t> R_world_to_contacts_;

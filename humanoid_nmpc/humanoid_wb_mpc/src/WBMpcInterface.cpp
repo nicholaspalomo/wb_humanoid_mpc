@@ -48,6 +48,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/initialization/WeightCompInitializer.h"
 
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
+#include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 #include "humanoid_wb_mpc/WBMpcPreComputation.h"
 #include "humanoid_wb_mpc/constraint/JointMimicDynamicsConstraint.h"
 #include "humanoid_wb_mpc/constraint/SwingLegVerticalConstraintCppAd.h"
@@ -120,7 +121,7 @@ WBMpcInterface::WBMpcInterface(const std::string& taskFile,
       new WBAccelMpcRobotModel<ad_scalar_t>(modelSettings_));
 
   // Swing trajectory planner
-  std::unique_ptr<SwingTrajectoryPlanner> swingTrajectoryPlanner(
+  std::unique_ptr<SwingTrajectoryPlannerBase> swingTrajectoryPlanner(
       new SwingTrajectoryPlanner(
           loadSwingTrajectorySettings(taskFile, "swing_trajectory_config",
                                       verbose_),

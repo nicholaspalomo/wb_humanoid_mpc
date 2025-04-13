@@ -58,6 +58,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/cost/ICPCost.h"
 #include "humanoid_centroidal_mpc/dynamics/CentroidalDynamicsAD.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
+#include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 
 // Boost
 #include <boost/filesystem/operations.hpp>
@@ -145,7 +146,7 @@ CentroidalMpcInterface::CentroidalMpcInterface(const std::string& taskFile,
       centroidalModelInfo_.toCppAd()));
 
   // Swing trajectory planner
-  std::unique_ptr<SwingTrajectoryPlanner> swingTrajectoryPlanner(
+  std::unique_ptr<SwingTrajectoryPlannerBase> swingTrajectoryPlanner(
       new SwingTrajectoryPlanner(
           loadSwingTrajectorySettings(taskFile, "swing_trajectory_config",
                                       verbose_),
