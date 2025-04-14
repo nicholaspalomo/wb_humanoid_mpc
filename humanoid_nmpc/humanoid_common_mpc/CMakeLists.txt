@@ -37,6 +37,7 @@ target_link_libraries(${PROJECT_NAME}_absl_deps INTERFACE
     absl::base
     absl::log
     absl::check
+    absl::strings
 )
 
 ###########

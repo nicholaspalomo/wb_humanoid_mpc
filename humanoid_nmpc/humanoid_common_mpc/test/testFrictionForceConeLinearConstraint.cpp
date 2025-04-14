@@ -28,10 +28,15 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include <absl/strings/str_cat.h>
 #include <gtest/gtest.h>
+#include <ament_index_cpp/get_package_share_directory.hpp>
 
+#include "humanoid_common_mpc/common/MockMpcRobotModel.h"
 #include "humanoid_common_mpc/constraint/FrictionForceConeLinearConstraint.h"
 #include "humanoid_common_mpc/gait/MockGaitSchedule.h"
+#include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_common_mpc/swing_foot_planner/MockSwingTrajectoryPlanner.h"
 
 namespace ocs2::humanoid {
@@ -40,10 +45,42 @@ constexpr scalar_t kFrictionCoefficient = 0.5;
 constexpr scalar_t kMinimumNormalForce = 10.0;
 constexpr size_t kNumBasisVectors = 4;
 constexpr size_t kContactPointIndex = 0;
+constexpr size_t kStateDim = 34;
+constexpr std::string_view kRobotModelPackagePath = "drc_atlas_description";
+constexpr std::string_view kRobotModelConfigPackagePath =
+    "drc_atlas_centroidal_mpc";
+constexpr std::string_view kUrdfFile = "/urdf/atlas.urdf";
+constexpr std::string_view kTaskFile = "/config/mpc/task.info";
 
 FrictionForceConeLinearConstraint::Config getConfig() {
   return FrictionForceConeLinearConstraint::Config(
       kFrictionCoefficient, kMinimumNormalForce, kNumBasisVectors);
+}
+
+PinocchioInterface createPinocchioInterface() {
+  return createDefaultPinocchioInterface(
+      ament_index_cpp::get_package_share_directory(
+          std::string(kRobotModelPackagePath)) +
+      std::string(kUrdfFile));
+}
+
+SwitchedModelReferenceManager createReferenceManager() {
+  PinocchioInterface pinocchioInterface = createPinocchioInterface();
+  const auto& taskFile =
+      absl::StrCat(ament_index_cpp::get_package_share_directory(
+                       std::string(kRobotModelConfigPackagePath)),
+                   kTaskFile);
+  const auto& urdfFile =
+      absl::StrCat(ament_index_cpp::get_package_share_directory(
+                       std::string(kRobotModelPackagePath)),
+                   kUrdfFile);
+  MockMpcRobotModel<scalar_t> mpcRobotModel(
+      ModelSettings(taskFile, urdfFile, "test", "true"), kStateDim, kStateDim);
+  auto gaitSchedulePtr = std::make_shared<MockGaitSchedule>();
+  auto swingTrajectoryPtr = std::make_shared<MockSwingTrajectoryPlanner>();
+  return SwitchedModelReferenceManager(std::move(gaitSchedulePtr),
+                                       std::move(swingTrajectoryPtr),
+                                       pinocchioInterface, mpcRobotModel);
 }
 
 class FrictionForceConeLinearConstraintTest : public ::testing::Test {
