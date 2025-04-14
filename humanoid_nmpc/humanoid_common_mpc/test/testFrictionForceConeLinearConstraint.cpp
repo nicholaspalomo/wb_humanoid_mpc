@@ -64,8 +64,7 @@ PinocchioInterface createPinocchioInterface() {
       std::string(kUrdfFile));
 }
 
-SwitchedModelReferenceManager createReferenceManager() {
-  PinocchioInterface pinocchioInterface = createPinocchioInterface();
+MockMpcRobotModel<scalar_t> createMpcRobotModel() {
   const auto& taskFile =
       absl::StrCat(ament_index_cpp::get_package_share_directory(
                        std::string(kRobotModelConfigPackagePath)),
@@ -74,8 +73,13 @@ SwitchedModelReferenceManager createReferenceManager() {
       absl::StrCat(ament_index_cpp::get_package_share_directory(
                        std::string(kRobotModelPackagePath)),
                    kUrdfFile);
-  MockMpcRobotModel<scalar_t> mpcRobotModel(
+  return MockMpcRobotModel<scalar_t>(
       ModelSettings(taskFile, urdfFile, "test", "true"), kStateDim, kStateDim);
+}
+
+SwitchedModelReferenceManager createReferenceManager() {
+  const auto& pinocchioInterface = createPinocchioInterface();
+  const auto& mpcRobotModel = createMpcRobotModel();
   auto gaitSchedulePtr = std::make_shared<MockGaitSchedule>();
   auto swingTrajectoryPtr = std::make_shared<MockSwingTrajectoryPlanner>();
   return SwitchedModelReferenceManager(std::move(gaitSchedulePtr),
@@ -94,8 +98,16 @@ class FrictionForceConeLinearConstraintTest : public ::testing::Test {
           [](const vector_t&, const vector_t&, const PreComputation&) {
             return matrix3_t::Identity();
           };
-  std::unique_ptr<FrictionForceConeLinearConstraint> constraint_;
 };
+
+TEST_F(FrictionForceConeLinearConstraintTest, TestConstructConstraint) {
+  auto mpcRobotModel = createMpcRobotModel();
+  auto referenceManager = createReferenceManager();
+  auto constraint = std::make_unique<FrictionForceConeLinearConstraint>(
+      referenceManager, config_, kContactPointIndex, mpcRobotModel,
+      preComputationCallback_);
+  EXPECT_TRUE(constraint != nullptr);
+}
 
 TEST_F(FrictionForceConeLinearConstraintTest, TestGetNumConstraints) {
   // TODO: Implement test

@@ -141,18 +141,13 @@ target_link_libraries(test_end_effector_kinematic_cost_element
 )
 target_compile_options(test_end_effector_kinematic_cost_element PUBLIC ${FLAGS})
 
-add_executable(test_friction_force_cone_linear_constraint
-        test/testFrictionForceConeLinearConstraint.cpp
-)
-ament_target_dependencies(test_friction_force_cone_linear_constraint
-        ${dependencies}
+find_package(ament_cmake_gtest REQUIRED)
+ament_add_gtest(test_friction_force_cone_linear_constraint
+  test/testFrictionForceConeLinearConstraint.cpp
 )
 target_link_libraries(test_friction_force_cone_linear_constraint
-        GTest::GTest
-        GTest::Main
-        ${PROJECT_NAME}
+  ${PROJECT_NAME}
 )
-target_compile_options(test_friction_force_cone_linear_constraint PUBLIC ${FLAGS})
 
 # ############
 # # Testing ##
@@ -165,11 +160,6 @@ target_compile_options(test_friction_force_cone_linear_constraint PUBLIC ${FLAGS
 ## to see the summary of unit test results run
 ## $ colcon_test_results ../../../build/ocs2_core
 ## ====================================
-
-if (BUILD_TESTING)
-        find_package(ament_cmake_gtest REQUIRED)
-
-endif ()
 
 #############
 ## Install ##
@@ -192,12 +182,9 @@ install(DIRECTORY config
 
 install(TARGETS
         test_end_effector_kinematic_cost_element
+        test_friction_force_cone_linear_constraint
         DESTINATION lib/${PROJECT_NAME}
 )
-
-# install(DIRECTORY launch rviz
-#   DESTINATION share/${PROJECT_NAME}
-# )
 
 ament_export_targets(${PROJECT_NAME}_targets)
 ament_export_include_directories(include)
