@@ -29,10 +29,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <absl/strings/str_cat.h>
+#include <ament_index_cpp/get_package_share_directory.hpp>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
-#include <ament_index_cpp/get_package_share_directory.hpp>
 
+#include "humanoid_common_mpc/common/MockMpcRobotModelBase.h"
 #include "humanoid_common_mpc/constraint/FrictionForceConeLinearConstraint.h"
 #include "humanoid_common_mpc/gait/MockGaitSchedule.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
@@ -59,88 +60,28 @@ PinocchioInterface createPinocchioInterface() {
       std::string(kUrdfFile));
 }
 
-class MockMpcRobotModel : public MpcRobotModelBase<scalar_t> {
- public:
-  MockMpcRobotModel()
-      : MpcRobotModelBase<scalar_t>(
-            ModelSettings(ament_index_cpp::get_package_share_directory(
-                              std::string(kRobotModelConfigPackagePath)) +
-                              std::string(kTaskFile),
-                          ament_index_cpp::get_package_share_directory(
-                              std::string(kRobotModelPackagePath)) +
-                              std::string(kUrdfFile),
-                          "test", "true"),
-            kStateDim, kStateDim) {}
+std::filesystem::path getUrdfFilePath() {
+  return ament_index_cpp::get_package_share_directory(
+             std::string(kRobotModelPackagePath)) +
+         std::string(kUrdfFile);
+}
 
-  MOCK_METHOD(size_t, getContactForceStartIndices, (size_t), (const, override));
-  MOCK_METHOD(VECTOR3_T<scalar_t>, getContactForce,
-              (const VECTOR_T<scalar_t>&, size_t), (const, override));
-
-  // Other virtual methods need stubs
-  MOCK_METHOD(MpcRobotModelBase<scalar_t>*, clone, (), (const, override));
-  MOCK_METHOD(size_t, getBaseStartindex, (), (const, override));
-  MOCK_METHOD(size_t, getJointStartindex, (), (const, override));
-  MOCK_METHOD(size_t, getJointVelocitiesStartindex, (), (const, override));
-  MOCK_METHOD(size_t, getContactWrenchStartIndices, (size_t),
-              (const, override));
-  MOCK_METHOD(VECTOR_T<scalar_t>, getGeneralizedCoordinates,
-              (const VECTOR_T<scalar_t>&), (const, override));
-  MOCK_METHOD(VECTOR6_T<scalar_t>, getBasePose, (const VECTOR_T<scalar_t>&),
-              (const, override));
-  MOCK_METHOD(VECTOR3_T<scalar_t>, getBasePosition, (const VECTOR_T<scalar_t>&),
-              (const, override));
-  MOCK_METHOD(VECTOR3_T<scalar_t>, getBaseOrientationEulerZYX,
-              (const VECTOR_T<scalar_t>&), (const, override));
-  MOCK_METHOD(VECTOR3_T<scalar_t>, getBaseComLinearVelocity,
-              (const VECTOR_T<scalar_t>&), (const, override));
-  MOCK_METHOD(VECTOR6_T<scalar_t>, getBaseComVelocity,
-              (const VECTOR_T<scalar_t>&), (const, override));
-  MOCK_METHOD(VECTOR_T<scalar_t>, getJointAngles, (const VECTOR_T<scalar_t>&),
-              (const, override));
-  MOCK_METHOD(VECTOR_T<scalar_t>, getJointVelocities,
-              (const VECTOR_T<scalar_t>&, const VECTOR_T<scalar_t>&),
-              (const, override));
-  MOCK_METHOD(VECTOR_T<scalar_t>, getGeneralizedVelocities,
-              (const VECTOR_T<scalar_t>&, const VECTOR_T<scalar_t>&),
-              (override));
-  MOCK_METHOD(void, setGeneralizedCoordinates,
-              (VECTOR_T<scalar_t>&, const VECTOR_T<scalar_t>&),
-              (const, override));
-  MOCK_METHOD(void, setBasePose,
-              (VECTOR_T<scalar_t>&, const VECTOR6_T<scalar_t>&),
-              (const, override));
-  MOCK_METHOD(void, setBasePosition,
-              (VECTOR_T<scalar_t>&, const VECTOR3_T<scalar_t>&),
-              (const, override));
-  MOCK_METHOD(void, setBaseOrientationEulerZYX,
-              (VECTOR_T<scalar_t>&, const VECTOR3_T<scalar_t>&),
-              (const, override));
-  MOCK_METHOD(void, setJointAngles,
-              (VECTOR_T<scalar_t>&, const VECTOR_T<scalar_t>&),
-              (const, override));
-  MOCK_METHOD(void, setJointVelocities,
-              (VECTOR_T<scalar_t>&, VECTOR_T<scalar_t>&,
-               const VECTOR_T<scalar_t>&),
-              (const, override));
-  MOCK_METHOD(void, adaptBasePoseHeight, (VECTOR_T<scalar_t>&, scalar_t),
-              (const, override));
-  MOCK_METHOD(VECTOR6_T<scalar_t>, getContactWrench,
-              (const VECTOR_T<scalar_t>&, size_t), (const, override));
-  MOCK_METHOD(VECTOR3_T<scalar_t>, getContactMoment,
-              (const VECTOR_T<scalar_t>&, size_t), (const, override));
-  MOCK_METHOD(void, setContactWrench,
-              (VECTOR_T<scalar_t>&, const VECTOR6_T<scalar_t>&, size_t),
-              (const, override));
-  MOCK_METHOD(void, setContactForce,
-              (VECTOR_T<scalar_t>&, const VECTOR3_T<scalar_t>&, size_t),
-              (const, override));
-  MOCK_METHOD(void, setContactMoment,
-              (VECTOR_T<scalar_t>&, const VECTOR3_T<scalar_t>&, size_t),
-              (const, override));
-};
+std::filesystem::path getTaskFilePath() {
+  return ament_index_cpp::get_package_share_directory(
+             std::string(kRobotModelConfigPackagePath)) +
+         std::string(kTaskFile);
+}
 
 MockMpcRobotModel createMpcRobotModel() {
-  return MockMpcRobotModel();
+  const auto& taskFilePath = getTaskFilePath();
+  const auto& urdfFilePath = getUrdfFilePath();
+  return MockMpcRobotModel(taskFilePath, urdfFilePath, kStateDim, kStateDim,
+                           "test", true);
+}
+
+auto getMockMpcRobotModel() {
+  return std::make_unique<::testing::NiceMock<MockMpcRobotModel>>(
+      getTaskFilePath(), getUrdfFilePath(), kStateDim, kStateDim, "test", true);
 }
 
 SwitchedModelReferenceManager createReferenceManager() {
@@ -384,7 +325,7 @@ TEST_F(FrictionForceConeLinearConstraintTest, TestIsActiveWithMocks) {
 
 TEST_F(FrictionForceConeLinearConstraintTest, TestGetValueWithMocks) {
   // Set up mock objects
-  auto mockModel = std::make_unique<::testing::NiceMock<MockMpcRobotModel>>();
+  auto mockModel = getMockMpcRobotModel();
   auto mockCallback = std::make_unique<MockPreComputationCallback>();
   auto referenceManager = createReferenceManager();
 
@@ -436,7 +377,7 @@ TEST_F(FrictionForceConeLinearConstraintTest, TestGetValueWithMocks) {
 TEST_F(FrictionForceConeLinearConstraintTest,
        TestLinearApproximationWithMocks) {
   // Set up mock objects
-  auto mockModel = std::make_unique<::testing::NiceMock<MockMpcRobotModel>>();
+  auto mockModel = getMockMpcRobotModel();
   auto mockCallback = std::make_unique<MockPreComputationCallback>();
   auto referenceManager = createReferenceManager();
 

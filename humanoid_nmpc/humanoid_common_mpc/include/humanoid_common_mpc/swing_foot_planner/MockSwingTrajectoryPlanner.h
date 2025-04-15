@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <gmock/gmock.h>
+
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlannerBase.h"
 
 namespace ocs2::humanoid {
