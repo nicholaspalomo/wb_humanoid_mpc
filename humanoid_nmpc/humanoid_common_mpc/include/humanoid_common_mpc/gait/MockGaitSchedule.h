@@ -30,31 +30,35 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <gmock/gmock.h>
 #include "humanoid_common_mpc/gait/GaitScheduleBase.h"
 
 namespace ocs2::humanoid {
 
+/**
+ * @brief GMock implementation of the GaitScheduleBase class
+ *
+ * This mock version allows setting expectations on method calls
+ * and verifying interactions in unit tests.
+ */
 class MockGaitSchedule : public GaitScheduleBase {
  public:
   MockGaitSchedule() = default;
-
   ~MockGaitSchedule() override = default;
 
-  ModeSchedule getModeSchedule(scalar_t, scalar_t) override {
-    return ModeSchedule();
-  }
+  // Mock methods with MOCK_METHOD macro
+  MOCK_METHOD(ModeSchedule, getModeSchedule, (scalar_t, scalar_t), (override));
+  MOCK_METHOD(ModeSchedule, getCurrentModeSchedule, (), (const, override));
+  MOCK_METHOD(void, insertModeSequenceTemplate,
+              (const ModeSequenceTemplate&, scalar_t, scalar_t), (override));
+  MOCK_METHOD(void, updateModeSchedule, (const ModeSchedule&), (override));
 
-  ModeSchedule getCurrentModeSchedule() const override {
-    return ModeSchedule();
-  }
-
-  void insertModeSequenceTemplate(const ModeSequenceTemplate&, scalar_t,
-                                  scalar_t) override {
-    // No-op for mock implementation
-  }
-
-  void updateModeSchedule(const ModeSchedule&) override {
-    // No-op for mock implementation
+  // Helper method to set up a default expectation for getModeSchedule
+  void setDefaultModeSchedule(const ModeSchedule& schedule) {
+    ON_CALL(*this, getModeSchedule(::testing::_, ::testing::_))
+        .WillByDefault(::testing::Return(schedule));
+    ON_CALL(*this, getCurrentModeSchedule())
+        .WillByDefault(::testing::Return(schedule));
   }
 };
 

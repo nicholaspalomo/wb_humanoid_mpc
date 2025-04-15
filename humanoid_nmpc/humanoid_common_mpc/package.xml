@@ -19,6 +19,7 @@
   <depend>humanoid_mpc_msgs</depend>
 
   <test_depend>ament_cmake_gtest</test_depend>
+  <test_depend>google_mock</test_depend>
   <test_depend>ament_cmake_clang_format</test_depend>
   <test_depend>ament_cmake_clang_tidy</test_depend>
   <test_depend>ament_cmake_cppcheck</test_depend>

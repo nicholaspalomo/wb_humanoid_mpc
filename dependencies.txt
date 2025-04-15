@@ -11,6 +11,9 @@ ninja-build
 ccache
 python3-pygame
 python3-tk
+libgtest-dev
+google-mock
+libgmock-dev
 
 ros-${ROS_DISTRO}-ament-cmake-clang-format
 ros-${ROS_DISTRO}-joint-state-publisher-gui
@@ -20,3 +23,4 @@ ros-${ROS_DISTRO}-interactive-markers
 ros-${ROS_DISTRO}-pinocchio
 ros-${ROS_DISTRO}-rviz2
 ros-${ROS_DISTRO}-rosidl-typesupport-fastrtps-c
+ros-${ROS_DISTRO}-ament-cmake-gmock

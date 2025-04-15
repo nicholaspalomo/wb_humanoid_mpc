@@ -18,8 +18,6 @@ find_package(ocs2_mpc REQUIRED)
 find_package(ocs2_pinocchio_interface REQUIRED)
 find_package(humanoid_mpc_msgs REQUIRED)
 
-find_package(GTest REQUIRED)
-
 find_package(Boost REQUIRED COMPONENTS
         system
         filesystem
@@ -142,11 +140,13 @@ target_link_libraries(test_end_effector_kinematic_cost_element
 target_compile_options(test_end_effector_kinematic_cost_element PUBLIC ${FLAGS})
 
 find_package(ament_cmake_gtest REQUIRED)
-ament_add_gtest(test_friction_force_cone_linear_constraint
+find_package(ament_cmake_gmock REQUIRED)
+ament_add_gmock(test_friction_force_cone_linear_constraint
   test/testFrictionForceConeLinearConstraint.cpp
 )
 target_link_libraries(test_friction_force_cone_linear_constraint
   ${PROJECT_NAME}
+  ${GMOCK_LIBRARIES}
 )
 
 # ############

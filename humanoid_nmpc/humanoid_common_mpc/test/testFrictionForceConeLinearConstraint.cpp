@@ -29,10 +29,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <absl/strings/str_cat.h>
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <ament_index_cpp/get_package_share_directory.hpp>
 
-#include "humanoid_common_mpc/common/MockMpcRobotModel.h"
 #include "humanoid_common_mpc/constraint/FrictionForceConeLinearConstraint.h"
 #include "humanoid_common_mpc/gait/MockGaitSchedule.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
@@ -52,11 +52,6 @@ constexpr std::string_view kRobotModelConfigPackagePath =
 constexpr std::string_view kUrdfFile = "/urdf/atlas.urdf";
 constexpr std::string_view kTaskFile = "/config/mpc/task.info";
 
-FrictionForceConeLinearConstraint::Config getConfig() {
-  return FrictionForceConeLinearConstraint::Config(
-      kFrictionCoefficient, kMinimumNormalForce, kNumBasisVectors);
-}
-
 PinocchioInterface createPinocchioInterface() {
   return createDefaultPinocchioInterface(
       ament_index_cpp::get_package_share_directory(
@@ -64,17 +59,88 @@ PinocchioInterface createPinocchioInterface() {
       std::string(kUrdfFile));
 }
 
-MockMpcRobotModel<scalar_t> createMpcRobotModel() {
-  const auto& taskFile =
-      absl::StrCat(ament_index_cpp::get_package_share_directory(
-                       std::string(kRobotModelConfigPackagePath)),
-                   kTaskFile);
-  const auto& urdfFile =
-      absl::StrCat(ament_index_cpp::get_package_share_directory(
-                       std::string(kRobotModelPackagePath)),
-                   kUrdfFile);
-  return MockMpcRobotModel<scalar_t>(
-      ModelSettings(taskFile, urdfFile, "test", "true"), kStateDim, kStateDim);
+class MockMpcRobotModel : public MpcRobotModelBase<scalar_t> {
+ public:
+  MockMpcRobotModel()
+      : MpcRobotModelBase<scalar_t>(
+            ModelSettings(ament_index_cpp::get_package_share_directory(
+                              std::string(kRobotModelConfigPackagePath)) +
+                              std::string(kTaskFile),
+                          ament_index_cpp::get_package_share_directory(
+                              std::string(kRobotModelPackagePath)) +
+                              std::string(kUrdfFile),
+                          "test", "true"),
+            kStateDim, kStateDim) {}
+
+  MOCK_METHOD(size_t, getContactForceStartIndices, (size_t), (const, override));
+  MOCK_METHOD(VECTOR3_T<scalar_t>, getContactForce,
+              (const VECTOR_T<scalar_t>&, size_t), (const, override));
+
+  // Other virtual methods need stubs
+  MOCK_METHOD(MpcRobotModelBase<scalar_t>*, clone, (), (const, override));
+  MOCK_METHOD(size_t, getBaseStartindex, (), (const, override));
+  MOCK_METHOD(size_t, getJointStartindex, (), (const, override));
+  MOCK_METHOD(size_t, getJointVelocitiesStartindex, (), (const, override));
+  MOCK_METHOD(size_t, getContactWrenchStartIndices, (size_t),
+              (const, override));
+  MOCK_METHOD(VECTOR_T<scalar_t>, getGeneralizedCoordinates,
+              (const VECTOR_T<scalar_t>&), (const, override));
+  MOCK_METHOD(VECTOR6_T<scalar_t>, getBasePose, (const VECTOR_T<scalar_t>&),
+              (const, override));
+  MOCK_METHOD(VECTOR3_T<scalar_t>, getBasePosition, (const VECTOR_T<scalar_t>&),
+              (const, override));
+  MOCK_METHOD(VECTOR3_T<scalar_t>, getBaseOrientationEulerZYX,
+              (const VECTOR_T<scalar_t>&), (const, override));
+  MOCK_METHOD(VECTOR3_T<scalar_t>, getBaseComLinearVelocity,
+              (const VECTOR_T<scalar_t>&), (const, override));
+  MOCK_METHOD(VECTOR6_T<scalar_t>, getBaseComVelocity,
+              (const VECTOR_T<scalar_t>&), (const, override));
+  MOCK_METHOD(VECTOR_T<scalar_t>, getJointAngles, (const VECTOR_T<scalar_t>&),
+              (const, override));
+  MOCK_METHOD(VECTOR_T<scalar_t>, getJointVelocities,
+              (const VECTOR_T<scalar_t>&, const VECTOR_T<scalar_t>&),
+              (const, override));
+  MOCK_METHOD(VECTOR_T<scalar_t>, getGeneralizedVelocities,
+              (const VECTOR_T<scalar_t>&, const VECTOR_T<scalar_t>&),
+              (override));
+  MOCK_METHOD(void, setGeneralizedCoordinates,
+              (VECTOR_T<scalar_t>&, const VECTOR_T<scalar_t>&),
+              (const, override));
+  MOCK_METHOD(void, setBasePose,
+              (VECTOR_T<scalar_t>&, const VECTOR6_T<scalar_t>&),
+              (const, override));
+  MOCK_METHOD(void, setBasePosition,
+              (VECTOR_T<scalar_t>&, const VECTOR3_T<scalar_t>&),
+              (const, override));
+  MOCK_METHOD(void, setBaseOrientationEulerZYX,
+              (VECTOR_T<scalar_t>&, const VECTOR3_T<scalar_t>&),
+              (const, override));
+  MOCK_METHOD(void, setJointAngles,
+              (VECTOR_T<scalar_t>&, const VECTOR_T<scalar_t>&),
+              (const, override));
+  MOCK_METHOD(void, setJointVelocities,
+              (VECTOR_T<scalar_t>&, VECTOR_T<scalar_t>&,
+               const VECTOR_T<scalar_t>&),
+              (const, override));
+  MOCK_METHOD(void, adaptBasePoseHeight, (VECTOR_T<scalar_t>&, scalar_t),
+              (const, override));
+  MOCK_METHOD(VECTOR6_T<scalar_t>, getContactWrench,
+              (const VECTOR_T<scalar_t>&, size_t), (const, override));
+  MOCK_METHOD(VECTOR3_T<scalar_t>, getContactMoment,
+              (const VECTOR_T<scalar_t>&, size_t), (const, override));
+  MOCK_METHOD(void, setContactWrench,
+              (VECTOR_T<scalar_t>&, const VECTOR6_T<scalar_t>&, size_t),
+              (const, override));
+  MOCK_METHOD(void, setContactForce,
+              (VECTOR_T<scalar_t>&, const VECTOR3_T<scalar_t>&, size_t),
+              (const, override));
+  MOCK_METHOD(void, setContactMoment,
+              (VECTOR_T<scalar_t>&, const VECTOR3_T<scalar_t>&, size_t),
+              (const, override));
+};
+
+MockMpcRobotModel createMpcRobotModel() {
+  return MockMpcRobotModel();
 }
 
 SwitchedModelReferenceManager createReferenceManager() {
@@ -85,6 +151,37 @@ SwitchedModelReferenceManager createReferenceManager() {
   return SwitchedModelReferenceManager(std::move(gaitSchedulePtr),
                                        std::move(swingTrajectoryPtr),
                                        pinocchioInterface, mpcRobotModel);
+}
+
+// Mock classes for testing with GMock
+class MockReferenceManager : public SwitchedModelReferenceManager {
+ public:
+  MockReferenceManager()
+      : SwitchedModelReferenceManager(
+            std::make_shared<MockGaitSchedule>(),
+            std::make_shared<MockSwingTrajectoryPlanner>(),
+            createPinocchioInterface(), createMpcRobotModel()) {}
+
+  MOCK_METHOD(std::vector<bool>, getContactFlags, (scalar_t), (const));
+};
+
+// Mock callback for the PreComputation function
+class MockPreComputationCallback {
+ public:
+  MOCK_METHOD(matrix3_t, Call,
+              (const vector_t&, const vector_t&, const PreComputation&));
+
+  auto AsStdFunction() {
+    return [this](const vector_t& state, const vector_t& input,
+                  const PreComputation& preComp) -> matrix3_t {
+      return Call(state, input, preComp);
+    };
+  }
+};
+
+FrictionForceConeLinearConstraint::Config getConfig() {
+  return FrictionForceConeLinearConstraint::Config(
+      kFrictionCoefficient, kMinimumNormalForce, kNumBasisVectors);
 }
 
 class FrictionForceConeLinearConstraintTest : public ::testing::Test {
@@ -253,6 +350,144 @@ TEST_F(FrictionForceConeLinearConstraintTest, TestGetLinearApproximation) {
       EXPECT_NEAR(forceJacobian(i, j), -basisVectors(i, j), 1e-10);
     }
   }
+}
+
+// Test with mock objects to verify function calls
+TEST_F(FrictionForceConeLinearConstraintTest, TestIsActiveWithMocks) {
+  // Create mock reference manager
+  auto mockReferenceManager =
+      std::make_unique<::testing::NiceMock<MockReferenceManager>>();
+  auto mpcRobotModel = createMpcRobotModel();
+
+  // Set up the mock expectation
+  std::vector<bool> contactFlags = {true, false, true, false};
+  EXPECT_CALL(*mockReferenceManager, getContactFlags(::testing::_))
+      .WillOnce(::testing::Return(contactFlags));
+
+  auto constraint = std::make_unique<FrictionForceConeLinearConstraint>(
+      *mockReferenceManager, config_, kContactPointIndex, mpcRobotModel,
+      preComputationCallback_);
+
+  // Test the isActive method (should call getContactFlags and return true)
+  EXPECT_TRUE(constraint->isActive(0.0));
+
+  // Test with inactive contact point
+  EXPECT_CALL(*mockReferenceManager, getContactFlags(::testing::_))
+      .WillOnce(::testing::Return(std::vector<bool>{false, true, true}));
+
+  auto constraint2 = std::make_unique<FrictionForceConeLinearConstraint>(
+      *mockReferenceManager, config_, 0, mpcRobotModel,
+      preComputationCallback_);
+
+  EXPECT_FALSE(constraint2->isActive(0.0));
+}
+
+TEST_F(FrictionForceConeLinearConstraintTest, TestGetValueWithMocks) {
+  // Set up mock objects
+  auto mockModel = std::make_unique<::testing::NiceMock<MockMpcRobotModel>>();
+  auto mockCallback = std::make_unique<MockPreComputationCallback>();
+  auto referenceManager = createReferenceManager();
+
+  // Mock the force and index values
+  vector3_t expectedForce(3.0, 1.5, 10.0);
+  size_t expectedForceIndex = 42;
+
+  // Set expectations
+  EXPECT_CALL(*mockModel, getContactForce(::testing::_, kContactPointIndex))
+      .WillOnce(::testing::Return(expectedForce));
+
+  EXPECT_CALL(*mockModel, getContactForceStartIndices(kContactPointIndex))
+      .WillRepeatedly(::testing::Return(expectedForceIndex));
+
+  EXPECT_CALL(*mockCallback, Call(::testing::_, ::testing::_, ::testing::_))
+      .WillOnce(::testing::Return(matrix3_t::Identity()));
+
+  auto constraint = std::make_unique<FrictionForceConeLinearConstraint>(
+      referenceManager, config_, kContactPointIndex, *mockModel,
+      mockCallback->AsStdFunction());
+
+  // Call and test
+  vector_t state = vector_t::Zero(kStateDim);
+  vector_t input = vector_t::Zero(kStateDim);
+
+  // This should trigger the mock calls
+  vector_t value = constraint->getValue(0.0, state, input, PreComputation());
+
+  // Verify result size and some expected values
+  EXPECT_EQ(value.size(), kNumBasisVectors + 1);
+
+  // Test with rotated coordinate frame
+  matrix3_t rotation;
+  rotation << 0, 1, 0, -1, 0, 0, 0, 0, 1;
+
+  EXPECT_CALL(*mockModel, getContactForce(::testing::_, kContactPointIndex))
+      .WillOnce(::testing::Return(expectedForce));
+
+  EXPECT_CALL(*mockCallback, Call(::testing::_, ::testing::_, ::testing::_))
+      .WillOnce(::testing::Return(rotation));
+
+  vector_t valueRotated =
+      constraint->getValue(0.0, state, input, PreComputation());
+
+  // The rotated value should be different from the original
+  EXPECT_NE((valueRotated - value).norm(), 0.0);
+}
+
+TEST_F(FrictionForceConeLinearConstraintTest,
+       TestLinearApproximationWithMocks) {
+  // Set up mock objects
+  auto mockModel = std::make_unique<::testing::NiceMock<MockMpcRobotModel>>();
+  auto mockCallback = std::make_unique<MockPreComputationCallback>();
+  auto referenceManager = createReferenceManager();
+
+  // Mock the force and index values
+  vector3_t expectedForce(3.0, 1.5, 10.0);
+  size_t expectedForceIndex = 3;
+
+  // Set expectations - getLinearApproximation calls getValue and more
+  EXPECT_CALL(*mockModel, getContactForce(::testing::_, kContactPointIndex))
+      .Times(2)  // Called once each by getValue and getLinearApproximation
+      .WillRepeatedly(::testing::Return(expectedForce));
+
+  EXPECT_CALL(*mockModel, getContactForceStartIndices(kContactPointIndex))
+      .Times(::testing::AtLeast(3))  // Called multiple times
+      .WillRepeatedly(::testing::Return(expectedForceIndex));
+
+  EXPECT_CALL(*mockCallback, Call(::testing::_, ::testing::_, ::testing::_))
+      .Times(2)  // Called once each by getValue and getLinearApproximation
+      .WillRepeatedly(::testing::Return(matrix3_t::Identity()));
+
+  auto constraint = std::make_unique<FrictionForceConeLinearConstraint>(
+      referenceManager, config_, kContactPointIndex, *mockModel,
+      mockCallback->AsStdFunction());
+
+  // Call and test
+  vector_t state = vector_t::Zero(kStateDim);
+  vector_t input = vector_t::Zero(kStateDim);
+
+  // First call getValue to verify it works
+  vector_t value = constraint->getValue(0.0, state, input, PreComputation());
+
+  // Then call getLinearApproximation which should use the same mocks
+  VectorFunctionLinearApproximation linearApprox =
+      constraint->getLinearApproximation(0.0, state, input, PreComputation());
+
+  // Verify jacobian has entries only in the right spot
+  EXPECT_TRUE(linearApprox.dfdx.isZero());
+
+  // The Jacobian w.r.t input should be zero except at the force indices
+  for (int col = 0; col < linearApprox.dfdu.cols(); ++col) {
+    if (col < expectedForceIndex || col >= expectedForceIndex + 3) {
+      for (int row = 0; row < linearApprox.dfdu.rows(); ++row) {
+        EXPECT_EQ(linearApprox.dfdu(row, col), 0.0);
+      }
+    }
+  }
+
+  // The part corresponding to the force should be non-zero
+  Eigen::Matrix<scalar_t, Eigen::Dynamic, 3> forceJacobian =
+      linearApprox.dfdu.block(0, expectedForceIndex, kNumBasisVectors + 1, 3);
+  EXPECT_FALSE(forceJacobian.isZero());
 }
 
 }  // namespace ocs2::humanoid

@@ -30,38 +30,58 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <gmock/gmock.h>
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlannerBase.h"
 
 namespace ocs2::humanoid {
 
+/**
+ * @brief GMock implementation of the SwingTrajectoryPlannerBase class
+ *
+ * This mock version allows setting expectations on method calls
+ * and verifying interactions in unit tests.
+ */
 class MockSwingTrajectoryPlanner : public SwingTrajectoryPlannerBase {
  public:
   MockSwingTrajectoryPlanner() = default;
   ~MockSwingTrajectoryPlanner() override = default;
 
-  void update(const ModeSchedule&, scalar_t) override {
-    // Mock implementation
-  }
+  // Mock methods with MOCK_METHOD macro
+  MOCK_METHOD(void, update, (const ModeSchedule&, scalar_t), (override));
 
-  void update(const ModeSchedule&, const feet_array_t<scalar_array_t>&,
-              const feet_array_t<scalar_array_t>&) override {
-    // Mock implementation
-  }
+  MOCK_METHOD(void, update,
+              (const ModeSchedule&, const feet_array_t<scalar_array_t>&,
+               const feet_array_t<scalar_array_t>&),
+              (override));
 
-  scalar_t getZaccelerationConstraint(size_t, scalar_t) const override {
-    return 0.0;  // Mock implementation
-  }
+  MOCK_METHOD(scalar_t, getZaccelerationConstraint, (size_t, scalar_t),
+              (const, override));
 
-  scalar_t getZvelocityConstraint(size_t, scalar_t) const override {
-    return 0.0;  // Mock implementation
-  }
+  MOCK_METHOD(scalar_t, getZvelocityConstraint, (size_t, scalar_t),
+              (const, override));
 
-  scalar_t getZpositionConstraint(size_t, scalar_t) const override {
-    return 0.0;  // Mock implementation
-  }
+  MOCK_METHOD(scalar_t, getZpositionConstraint, (size_t, scalar_t),
+              (const, override));
 
-  scalar_t getImpactProximityFactor(size_t, scalar_t) const override {
-    return 0.0;  // Mock implementation
+  MOCK_METHOD(scalar_t, getImpactProximityFactor, (size_t, scalar_t),
+              (const, override));
+
+  // Helper method to set up default values for all constraint methods
+  void setDefaultConstraintValues(scalar_t zAcceleration = 0.0,
+                                  scalar_t zVelocity = 0.0,
+                                  scalar_t zPosition = 0.0,
+                                  scalar_t impactFactor = 0.0) {
+    ON_CALL(*this, getZaccelerationConstraint(::testing::_, ::testing::_))
+        .WillByDefault(::testing::Return(zAcceleration));
+
+    ON_CALL(*this, getZvelocityConstraint(::testing::_, ::testing::_))
+        .WillByDefault(::testing::Return(zVelocity));
+
+    ON_CALL(*this, getZpositionConstraint(::testing::_, ::testing::_))
+        .WillByDefault(::testing::Return(zPosition));
+
+    ON_CALL(*this, getImpactProximityFactor(::testing::_, ::testing::_))
+        .WillByDefault(::testing::Return(impactFactor));
   }
 };
 
