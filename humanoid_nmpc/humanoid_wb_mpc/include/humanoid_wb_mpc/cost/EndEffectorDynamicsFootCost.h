@@ -36,7 +36,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
-
 #include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
 #include "humanoid_wb_mpc/cost/EndEffectorDynamicsCostHelpers.h"
 #include "humanoid_wb_mpc/end_effector/EndEffectorDynamics.h"
@@ -45,27 +44,32 @@ namespace ocs2::humanoid {
 
 class EndEffectorDynamicsFootCost final : public StateInputCostGaussNewtonAd {
  public:
-  EndEffectorDynamicsFootCost(const SwitchedModelReferenceManager& referenceManager,
-                              EndEffectorDynamicsWeights weights,
-                              const PinocchioInterface& pinocchioInterface,
-                              const EndEffectorDynamics<scalar_t>& endEffectorDynamics,
-                              const WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel,
-                              size_t contactIndex,
-                              std::string costName,
-                              const ModelSettings& modelSettings);
+  EndEffectorDynamicsFootCost(
+      const SwitchedModelReferenceManager& referenceManager,
+      EndEffectorDynamicsWeights weights,
+      const PinocchioInterface& pinocchioInterface,
+      const EndEffectorDynamics<scalar_t>& endEffectorDynamics,
+      const WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel,
+      size_t contactIndex, std::string costName,
+      const ModelSettings& modelSettings);
 
   ~EndEffectorDynamicsFootCost() override = default;
-  EndEffectorDynamicsFootCost* clone() const override { return new EndEffectorDynamicsFootCost(*this); }
+  EndEffectorDynamicsFootCost* clone() const override {
+    return new EndEffectorDynamicsFootCost(*this);
+  }
 
-  vector_t getParameters(scalar_t time, const TargetTrajectories& targetTrajectories, const PreComputation& preComputation) const override;
+  vector_t getParameters(scalar_t time,
+                         const TargetTrajectories& targetTrajectories,
+                         const PreComputation& preComputation) const override;
 
-  bool isActive(scalar_t time) const override { return !referenceManagerPtr_->isInContact(time, contactIndex_); }
+  bool isActive(scalar_t time) const override {
+    return !referenceManagerPtr_->isInContact(time, contactIndex_);
+  }
 
  private:
   EndEffectorDynamicsFootCost(const EndEffectorDynamicsFootCost& other);
 
-  ad_vector_t costVectorFunction(ad_scalar_t time,
-                                 const ad_vector_t& state,
+  ad_vector_t costVectorFunction(ad_scalar_t time, const ad_vector_t& state,
                                  const ad_vector_t& input,
                                  const ad_vector_t& parameters) override;
 

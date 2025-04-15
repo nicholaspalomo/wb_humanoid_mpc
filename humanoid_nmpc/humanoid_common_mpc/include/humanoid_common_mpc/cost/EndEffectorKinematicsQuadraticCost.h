@@ -36,45 +36,53 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
-
 #include "humanoid_common_mpc/cost/EndEffectorKinematicCostHelpers.h"
 
 namespace ocs2::humanoid {
 
-class EndEffectorKinematicsQuadraticCost : public ocs2::StateInputCostGaussNewtonAd {
+class EndEffectorKinematicsQuadraticCost
+    : public ocs2::StateInputCostGaussNewtonAd {
  public:
-  EndEffectorKinematicsQuadraticCost(EndEffectorKinematicsWeights weights,
-                                     const PinocchioInterface& pinocchioInterface,
-                                     const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
-                                     const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
-                                     std::string endEffectorName,
-                                     const ModelSettings& modelSettings);
+  EndEffectorKinematicsQuadraticCost(
+      EndEffectorKinematicsWeights weights,
+      const PinocchioInterface& pinocchioInterface,
+      const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
+      const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
+      std::string endEffectorName, const ModelSettings& modelSettings);
 
   ~EndEffectorKinematicsQuadraticCost() override = default;
-  EndEffectorKinematicsQuadraticCost* clone() const override { return new EndEffectorKinematicsQuadraticCost(*this); }
+  EndEffectorKinematicsQuadraticCost* clone() const override {
+    return new EndEffectorKinematicsQuadraticCost(*this);
+  }
 
-  virtual vector_t getParameters(scalar_t time,
-                                 const TargetTrajectories& targetTrajectories,
-                                 const PreComputation& preComputation) const override;
+  virtual vector_t getParameters(
+      scalar_t time, const TargetTrajectories& targetTrajectories,
+      const PreComputation& preComputation) const override;
 
   bool isActive(scalar_t time) const override { return isActive_; }
   void setActive(bool active) { isActive_ = active; }
   bool getActive() const { return isActive_; }
 
-  static EndEffectorKinematicsWeights getWeights(const std::string& taskFile, const std::string prefix, bool verbose = false);
+  static EndEffectorKinematicsWeights getWeights(const std::string& taskFile,
+                                                 const std::string prefix,
+                                                 bool verbose = false);
 
-  void getWeights(vector12_t& weights) const { weights = sqrtWeights_.cwiseProduct(sqrtWeights_); }
-  void setWeights(const vector12_t& weights) { sqrtWeights_ = weights.cwiseSqrt(); }
+  void getWeights(vector12_t& weights) const {
+    weights = sqrtWeights_.cwiseProduct(sqrtWeights_);
+  }
+  void setWeights(const vector12_t& weights) {
+    sqrtWeights_ = weights.cwiseSqrt();
+  }
 
  protected:
-  EndEffectorKinematicsQuadraticCost(const EndEffectorKinematicsQuadraticCost& other);
+  EndEffectorKinematicsQuadraticCost(
+      const EndEffectorKinematicsQuadraticCost& other);
 
-  static EndEffectorKinematicsCostElement<scalar_t> getReferenceCostElement(const vector_t& state,
-                                                                            const vector_t& input,
-                                                                            const EndEffectorKinematics<scalar_t>& endEffectorKinematics);
+  static EndEffectorKinematicsCostElement<scalar_t> getReferenceCostElement(
+      const vector_t& state, const vector_t& input,
+      const EndEffectorKinematics<scalar_t>& endEffectorKinematics);
 
-  ad_vector_t costVectorFunction(ad_scalar_t time,
-                                 const ad_vector_t& state,
+  ad_vector_t costVectorFunction(ad_scalar_t time, const ad_vector_t& state,
                                  const ad_vector_t& input,
                                  const ad_vector_t& parameters) override;
 
@@ -82,11 +90,14 @@ class EndEffectorKinematicsQuadraticCost : public ocs2::StateInputCostGaussNewto
   size_t n_parameters_ = 25;
   pinocchio::FrameIndex frameID_;
   PinocchioInterfaceCppAd pinocchioInterfaceCppAd_;
-  const std::unique_ptr<EndEffectorKinematics<scalar_t>> endEffectorKinematicsPtr_;
+  const std::unique_ptr<EndEffectorKinematics<scalar_t>>
+      endEffectorKinematicsPtr_;
   std::unique_ptr<MpcRobotModelBase<ad_scalar_t>> mpcRobotModelADPtr;
   bool isActive_ = true;
 };
 
-EndEffectorKinematicsWeights loadWeightsFromFile(const std::string& filename, const std::string& fieldname, bool verbose = true);
+EndEffectorKinematicsWeights loadWeightsFromFile(const std::string& filename,
+                                                 const std::string& fieldname,
+                                                 bool verbose = true);
 
 }  // namespace ocs2::humanoid

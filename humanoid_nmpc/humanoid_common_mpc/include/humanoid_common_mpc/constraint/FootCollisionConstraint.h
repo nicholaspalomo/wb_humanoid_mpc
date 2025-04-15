@@ -29,12 +29,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <pinocchio/fwd.hpp>
-
 #include <ocs2_core/constraint/StateConstraintCppAd.h>
 #include <ocs2_core/cost/StateCost.h>
 #include <ocs2_pinocchio_interface/PinocchioInterface.h>
 #include <pinocchio/algorithm/frames.hpp>
+#include <pinocchio/fwd.hpp>
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
@@ -75,39 +74,48 @@ class FootCollisionConstraint final : public StateConstraintCppAd {
   FootCollisionConstraint(const SwitchedModelReferenceManager& referenceManager,
                           const PinocchioInterface& pinocchioInterface,
                           const MpcRobotModelBase<ad_scalar_t>& mpcRobotModel,
-                          const Config& config,
-                          std::string costName,
+                          const Config& config, std::string costName,
                           const ModelSettings& modelSettings);
 
   ~FootCollisionConstraint() override = default;
-  FootCollisionConstraint* clone() const override { return new FootCollisionConstraint(*this); }
+  FootCollisionConstraint* clone() const override {
+    return new FootCollisionConstraint(*this);
+  }
 
   bool isActive(scalar_t time) const override;
   bool getActive() const { return isActive_; }
   void setActive(bool active) { isActive_ = active; }
 
-  size_t getNumConstraints(scalar_t time) const override { return numConstraints_; };
+  size_t getNumConstraints(scalar_t time) const override {
+    return numConstraints_;
+  };
 
-  vector_t getParameters(scalar_t time, const PreComputation& preComputation) const override {
+  vector_t getParameters(scalar_t time,
+                         const PreComputation& preComputation) const override {
     vector_t parameters(2);
-    parameters << cfg_.footCollisionSphereRadius, cfg_.kneeCollisionSphereRadius;
+    parameters << cfg_.footCollisionSphereRadius,
+        cfg_.kneeCollisionSphereRadius;
     return parameters;
   };
 
-  void setSphereRadii(scalar_t footCollisionSphereRadius, scalar_t kneeCollisionSphereRadius) {
+  void setSphereRadii(scalar_t footCollisionSphereRadius,
+                      scalar_t kneeCollisionSphereRadius) {
     cfg_.footCollisionSphereRadius = footCollisionSphereRadius;
     cfg_.kneeCollisionSphereRadius = kneeCollisionSphereRadius;
   }
 
-  void getSphereRadii(scalar_t& footCollisionSphereRadius, scalar_t& kneeCollisionSphereRadius) const {
+  void getSphereRadii(scalar_t& footCollisionSphereRadius,
+                      scalar_t& kneeCollisionSphereRadius) const {
     footCollisionSphereRadius = cfg_.footCollisionSphereRadius;
     kneeCollisionSphereRadius = cfg_.kneeCollisionSphereRadius;
   }
 
-  static Config loadFootCollisionConstraintConfig(const std::string taskFile, bool verbose = false);
+  static Config loadFootCollisionConstraintConfig(const std::string taskFile,
+                                                  bool verbose = false);
 
  private:
-  ad_vector_t constraintFunction(ad_scalar_t time, const ad_vector_t& state, const ad_vector_t& parameters) const override;
+  ad_vector_t constraintFunction(ad_scalar_t time, const ad_vector_t& state,
+                                 const ad_vector_t& parameters) const override;
 
   FootCollisionConstraint(const FootCollisionConstraint& other);
 

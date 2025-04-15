@@ -52,7 +52,8 @@ class ModelSettings {
     scalar_t angularAccelerationErrorGain{1.0};
   };
 
-  ModelSettings(const std::string& configFile, const std::string& urdfFile, const std::string& mpcName, bool verbose = "false");
+  ModelSettings(const std::string& configFile, const std::string& urdfFile,
+                const std::string& mpcName, bool verbose = "false");
 
   ModelSettings() = delete;
 
@@ -67,7 +68,8 @@ class ModelSettings {
 
   scalar_t phaseTransitionStanceTime;
 
-  // Fixed joints , add from the fullJointNames to consider them as fixed in the MPC
+  // Fixed joints , add from the fullJointNames to consider them as fixed in the
+  // MPC
   std::vector<std::string> fullJointNames;
   std::vector<std::string> fixedJointNames;
 
@@ -75,10 +77,14 @@ class ModelSettings {
   std::vector<std::string> contactNames3DoF{};
   std::vector<std::string> contactParentJointNames;
 
-  std::vector<std::string> mpcModelJointNames;      // Active joints (all joints except the fixed ones)
-  std::vector<size_t> mpcModelToFullJointsIndices;  // an Array of indices mapping the active joints to the full joints
+  std::vector<std::string>
+      mpcModelJointNames;  // Active joints (all joints except the fixed ones)
+  std::vector<size_t>
+      mpcModelToFullJointsIndices;  // an Array of indices mapping the active
+                                    // joints to the full joints
   std::unordered_map<std::string, size_t> jointIndexMap;
-  std::vector<std::string> contactNames;  // containing all 3Dof and 6Dof contacts
+  std::vector<std::string>
+      contactNames;  // containing all 3Dof and 6Dof contacts
 
   size_t mpc_joint_dim;
   size_t full_joint_dim;

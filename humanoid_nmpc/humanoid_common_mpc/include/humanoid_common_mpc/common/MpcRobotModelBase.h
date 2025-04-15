@@ -29,40 +29,37 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <Eigen/Core>
 #include <array>
+#include <boost/property_tree/info_parser.hpp>
+#include <boost/property_tree/ptree.hpp>
 #include <cstddef>
+#include <ocs2_core/misc/LoadData.h>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
-#include <Eigen/Core>
-
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/Types.h"
-
-#include <boost/property_tree/info_parser.hpp>
-#include <boost/property_tree/ptree.hpp>
-
-#include <stdexcept>
-
-#include <ocs2_core/misc/LoadData.h>
 
 namespace ocs2::humanoid {
 
 template <typename SCALAR_T>
 class MpcRobotModelBase {
  public:
-  MpcRobotModelBase(const ModelSettings& modelSettings, scalar_t state_dim, scalar_t input_dim)
+  MpcRobotModelBase(const ModelSettings& modelSettings, scalar_t state_dim,
+                    scalar_t input_dim)
       : modelSettings(modelSettings),
         state_dim(state_dim),
         input_dim(input_dim),
         base_dim(6),
-        gen_coordinates_dim(base_dim + modelSettings.mpc_joint_dim){};
+        gen_coordinates_dim(base_dim + modelSettings.mpc_joint_dim) {};
 
   virtual ~MpcRobotModelBase() = default;
   virtual MpcRobotModelBase* clone() const = 0;
 
   /******************************************************************************************************/
-  /*                                           Dimensions                                               */
+  /*                                           Dimensions */
   /******************************************************************************************************/
 
   size_t getStateDim() const { return state_dim; };
@@ -73,7 +70,7 @@ class MpcRobotModelBase {
   size_t getGenCoordinatesDim() const { return gen_coordinates_dim; };
 
   /******************************************************************************************************/
-  /*                                          Start indices                                             */
+  /*                                          Start indices */
   /******************************************************************************************************/
 
   virtual size_t getBaseStartindex() const = 0;
@@ -82,69 +79,100 @@ class MpcRobotModelBase {
 
   // Assumes contact wrench [f_x, f_y, f_z, M_x, M_y, M_z]^T
   virtual size_t getContactWrenchStartIndices(size_t contactIndex) const = 0;
-  virtual size_t getContactForceStartIndices(size_t contactIndex) const { return getContactWrenchStartIndices(contactIndex); }
-  virtual size_t getContactMomentStartIndices(size_t contactIndex) const { return 6 * contactIndex + 3; }
+  virtual size_t getContactForceStartIndices(size_t contactIndex) const {
+    return getContactWrenchStartIndices(contactIndex);
+  }
+  virtual size_t getContactMomentStartIndices(size_t contactIndex) const {
+    return 6 * contactIndex + 3;
+  }
 
   /******************************************************************************************************/
-  /*                                     Generalized coordinates                                        */
+  /*                                     Generalized coordinates */
   /******************************************************************************************************/
 
-  virtual VECTOR_T<SCALAR_T> getGeneralizedCoordinates(const VECTOR_T<SCALAR_T>& state) const = 0;
+  virtual VECTOR_T<SCALAR_T> getGeneralizedCoordinates(
+      const VECTOR_T<SCALAR_T>& state) const = 0;
 
-  virtual VECTOR6_T<SCALAR_T> getBasePose(const VECTOR_T<SCALAR_T>& state) const = 0;
+  virtual VECTOR6_T<SCALAR_T> getBasePose(
+      const VECTOR_T<SCALAR_T>& state) const = 0;
 
-  virtual VECTOR3_T<SCALAR_T> getBasePosition(const VECTOR_T<SCALAR_T>& state) const = 0;
+  virtual VECTOR3_T<SCALAR_T> getBasePosition(
+      const VECTOR_T<SCALAR_T>& state) const = 0;
 
-  virtual VECTOR3_T<SCALAR_T> getBaseOrientationEulerZYX(const VECTOR_T<SCALAR_T>& state) const = 0;
+  virtual VECTOR3_T<SCALAR_T> getBaseOrientationEulerZYX(
+      const VECTOR_T<SCALAR_T>& state) const = 0;
 
-  virtual VECTOR3_T<SCALAR_T> getBaseComLinearVelocity(const VECTOR_T<SCALAR_T>& state) const = 0;
+  virtual VECTOR3_T<SCALAR_T> getBaseComLinearVelocity(
+      const VECTOR_T<SCALAR_T>& state) const = 0;
 
-  virtual VECTOR6_T<SCALAR_T> getBaseComVelocity(const VECTOR_T<SCALAR_T>& state) const = 0;
+  virtual VECTOR6_T<SCALAR_T> getBaseComVelocity(
+      const VECTOR_T<SCALAR_T>& state) const = 0;
 
-  virtual VECTOR_T<SCALAR_T> getJointAngles(const VECTOR_T<SCALAR_T>& state) const = 0;
+  virtual VECTOR_T<SCALAR_T> getJointAngles(
+      const VECTOR_T<SCALAR_T>& state) const = 0;
 
-  virtual VECTOR_T<SCALAR_T> getJointVelocities(const VECTOR_T<SCALAR_T>& state, const VECTOR_T<SCALAR_T>& input) const = 0;
+  virtual VECTOR_T<SCALAR_T> getJointVelocities(
+      const VECTOR_T<SCALAR_T>& state,
+      const VECTOR_T<SCALAR_T>& input) const = 0;
 
-  virtual VECTOR_T<SCALAR_T> getGeneralizedVelocities(const VECTOR_T<SCALAR_T>& state, const VECTOR_T<SCALAR_T>& input) = 0;
-
-  /******************************************************************************************************/
-
-  virtual void setGeneralizedCoordinates(VECTOR_T<SCALAR_T>& state, const VECTOR_T<SCALAR_T>& generalizedCorrdinates) const = 0;
-
-  virtual void setBasePose(VECTOR_T<SCALAR_T>& state, const VECTOR6_T<SCALAR_T>& basePose) const = 0;
-
-  virtual void setBasePosition(VECTOR_T<SCALAR_T>& state, const VECTOR3_T<SCALAR_T>& position) const = 0;
-
-  virtual void setBaseOrientationEulerZYX(VECTOR_T<SCALAR_T>& state, const VECTOR3_T<SCALAR_T>& eulerAnglesZYX) const = 0;
-
-  virtual void setJointAngles(VECTOR_T<SCALAR_T>& state, const VECTOR_T<SCALAR_T>& jointAngles) const = 0;
-
-  virtual void setJointVelocities(VECTOR_T<SCALAR_T>& state,
-                                  VECTOR_T<SCALAR_T>& input,
-                                  const VECTOR_T<SCALAR_T>& jointVelocities) const = 0;
-
-  virtual void adaptBasePoseHeight(VECTOR_T<SCALAR_T>& state, scalar_t heightChange) const = 0;
-
-  /******************************************************************************************************/
-  /*                                          Contacts                                                  */
-  /******************************************************************************************************/
-
-  virtual VECTOR6_T<SCALAR_T> getContactWrench(const VECTOR_T<SCALAR_T>& input, size_t contactIndex) const = 0;
-
-  virtual VECTOR3_T<SCALAR_T> getContactForce(const VECTOR_T<SCALAR_T>& input, size_t contactIndex) const = 0;
-
-  virtual VECTOR3_T<SCALAR_T> getContactMoment(const VECTOR_T<SCALAR_T>& input, size_t contactIndex) const = 0;
+  virtual VECTOR_T<SCALAR_T> getGeneralizedVelocities(
+      const VECTOR_T<SCALAR_T>& state, const VECTOR_T<SCALAR_T>& input) = 0;
 
   /******************************************************************************************************/
 
-  virtual void setContactWrench(VECTOR_T<SCALAR_T>& input, const VECTOR6_T<SCALAR_T>& wrench, size_t contactIndex) const = 0;
+  virtual void setGeneralizedCoordinates(
+      VECTOR_T<SCALAR_T>& state,
+      const VECTOR_T<SCALAR_T>& generalizedCorrdinates) const = 0;
 
-  virtual void setContactForce(VECTOR_T<SCALAR_T>& input, const VECTOR3_T<SCALAR_T>& force, size_t contactIndex) const = 0;
+  virtual void setBasePose(VECTOR_T<SCALAR_T>& state,
+                           const VECTOR6_T<SCALAR_T>& basePose) const = 0;
 
-  virtual void setContactMoment(VECTOR_T<SCALAR_T>& input, const VECTOR3_T<SCALAR_T>& moment, size_t contactIndex) const = 0;
+  virtual void setBasePosition(VECTOR_T<SCALAR_T>& state,
+                               const VECTOR3_T<SCALAR_T>& position) const = 0;
+
+  virtual void setBaseOrientationEulerZYX(
+      VECTOR_T<SCALAR_T>& state,
+      const VECTOR3_T<SCALAR_T>& eulerAnglesZYX) const = 0;
+
+  virtual void setJointAngles(VECTOR_T<SCALAR_T>& state,
+                              const VECTOR_T<SCALAR_T>& jointAngles) const = 0;
+
+  virtual void setJointVelocities(
+      VECTOR_T<SCALAR_T>& state, VECTOR_T<SCALAR_T>& input,
+      const VECTOR_T<SCALAR_T>& jointVelocities) const = 0;
+
+  virtual void adaptBasePoseHeight(VECTOR_T<SCALAR_T>& state,
+                                   scalar_t heightChange) const = 0;
 
   /******************************************************************************************************/
-  /*                                         Joint angle                                                */
+  /*                                          Contacts */
+  /******************************************************************************************************/
+
+  virtual VECTOR6_T<SCALAR_T> getContactWrench(const VECTOR_T<SCALAR_T>& input,
+                                               size_t contactIndex) const = 0;
+
+  virtual VECTOR3_T<SCALAR_T> getContactForce(const VECTOR_T<SCALAR_T>& input,
+                                              size_t contactIndex) const = 0;
+
+  virtual VECTOR3_T<SCALAR_T> getContactMoment(const VECTOR_T<SCALAR_T>& input,
+                                               size_t contactIndex) const = 0;
+
+  /******************************************************************************************************/
+
+  virtual void setContactWrench(VECTOR_T<SCALAR_T>& input,
+                                const VECTOR6_T<SCALAR_T>& wrench,
+                                size_t contactIndex) const = 0;
+
+  virtual void setContactForce(VECTOR_T<SCALAR_T>& input,
+                               const VECTOR3_T<SCALAR_T>& force,
+                               size_t contactIndex) const = 0;
+
+  virtual void setContactMoment(VECTOR_T<SCALAR_T>& input,
+                                const VECTOR3_T<SCALAR_T>& moment,
+                                size_t contactIndex) const = 0;
+
+  /******************************************************************************************************/
+  /*                                         Joint angle */
   /******************************************************************************************************/
 
   size_t getJointIndex(const std::string& jointName) const {
@@ -152,13 +180,16 @@ class MpcRobotModelBase {
     if (it != modelSettings.jointIndexMap.end()) {
       return it->second;  // Return the found index
     } else {
-      throw std::runtime_error("Joint name " + jointName + " is not contained in MPC model!");
+      throw std::runtime_error("Joint name " + jointName +
+                               " is not contained in MPC model!");
     }
   }
 
-  VECTOR_T<SCALAR_T> getFullModelJointAngles(const VECTOR_T<SCALAR_T>& mpcModelJointAngles,
-                                             const VECTOR_T<SCALAR_T>& defaultFullModelJointAngles) const {
-    VECTOR_T<SCALAR_T> fullModelJointAngles = VECTOR_T<SCALAR_T>(defaultFullModelJointAngles);
+  VECTOR_T<SCALAR_T> getFullModelJointAngles(
+      const VECTOR_T<SCALAR_T>& mpcModelJointAngles,
+      const VECTOR_T<SCALAR_T>& defaultFullModelJointAngles) const {
+    VECTOR_T<SCALAR_T> fullModelJointAngles =
+        VECTOR_T<SCALAR_T>(defaultFullModelJointAngles);
     assert(mpcModelJointAngles.size() == modelSettings.mpc_joint_dim);
     assert(defaultFullModelJointAngles.size() == modelSettings.full_joint_dim);
     for (size_t i = 0; i < modelSettings.mpc_joint_dim; ++i) {
@@ -168,11 +199,13 @@ class MpcRobotModelBase {
     return fullModelJointAngles;
   }
 
-  VECTOR_T<SCALAR_T> getMpcModelJointAngles(const VECTOR_T<SCALAR_T>& fullModelJointAngles) const {
+  VECTOR_T<SCALAR_T> getMpcModelJointAngles(
+      const VECTOR_T<SCALAR_T>& fullModelJointAngles) const {
     VECTOR_T<SCALAR_T> mpcModelJointAngles(modelSettings.mpc_joint_dim);
     assert(fullModelJointAngles.size() == modelSettings.full_joint_dim);
     for (size_t i = 0; i < modelSettings.mpc_joint_dim; ++i) {
-      mpcModelJointAngles[i] = fullModelJointAngles[modelSettings.mpcModelToFullJointsIndices[i]];
+      mpcModelJointAngles[i] =
+          fullModelJointAngles[modelSettings.mpcModelToFullJointsIndices[i]];
     }
     return mpcModelJointAngles;
   }
@@ -183,7 +216,7 @@ class MpcRobotModelBase {
         state_dim(rhs.state_dim),
         input_dim(rhs.input_dim),
         base_dim(6),
-        gen_coordinates_dim(rhs.gen_coordinates_dim){};
+        gen_coordinates_dim(rhs.gen_coordinates_dim) {};
 
  public:
   const ModelSettings& modelSettings;

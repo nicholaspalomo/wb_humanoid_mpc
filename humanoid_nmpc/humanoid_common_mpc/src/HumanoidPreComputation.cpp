@@ -27,24 +27,22 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>
-
+#include <humanoid_common_mpc/HumanoidPreComputation.h>
+#include <ocs2_core/misc/Numerics.h>
 #include <pinocchio/algorithm/frames.hpp>
 #include <pinocchio/algorithm/jacobian.hpp>
 #include <pinocchio/algorithm/kinematics.hpp>
-
-#include <ocs2_core/misc/Numerics.h>
-
-#include <humanoid_common_mpc/HumanoidPreComputation.h>
+#include <pinocchio/fwd.hpp>
 
 namespace ocs2::humanoid {
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-HumanoidPreComputation::HumanoidPreComputation(PinocchioInterface pinocchioInterface,
-                                               const SwingTrajectoryPlannerBase& swingTrajectoryPlanner,
-                                               const MpcRobotModelBase<scalar_t>& mpcRobotModel)
+HumanoidPreComputation::HumanoidPreComputation(
+    PinocchioInterface pinocchioInterface,
+    const SwingTrajectoryPlannerBase& swingTrajectoryPlanner,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel)
     : pinocchioInterface_(std::move(pinocchioInterface)),
       swingTrajectoryPlannerPtr_(&swingTrajectoryPlanner),
       mpcRobotModelPtr_(&mpcRobotModel) {
@@ -61,7 +59,8 @@ HumanoidPreComputation::HumanoidPreComputation(PinocchioInterface pinocchioInter
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-HumanoidPreComputation::HumanoidPreComputation(const HumanoidPreComputation& rhs)
+HumanoidPreComputation::HumanoidPreComputation(
+    const HumanoidPreComputation& rhs)
     : pinocchioInterface_(rhs.pinocchioInterface_),
       swingTrajectoryPlannerPtr_(rhs.swingTrajectoryPlannerPtr_),
       mpcRobotModelPtr_(rhs.mpcRobotModelPtr_),
@@ -92,22 +91,33 @@ void HumanoidPreComputation::updatePinocchioModelKinematics(const vector_t& q) {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void HumanoidPreComputation::request(RequestSet request, scalar_t t, const vector_t& x, const vector_t& u) {
-  if (!request.containsAny(Request::Cost + Request::Constraint + Request::SoftConstraint)) {
+void HumanoidPreComputation::request(RequestSet request, scalar_t t,
+                                     const vector_t& x, const vector_t& u) {
+  if (!request.containsAny(Request::Cost + Request::Constraint +
+                           Request::SoftConstraint)) {
     return;
   }
 
-  updatePinocchioModelKinematics(mpcRobotModelPtr_->getGeneralizedCoordinates(x));
+  updatePinocchioModelKinematics(
+      mpcRobotModelPtr_->getGeneralizedCoordinates(x));
 
   // lambda to set config for normal velocity constraints
   auto eeNormalVelConConfig = [&](size_t footIndex) {
     EndEffectorKinematicsLinearVelConstraint::Config config;
-    config.b = (vector_t(1) << -swingTrajectoryPlannerPtr_->getZvelocityConstraint(footIndex, t)).finished();
+    config.b =
+        (vector_t(1) << -swingTrajectoryPlannerPtr_->getZvelocityConstraint(
+             footIndex, t))
+            .finished();
     config.Av = (matrix_t(1, 3) << 0.0, 0.0, 1.0).finished();
-    const ModelSettings::FootConstraintConfig& footConstraintCfg = mpcRobotModelPtr_->modelSettings.footConstraintConfig;
+    const ModelSettings::FootConstraintConfig& footConstraintCfg =
+        mpcRobotModelPtr_->modelSettings.footConstraintConfig;
     if (!numerics::almost_eq(footConstraintCfg.positionErrorGain_z, 0.0)) {
-      config.b(0) -= footConstraintCfg.positionErrorGain_z * swingTrajectoryPlannerPtr_->getZpositionConstraint(footIndex, t);
-      config.Ax = (matrix_t(1, 3) << 0.0, 0.0, footConstraintCfg.positionErrorGain_z).finished();
+      config.b(0) -=
+          footConstraintCfg.positionErrorGain_z *
+          swingTrajectoryPlannerPtr_->getZpositionConstraint(footIndex, t);
+      config.Ax =
+          (matrix_t(1, 3) << 0.0, 0.0, footConstraintCfg.positionErrorGain_z)
+              .finished();
     }
     return config;
   };
@@ -115,9 +125,12 @@ void HumanoidPreComputation::request(RequestSet request, scalar_t t, const vecto
   if (request.contains(Request::Constraint)) {
     for (size_t i = 0; i < N_CONTACTS; i++) {
       eeNormalVelConConfigs_[i] = eeNormalVelConConfig(i);
-      pinocchio::FrameIndex frameID = pinocchioInterface_.getModel().getFrameId(mpcRobotModelPtr_->modelSettings.contactNames6DoF[i]);
-      R_world_to_contacts_[i] = pinocchioInterface_.getData().oMf[frameID].rotation().inverse();
-      footHeightReferences_[i] = swingTrajectoryPlannerPtr_->getZpositionConstraint(i, t);
+      pinocchio::FrameIndex frameID = pinocchioInterface_.getModel().getFrameId(
+          mpcRobotModelPtr_->modelSettings.contactNames6DoF[i]);
+      R_world_to_contacts_[i] =
+          pinocchioInterface_.getData().oMf[frameID].rotation().inverse();
+      footHeightReferences_[i] =
+          swingTrajectoryPlannerPtr_->getZpositionConstraint(i, t);
     }
   }
 }

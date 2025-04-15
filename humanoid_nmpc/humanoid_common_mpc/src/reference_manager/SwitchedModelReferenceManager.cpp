@@ -36,21 +36,24 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-SwitchedModelReferenceManager::SwitchedModelReferenceManager(std::shared_ptr<GaitScheduleBase> gaitSchedulePtr,
-                                                             std::shared_ptr<SwingTrajectoryPlannerBase> swingTrajectoryPtr,
-                                                             const PinocchioInterface& pinocchioInterface,
-                                                             const MpcRobotModelBase<scalar_t>& mpcRobotModel)
+SwitchedModelReferenceManager::SwitchedModelReferenceManager(
+    std::shared_ptr<GaitScheduleBase> gaitSchedulePtr,
+    std::shared_ptr<SwingTrajectoryPlannerBase> swingTrajectoryPtr,
+    const PinocchioInterface& pinocchioInterface,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel)
     : ReferenceManager(TargetTrajectories(), ModeSchedule()),
       gaitSchedulePtr_(std::move(gaitSchedulePtr)),
       swingTrajectoryPtr_(std::move(swingTrajectoryPtr)),
-      // The reference manager gets a copy of the pinocchio model to use for initializing the ground height
+      // The reference manager gets a copy of the pinocchio model to use for
+      // initializing the ground height
       pinocchioInterface_(pinocchioInterface),
       mpcRobotModelPtr_(&mpcRobotModel) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-contact_flag_t SwitchedModelReferenceManager::getContactFlags(scalar_t time) const {
+contact_flag_t SwitchedModelReferenceManager::getContactFlags(
+    scalar_t time) const {
   return modeNumber2StanceLeg(this->getModeSchedule().modeAtTime(time));
 }
 
@@ -59,14 +62,16 @@ contact_flag_t SwitchedModelReferenceManager::getContactFlags(scalar_t time) con
 /******************************************************************************************************/
 
 scalar_t SwitchedModelReferenceManager::getPhaseVariable(scalar_t time) const {
-  const auto it = std::upper_bound(modeSchedule_.eventTimes.begin(), modeSchedule_.eventTimes.end(), time);
+  const auto it = std::upper_bound(modeSchedule_.eventTimes.begin(),
+                                   modeSchedule_.eventTimes.end(), time);
   scalar_t nextEventTime = *it;
   scalar_t prevEventTime = *(it - 1);
 
   if (modeSchedule_.modeAtTime(time) == LF) {
     return (0.5 * (time - prevEventTime) / (nextEventTime - prevEventTime));
   } else if (modeSchedule_.modeAtTime(time) == RF) {
-    return (0.5 + 0.5 * (time - prevEventTime) / (nextEventTime - prevEventTime));
+    return (0.5 +
+            0.5 * (time - prevEventTime) / (nextEventTime - prevEventTime));
   } else {
     if (modeSchedule_.modeAtTime(prevEventTime - 0.01) == LF) {
       return 0.5;
@@ -79,20 +84,23 @@ scalar_t SwitchedModelReferenceManager::getPhaseVariable(scalar_t time) const {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-scalar_t SwitchedModelReferenceManager::adaptToCurrentGroundHeight(TargetTrajectories& targetTrajectories,
-                                                                   const vector_t& initState,
-                                                                   size_t initMode) {
-  scalar_t terrainHeight = computeGroundHeightEstimate(pinocchioInterface_, *mpcRobotModelPtr_,
-                                                       mpcRobotModelPtr_->getGeneralizedCoordinates(initState), initMode);
+scalar_t SwitchedModelReferenceManager::adaptToCurrentGroundHeight(
+    TargetTrajectories& targetTrajectories, const vector_t& initState,
+    size_t initMode) {
+  scalar_t terrainHeight = computeGroundHeightEstimate(
+      pinocchioInterface_, *mpcRobotModelPtr_,
+      mpcRobotModelPtr_->getGeneralizedCoordinates(initState), initMode);
 
   terrainHeight = 0.0;
 
   // adapt target Trajectories to current terrain height
-  // Since they are published in the past the current observations ground height might have drifted.
+  // Since they are published in the past the current observations ground height
+  // might have drifted.
 
-  // Adapt the ground height difference for every state in the target Trajectories.
-  // The height difference between last update and the current update is applied here
-  // to prevent applying the same difference twice in case the trajectories have not been updated.
+  // Adapt the ground height difference for every state in the target
+  // Trajectories. The height difference between last update and the current
+  // update is applied here to prevent applying the same difference twice in
+  // case the trajectories have not been updated.
   for (size_t i = 0; i < targetTrajectories.stateTrajectory.size(); i++) {
     vector_t& targetState = targetTrajectories.stateTrajectory[i];
     scalar_t heightDifference = terrainHeight - previousGroundHeightEstimate_;
@@ -106,27 +114,35 @@ scalar_t SwitchedModelReferenceManager::adaptToCurrentGroundHeight(TargetTraject
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-vector_t SwitchedModelReferenceManager::getDesiredState(const TargetTrajectories& targetTrajectories,
-                                                        const vector_t& state,
-                                                        scalar_t time) const {
+vector_t SwitchedModelReferenceManager::getDesiredState(
+    const TargetTrajectories& targetTrajectories, const vector_t& state,
+    scalar_t time) const {
   vector_t xNominal = targetTrajectories.getDesiredState(time);
 
   if (armSwingReferenceActive_) {
     scalar_t phaseVariable = this->getPhaseVariable(time);
     vector_t desiredJointAngles = mpcRobotModelPtr_->getJointAngles(xNominal);
 
-    vector3_t linVelCommand = mpcRobotModelPtr_->getBaseComLinearVelocity(xNominal);
+    vector3_t linVelCommand =
+        mpcRobotModelPtr_->getBaseComLinearVelocity(xNominal);
     scalar_t currentEulerZ = mpcRobotModelPtr_->getBasePose(state)[3];
 
-    const scalar_t localVelXCommand = (std::cos(currentEulerZ) * linVelCommand[0] + std::sin(currentEulerZ) * linVelCommand[1]);
+    const scalar_t localVelXCommand =
+        (std::cos(currentEulerZ) * linVelCommand[0] +
+         std::sin(currentEulerZ) * linVelCommand[1]);
 
     const ModelSettings& modelSettings = mpcRobotModelPtr_->modelSettings;
 
-    scalar_t gaitCycleFactor = std::sin(2 * M_PI * (phaseVariable - 0.15)) * localVelXCommand;
-    desiredJointAngles[modelSettings.j_l_shoulder_y_index] += -0.15 * gaitCycleFactor;
-    desiredJointAngles[modelSettings.j_r_shoulder_y_index] += 0.15 * gaitCycleFactor;
-    desiredJointAngles[modelSettings.j_l_elbow_y_index] += -0.15 * gaitCycleFactor;
-    desiredJointAngles[modelSettings.j_r_elbow_y_index] += 0.15 * gaitCycleFactor;
+    scalar_t gaitCycleFactor =
+        std::sin(2 * M_PI * (phaseVariable - 0.15)) * localVelXCommand;
+    desiredJointAngles[modelSettings.j_l_shoulder_y_index] +=
+        -0.15 * gaitCycleFactor;
+    desiredJointAngles[modelSettings.j_r_shoulder_y_index] +=
+        0.15 * gaitCycleFactor;
+    desiredJointAngles[modelSettings.j_l_elbow_y_index] +=
+        -0.15 * gaitCycleFactor;
+    desiredJointAngles[modelSettings.j_r_elbow_y_index] +=
+        0.15 * gaitCycleFactor;
 
     mpcRobotModelPtr_->setJointAngles(xNominal, desiredJointAngles);
   }
@@ -136,16 +152,16 @@ vector_t SwitchedModelReferenceManager::getDesiredState(const TargetTrajectories
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void SwitchedModelReferenceManager::modifyReferences(scalar_t initTime,
-                                                     scalar_t finalTime,
-                                                     const vector_t& initState,
-                                                     size_t initMode,
-                                                     TargetTrajectories& targetTrajectories,
-                                                     ModeSchedule& modeSchedule) {
+void SwitchedModelReferenceManager::modifyReferences(
+    scalar_t initTime, scalar_t finalTime, const vector_t& initState,
+    size_t initMode, TargetTrajectories& targetTrajectories,
+    ModeSchedule& modeSchedule) {
   const auto timeHorizon = finalTime - initTime;
-  modeSchedule = gaitSchedulePtr_->getModeSchedule(initTime - timeHorizon, finalTime + timeHorizon);
+  modeSchedule = gaitSchedulePtr_->getModeSchedule(initTime - timeHorizon,
+                                                   finalTime + timeHorizon);
 
-  scalar_t terrainHeight = adaptToCurrentGroundHeight(targetTrajectories, initState, initMode);
+  scalar_t terrainHeight =
+      adaptToCurrentGroundHeight(targetTrajectories, initState, initMode);
 
   swingTrajectoryPtr_->update(modeSchedule, terrainHeight);
 

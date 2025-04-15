@@ -36,23 +36,28 @@ namespace ocs2::humanoid {
 ContactPolygon::ContactPolygon(const std::vector<vector3_t>& polygonPoints,
                                const ContactCenterPoint& contactCenterPoint,
                                const scalar_t& scaleFactor)
-    : polygonPoints_(polygonPoints), polygonLimits_(0, 0, 0, 0), contactCenterPoint_(contactCenterPoint) {
+    : polygonPoints_(polygonPoints),
+      polygonLimits_(0, 0, 0, 0),
+      contactCenterPoint_(contactCenterPoint) {
   polygonPointFrameNames_.reserve(polygonPoints_.size());
 
   for (int i = 0; i < polygonPoints_.size(); i++) {
-    polygonPointFrameNames_.emplace_back((contactCenterPoint.frameName + "_p_" + std::to_string(i)));
+    polygonPointFrameNames_.emplace_back(
+        (contactCenterPoint.frameName + "_p_" + std::to_string(i)));
     if (scaleFactor != 1.0) {
       polygonPoints_[i] = polygonPoints_[i] * scaleFactor;
       // update x limits
-      if (polygonPoints_[i][0] < polygonLimits_.x_min)
+      if (polygonPoints_[i][0] < polygonLimits_.x_min) {
         polygonLimits_.x_min = polygonPoints_[i][0];
-      else if (polygonPoints_[i][0] > polygonLimits_.x_max)
+      } else if (polygonPoints_[i][0] > polygonLimits_.x_max) {
         polygonLimits_.x_max = polygonPoints_[i][0];
+      }
       // update y limits
-      if (polygonPoints_[i][1] < polygonLimits_.y_min)
+      if (polygonPoints_[i][1] < polygonLimits_.y_min) {
         polygonLimits_.y_min = polygonPoints_[i][1];
-      else if (polygonPoints_[i][1] > polygonLimits_.y_max)
+      } else if (polygonPoints_[i][1] > polygonLimits_.y_max) {
         polygonLimits_.y_max = polygonPoints_[i][1];
+      }
     }
   }
 }
@@ -60,15 +65,19 @@ ContactPolygon::ContactPolygon(const std::vector<vector3_t>& polygonPoints,
 ContactPolygon::ContactPolygon(const std::vector<vector3_t>& polygonPoints,
                                const PolygonBounds& polygonBounds,
                                const ContactCenterPoint& contactCenterPoint)
-    : polygonPoints_(polygonPoints), polygonLimits_(polygonBounds), contactCenterPoint_(contactCenterPoint) {
+    : polygonPoints_(polygonPoints),
+      polygonLimits_(polygonBounds),
+      contactCenterPoint_(contactCenterPoint) {
   polygonPointFrameNames_.reserve(polygonPoints_.size());
 
   for (int i = 0; i < polygonPoints_.size(); i++) {
-    polygonPointFrameNames_.emplace_back((contactCenterPoint.frameName + "_p_" + std::to_string(i)));
+    polygonPointFrameNames_.emplace_back(
+        (contactCenterPoint.frameName + "_p_" + std::to_string(i)));
   }
 }
 
-matrix3_t ContactPolygon::getContactPointTranslationCrossProductMatrix(int index) const {
+matrix3_t ContactPolygon::getContactPointTranslationCrossProductMatrix(
+    int index) const {
   vector3_t current_point = polygonPoints_[index];
   matrix3_t crossprodMat = matrix3_t::Zero();
   crossprodMat(0, 2) = current_point[1];

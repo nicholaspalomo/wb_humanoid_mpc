@@ -37,16 +37,20 @@ namespace ocs2::humanoid {
 
 class FootCollisionGainsUpdater : public GainsUpdaterInterface {
  public:
-  FootCollisionGainsUpdater(std::shared_ptr<GenericGuiInterface> gui) : GainsUpdaterInterface(gui) {}
+  FootCollisionGainsUpdater(std::shared_ptr<GenericGuiInterface> gui)
+      : GainsUpdaterInterface(gui) {}
   ~FootCollisionGainsUpdater() override = default;
 
-  bool initialize(OptimalControlProblem& optimalControlProblem, const std::string& description) override {
+  bool initialize(OptimalControlProblem& optimalControlProblem,
+                  const std::string& description) override {
     try {
-      auto& generic = optimalControlProblem.stateSoftConstraintPtr->get(description);
+      auto& generic =
+          optimalControlProblem.stateSoftConstraintPtr->get(description);
       auto& custom = dynamic_cast<StateSoftConstraint&>(generic);
       auto& penaltyPtrArray = custom.getPenalty().getPenaltyPtrArray();
       if (penaltyPtrArray.size() != 1) {
-        throw std::runtime_error("[FootCollisionGainsUpdater] Unexpected number of penalties!");
+        throw std::runtime_error(
+            "[FootCollisionGainsUpdater] Unexpected number of penalties!");
       }
       auto& constraint = dynamic_cast<FootCollisionConstraint&>(custom.get());
 
@@ -64,7 +68,9 @@ class FootCollisionGainsUpdater : public GainsUpdaterInterface {
   }
 
   bool drawGui() override {
-    if (!gui_) return false;
+    if (!gui_) {
+      return false;
+    }
 
     bool hasBeenTriggered = false;
     if (gui_->TreeNode(name_.c_str())) {
@@ -73,26 +79,42 @@ class FootCollisionGainsUpdater : public GainsUpdaterInterface {
       vector_t parameters;
       penalty_->getParameters(parameters);
       if (parameters.size() != 2) {
-        throw std::runtime_error("[StateInputSoftConstraintGainsUpdater] Unexpected number of parameters!");
+        throw std::runtime_error(
+            "[StateInputSoftConstraintGainsUpdater] Unexpected number of "
+            "parameters!");
       }
 
       scalar_t footCollisionSphereRadius, kneeCollisionSphereRadius;
-      component_->getSphereRadii(footCollisionSphereRadius, kneeCollisionSphereRadius);
+      component_->getSphereRadii(footCollisionSphereRadius,
+                                 kneeCollisionSphereRadius);
 
       // Draw gui
-      if (gui_->Checkbox("Active", &active)) hasBeenTriggered = true;
+      if (gui_->Checkbox("Active", &active)) {
+        hasBeenTriggered = true;
+      }
       if (active) {
-        if (gui_->InputDouble("Penalty - mu", &parameters[0])) hasBeenTriggered = true;
-        if (gui_->InputDouble("Penalty - delta", &parameters[1])) hasBeenTriggered = true;
-        if (gui_->InputDouble("Sphere Radius - Foot", &footCollisionSphereRadius)) hasBeenTriggered = true;
-        if (gui_->InputDouble("Sphere Radius - Knee", &kneeCollisionSphereRadius)) hasBeenTriggered = true;
+        if (gui_->InputDouble("Penalty - mu", &parameters[0])) {
+          hasBeenTriggered = true;
+        }
+        if (gui_->InputDouble("Penalty - delta", &parameters[1])) {
+          hasBeenTriggered = true;
+        }
+        if (gui_->InputDouble("Sphere Radius - Foot",
+                              &footCollisionSphereRadius)) {
+          hasBeenTriggered = true;
+        }
+        if (gui_->InputDouble("Sphere Radius - Knee",
+                              &kneeCollisionSphereRadius)) {
+          hasBeenTriggered = true;
+        }
       }
 
       // Update parameters
       if (hasBeenTriggered) {
         component_->setActive(active);
         penalty_->setParameters(parameters);
-        component_->setSphereRadii(footCollisionSphereRadius, kneeCollisionSphereRadius);
+        component_->setSphereRadii(footCollisionSphereRadius,
+                                   kneeCollisionSphereRadius);
       }
 
       gui_->TreePop();
@@ -108,11 +130,14 @@ class FootCollisionGainsUpdater : public GainsUpdaterInterface {
     vector_t parameters;
     penalty_->getParameters(parameters);
     if (parameters.size() != 2) {
-      throw std::runtime_error("[StateInputSoftConstraintGainsUpdater] Unexpected number of parameters!");
+      throw std::runtime_error(
+          "[StateInputSoftConstraintGainsUpdater] Unexpected number of "
+          "parameters!");
     }
 
     scalar_t footCollisionSphereRadius, kneeCollisionSphereRadius;
-    component_->getSphereRadii(footCollisionSphereRadius, kneeCollisionSphereRadius);
+    component_->getSphereRadii(footCollisionSphereRadius,
+                               kneeCollisionSphereRadius);
 
     auto& data = msg.value.back().values;
     data.reserve(4);
@@ -122,9 +147,11 @@ class FootCollisionGainsUpdater : public GainsUpdaterInterface {
     data.push_back(kneeCollisionSphereRadius);
   }
 
-  void setFromMessage(const ocs2_ros2_msgs::msg::IndividualGains& gains) override {
+  void setFromMessage(
+      const ocs2_ros2_msgs::msg::IndividualGains& gains) override {
     if (gains.values.size() != 4) {
-      throw std::runtime_error("[FootCollisionGainsUpdater] Invalid number of values!");
+      throw std::runtime_error(
+          "[FootCollisionGainsUpdater] Invalid number of values!");
     }
     component_->setActive(gains.is_active);
     vector_t parameters(2);

@@ -34,19 +34,22 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-ZeroAccelerationConstraintCppAd::ZeroAccelerationConstraintCppAd(const SwitchedModelReferenceManager& referenceManager,
-                                                                 const EndEffectorDynamics<scalar_t>& endEffectorDynamics,
-                                                                 size_t contactPointIndex,
-                                                                 EndEffectorDynamicsAccelerationsConstraint::Config config)
+ZeroAccelerationConstraintCppAd::ZeroAccelerationConstraintCppAd(
+    const SwitchedModelReferenceManager& referenceManager,
+    const EndEffectorDynamics<scalar_t>& endEffectorDynamics,
+    size_t contactPointIndex,
+    EndEffectorDynamicsAccelerationsConstraint::Config config)
     : StateInputConstraint(ConstraintOrder::Linear),
       referenceManagerPtr_(&referenceManager),
-      eeAccelConstraintPtr_(new EndEffectorDynamicsAccelerationsConstraint(endEffectorDynamics, 6, std::move(config))),
+      eeAccelConstraintPtr_(new EndEffectorDynamicsAccelerationsConstraint(
+          endEffectorDynamics, 6, std::move(config))),
       contactPointIndex_(contactPointIndex) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-ZeroAccelerationConstraintCppAd::ZeroAccelerationConstraintCppAd(const ZeroAccelerationConstraintCppAd& rhs)
+ZeroAccelerationConstraintCppAd::ZeroAccelerationConstraintCppAd(
+    const ZeroAccelerationConstraintCppAd& rhs)
     : StateInputConstraint(rhs),
       referenceManagerPtr_(rhs.referenceManagerPtr_),
       eeAccelConstraintPtr_(rhs.eeAccelConstraintPtr_->clone()),
@@ -62,21 +65,21 @@ bool ZeroAccelerationConstraintCppAd::isActive(scalar_t time) const {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-vector_t ZeroAccelerationConstraintCppAd::getValue(scalar_t time,
-                                                   const vector_t& state,
-                                                   const vector_t& input,
-                                                   const PreComputation& preComp) const {
+vector_t ZeroAccelerationConstraintCppAd::getValue(
+    scalar_t time, const vector_t& state, const vector_t& input,
+    const PreComputation& preComp) const {
   return eeAccelConstraintPtr_->getValue(time, state, input, preComp);
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-VectorFunctionLinearApproximation ZeroAccelerationConstraintCppAd::getLinearApproximation(scalar_t time,
-                                                                                          const vector_t& state,
-                                                                                          const vector_t& input,
-                                                                                          const PreComputation& preComp) const {
-  return eeAccelConstraintPtr_->getLinearApproximation(time, state, input, preComp);
+VectorFunctionLinearApproximation
+ZeroAccelerationConstraintCppAd::getLinearApproximation(
+    scalar_t time, const vector_t& state, const vector_t& input,
+    const PreComputation& preComp) const {
+  return eeAccelConstraintPtr_->getLinearApproximation(time, state, input,
+                                                       preComp);
 }
 
 }  // namespace ocs2::humanoid

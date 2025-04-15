@@ -31,7 +31,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <iostream>
-
 #include <ocs2_core/misc/CommandLine.h>
 #include <ocs2_core/misc/LoadData.h>
 
@@ -42,24 +41,28 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-GaitKeyboardPublisher::GaitKeyboardPublisher(rclcpp::Node::SharedPtr& nodeHandle,
-                                             const std::string& gaitFile,
-                                             const std::string& robotName,
-                                             bool verbose) {
-  std::cout << (robotName + "_mpc_mode_schedule node is setting up ...") << std::endl;
+GaitKeyboardPublisher::GaitKeyboardPublisher(
+    rclcpp::Node::SharedPtr& nodeHandle, const std::string& gaitFile,
+    const std::string& robotName, bool verbose) {
+  std::cout << (robotName + "_mpc_mode_schedule node is setting up ...")
+            << std::endl;
   loadData::loadStdVector(gaitFile, "list", gaitList_, verbose);
 
-  modeSequenceTemplatePublisher_ = nodeHandle->create_publisher<ocs2_ros2_msgs::msg::ModeSchedule>(robotName + "_mpc_mode_schedule", 1);
+  modeSequenceTemplatePublisher_ =
+      nodeHandle->create_publisher<ocs2_ros2_msgs::msg::ModeSchedule>(
+          robotName + "_mpc_mode_schedule", 1);
 
   gaitMap_ = getGaitMap(gaitFile);
-  std::cout << (robotName + "_mpc_mode_schedule command node is ready.") << std::endl;
+  std::cout << (robotName + "_mpc_mode_schedule command node is ready.")
+            << std::endl;
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 void GaitKeyboardPublisher::getKeyboardCommand() {
-  const std::string commadMsg = "Enter the desired gait, for the list of available gait enter \"list\"";
+  const std::string commadMsg =
+      "Enter the desired gait, for the list of available gait enter \"list\"";
   std::cout << commadMsg << ": ";
 
   auto shouldTerminate = []() { return !rclcpp::ok(); };
@@ -76,7 +79,8 @@ void GaitKeyboardPublisher::getKeyboardCommand() {
 
   // lower case transform
   auto gaitCommand = commandLine.front();
-  std::transform(gaitCommand.begin(), gaitCommand.end(), gaitCommand.begin(), ::tolower);
+  std::transform(gaitCommand.begin(), gaitCommand.end(), gaitCommand.begin(),
+                 ::tolower);
 
   if (gaitCommand == "list") {
     printGaitList(gaitList_);
@@ -85,7 +89,8 @@ void GaitKeyboardPublisher::getKeyboardCommand() {
 
   try {
     ModeSequenceTemplate modeSequenceTemplate = gaitMap_.at(gaitCommand);
-    modeSequenceTemplatePublisher_->publish(createModeSequenceTemplateMsg(modeSequenceTemplate));
+    modeSequenceTemplatePublisher_->publish(
+        createModeSequenceTemplateMsg(modeSequenceTemplate));
   } catch (const std::out_of_range& e) {
     std::cout << "Gait \"" << gaitCommand << "\" not found.\n";
     printGaitList(gaitList_);
@@ -95,7 +100,8 @@ void GaitKeyboardPublisher::getKeyboardCommand() {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void GaitKeyboardPublisher::printGaitList(const std::vector<std::string>& gaitList) const {
+void GaitKeyboardPublisher::printGaitList(
+    const std::vector<std::string>& gaitList) const {
   std::cout << "List of available gaits:\n";
   size_t itr = 0;
   for (const auto& s : gaitList) {

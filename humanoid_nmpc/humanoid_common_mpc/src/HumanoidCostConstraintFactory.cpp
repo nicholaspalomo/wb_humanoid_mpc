@@ -29,24 +29,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/HumanoidCostConstraintFactory.h"
 
-#include <ocs2_core/misc/LoadData.h>
-#include <ocs2_core/penalties/Penalties.h>
+#include <absl/log/check.h>
 #include <boost/property_tree/info_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
-
-#include <ocs2_core/constraint/StateInputConstraint.h>
-#include <ocs2_core/cost/QuadraticStateCost.h>
-#include <ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h>
-#include <ocs2_core/soft_constraint/StateInputSoftConstraint.h>
-#include <ocs2_core/soft_constraint/StateSoftConstraint.h>
-
-#include <absl/log/check.h>
-
 #include <humanoid_common_mpc/constraint/FrictionForceConeConstraint.h>
 #include <humanoid_common_mpc/constraint/ZeroWrenchConstraint.h>
 #include <humanoid_common_mpc/contact/ContactRectangle.h>
 #include <humanoid_common_mpc/cost/StateInputQuadraticCost.h>
 #include <humanoid_common_mpc/pinocchio_model/pinocchioUtils.h>
+#include <ocs2_core/constraint/StateInputConstraint.h>
+#include <ocs2_core/cost/QuadraticStateCost.h>
+#include <ocs2_core/misc/LoadData.h>
+#include <ocs2_core/penalties/Penalties.h>
+#include <ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h>
+#include <ocs2_core/soft_constraint/StateInputSoftConstraint.h>
+#include <ocs2_core/soft_constraint/StateSoftConstraint.h>
+
 #include "humanoid_common_mpc/constraint/ContactMomentXYConstraintCppAd.h"
 #include "humanoid_common_mpc/constraint/FootCollisionConstraint.h"
 #include "humanoid_common_mpc/constraint/FrictionForceConeLinearConstraint.h"

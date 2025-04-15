@@ -29,16 +29,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <mutex>
-
-#include <rclcpp/rclcpp.hpp>
-
-#include <ocs2_core/Types.h>
-#include <ocs2_oc/synchronized_module/SolverSynchronizedModule.h>
-
 #include <humanoid_common_mpc/gait/GaitSchedule.h>
 #include <humanoid_common_mpc/gait/ModeSequenceTemplate.h>
 #include <humanoid_common_mpc/gait/MotionPhaseDefinition.h>
+#include <mutex>
+#include <ocs2_core/Types.h>
+#include <ocs2_oc/synchronized_module/SolverSynchronizedModule.h>
+#include <rclcpp/rclcpp.hpp>
 
 namespace ocs2::humanoid {
 

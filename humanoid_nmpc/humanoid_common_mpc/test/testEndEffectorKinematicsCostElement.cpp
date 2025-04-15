@@ -27,9 +27,8 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <string>
-
 #include <iostream>
+#include <string>
 
 #include "humanoid_common_mpc/cost/EndEffectorKinematicCostHelpers.h"
 
@@ -45,7 +44,8 @@ int main(int argc, char** argv) {
   currentVec << 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1;
   EndEffectorKinematicsCostElement<scalar_t> currentCostElement(currentVec);
 
-  vector12_t errors = computeTaskSpaceErrors(currentCostElement, referenceCostElement);
+  vector12_t errors =
+      computeTaskSpaceErrors(currentCostElement, referenceCostElement);
 
   std::cout << "Errors: " << errors.transpose() << std::endl;
 

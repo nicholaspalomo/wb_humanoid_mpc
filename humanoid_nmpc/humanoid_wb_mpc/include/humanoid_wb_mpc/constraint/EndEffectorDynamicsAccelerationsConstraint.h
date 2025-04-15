@@ -29,23 +29,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <memory>
-
-#include <ocs2_core/constraint/StateInputConstraint.h>
-
 #include <humanoid_common_mpc/common/Types.h>
+#include <memory>
+#include <ocs2_core/constraint/StateInputConstraint.h>
 
 #include "humanoid_wb_mpc/end_effector/EndEffectorDynamics.h"
 
 namespace ocs2::humanoid {
 
 /**
- * Defines a linear constraint on an end-effector position (xee) and linear velocity (vee).
- * g(xee, vee, aee) = Ax * xee + Av * vee + Aa *aee + b
+ * Defines a linear constraint on an end-effector position (xee) and linear
+ * velocity (vee). g(xee, vee, aee) = Ax * xee + Av * vee + Aa *aee + b
  * - For defining constraint of type g(xee), set Av to matrix_t(0, 0)
  * - For defining constraint of type g(vee), set Ax to matrix_t(0, 0)
  */
-class EndEffectorDynamicsAccelerationsConstraint final : public StateInputConstraint {
+class EndEffectorDynamicsAccelerationsConstraint final
+    : public StateInputConstraint {
  public:
   /**
    * Coefficients of the linear constraints of the form:
@@ -60,16 +59,20 @@ class EndEffectorDynamicsAccelerationsConstraint final : public StateInputConstr
 
   /**
    * Constructor
-   * @param [in] endEffectorKinematics: The kinematic interface to the target end-effector.
+   * @param [in] endEffectorKinematics: The kinematic interface to the target
+   * end-effector.
    * @param [in] numConstraints: The number of constraints {1, 2, 3, 4, 5, 6}
-   * @param [in] config: The constraint coefficients, g(xee, vee, aee) = Ax * xee + Av * vee + Aa *aee + b
+   * @param [in] config: The constraint coefficients, g(xee, vee, aee) = Ax *
+   * xee + Av * vee + Aa *aee + b
    */
-  EndEffectorDynamicsAccelerationsConstraint(const EndEffectorDynamics<scalar_t>& endEffectorKinematics,
-                                             size_t numConstraints,
-                                             Config config = Config());
+  EndEffectorDynamicsAccelerationsConstraint(
+      const EndEffectorDynamics<scalar_t>& endEffectorKinematics,
+      size_t numConstraints, Config config = Config());
 
   ~EndEffectorDynamicsAccelerationsConstraint() override = default;
-  EndEffectorDynamicsAccelerationsConstraint* clone() const override { return new EndEffectorDynamicsAccelerationsConstraint(*this); }
+  EndEffectorDynamicsAccelerationsConstraint* clone() const override {
+    return new EndEffectorDynamicsAccelerationsConstraint(*this);
+  }
 
   /** Sets a new constraint coefficients. */
   void configure(Config&& config);
@@ -77,17 +80,22 @@ class EndEffectorDynamicsAccelerationsConstraint final : public StateInputConstr
   void configure(const Config& config) { this->configure(Config(config)); }
 
   /** Gets the underlying end-effector kinematics interface. */
-  EndEffectorDynamics<scalar_t>& getEndEffectorDynamics() { return *endEffectorDynamicsPtr_; }
+  EndEffectorDynamics<scalar_t>& getEndEffectorDynamics() {
+    return *endEffectorDynamicsPtr_;
+  }
 
-  size_t getNumConstraints(scalar_t time) const override { return numConstraints_; }
-  vector_t getValue(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) const override;
-  VectorFunctionLinearApproximation getLinearApproximation(scalar_t time,
-                                                           const vector_t& state,
-                                                           const vector_t& input,
-                                                           const PreComputation& preComp) const override;
+  size_t getNumConstraints(scalar_t time) const override {
+    return numConstraints_;
+  }
+  vector_t getValue(scalar_t time, const vector_t& state, const vector_t& input,
+                    const PreComputation& preComp) const override;
+  VectorFunctionLinearApproximation getLinearApproximation(
+      scalar_t time, const vector_t& state, const vector_t& input,
+      const PreComputation& preComp) const override;
 
  private:
-  EndEffectorDynamicsAccelerationsConstraint(const EndEffectorDynamicsAccelerationsConstraint& rhs);
+  EndEffectorDynamicsAccelerationsConstraint(
+      const EndEffectorDynamicsAccelerationsConstraint& rhs);
   vector3_t ground_plane_normal_;
   std::unique_ptr<EndEffectorDynamics<scalar_t>> endEffectorDynamicsPtr_;
   const size_t numConstraints_;

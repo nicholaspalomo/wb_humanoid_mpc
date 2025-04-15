@@ -37,22 +37,29 @@ namespace ocs2::humanoid {
 
 class QuadraticStateCostWeightsUpdater : public GainsUpdaterInterface {
  public:
-  QuadraticStateCostWeightsUpdater(const CentroidalMpcRobotModel<scalar_t>& mpcRobotModel,
-                                   const ocs2::humanoid::ModelSettings& modelSettings,
-                                   std::shared_ptr<GenericGuiInterface> gui)
-      : GainsUpdaterInterface(gui), mpcRobotModel_(mpcRobotModel), modelSettings_(modelSettings) {}
+  QuadraticStateCostWeightsUpdater(
+      const CentroidalMpcRobotModel<scalar_t>& mpcRobotModel,
+      const ocs2::humanoid::ModelSettings& modelSettings,
+      std::shared_ptr<GenericGuiInterface> gui)
+      : GainsUpdaterInterface(gui),
+        mpcRobotModel_(mpcRobotModel),
+        modelSettings_(modelSettings) {}
   ~QuadraticStateCostWeightsUpdater() override = default;
 
-  bool initialize(ocs2::OptimalControlProblem& optimalControlProblem, const std::string& description) override {
+  bool initialize(ocs2::OptimalControlProblem& optimalControlProblem,
+                  const std::string& description) override {
     try {
       auto& generic = optimalControlProblem.finalCostPtr->get(description);
       auto& custom = dynamic_cast<ocs2::QuadraticStateCost&>(generic);
 
-      auto getMatrixEntries = [](std::vector<std::pair<int, int>>& matrixEntries, const ocs2::matrix_t& matrix) -> void {
+      auto getMatrixEntries =
+          [](std::vector<std::pair<int, int>>& matrixEntries,
+             const ocs2::matrix_t& matrix) -> void {
         matrixEntries.clear();
         const Eigen::SparseMatrix<double> matrix_sparse = matrix.sparseView();
         for (int k = 0; k < matrix_sparse.outerSize(); ++k) {
-          for (Eigen::SparseMatrix<double>::InnerIterator it(matrix_sparse, k); it; ++it) {
+          for (Eigen::SparseMatrix<double>::InnerIterator it(matrix_sparse, k);
+               it; ++it) {
             matrixEntries.emplace_back(it.row(), it.col());
           }
         }
@@ -74,7 +81,9 @@ class QuadraticStateCostWeightsUpdater : public GainsUpdaterInterface {
   }
 
   bool drawGui() override {
-    if (!gui_) return false;
+    if (!gui_) {
+      return false;
+    }
 
     bool hasBeenTriggered = false;
     if (gui_->TreeNode(name_.c_str())) {
@@ -84,28 +93,42 @@ class QuadraticStateCostWeightsUpdater : public GainsUpdaterInterface {
       bool isActive = component_->getActive();
 
       // Draw gui
-      if (gui_->Checkbox("Active", &isActive)) hasBeenTriggered = true;
+      if (gui_->Checkbox("Active", &isActive)) {
+        hasBeenTriggered = true;
+      }
       if (isActive) {
         // Draw gui
-        auto drawEntries = [&](ocs2::matrix_t& matrix, const std::string& name, const std::vector<std::pair<int, int>>& entries,
-                               const std::vector<std::string>& descriptions) -> bool {
+        auto drawEntries =
+            [&](ocs2::matrix_t& matrix, const std::string& name,
+                const std::vector<std::pair<int, int>>& entries,
+                const std::vector<std::string>& descriptions) -> bool {
           bool triggered = false;
           if (gui_->TreeNode(name.c_str())) {
             for (const auto& [row, col] : entries) {
               if (row == col) {
-                if (gui_->InputDouble(descriptions.at(row).c_str(), &matrix(row, col))) triggered = true;
-              } else {
-                if (gui_->InputDouble(std::string(descriptions.at(row) + "-" + descriptions.at(col)).c_str(), &matrix(row, col)))
+                if (gui_->InputDouble(descriptions.at(row).c_str(),
+                                      &matrix(row, col))) {
                   triggered = true;
+                }
+              } else {
+                if (gui_->InputDouble(std::string(descriptions.at(row) + "-" +
+                                                  descriptions.at(col))
+                                          .c_str(),
+                                      &matrix(row, col))) {
+                  triggered = true;
+                }
               }
             }
             gui_->TreePop();
           }
           return triggered;
         };
-        static const auto& stateDescriptions = utils::getStateDescriptions(modelSettings_);
+        static const auto& stateDescriptions =
+            utils::getStateDescriptions(modelSettings_);
 
-        if (drawEntries(Q, "Q Entries", qIndices_, stateDescriptions)) hasBeenTriggered = true;
+        if (drawEntries(Q, "Q Entries", qIndices_, stateDescriptions)) {
+          hasBeenTriggered = true;
+        }
       }
 
       // Set gains
@@ -132,14 +155,19 @@ class QuadraticStateCostWeightsUpdater : public GainsUpdaterInterface {
     data.insert(data.end(), Q.data(), Q.data() + Q.size());
   }
 
-  void setFromMessage(const ocs2_ros2_msgs::msg::IndividualGains& gains) override {
-    const int messageSize = mpcRobotModel_.getStateDim() * mpcRobotModel_.getStateDim();
+  void setFromMessage(
+      const ocs2_ros2_msgs::msg::IndividualGains& gains) override {
+    const int messageSize =
+        mpcRobotModel_.getStateDim() * mpcRobotModel_.getStateDim();
     if (gains.name != name_ || gains.values.size() != messageSize) {
-      throw std::runtime_error("[QuadraticStateCostWeightsUpdater] Invalid message received!]");
+      throw std::runtime_error(
+          "[QuadraticStateCostWeightsUpdater] Invalid message received!]");
     }
 
     std::vector<double> data = gains.values;
-    const matrix_t Q = Eigen::Map<matrix_t>(data.data(), mpcRobotModel_.getStateDim(), mpcRobotModel_.getStateDim());
+    const matrix_t Q =
+        Eigen::Map<matrix_t>(data.data(), mpcRobotModel_.getStateDim(),
+                             mpcRobotModel_.getStateDim());
 
     // Update the gains
     component_->setActive(gains.is_active);
@@ -148,7 +176,9 @@ class QuadraticStateCostWeightsUpdater : public GainsUpdaterInterface {
 
  private:
   ocs2::QuadraticStateCost* component_;
-  std::vector<std::pair<int, int>> qIndices_;  // Keep a list of matrix indices that are non-zero at initialization time
+  std::vector<std::pair<int, int>>
+      qIndices_;  // Keep a list of matrix indices that are non-zero at
+                  // initialization time
   const CentroidalMpcRobotModel<scalar_t>& mpcRobotModel_;
   const ocs2::humanoid::ModelSettings& modelSettings_;
 };

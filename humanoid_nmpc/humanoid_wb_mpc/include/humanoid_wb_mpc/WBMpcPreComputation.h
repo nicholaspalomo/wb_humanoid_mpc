@@ -29,12 +29,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <humanoid_common_mpc/HumanoidPreComputation.h>
 #include <memory>
 #include <string>
 
 #include "humanoid_wb_mpc/constraint/EndEffectorDynamicsLinearAccConstraint.h"
-
-#include <humanoid_common_mpc/HumanoidPreComputation.h>
 
 namespace ocs2::humanoid {
 
@@ -48,16 +47,19 @@ class WBMpcPreComputation : public HumanoidPreComputation {
 
   WBMpcPreComputation* clone() const override;
 
-  void request(RequestSet request, scalar_t t, const vector_t& x, const vector_t& u) override;
+  void request(RequestSet request, scalar_t t, const vector_t& x,
+               const vector_t& u) override;
 
-  const std::vector<EndEffectorDynamicsLinearAccConstraint::Config>& getEeNormalAccelerationConstraintConfigs() const {
+  const std::vector<EndEffectorDynamicsLinearAccConstraint::Config>&
+  getEeNormalAccelerationConstraintConfigs() const {
     return eeNormalAccConConfigs_;
   }
 
  private:
   WBMpcPreComputation(const WBMpcPreComputation& rhs);
 
-  std::vector<EndEffectorDynamicsLinearAccConstraint ::Config> eeNormalAccConConfigs_;
+  std::vector<EndEffectorDynamicsLinearAccConstraint ::Config>
+      eeNormalAccConConfigs_;
 };
 
 }  // namespace ocs2::humanoid

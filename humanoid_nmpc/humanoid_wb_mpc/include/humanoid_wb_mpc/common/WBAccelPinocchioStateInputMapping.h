@@ -29,9 +29,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <ocs2_pinocchio_interface/PinocchioStateInputMapping.h>
 #include <stdexcept>
 
-#include <ocs2_pinocchio_interface/PinocchioStateInputMapping.h>
 #include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
 
 namespace ocs2::humanoid {
@@ -39,28 +39,38 @@ namespace ocs2::humanoid {
  * Mapping between OCS2 and pinocchio state and input
  */
 template <typename SCALAR_T>
-class WBAccelPinocchioStateInputMapping final : public PinocchioStateInputMapping<SCALAR_T> {
+class WBAccelPinocchioStateInputMapping final
+    : public PinocchioStateInputMapping<SCALAR_T> {
  public:
   WBAccelPinocchioStateInputMapping() = default;
   ~WBAccelPinocchioStateInputMapping() override = default;
-  WBAccelPinocchioStateInputMapping<SCALAR_T>* clone() const override { return new WBAccelPinocchioStateInputMapping(*this); };
+  WBAccelPinocchioStateInputMapping<SCALAR_T>* clone() const override {
+    return new WBAccelPinocchioStateInputMapping(*this);
+  };
 
-  /** Get the pinocchio joint configuration from OCS2 state and input vectors. */
-  vector_t getPinocchioJointPosition(const vector_t& state) const override { return mapping.getGeneralizedCoordinates(state); };
+  /** Get the pinocchio joint configuration from OCS2 state and input vectors.
+   */
+  vector_t getPinocchioJointPosition(const vector_t& state) const override {
+    return mapping.getGeneralizedCoordinates(state);
+  };
 
   /** Get the pinocchio joint velocity from OCS2 state and input vectors. */
-  vector_t getPinocchioJointVelocity(const vector_t& state, const vector_t& input) const override {
+  vector_t getPinocchioJointVelocity(const vector_t& state,
+                                     const vector_t& input) const override {
     return mapping.getGeneralizedVelocities(state, input);
   };
 
   /** Mapps pinocchio jacobians dfdq, dfdv to OCS2 jacobians dfdx, dfdu. */
-  std::pair<matrix_t, matrix_t> getOcs2Jacobian(const vector_t& state, const matrix_t& Jq, const matrix_t& Jv) const override {
+  std::pair<matrix_t, matrix_t> getOcs2Jacobian(
+      const vector_t& state, const matrix_t& Jq,
+      const matrix_t& Jv) const override {
     throw std::runtime_error("Not implemented");
     return {Jq, Jv};
   };
 
  private:
-  WBAccelPinocchioStateInputMapping(const WBAccelPinocchioStateInputMapping<SCALAR_T>& rhs) = default;
+  WBAccelPinocchioStateInputMapping(
+      const WBAccelPinocchioStateInputMapping<SCALAR_T>& rhs) = default;
 
   WBAccelMpcRobotModel<SCALAR_T> mapping;
 };

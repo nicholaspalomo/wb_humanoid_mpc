@@ -37,7 +37,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/multibody/data.hpp"
 #include "pinocchio/multibody/model.hpp"
 #include "rclcpp/rclcpp.hpp"
-
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
 
@@ -98,7 +97,8 @@ class COMVisualizer : public rclcpp::Node {
   // ROS publishers and subscribers
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr com_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
-  rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_state_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr
+      joint_state_sub_;
 
   // Pinocchio model and data
   pinocchio::Model pinocchio_model_;

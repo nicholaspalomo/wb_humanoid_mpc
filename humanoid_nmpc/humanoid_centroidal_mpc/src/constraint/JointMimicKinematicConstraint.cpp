@@ -35,15 +35,21 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-JointMimicKinematicConstraint::JointMimicKinematicConstraint(const MpcRobotModelBase<scalar_t>& mpcRobotModel, Config config)
-    : StateInputConstraint(ConstraintOrder::Linear), mpcRobotModelPtr_(&mpcRobotModel), config_(config) {}
+JointMimicKinematicConstraint::JointMimicKinematicConstraint(
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel, Config config)
+    : StateInputConstraint(ConstraintOrder::Linear),
+      mpcRobotModelPtr_(&mpcRobotModel),
+      config_(config) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-JointMimicKinematicConstraint::JointMimicKinematicConstraint(const JointMimicKinematicConstraint& rhs)
-    : StateInputConstraint(rhs), mpcRobotModelPtr_(rhs.mpcRobotModelPtr_), config_(rhs.config_) {}
+JointMimicKinematicConstraint::JointMimicKinematicConstraint(
+    const JointMimicKinematicConstraint& rhs)
+    : StateInputConstraint(rhs),
+      mpcRobotModelPtr_(rhs.mpcRobotModelPtr_),
+      config_(rhs.config_) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -56,14 +62,18 @@ bool JointMimicKinematicConstraint::isActive(scalar_t time) const {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-vector_t JointMimicKinematicConstraint::getValue(scalar_t time,
-                                                 const vector_t& state,
-                                                 const vector_t& input,
-                                                 const PreComputation& preComp) const {
+vector_t JointMimicKinematicConstraint::getValue(
+    scalar_t time, const vector_t& state, const vector_t& input,
+    const PreComputation& preComp) const {
   vector_t jointAngles = mpcRobotModelPtr_->getJointAngles(state);
-  vector_t jointVelocities = mpcRobotModelPtr_->getJointVelocities(state, input);
-  scalar_t posError = config_.multiplier * jointAngles[config_.parentJointIndex] - jointAngles[config_.childJointIndex];
-  scalar_t velError = config_.multiplier * jointVelocities[config_.parentJointIndex] - jointVelocities[config_.childJointIndex];
+  vector_t jointVelocities =
+      mpcRobotModelPtr_->getJointVelocities(state, input);
+  scalar_t posError =
+      config_.multiplier * jointAngles[config_.parentJointIndex] -
+      jointAngles[config_.childJointIndex];
+  scalar_t velError =
+      config_.multiplier * jointVelocities[config_.parentJointIndex] -
+      jointVelocities[config_.childJointIndex];
 
   vector_t value(1);
   value << (config_.positionGain * posError + velError);
@@ -74,21 +84,28 @@ vector_t JointMimicKinematicConstraint::getValue(scalar_t time,
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-VectorFunctionLinearApproximation JointMimicKinematicConstraint::getLinearApproximation(scalar_t time,
-                                                                                        const vector_t& state,
-                                                                                        const vector_t& input,
-                                                                                        const PreComputation& preComp) const {
+VectorFunctionLinearApproximation
+JointMimicKinematicConstraint::getLinearApproximation(
+    scalar_t time, const vector_t& state, const vector_t& input,
+    const PreComputation& preComp) const {
   VectorFunctionLinearApproximation linearApproximation =
-      VectorFunctionLinearApproximation::Zero(getNumConstraints(time), state.size(), input.size());
+      VectorFunctionLinearApproximation::Zero(getNumConstraints(time),
+                                              state.size(), input.size());
 
   linearApproximation.f = getValue(time, state, input, preComp);
 
-  linearApproximation.dfdx(0, mpcRobotModelPtr_->getJointStartindex() + config_.parentJointIndex) =
+  linearApproximation.dfdx(
+      0, mpcRobotModelPtr_->getJointStartindex() + config_.parentJointIndex) =
       config_.positionGain * config_.multiplier;
-  linearApproximation.dfdx(0, mpcRobotModelPtr_->getJointStartindex() + config_.childJointIndex) = -config_.positionGain;
+  linearApproximation.dfdx(
+      0, mpcRobotModelPtr_->getJointStartindex() + config_.childJointIndex) =
+      -config_.positionGain;
 
-  linearApproximation.dfdu(0, mpcRobotModelPtr_->getJointStartindex() + config_.parentJointIndex) = config_.multiplier;
-  linearApproximation.dfdu(0, mpcRobotModelPtr_->getJointStartindex() + config_.childJointIndex) = -1;
+  linearApproximation.dfdu(
+      0, mpcRobotModelPtr_->getJointStartindex() + config_.parentJointIndex) =
+      config_.multiplier;
+  linearApproximation.dfdu(0, mpcRobotModelPtr_->getJointStartindex() +
+                                  config_.childJointIndex) = -1;
 
   return linearApproximation;
 }

@@ -30,7 +30,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <memory>
-
 #include <ocs2_core/cost/StateCost.h>
 #include <ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h>
 
@@ -46,26 +45,30 @@ class JointLimitsSoftConstraint final : public StateCost {
   /**
    *
    * @param positionlimits : {lower bounds, upper bounds} joint position limits.
-   * @param barrierSettings : Settings for the position barrier penalty function.
+   * @param barrierSettings : Settings for the position barrier penalty
+   * function.
    */
-  JointLimitsSoftConstraint(std::pair<vector_t, vector_t> positionlimits,
-                            ocs2::PieceWisePolynomialBarrierPenalty::Config barrierSettings,
-                            const MpcRobotModelBase<scalar_t>& mpcRobotModel);
+  JointLimitsSoftConstraint(
+      std::pair<vector_t, vector_t> positionlimits,
+      ocs2::PieceWisePolynomialBarrierPenalty::Config barrierSettings,
+      const MpcRobotModelBase<scalar_t>& mpcRobotModel);
 
-  JointLimitsSoftConstraint* clone() const override { return new JointLimitsSoftConstraint(*this); }
+  JointLimitsSoftConstraint* clone() const override {
+    return new JointLimitsSoftConstraint(*this);
+  }
 
-  scalar_t getValue(scalar_t time,
-                    const vector_t& state,
+  scalar_t getValue(scalar_t time, const vector_t& state,
                     const ocs2::TargetTrajectories& targetTrajectories,
                     const ocs2::PreComputation& preComp) const override;
 
-  ScalarFunctionQuadraticApproximation getQuadraticApproximation(scalar_t time,
-                                                                 const vector_t& state,
-                                                                 const ocs2::TargetTrajectories& targetTrajectories,
-                                                                 const ocs2::PreComputation& preComp) const override;
+  ScalarFunctionQuadraticApproximation getQuadraticApproximation(
+      scalar_t time, const vector_t& state,
+      const ocs2::TargetTrajectories& targetTrajectories,
+      const ocs2::PreComputation& preComp) const override;
 
   scalar_t getValue(const vector_t& jointPositions) const;
-  ScalarFunctionQuadraticApproximation getQuadraticApproximation(const vector_t& jointPositions) const;
+  ScalarFunctionQuadraticApproximation getQuadraticApproximation(
+      const vector_t& jointPositions) const;
 
   void setGains(const scalar_t& mu, const scalar_t& delta);
   void getGains(scalar_t& mu, scalar_t& delta) const;

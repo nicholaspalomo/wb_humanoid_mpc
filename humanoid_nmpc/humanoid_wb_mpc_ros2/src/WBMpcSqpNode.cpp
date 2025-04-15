@@ -27,15 +27,13 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <rclcpp/rclcpp.hpp>
-
+#include <humanoid_wb_mpc/WBMpcInterface.h>
+#include <humanoid_wb_mpc/command/WBMpcTargetTrajectoriesCalculator.h>
 #include <ocs2_ros2_interfaces/mpc/MPC_ROS_Interface.h>
 #include <ocs2_ros2_interfaces/synchronized_module/RosReferenceManager.h>
 #include <ocs2_sqp/SqpMpc.h>
+#include <rclcpp/rclcpp.hpp>
 
-#include <humanoid_wb_mpc/WBMpcInterface.h>
-
-#include <humanoid_wb_mpc/command/WBMpcTargetTrajectoriesCalculator.h>
 #include "humanoid_common_mpc_ros2/ros_comm/Ros2ProceduralMpcMotionManager.h"
 
 using namespace ocs2;
@@ -45,7 +43,9 @@ int main(int argc, char** argv) {
   std::vector<std::string> programArgs;
   programArgs = rclcpp::remove_ros_arguments(argc, argv);
   if (programArgs.size() < 5) {
-    throw std::runtime_error("No robot name, config folder, target command file, or description name specified. Aborting.");
+    throw std::runtime_error(
+        "No robot name, config folder, target command file, or description "
+        "name specified. Aborting.");
   }
 
   const std::string robotName(argv[1]);
@@ -60,24 +60,34 @@ int main(int argc, char** argv) {
   WBMpcInterface interface(taskFile, urdfFile, referenceFile);
 
   // MPC
-  SqpMpc mpc(interface.mpcSettings(), interface.sqpSettings(), interface.getOptimalControlProblem(), interface.getInitializer());
+  SqpMpc mpc(interface.mpcSettings(), interface.sqpSettings(),
+             interface.getOptimalControlProblem(), interface.getInitializer());
 
   // Launch MPC ROS node
-  rclcpp::Node::SharedPtr nodeHandle = std::make_shared<rclcpp::Node>(robotName + "_wb_mpc");
+  rclcpp::Node::SharedPtr nodeHandle =
+      std::make_shared<rclcpp::Node>(robotName + "_wb_mpc");
 
   auto qos = rclcpp::QoS(1);
   qos.best_effort();
 
   // Reference and motion management for Procedural MPC
-  WBMpcTargetTrajectoriesCalculator mpcTargetTrajectoriesCalculator(referenceFile, interface.getMpcRobotModel(),
-                                                                    interface.mpcSettings().timeHorizon_);
-  ProceduralMpcMotionManager::VelocityTargetToTargetTrajectories targetTrajectoriesFunc =
-      [&mpcTargetTrajectoriesCalculator](const vector4_t& velocityTarget, scalar_t initTime, scalar_t finalTime,
-                                         const vector_t& initState) mutable {
-        return mpcTargetTrajectoriesCalculator.commandedVelocityToTargetTrajectories(velocityTarget, initTime, initState);
+  WBMpcTargetTrajectoriesCalculator mpcTargetTrajectoriesCalculator(
+      referenceFile, interface.getMpcRobotModel(),
+      interface.mpcSettings().timeHorizon_);
+  ProceduralMpcMotionManager::VelocityTargetToTargetTrajectories
+      targetTrajectoriesFunc = [&mpcTargetTrajectoriesCalculator](
+                                   const vector4_t& velocityTarget,
+                                   scalar_t initTime, scalar_t finalTime,
+                                   const vector_t& initState) mutable {
+        return mpcTargetTrajectoriesCalculator
+            .commandedVelocityToTargetTrajectories(velocityTarget, initTime,
+                                                   initState);
       };
-  auto ros2ProceduralMpcMotionManager = std::make_shared<Ros2ProceduralMpcMotionManager>(
-      gaitFile, referenceFile, interface.getSwitchedModelReferenceManagerPtr(), interface.getMpcRobotModel(), targetTrajectoriesFunc);
+  auto ros2ProceduralMpcMotionManager =
+      std::make_shared<Ros2ProceduralMpcMotionManager>(
+          gaitFile, referenceFile,
+          interface.getSwitchedModelReferenceManagerPtr(),
+          interface.getMpcRobotModel(), targetTrajectoriesFunc);
 
   ros2ProceduralMpcMotionManager->subscribe(nodeHandle, qos);
 

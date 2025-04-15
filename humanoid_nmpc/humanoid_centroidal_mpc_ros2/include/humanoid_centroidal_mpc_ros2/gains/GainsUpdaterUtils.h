@@ -39,23 +39,28 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid::utils {
 
 /**
- * Returns entire list of state descriptions in the same order as they are stored in the state vector.
+ * Returns entire list of state descriptions in the same order as they are
+ * stored in the state vector.
  * @return
  */
-std::vector<std::string> getStateDescriptions(const ocs2::humanoid::ModelSettings& modelSettings);
+std::vector<std::string> getStateDescriptions(
+    const ocs2::humanoid::ModelSettings& modelSettings);
 
 /**
- * Returns entire list of input descriptions in the same order as they are stored in the input vector.
+ * Returns entire list of input descriptions in the same order as they are
+ * stored in the input vector.
  * @return
  */
-std::vector<std::string> getInputDescriptions(const ocs2::humanoid::ModelSettings& modelSettings);
+std::vector<std::string> getInputDescriptions(
+    const ocs2::humanoid::ModelSettings& modelSettings);
 
 /**
  * Fill in all relevant gain updaters
  * @return
  */
-std::unordered_map<std::string, std::shared_ptr<GainsUpdaterInterface>> getGainsUpdaters(OptimalControlProblem& optimalControlProblem,
-                                                                                         const CentroidalMpcInterface& centroidalInterface,
-                                                                                         std::shared_ptr<GenericGuiInterface> gui);
+std::unordered_map<std::string, std::shared_ptr<GainsUpdaterInterface>>
+getGainsUpdaters(OptimalControlProblem& optimalControlProblem,
+                 const CentroidalMpcInterface& centroidalInterface,
+                 std::shared_ptr<GenericGuiInterface> gui);
 
 }  // namespace ocs2::humanoid::utils

@@ -29,13 +29,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <string>
-#include <vector>
-
+#include <humanoid_common_mpc/gait/ModeSequenceTemplate.h>
 #include <ocs2_ros2_msgs/msg/mode_schedule.hpp>
 #include <rclcpp/rclcpp.hpp>
-
-#include <humanoid_common_mpc/gait/ModeSequenceTemplate.h>
+#include <string>
+#include <vector>
 
 namespace ocs2::humanoid {
 
@@ -44,10 +42,10 @@ class GaitKeyboardPublisher {
  public:
   GaitKeyboardPublisher(rclcpp::Node::SharedPtr& nodeHandle,
                         const std::string& gaitFile,
-                        const std::string& robotName,
-                        bool verbose = false);
+                        const std::string& robotName, bool verbose = false);
 
-  /** Prints the command line interface and responds to user input. Function returns after one user input. */
+  /** Prints the command line interface and responds to user input. Function
+   * returns after one user input. */
   void getKeyboardCommand();
 
  private:
@@ -57,7 +55,8 @@ class GaitKeyboardPublisher {
   std::vector<std::string> gaitList_;
   std::map<std::string, ModeSequenceTemplate> gaitMap_;
 
-  rclcpp::Publisher<ocs2_ros2_msgs::msg::ModeSchedule>::SharedPtr modeSequenceTemplatePublisher_;
+  rclcpp::Publisher<ocs2_ros2_msgs::msg::ModeSchedule>::SharedPtr
+      modeSequenceTemplatePublisher_;
 };
 
 }  // namespace ocs2::humanoid

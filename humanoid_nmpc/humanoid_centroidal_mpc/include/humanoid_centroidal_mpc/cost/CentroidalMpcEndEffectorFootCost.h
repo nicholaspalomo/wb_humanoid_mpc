@@ -29,12 +29,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <ocs2_centroidal_model/CentroidalModelInfo.h>
 #include <ocs2_core/cost/StateInputGaussNewtonCostAd.h>
 #include <ocs2_pinocchio_interface/PinocchioInterface.h>
 #include <ocs2_pinocchio_interface/PinocchioStateInputMapping.h>
 #include <pinocchio/algorithm/frames.hpp>
-
-#include <ocs2_centroidal_model/CentroidalModelInfo.h>
 
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
@@ -43,37 +42,48 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-class CentroidalMpcEndEffectorFootCost final : public StateInputCostGaussNewtonAd {
+class CentroidalMpcEndEffectorFootCost final
+    : public StateInputCostGaussNewtonAd {
  public:
-  CentroidalMpcEndEffectorFootCost(const SwitchedModelReferenceManager& referenceManager,
-                                   EndEffectorKinematicsWeights weights,
-                                   const PinocchioInterface& pinocchioInterface,
-                                   const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
-                                   size_t contactIndex,
-                                   std::string costName,
-                                   const ModelSettings& modelSettings);
+  CentroidalMpcEndEffectorFootCost(
+      const SwitchedModelReferenceManager& referenceManager,
+      EndEffectorKinematicsWeights weights,
+      const PinocchioInterface& pinocchioInterface,
+      const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
+      size_t contactIndex, std::string costName,
+      const ModelSettings& modelSettings);
 
   ~CentroidalMpcEndEffectorFootCost() override = default;
-  CentroidalMpcEndEffectorFootCost* clone() const override { return new CentroidalMpcEndEffectorFootCost(*this); }
+  CentroidalMpcEndEffectorFootCost* clone() const override {
+    return new CentroidalMpcEndEffectorFootCost(*this);
+  }
 
-  vector_t getParameters(scalar_t time, const TargetTrajectories& targetTrajectories, const PreComputation& preComputation) const override;
+  vector_t getParameters(scalar_t time,
+                         const TargetTrajectories& targetTrajectories,
+                         const PreComputation& preComputation) const override;
 
   bool isActive(scalar_t time) const override {
-    if (!isActive_) return false;
+    if (!isActive_) {
+      return false;
+    }
     return !referenceManagerPtr_->isInContact(time, contactIndex_);
   }
 
   void setActive(bool active) { isActive_ = active; }
   bool getActive() const { return isActive_; }
 
-  void setWeights(const vector12_t& weights) { sqrtWeights_ = weights.cwiseSqrt(); }
-  void getWeights(vector12_t& weights) const { weights = sqrtWeights_.cwiseProduct(sqrtWeights_); }
+  void setWeights(const vector12_t& weights) {
+    sqrtWeights_ = weights.cwiseSqrt();
+  }
+  void getWeights(vector12_t& weights) const {
+    weights = sqrtWeights_.cwiseProduct(sqrtWeights_);
+  }
 
  private:
-  CentroidalMpcEndEffectorFootCost(const CentroidalMpcEndEffectorFootCost& other);
+  CentroidalMpcEndEffectorFootCost(
+      const CentroidalMpcEndEffectorFootCost& other);
 
-  ad_vector_t costVectorFunction(ad_scalar_t time,
-                                 const ad_vector_t& state,
+  ad_vector_t costVectorFunction(ad_scalar_t time, const ad_vector_t& state,
                                  const ad_vector_t& input,
                                  const ad_vector_t& parameters) override;
 

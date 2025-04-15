@@ -30,15 +30,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 // Pinocchio forward declarations must be included first
-#include <pinocchio/fwd.hpp>
-
-#include <pinocchio/algorithm/center-of-mass.hpp>
-#include <pinocchio/algorithm/centroidal.hpp>
-#include <pinocchio/multibody/model.hpp>
-#include <pinocchio/parsers/urdf.hpp>
-
 #include <ocs2_core/misc/LoadData.h>
 #include <ocs2_pinocchio_interface/urdf.h>
+#include <pinocchio/algorithm/center-of-mass.hpp>
+#include <pinocchio/algorithm/centroidal.hpp>
+#include <pinocchio/fwd.hpp>
+#include <pinocchio/multibody/model.hpp>
+#include <pinocchio/parsers/urdf.hpp>
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/contact/ContactPolygon.h"
@@ -52,22 +50,24 @@ namespace ocs2::humanoid {
 /// \param[in] urdfFilePath: The absolute path to the URDF file for the robot.
 ///
 
-PinocchioInterface createDefaultPinocchioInterface(const std::string& urdfFilePath);
+PinocchioInterface createDefaultPinocchioInterface(
+    const std::string& urdfFilePath);
 
 ///
-/// \brief Creates a custom pinocchio model from the urdf by setting all the joints not contained in mpcModelJointNames to
-/// FIXED and adds a frame for each corner point of the contact poygons specified in the task file
+/// \brief Creates a custom pinocchio model from the urdf by setting all the
+/// joints not contained in mpcModelJointNames to FIXED and adds a frame for
+/// each corner point of the contact poygons specified in the task file
 ///
-/// \param[in] taskFilePath: The absolute path to the task file used to specify the contact configuration to add a
-/// frame for each corner of the contact polygon. \param[in] urdfFilePath: The absolute path to the URDF file for the
-/// robot. \param[in] mpcModelJointNames: A list of joint names that are actuated. All other joints are set to FIXED.
+/// \param[in] taskFilePath: The absolute path to the task file used to specify
+/// the contact configuration to add a frame for each corner of the contact
+/// polygon. \param[in] urdfFilePath: The absolute path to the URDF file for the
+/// robot. \param[in] mpcModelJointNames: A list of joint names that are
+/// actuated. All other joints are set to FIXED.
 ///
 
-PinocchioInterface createCustomPinocchioInterface(const std::string& taskFilePath,
-                                                  const std::string& urdfFilePath,
-                                                  const ModelSettings& modelSettings,
-                                                  bool scaleTotalMass = false,
-                                                  scalar_t totalMass = 1.0,
-                                                  bool verbose = false);
+PinocchioInterface createCustomPinocchioInterface(
+    const std::string& taskFilePath, const std::string& urdfFilePath,
+    const ModelSettings& modelSettings, bool scaleTotalMass = false,
+    scalar_t totalMass = 1.0, bool verbose = false);
 
 }  // namespace ocs2::humanoid

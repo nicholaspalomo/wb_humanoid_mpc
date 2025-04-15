@@ -28,9 +28,9 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <absl/log/check.h>
-
 #include "humanoid_common_mpc/constraint/FrictionForceConeLinearConstraint.h"
+
+#include <absl/log/check.h>
 
 namespace ocs2::humanoid {
 

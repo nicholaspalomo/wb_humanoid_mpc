@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_core/cost/QuadraticStateInputCost.h>
 #include <ocs2_pinocchio_interface/PinocchioInterface.h>
+
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
@@ -38,22 +39,22 @@ namespace ocs2::humanoid {
 
 class StateInputQuadraticCost final : public QuadraticStateInputCost {
  public:
-  StateInputQuadraticCost(matrix_t Q,
-                          matrix_t R,
+  StateInputQuadraticCost(matrix_t Q, matrix_t R,
                           const SwitchedModelReferenceManager& referenceManager,
                           const PinocchioInterface& pinocchioInterface,
                           const MpcRobotModelBase<scalar_t>& mpcRobotModel);
 
   ~StateInputQuadraticCost() override = default;
-  StateInputQuadraticCost* clone() const override { return new StateInputQuadraticCost(*this); };
+  StateInputQuadraticCost* clone() const override {
+    return new StateInputQuadraticCost(*this);
+  };
 
  private:
   StateInputQuadraticCost(const StateInputQuadraticCost& rhs);
 
-  std::pair<vector_t, vector_t> getStateInputDeviation(scalar_t time,
-                                                       const vector_t& state,
-                                                       const vector_t& input,
-                                                       const TargetTrajectories& targetTrajectories) const override;
+  std::pair<vector_t, vector_t> getStateInputDeviation(
+      scalar_t time, const vector_t& state, const vector_t& input,
+      const TargetTrajectories& targetTrajectories) const override;
 
   const SwitchedModelReferenceManager* referenceManagerPtr_;
   const PinocchioInterface& pinInterface_;

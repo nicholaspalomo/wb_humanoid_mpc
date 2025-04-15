@@ -34,39 +34,49 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 ///
-/// \brief Mapps between a set of forces, applied in each corner of the contact polygon, and an equivalent contact
-/// wrench. In case of mapping from wrench to contact corner forces the set of orces will be computed s.t. it is equal
-/// to the contact wrench and has the smallest sum of l2 norms.
+/// \brief Mapps between a set of forces, applied in each corner of the contact
+/// polygon, and an equivalent contact wrench. In case of mapping from wrench to
+/// contact corner forces the set of orces will be computed s.t. it is equal to
+/// the contact wrench and has the smallest sum of l2 norms.
 ///
-/// \param[in] contactPolygon A contact polygon specifying all the corners of the polygon in the local foot frame.
+/// \param[in] contactPolygon A contact polygon specifying all the corners of
+/// the polygon in the local foot frame.
 ///
 
 template <int N_POLYGON_POINTS>
 class ContactWrenchMapper {
  public:
-  ContactWrenchMapper(const ContactPolygon& contactPolygon) : contactPolygon_(contactPolygon) {
+  ContactWrenchMapper(const ContactPolygon& contactPolygon)
+      : contactPolygon_(contactPolygon) {
     assert(N_POLYGON_POINTS == contactPolygon.getNumberOfContactPoints() &&
-           "Number of contact points in contact polygon does not match with value specified to template");
+           "Number of contact points in contact polygon does not match with "
+           "value specified to template");
 
-    Eigen::Matrix<scalar_t, 6, 3 * N_POLYGON_POINTS> A = Eigen::Matrix<scalar_t, 6, 3 * N_POLYGON_POINTS>::Zero();
+    Eigen::Matrix<scalar_t, 6, 3 * N_POLYGON_POINTS> A =
+        Eigen::Matrix<scalar_t, 6, 3 * N_POLYGON_POINTS>::Zero();
     for (int i = 0; i < N_POLYGON_POINTS; i++) {
       A.block(0, 3 * i, 3, 3) = matrix3_t::Identity();
-      A.block(3, 3 * i, 3, 3) = contactPolygon.getContactPointTranslationCrossProductMatrix(i);
+      A.block(3, 3 * i, 3, 3) =
+          contactPolygon.getContactPointTranslationCrossProductMatrix(i);
     }
 
     mapForcesToContactWrench_ = A;
-    mapWrenchToVisualiazationForces_ = A.transpose() * (A * A.transpose()).inverse();
+    mapWrenchToVisualiazationForces_ =
+        A.transpose() * (A * A.transpose()).inverse();
   }
 
-  /// \brief Converts a contact wrench into an a set of equivalent contact forces at the corner of the contact polygon
+  /// \brief Converts a contact wrench into an a set of equivalent contact
+  /// forces at the corner of the contact polygon
   ///
   /// \param[in] contactWrench Expressed in the local contact frame
   ///
   /// \param[out] contactPointForceVec vector of 3D contact forces
 
-  std::array<vector3_t, N_POLYGON_POINTS> computeVisualizationForceArray(const vector6_t& contactWrench) const {
+  std::array<vector3_t, N_POLYGON_POINTS> computeVisualizationForceArray(
+      const vector6_t& contactWrench) const {
     std::array<vector3_t, N_POLYGON_POINTS> contactPointForceVec;
-    Eigen::Matrix<scalar_t, 3 * N_POLYGON_POINTS, 1> visualizationForces = mapWrenchToVisualiazationForces_ * contactWrench;
+    Eigen::Matrix<scalar_t, 3 * N_POLYGON_POINTS, 1> visualizationForces =
+        mapWrenchToVisualiazationForces_ * contactWrench;
     for (int i = 0; i < N_POLYGON_POINTS; i++) {
       contactPointForceVec[i] << (visualizationForces.segment(3 * i, 3));
     }
@@ -77,7 +87,8 @@ class ContactWrenchMapper {
 
  private:
   Eigen::Matrix<scalar_t, 6, 3 * N_POLYGON_POINTS> mapForcesToContactWrench_;
-  Eigen::Matrix<scalar_t, 3 * N_POLYGON_POINTS, 6> mapWrenchToVisualiazationForces_;
+  Eigen::Matrix<scalar_t, 3 * N_POLYGON_POINTS, 6>
+      mapWrenchToVisualiazationForces_;
 };
 
 }  // namespace ocs2::humanoid

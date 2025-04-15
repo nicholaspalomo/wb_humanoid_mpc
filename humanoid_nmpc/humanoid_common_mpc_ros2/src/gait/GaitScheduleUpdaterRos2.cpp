@@ -36,26 +36,29 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-GaitScheduleUpdaterRos2::GaitScheduleUpdaterRos2(rclcpp::Node::SharedPtr& nodeHandle,
-                                                 std::shared_ptr<GaitSchedule> gaitSchedulePtr,
-                                                 const std::string& robotName)
+GaitScheduleUpdaterRos2::GaitScheduleUpdaterRos2(
+    rclcpp::Node::SharedPtr& nodeHandle,
+    std::shared_ptr<GaitSchedule> gaitSchedulePtr, const std::string& robotName)
     : GaitScheduleUpdater(gaitSchedulePtr), gaitUpdatedAtomic_(false) {
   auto qos = rclcpp::QoS(1);
   qos.best_effort();
-  mpcModeSequenceSubscriber_ = nodeHandle->create_subscription<ocs2_ros2_msgs::msg::ModeSchedule>(
-      robotName + "_mpc_mode_schedule", qos, std::bind(&GaitScheduleUpdaterRos2::mpcModeSequenceCallback, this, std::placeholders::_1));
+  mpcModeSequenceSubscriber_ =
+      nodeHandle->create_subscription<ocs2_ros2_msgs::msg::ModeSchedule>(
+          robotName + "_mpc_mode_schedule", qos,
+          std::bind(&GaitScheduleUpdaterRos2::mpcModeSequenceCallback, this,
+                    std::placeholders::_1));
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-void GaitScheduleUpdaterRos2::preSolverRun(scalar_t initTime,
-                                           scalar_t finalTime,
-                                           const vector_t& currentState,
-                                           const ReferenceManagerInterface& referenceManager) {
+void GaitScheduleUpdaterRos2::preSolverRun(
+    scalar_t initTime, scalar_t finalTime, const vector_t& currentState,
+    const ReferenceManagerInterface& referenceManager) {
   if (gaitUpdatedAtomic_.load()) {
-    updateGaitSchedule(gaitSchedulePtr_, getReceivedGait(), initTime, finalTime);
+    updateGaitSchedule(gaitSchedulePtr_, getReceivedGait(), initTime,
+                       finalTime);
     gaitUpdatedAtomic_.store(false);
   }
 }
@@ -71,7 +74,8 @@ ModeSequenceTemplate GaitScheduleUpdaterRos2::getReceivedGait() {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void GaitScheduleUpdaterRos2::mpcModeSequenceCallback(const ocs2_ros2_msgs::msg::ModeSchedule::SharedPtr msg) {
+void GaitScheduleUpdaterRos2::mpcModeSequenceCallback(
+    const ocs2_ros2_msgs::msg::ModeSchedule::SharedPtr msg) {
   std::lock_guard<std::mutex> lock(receivedGaitMutex_);
   updateModeSequence(readModeSequenceTemplateMsg(*msg));
   gaitUpdatedAtomic_.store(true);

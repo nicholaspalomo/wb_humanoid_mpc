@@ -29,12 +29,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <ocs2_centroidal_model/CentroidalModelInfo.h>
 #include <ocs2_core/cost/StateInputGaussNewtonCostAd.h>
 #include <ocs2_pinocchio_interface/PinocchioInterface.h>
 #include <ocs2_pinocchio_interface/PinocchioStateInputMapping.h>
 #include <pinocchio/algorithm/frames.hpp>
-
-#include <ocs2_centroidal_model/CentroidalModelInfo.h>
 
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
@@ -46,36 +45,43 @@ namespace ocs2::humanoid {
 class ICPCost final : public StateInputCostGaussNewtonAd {
  public:
   ICPCost(const SwitchedModelReferenceManager& referenceManager,
-          vector2_t weights,
-          const PinocchioInterface& pinocchioInterface,
+          vector2_t weights, const PinocchioInterface& pinocchioInterface,
           const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
-          std::string costName,
-          const ModelSettings& modelSettings);
+          std::string costName, const ModelSettings& modelSettings);
 
   ~ICPCost() override = default;
   ICPCost* clone() const override { return new ICPCost(*this); }
 
-  vector_t getParameters(scalar_t time, const TargetTrajectories& targetTrajectories, const PreComputation& preComputation) const override;
+  vector_t getParameters(scalar_t time,
+                         const TargetTrajectories& targetTrajectories,
+                         const PreComputation& preComputation) const override;
 
   bool isActive(scalar_t time) const override {
-    if (!isActive_) return false;
-    const contact_flag_t contactFlags = referenceManagerPtr_->getContactFlags(time);
+    if (!isActive_) {
+      return false;
+    }
+    const contact_flag_t contactFlags =
+        referenceManagerPtr_->getContactFlags(time);
     return (contactFlags[0] && contactFlags[1]);
   }
 
   void setActive(bool active) { isActive_ = active; }
   bool getActive() const { return isActive_; }
 
-  void setWeights(const vector2_t& weights) { sqrtWeights_ = weights.cwiseSqrt(); }
-  void getWeights(vector2_t& weights) const { weights = sqrtWeights_.cwiseProduct(sqrtWeights_); }
+  void setWeights(const vector2_t& weights) {
+    sqrtWeights_ = weights.cwiseSqrt();
+  }
+  void getWeights(vector2_t& weights) const {
+    weights = sqrtWeights_.cwiseProduct(sqrtWeights_);
+  }
 
-  static vector2_t getWeights(const std::string& taskFile, const std::string prefix, bool verbose);
+  static vector2_t getWeights(const std::string& taskFile,
+                              const std::string prefix, bool verbose);
 
  private:
   ICPCost(const ICPCost& other);
 
-  ad_vector_t costVectorFunction(ad_scalar_t time,
-                                 const ad_vector_t& state,
+  ad_vector_t costVectorFunction(ad_scalar_t time, const ad_vector_t& state,
                                  const ad_vector_t& input,
                                  const ad_vector_t& parameters) override;
 

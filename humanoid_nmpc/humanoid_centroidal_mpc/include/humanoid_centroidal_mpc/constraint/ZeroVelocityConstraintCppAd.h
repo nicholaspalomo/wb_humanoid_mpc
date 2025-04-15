@@ -37,37 +37,45 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Specializes the CppAd version of zero velocity constraint on an end-effector position and linear velocity.
- * Constructs the member EndEffectorKinematicsLinearVelConstraint object with number of constraints of 3.
+ * Specializes the CppAd version of zero velocity constraint on an end-effector
+ * position and linear velocity. Constructs the member
+ * EndEffectorKinematicsLinearVelConstraint object with number of constraints
+ * of 3.
  *
- * See also EndEffectorKinematicsLinearVelConstraint for the underlying computation.
+ * See also EndEffectorKinematicsLinearVelConstraint for the underlying
+ * computation.
  */
 class ZeroVelocityConstraintCppAd final : public StateInputConstraint {
  public:
   /**
    * Constructor
    * @param [in] referenceManager : Switched model ReferenceManager
-   * @param [in] endEffectorKinematics: The kinematic interface to the target end-effector.
+   * @param [in] endEffectorKinematics: The kinematic interface to the target
+   * end-effector.
    * @param [in] contactPointIndex : The 3 DoF contact index.
    * @param [in] config: The constraint coefficients
    */
-  ZeroVelocityConstraintCppAd(const SwitchedModelReferenceManager& referenceManager,
-                              const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
-                              size_t contactPointIndex,
-                              EndEffectorKinematicsTwistConstraint::Config config = EndEffectorKinematicsTwistConstraint::Config());
+  ZeroVelocityConstraintCppAd(
+      const SwitchedModelReferenceManager& referenceManager,
+      const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
+      size_t contactPointIndex,
+      EndEffectorKinematicsTwistConstraint::Config config =
+          EndEffectorKinematicsTwistConstraint::Config());
 
   ~ZeroVelocityConstraintCppAd() override = default;
-  ZeroVelocityConstraintCppAd* clone() const override { return new ZeroVelocityConstraintCppAd(*this); }
+  ZeroVelocityConstraintCppAd* clone() const override {
+    return new ZeroVelocityConstraintCppAd(*this);
+  }
 
   bool isActive(scalar_t time) const override;
   void setActive(bool isActive) override { isActive_ = isActive; }
   bool getActive() const override { return isActive_; }
   size_t getNumConstraints(scalar_t time) const override { return 6; }
-  vector_t getValue(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) const override;
-  VectorFunctionLinearApproximation getLinearApproximation(scalar_t time,
-                                                           const vector_t& state,
-                                                           const vector_t& input,
-                                                           const PreComputation& preComp) const override;
+  vector_t getValue(scalar_t time, const vector_t& state, const vector_t& input,
+                    const PreComputation& preComp) const override;
+  VectorFunctionLinearApproximation getLinearApproximation(
+      scalar_t time, const vector_t& state, const vector_t& input,
+      const PreComputation& preComp) const override;
 
  private:
   ZeroVelocityConstraintCppAd(const ZeroVelocityConstraintCppAd& rhs);

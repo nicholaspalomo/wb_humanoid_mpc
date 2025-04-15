@@ -27,14 +27,12 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <rclcpp/rclcpp.hpp>
-
 #include <humanoid_centroidal_mpc/CentroidalMpcInterface.h>
 #include <humanoid_common_mpc_ros2/visualization/HumanoidVisualizer.h>
+#include <ocs2_pinocchio_interface/PinocchioEndEffectorKinematics.h>
+#include <rclcpp/rclcpp.hpp>
 
 #include "ocs2_centroidal_model/CentroidalModelPinocchioMapping.h"
-
-#include <ocs2_pinocchio_interface/PinocchioEndEffectorKinematics.h>
 
 using namespace ocs2;
 using namespace ocs2::humanoid;
@@ -43,7 +41,9 @@ int main(int argc, char** argv) {
   std::vector<std::string> programArgs;
   programArgs = rclcpp::remove_ros_arguments(argc, argv);
   if (programArgs.size() < 5) {
-    throw std::runtime_error("No robot name, config folder, target command file, or description name specified. Aborting.");
+    throw std::runtime_error(
+        "No robot name, config folder, target command file, or description "
+        "name specified. Aborting.");
   }
 
   const std::string robotName(argv[1]);
@@ -57,13 +57,16 @@ int main(int argc, char** argv) {
 
   CentroidalMpcInterface interface(taskFile, urdfFile, referenceFile, gaitFile);
 
-  HumanoidVisualizer visualization(taskFile, interface.getPinocchioInterface(), interface.getMpcRobotModel(), node);
+  HumanoidVisualizer visualization(taskFile, interface.getPinocchioInterface(),
+                                   interface.getMpcRobotModel(), node);
 
   SystemObservation observation;
 
-  observation.state = vector_t::Zero(interface.getMpcRobotModel().getStateDim());
+  observation.state =
+      vector_t::Zero(interface.getMpcRobotModel().getStateDim());
   observation.state[8] = 0.9;
-  observation.input = vector_t::Zero(interface.getMpcRobotModel().getInputDim());
+  observation.input =
+      vector_t::Zero(interface.getMpcRobotModel().getInputDim());
 
   PrimalSolution dummySolution;
   CommandData commandData;

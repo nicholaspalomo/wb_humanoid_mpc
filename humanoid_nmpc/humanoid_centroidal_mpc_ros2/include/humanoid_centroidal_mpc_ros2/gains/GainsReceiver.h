@@ -31,9 +31,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <humanoid_centroidal_mpc/CentroidalMpcInterface.h>
 #include <humanoid_centroidal_mpc_ros2/gains/GainsUpdaterInterface.h>
-#include <ocs2_oc/synchronized_module/SolverSynchronizedModule.h>
 #include <memory>
 #include <mutex>
+#include <ocs2_oc/synchronized_module/SolverSynchronizedModule.h>
 #include <ocs2_ros2_msgs/msg/gains.hpp>
 #include <rclcpp/rclcpp.hpp>
 
@@ -46,8 +46,7 @@ class GainsReceiver : public SolverSynchronizedModule {
                 std::vector<OptimalControlProblem>& ocpDefinitions);
   ~GainsReceiver() override = default;
 
-  void preSolverRun(scalar_t initTime,
-                    scalar_t finalTime,
+  void preSolverRun(scalar_t initTime, scalar_t finalTime,
                     const vector_t& currentState,
                     const ReferenceManagerInterface& referenceManager) override;
 
@@ -58,10 +57,13 @@ class GainsReceiver : public SolverSynchronizedModule {
 
  private:
   rclcpp::Node::SharedPtr node_;
-  rclcpp::Subscription<ocs2_ros2_msgs::msg::Gains>::SharedPtr gainsSubscription_;
+  rclcpp::Subscription<ocs2_ros2_msgs::msg::Gains>::SharedPtr
+      gainsSubscription_;
   std::mutex gainsMutex_;
   std::optional<ocs2_ros2_msgs::msg::Gains> currentGains_ = std::nullopt;
-  std::vector<std::unordered_map<std::string, std::shared_ptr<GainsUpdaterInterface>>> gainsUpdaters_;
+  std::vector<
+      std::unordered_map<std::string, std::shared_ptr<GainsUpdaterInterface>>>
+      gainsUpdaters_;
 };
 
 }  // namespace ocs2::humanoid

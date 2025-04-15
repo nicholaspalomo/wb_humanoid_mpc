@@ -33,7 +33,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_pinocchio_interface/PinocchioInterface.h>
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
-
 #include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
 
 namespace ocs2::humanoid {
@@ -47,17 +46,20 @@ class JointTorqueCostCppAd final : public StateInputCostGaussNewtonAd {
                        const ModelSettings& modelSettings);
 
   ~JointTorqueCostCppAd() override = default;
-  JointTorqueCostCppAd* clone() const override { return new JointTorqueCostCppAd(*this); }
+  JointTorqueCostCppAd* clone() const override {
+    return new JointTorqueCostCppAd(*this);
+  }
 
-  vector_t getParameters(scalar_t time, const TargetTrajectories& targetTrajectories, const PreComputation& preComputation) const override {
+  vector_t getParameters(scalar_t time,
+                         const TargetTrajectories& targetTrajectories,
+                         const PreComputation& preComputation) const override {
     return sqrtWeights_;
   }
 
  private:
   JointTorqueCostCppAd(const JointTorqueCostCppAd& other);
 
-  ad_vector_t costVectorFunction(ad_scalar_t time,
-                                 const ad_vector_t& state,
+  ad_vector_t costVectorFunction(ad_scalar_t time, const ad_vector_t& state,
                                  const ad_vector_t& input,
                                  const ad_vector_t& parameters) override;
 

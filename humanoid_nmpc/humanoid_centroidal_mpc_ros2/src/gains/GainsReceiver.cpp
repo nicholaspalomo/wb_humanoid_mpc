@@ -40,29 +40,33 @@ GainsReceiver::GainsReceiver(rclcpp::Node::SharedPtr node,
   // Setup subscriber
   rclcpp::QoS qos(1);
   qos.best_effort();
-  gainsSubscription_ = node_->create_subscription<ocs2_ros2_msgs::msg::Gains>("/humanoid/mpc_gains", qos,
-                                                                              [&](const ocs2_ros2_msgs::msg::Gains& msg) -> void {
-                                                                                std::lock_guard<std::mutex> lock(gainsMutex_);
-                                                                                currentGains_ = msg;
-                                                                              });
+  gainsSubscription_ = node_->create_subscription<ocs2_ros2_msgs::msg::Gains>(
+      "/humanoid/mpc_gains", qos,
+      [&](const ocs2_ros2_msgs::msg::Gains& msg) -> void {
+        std::lock_guard<std::mutex> lock(gainsMutex_);
+        currentGains_ = msg;
+      });
 
   // Setup gains updaters
-  // IMPORTANT NOTE: This will only work reliably as long as ocpDefinitions is not modified after this point!!!
-  // Yeah, it's actually not great...
+  // IMPORTANT NOTE: This will only work reliably as long as ocpDefinitions is
+  // not modified after this point!!! Yeah, it's actually not great...
   gainsUpdaters_.clear();
-  for (OptimalControlProblem& ocpDefinition : ocpDefinitions)
-    gainsUpdaters_.push_back(utils::getGainsUpdaters(ocpDefinition, centroidalInterface, nullptr));
+  for (OptimalControlProblem& ocpDefinition : ocpDefinitions) {
+    gainsUpdaters_.push_back(
+        utils::getGainsUpdaters(ocpDefinition, centroidalInterface, nullptr));
+  }
 }
 
-void GainsReceiver::preSolverRun(scalar_t initTime,
-                                 scalar_t finalTime,
-                                 const vector_t& currentState,
-                                 const ReferenceManagerInterface& referenceManager) {
+void GainsReceiver::preSolverRun(
+    scalar_t initTime, scalar_t finalTime, const vector_t& currentState,
+    const ReferenceManagerInterface& referenceManager) {
   // Lock the current gains
   std::lock_guard<std::mutex> lock(gainsMutex_);
 
   // If there are no gains, return
-  if (!currentGains_.has_value()) return;
+  if (!currentGains_.has_value()) {
+    return;
+  }
 
   // Update all gains
   for (const auto& individualGains : currentGains_->value) {
@@ -75,10 +79,15 @@ void GainsReceiver::preSolverRun(scalar_t initTime,
     }
     // Print debug info
     if (!found) {
-      RCLCPP_ERROR(node_->get_logger(), "[GainsReceiver::preSolverRun] Cost term `%s` does not seem to exist",
-                   individualGains.name.c_str());
+      RCLCPP_ERROR(
+          node_->get_logger(),
+          "[GainsReceiver::preSolverRun] Cost term `%s` does not seem to exist",
+          individualGains.name.c_str());
     } else if (printDebugInfo_) {
-      RCLCPP_INFO(node_->get_logger(), "[GainsReceiver::preSolverRun] Updated gains for cost term `%s`", individualGains.name.c_str());
+      RCLCPP_INFO(
+          node_->get_logger(),
+          "[GainsReceiver::preSolverRun] Updated gains for cost term `%s`",
+          individualGains.name.c_str());
     }
   }
 

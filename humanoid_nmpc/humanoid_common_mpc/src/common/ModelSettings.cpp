@@ -29,16 +29,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 
+#include <absl/log/check.h>
 #include <boost/property_tree/info_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
-
 #include <filesystem>
-#include <stdexcept>
-
 #include <ocs2_core/misc/LoadData.h>
 #include <ocs2_pinocchio_interface/PinocchioInterface.h>
-
-#include <absl/log/check.h>
+#include <stdexcept>
 
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 

@@ -27,25 +27,20 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
-
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
-
 #include "humanoid_centroidal_mpc/cost/ICPCost.h"
 
-#include <humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h>
-
-#include <ocs2_centroidal_model/ModelHelperFunctions.h>
-#include <ocs2_robotic_tools/common/RotationTransforms.h>
-
 #include <cmath>
+#include <humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h>
+#include <ocs2_centroidal_model/ModelHelperFunctions.h>
+#include <ocs2_pinocchio_interface/PinocchioInterface.h>
+#include <ocs2_pinocchio_interface/PinocchioStateInputMapping.h>
+#include <ocs2_robotic_tools/common/RotationTransforms.h>
 #include <pinocchio/algorithm/center-of-mass.hpp>
 #include <pinocchio/algorithm/frames.hpp>
 #include <pinocchio/algorithm/kinematics.hpp>
+#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
 #include <pinocchio/multibody/data.hpp>
 #include <pinocchio/multibody/model.hpp>
-
-#include <ocs2_pinocchio_interface/PinocchioStateInputMapping.h>
 
 namespace ocs2::humanoid {
 
@@ -57,16 +52,17 @@ ICPCost::ICPCost(const SwitchedModelReferenceManager& referenceManager,
                  vector2_t weights,
                  const PinocchioInterface& pinocchioInterface,
                  const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
-                 std::string costName,
-                 const ModelSettings& modelSettings)
+                 std::string costName, const ModelSettings& modelSettings)
     : StateInputCostGaussNewtonAd(),
       referenceManagerPtr_(&referenceManager),
       sqrtWeights_(weights.cwiseSqrt()),
       pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
       mpcRobotModelAdPtr_(mpcRobotModelAD.clone()) {
-  initialize(mpcRobotModelAD.getStateDim(), mpcRobotModelAD.getInputDim(), 2, costName, modelSettings.modelFolderCppAd,
+  initialize(mpcRobotModelAD.getStateDim(), mpcRobotModelAD.getInputDim(), 2,
+             costName, modelSettings.modelFolderCppAd,
              modelSettings.recompileLibrariesCppAd);
-  std::cout << "Initialized ICPCost with weights: " << weights.transpose() << std::endl;
+  std::cout << "Initialized ICPCost with weights: " << weights.transpose()
+            << std::endl;
 }
 
 /******************************************************************************************************/
@@ -88,12 +84,16 @@ ad_vector_t ICPCost::costVectorFunction(ad_scalar_t time,
                                         const ad_vector_t& state,
                                         const ad_vector_t& input,
                                         const ad_vector_t& parameters) {
-  const pinocchio::ReferenceFrame rf = pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED;
-  const ad_vector_t sqrtWeightParams = parameters.head(2);  // EndEffectorKinematicsWeights vector element
+  const pinocchio::ReferenceFrame rf =
+      pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED;
+  const ad_vector_t sqrtWeightParams =
+      parameters.head(2);  // EndEffectorKinematicsWeights vector element
 
   const auto& model = pinocchioInterfaceCppAd_.getModel();
   auto& data = pinocchioInterfaceCppAd_.getData();
-  scalar_t omega = std::sqrt(9.81 / 0.7);  // sqrt(g / z_0) This default com height should be added from the config.
+  scalar_t omega =
+      std::sqrt(9.81 / 0.7);  // sqrt(g / z_0) This default com height should be
+                              // added from the config.
 
   const ad_vector_t q = mpcRobotModelAdPtr_->getGeneralizedCoordinates(state);
 
@@ -101,8 +101,10 @@ ad_vector_t ICPCost::costVectorFunction(ad_scalar_t time,
   ad_vector2_t com = data.com[0].head(2);
 
   pinocchio::updateFramePlacements(model, data);
-  auto contactPositions = getContactPositions<ad_scalar_t>(pinocchioInterfaceCppAd_, *mpcRobotModelAdPtr_);
-  ad_vector2_t desiredCOMPosition = (contactPositions[0] + contactPositions[1]).head(2) / ad_scalar_t(2.0);
+  auto contactPositions = getContactPositions<ad_scalar_t>(
+      pinocchioInterfaceCppAd_, *mpcRobotModelAdPtr_);
+  ad_vector2_t desiredCOMPosition =
+      (contactPositions[0] + contactPositions[1]).head(2) / ad_scalar_t(2.0);
 
   ad_vector_t com_vel(2);
   com_vel[0] = state[0];
@@ -119,9 +121,12 @@ ad_vector_t ICPCost::costVectorFunction(ad_scalar_t time,
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-vector_t ICPCost::getParameters(scalar_t time, const TargetTrajectories& targetTrajectories, const PreComputation& preComputation) const {
+vector_t ICPCost::getParameters(scalar_t time,
+                                const TargetTrajectories& targetTrajectories,
+                                const PreComputation& preComputation) const {
   // TODO Update this reference for non flat ground in the future
-  vector_t parameters = sqrtWeights_;  // EndEffectorKinematicsWeights vector element
+  vector_t parameters =
+      sqrtWeights_;  // EndEffectorKinematicsWeights vector element
 
   return parameters;
 }
@@ -130,7 +135,8 @@ vector_t ICPCost::getParameters(scalar_t time, const TargetTrajectories& targetT
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-vector2_t ICPCost::getWeights(const std::string& taskFile, const std::string prefix, bool verbose) {
+vector2_t ICPCost::getWeights(const std::string& taskFile,
+                              const std::string prefix, bool verbose) {
   boost::property_tree::ptree pt;
   boost::property_tree::read_info(taskFile, pt);
 
@@ -139,12 +145,17 @@ vector2_t ICPCost::getWeights(const std::string& taskFile, const std::string pre
 
   if (verbose) {
     std::cerr << "\n #### ICP Cost Weights: ";
-    std::cerr << "\n #### =============================================================================\n";
+    std::cerr << "\n #### "
+                 "============================================================="
+                 "================\n";
   }
-  loadData::loadPtreeValue(pt, icpErrorWeight, prefix + "icpErrorWeight", verbose);
+  loadData::loadPtreeValue(pt, icpErrorWeight, prefix + "icpErrorWeight",
+                           verbose);
 
   if (verbose) {
-    std::cerr << " #### =============================================================================\n";
+    std::cerr << " #### "
+                 "============================================================="
+                 "================\n";
   }
 
   vector2_t weights;

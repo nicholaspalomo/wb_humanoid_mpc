@@ -30,15 +30,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <absl/log/check.h>
 #include <memory>
-
 #include <ocs2_core/constraint/StateInputConstraint.h>
 
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
-
-#include <absl/log/check.h>
 
 namespace ocs2::humanoid {
 

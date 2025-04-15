@@ -36,13 +36,17 @@ namespace ocs2::humanoid {
 
 class JointLimitsGainsUpdater : public GainsUpdaterInterface {
  public:
-  JointLimitsGainsUpdater(std::shared_ptr<GenericGuiInterface> gui) : GainsUpdaterInterface(gui) {}
+  JointLimitsGainsUpdater(std::shared_ptr<GenericGuiInterface> gui)
+      : GainsUpdaterInterface(gui) {}
   ~JointLimitsGainsUpdater() override = default;
 
-  bool initialize(ocs2::OptimalControlProblem& optimalControlProblem, const std::string& description) override {
+  bool initialize(ocs2::OptimalControlProblem& optimalControlProblem,
+                  const std::string& description) override {
     try {
-      auto& generic = optimalControlProblem.stateSoftConstraintPtr->get(description);
-      auto& custom = dynamic_cast<ocs2::humanoid::JointLimitsSoftConstraint&>(generic);
+      auto& generic =
+          optimalControlProblem.stateSoftConstraintPtr->get(description);
+      auto& custom =
+          dynamic_cast<ocs2::humanoid::JointLimitsSoftConstraint&>(generic);
 
       name_ = description;
       component_ = &custom;
@@ -57,7 +61,9 @@ class JointLimitsGainsUpdater : public GainsUpdaterInterface {
   }
 
   bool drawGui() override {
-    if (!gui_) return false;
+    if (!gui_) {
+      return false;
+    }
 
     bool hasBeenTriggered = false;
     if (gui_->TreeNode(name_.c_str())) {
@@ -67,10 +73,16 @@ class JointLimitsGainsUpdater : public GainsUpdaterInterface {
       bool isActive = component_->getActive();
 
       // Draw gui
-      if (gui_->Checkbox("Active", &isActive)) hasBeenTriggered = true;
+      if (gui_->Checkbox("Active", &isActive)) {
+        hasBeenTriggered = true;
+      }
       if (isActive) {
-        if (gui_->InputDouble("mu", &mu)) hasBeenTriggered = true;
-        if (gui_->InputDouble("delta", &delta)) hasBeenTriggered = true;
+        if (gui_->InputDouble("mu", &mu)) {
+          hasBeenTriggered = true;
+        }
+        if (gui_->InputDouble("delta", &delta)) {
+          hasBeenTriggered = true;
+        }
       }
 
       // Update update gains
@@ -96,9 +108,11 @@ class JointLimitsGainsUpdater : public GainsUpdaterInterface {
     data.push_back(delta);
   }
 
-  void setFromMessage(const ocs2_ros2_msgs::msg::IndividualGains& gains) override {
+  void setFromMessage(
+      const ocs2_ros2_msgs::msg::IndividualGains& gains) override {
     if (gains.name != name_ || gains.values.size() != 2) {
-      throw std::runtime_error("[JointLimitsGainsUpdater] Invalid message received!]");
+      throw std::runtime_error(
+          "[JointLimitsGainsUpdater] Invalid message received!]");
     }
 
     component_->setActive(gains.is_active);

@@ -39,20 +39,21 @@ namespace ocs2::humanoid {
 
 class HumanoidVisualizerRos2Interface : public HumanoidVisualizer {
  public:
-  HumanoidVisualizerRos2Interface(const std::string& taskFile,
-                                  PinocchioInterface pinocchioInterface,
-                                  const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                                  rclcpp::Node::SharedPtr nodeHandle,
-                                  scalar_t maxUpdateFrequency = 100.0);
+  HumanoidVisualizerRos2Interface(
+      const std::string& taskFile, PinocchioInterface pinocchioInterface,
+      const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+      rclcpp::Node::SharedPtr nodeHandle, scalar_t maxUpdateFrequency = 100.0);
 
-  HumanoidVisualizerRos2Interface(const HumanoidVisualizerRos2Interface&) = delete;
+  HumanoidVisualizerRos2Interface(const HumanoidVisualizerRos2Interface&) =
+      delete;
 
   ~HumanoidVisualizerRos2Interface() override = default;
 
   void launchSubscribers() override;
 
  private:
-  void mpcObservationCallback(const ocs2_ros2_msgs::msg::MpcObservation::SharedPtr msg) override;
+  void mpcObservationCallback(
+      const ocs2_ros2_msgs::msg::MpcObservation::SharedPtr msg) override;
 
   MRTPolicySubscriber mRTPolicySubscriper_;
 };

@@ -29,11 +29,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
-
 #include <ocs2_core/constraint/StateInputConstraint.h>
 #include <ocs2_core/cost/StateCost.h>
 #include <ocs2_core/cost/StateInputCost.h>
+#include <ocs2_pinocchio_interface/PinocchioInterface.h>
 #include <ocs2_robotic_tools/end_effector/EndEffectorKinematics.h>
 
 #include "humanoid_common_mpc/common/ModelSettings.h"

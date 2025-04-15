@@ -27,6 +27,8 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include "humanoid_common_mpc_ros2/visualization/COMVisualizer.hpp"
+
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -39,13 +41,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "pinocchio/multibody/model.hpp"
 #include "pinocchio/parsers/urdf.hpp"
 #include "rclcpp/rclcpp.hpp"
-#include "urdf/model.h"
-
 #include "sensor_msgs/msg/joint_state.hpp"
+#include "urdf/model.h"
 #include "visualization_msgs/msg/marker.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
-
-#include "humanoid_common_mpc_ros2/visualization/COMVisualizer.hpp"
 
 namespace ocs2::humanoid {
 
@@ -68,13 +67,17 @@ COMVisualizer::COMVisualizer() : Node("COMVisualizer") {
 
   // Subscribe to joint states
   joint_state_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(
-      "joint_states", 10, std::bind(&COMVisualizer::updateJointPositions, this, std::placeholders::_1));
+      "joint_states", 10,
+      std::bind(&COMVisualizer::updateJointPositions, this,
+                std::placeholders::_1));
 
   // Create publisher for COM marker
-  com_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("humanoid/com_markers", 10);
+  com_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>(
+      "humanoid/com_markers", 10);
 
   // Timer to publish COM periodically
-  timer_ = this->create_wall_timer(std::chrono::milliseconds(100), std::bind(&COMVisualizer::publishCOM, this));
+  timer_ = this->create_wall_timer(std::chrono::milliseconds(100),
+                                   std::bind(&COMVisualizer::publishCOM, this));
 
   RCLCPP_INFO(this->get_logger(), "Humanoid COM Visualizer initialized.");
 }
@@ -91,20 +94,26 @@ bool COMVisualizer::loadRobotModel(const std::string& urdf_file) {
 }
 
 void COMVisualizer::printJointInfo() {
-  RCLCPP_INFO(this->get_logger(), "Total number of joints (including universe joint): %d", static_cast<int>(pinocchio_model_.njoints));
-  RCLCPP_INFO(this->get_logger(), "Number of degrees of freedom: %d", static_cast<int>(pinocchio_model_.nq));
+  RCLCPP_INFO(this->get_logger(),
+              "Total number of joints (including universe joint): %d",
+              static_cast<int>(pinocchio_model_.njoints));
+  RCLCPP_INFO(this->get_logger(), "Number of degrees of freedom: %d",
+              static_cast<int>(pinocchio_model_.nq));
 
   for (int i = 0; i < pinocchio_model_.njoints; i++) {
     const auto& joint = pinocchio_model_.joints[i];
-    RCLCPP_INFO(this->get_logger(), "Joint %d: %s (nq: %d, nv: %d)", i, pinocchio_model_.names[i].c_str(), static_cast<int>(joint.nq()),
+    RCLCPP_INFO(this->get_logger(), "Joint %d: %s (nq: %d, nv: %d)", i,
+                pinocchio_model_.names[i].c_str(), static_cast<int>(joint.nq()),
                 static_cast<int>(joint.nv()));
   }
 }
 
 void COMVisualizer::initializeJointMap() {
-  for (int i = 1; i < pinocchio_model_.njoints; i++) {  // Start from 1 to skip the universe joint!!!
+  for (int i = 1; i < pinocchio_model_.njoints;
+       i++) {  // Start from 1 to skip the universe joint!!!
     joint_name_to_index_[pinocchio_model_.names[i]] = i;
-    RCLCPP_INFO(this->get_logger(), "Mapped joint '%s' to index %d", pinocchio_model_.names[i].c_str(), i);
+    RCLCPP_INFO(this->get_logger(), "Mapped joint '%s' to index %d",
+                pinocchio_model_.names[i].c_str(), i);
   }
 }
 
@@ -181,23 +190,29 @@ void COMVisualizer::publishCOM() {
 }
 
 Eigen::Vector3d COMVisualizer::calculateCOM() {
-  pinocchio::forwardKinematics(pinocchio_model_, pinocchio_data_, joint_positions_);
+  pinocchio::forwardKinematics(pinocchio_model_, pinocchio_data_,
+                               joint_positions_);
   pinocchio::updateGlobalPlacements(pinocchio_model_, pinocchio_data_);
   return pinocchio::centerOfMass(pinocchio_model_, pinocchio_data_);
 }
 
-void COMVisualizer::updateJointPositions(const sensor_msgs::msg::JointState::SharedPtr msg) {
+void COMVisualizer::updateJointPositions(
+    const sensor_msgs::msg::JointState::SharedPtr msg) {
   for (size_t i = 0; i < msg->name.size(); i++) {
     auto it = joint_name_to_index_.find(msg->name[i]);
     if (it != joint_name_to_index_.end()) {
       int idx = it->second;
       if (idx > 0 && idx < joint_positions_.size()) {
-        joint_positions_(pinocchio_model_.joints[idx].idx_q()) = msg->position[i];
+        joint_positions_(pinocchio_model_.joints[idx].idx_q()) =
+            msg->position[i];
       } else {
-        // RCLCPP_WARN(this->get_logger(), "Joint index out of range for joint %s: %d", msg->name[i].c_str(), idx);
+        // RCLCPP_WARN(this->get_logger(), "Joint index out of range for joint
+        // %s: %d", msg->name[i].c_str(), idx);
       }
     } else {
-      RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000, "Joint %s not found in the model", msg->name[i].c_str());
+      RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
+                           "Joint %s not found in the model",
+                           msg->name[i].c_str());
     }
   }
 }

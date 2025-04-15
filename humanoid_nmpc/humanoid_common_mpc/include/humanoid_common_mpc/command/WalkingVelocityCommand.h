@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <humanoid_mpc_msgs/msg/walking_velocity_command.hpp>
+
 #include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid {
@@ -37,13 +38,17 @@ namespace ocs2::humanoid {
 struct WalkingVelocityCommand {
  public:
   WalkingVelocityCommand() = default;
-  WalkingVelocityCommand(scalar_t v_x, scalar_t v_y, scalar_t desired_pelvis_h, scalar_t v_yaw)
-      : linear_velocity_x(v_x), linear_velocity_y(v_y), desired_pelvis_height(desired_pelvis_h), angular_velocity_z(v_yaw){};
+  WalkingVelocityCommand(scalar_t v_x, scalar_t v_y, scalar_t desired_pelvis_h,
+                         scalar_t v_yaw)
+      : linear_velocity_x(v_x),
+        linear_velocity_y(v_y),
+        desired_pelvis_height(desired_pelvis_h),
+        angular_velocity_z(v_yaw) {};
   WalkingVelocityCommand(const vector4_t& velCommand)
       : linear_velocity_x(velCommand(0)),
         linear_velocity_y(velCommand(1)),
         desired_pelvis_height(velCommand(2)),
-        angular_velocity_z(velCommand(3)){};
+        angular_velocity_z(velCommand(3)) {};
   scalar_t linear_velocity_x = 0.0;
   scalar_t linear_velocity_y = 0.0;
   scalar_t desired_pelvis_height = 0.8;  // Above ground
@@ -56,10 +61,14 @@ struct WalkingVelocityCommand {
     angular_velocity_z = 0.0;
   }
 
-  vector4_t toVector() { return vector4_t(linear_velocity_x, linear_velocity_y, desired_pelvis_height, angular_velocity_z); };
+  vector4_t toVector() {
+    return vector4_t(linear_velocity_x, linear_velocity_y,
+                     desired_pelvis_height, angular_velocity_z);
+  };
 };
 
-inline WalkingVelocityCommand getWalkingVelocityCommandFromMsg(const humanoid_mpc_msgs::msg::WalkingVelocityCommand& msg) {
+inline WalkingVelocityCommand getWalkingVelocityCommandFromMsg(
+    const humanoid_mpc_msgs::msg::WalkingVelocityCommand& msg) {
   WalkingVelocityCommand cmd;
   cmd.linear_velocity_x = std::clamp(msg.linear_velocity_x, -1.0, 1.0);
   cmd.linear_velocity_y = std::clamp(msg.linear_velocity_y, -1.0, 1.0);

@@ -43,8 +43,7 @@ class JointMimicKinematicConstraint final : public StateInputConstraint {
     Config() = delete;
     explicit Config(const MpcRobotModelBase<scalar_t>& mpcRobotModel,
                     std::string parentJointNameParam,
-                    std::string childJointNameParam,
-                    scalar_t multiplierParam,
+                    std::string childJointNameParam, scalar_t multiplierParam,
                     scalar_t positionGainParam)
         : parentJointName(parentJointNameParam),
           childJointName(childJointNameParam),
@@ -66,20 +65,23 @@ class JointMimicKinematicConstraint final : public StateInputConstraint {
   /**
    * @param [in] contactPointIndex : The 3 DoF contact index.
    */
-  JointMimicKinematicConstraint(const MpcRobotModelBase<scalar_t>& mpcRobotModel, Config config);
+  JointMimicKinematicConstraint(
+      const MpcRobotModelBase<scalar_t>& mpcRobotModel, Config config);
 
   ~JointMimicKinematicConstraint() override = default;
-  JointMimicKinematicConstraint* clone() const override { return new JointMimicKinematicConstraint(*this); }
+  JointMimicKinematicConstraint* clone() const override {
+    return new JointMimicKinematicConstraint(*this);
+  }
 
   bool isActive(scalar_t time) const override;
   void setActive(bool isActive) override { isActive_ = isActive; }
   bool getActive() const override { return isActive_; }
   size_t getNumConstraints(scalar_t time) const override { return 1; }
-  vector_t getValue(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) const override;
-  VectorFunctionLinearApproximation getLinearApproximation(scalar_t time,
-                                                           const vector_t& state,
-                                                           const vector_t& input,
-                                                           const PreComputation& preComp) const override;
+  vector_t getValue(scalar_t time, const vector_t& state, const vector_t& input,
+                    const PreComputation& preComp) const override;
+  VectorFunctionLinearApproximation getLinearApproximation(
+      scalar_t time, const vector_t& state, const vector_t& input,
+      const PreComputation& preComp) const override;
 
  private:
   JointMimicKinematicConstraint(const JointMimicKinematicConstraint& rhs);

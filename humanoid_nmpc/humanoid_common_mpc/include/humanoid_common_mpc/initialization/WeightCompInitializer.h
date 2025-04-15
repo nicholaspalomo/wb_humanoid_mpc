@@ -45,7 +45,8 @@ class WeightCompInitializer final : public Initializer {
    * Constructor
    * @param [in] pinocchioInterface : The pinocchio model interface
    * @param [in] referenceManager : Switched system reference manager.
-   * @param [in] extendNormalizedMomentum: If true, it extrapolates the normalized momenta; otherwise sets them to zero.
+   * @param [in] extendNormalizedMomentum: If true, it extrapolates the
+   * normalized momenta; otherwise sets them to zero.
    */
   WeightCompInitializer(const PinocchioInterface& pinocchioInterface,
                         const SwitchedModelReferenceManager& referenceManager,
@@ -54,7 +55,8 @@ class WeightCompInitializer final : public Initializer {
   ~WeightCompInitializer() override = default;
   WeightCompInitializer* clone() const override;
 
-  void compute(scalar_t time, const vector_t& state, scalar_t nextTime, vector_t& input, vector_t& nextState) override;
+  void compute(scalar_t time, const vector_t& state, scalar_t nextTime,
+               vector_t& input, vector_t& nextState) override;
 
  private:
   WeightCompInitializer(const WeightCompInitializer& rhs);

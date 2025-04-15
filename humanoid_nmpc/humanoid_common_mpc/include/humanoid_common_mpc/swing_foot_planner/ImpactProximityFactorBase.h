@@ -35,7 +35,8 @@ namespace ocs2::humanoid {
 
 class ImpactProximityFactorBase {
  public:
-  ImpactProximityFactorBase(scalar_t startTime, scalar_t endTime) : startTime_(startTime), endTime_(endTime){};
+  ImpactProximityFactorBase(scalar_t startTime, scalar_t endTime)
+      : startTime_(startTime), endTime_(endTime) {};
 
   virtual void setTimeInterval(scalar_t startTime, scalar_t endTime) {
     startTime_ = startTime;

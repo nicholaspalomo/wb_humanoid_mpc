@@ -30,46 +30,48 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <functional>
-
-#include <ocs2_core/reference/TargetTrajectories.h>
-#include <ocs2_mpc/SystemObservation.h>
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
-#include "ocs2_centroidal_model/CentroidalModelInfo.h"
-
 #include <humanoid_common_mpc/command/TargetTrajectoriesCalculatorBase.h>
 #include <humanoid_common_mpc/common/ModelSettings.h>
 #include <humanoid_common_mpc/common/MpcRobotModelBase.h>
 #include <humanoid_common_mpc/common/Types.h>
+#include <ocs2_core/reference/TargetTrajectories.h>
+#include <ocs2_mpc/SystemObservation.h>
+#include <ocs2_pinocchio_interface/PinocchioInterface.h>
+
+#include "ocs2_centroidal_model/CentroidalModelInfo.h"
 
 namespace ocs2::humanoid {
 
-class CentroidalMpcTargetTrajectoriesCalculator : public TargetTrajectoriesCalculatorBase {
+class CentroidalMpcTargetTrajectoriesCalculator
+    : public TargetTrajectoriesCalculatorBase {
  public:
-  CentroidalMpcTargetTrajectoriesCalculator(const std::string& referenceFile,
-                                            const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                                            PinocchioInterface pinocchioInterface,
-                                            const CentroidalModelInfo& info,
-                                            scalar_t mpcHorizon);
+  CentroidalMpcTargetTrajectoriesCalculator(
+      const std::string& referenceFile,
+      const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+      PinocchioInterface pinocchioInterface, const CentroidalModelInfo& info,
+      scalar_t mpcHorizon);
 
-  CentroidalMpcTargetTrajectoriesCalculator(const CentroidalMpcTargetTrajectoriesCalculator& rhs) = delete;
+  CentroidalMpcTargetTrajectoriesCalculator(
+      const CentroidalMpcTargetTrajectoriesCalculator& rhs) = delete;
 
   /**
    * Converts command line to TargetTrajectories.
-   * @param [in] commadLineTarget : [deltaX, deltaY, deltaZ, deltaYaw] defined in pelvis frame
+   * @param [in] commadLineTarget : [deltaX, deltaY, deltaZ, deltaYaw] defined
+   * in pelvis frame
    * @param [in] observation : the current observation
    */
-  TargetTrajectories commandedPositionToTargetTrajectories(const vector4_t& commadLineTarget,
-                                                           scalar_t initTime,
-                                                           const vector_t& initState) override;
+  TargetTrajectories commandedPositionToTargetTrajectories(
+      const vector4_t& commadLineTarget, scalar_t initTime,
+      const vector_t& initState) override;
 
   /**
    * Converts desired velocities to TargetTrajectories.
    * @param [in] commandedVelocities : [v_x, v_y, v_yaw] defined in pelvis frame
    * @param [in] observation : the current observation
    */
-  TargetTrajectories commandedVelocityToTargetTrajectories(const vector4_t& commandedVelocities,
-                                                           scalar_t initTime,
-                                                           const vector_t& initState) override;
+  TargetTrajectories commandedVelocityToTargetTrajectories(
+      const vector4_t& commandedVelocities, scalar_t initTime,
+      const vector_t& initState) override;
 
  private:
   PinocchioInterface pinocchioInterface_;

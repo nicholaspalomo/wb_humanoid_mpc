@@ -29,8 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <humanoid_common_mpc/common/Types.h>
 #include <cmath>
+#include <humanoid_common_mpc/common/Types.h>
 
 namespace ocs2::humanoid {
 
@@ -55,7 +55,8 @@ class BreakFrequencyAlphaFilter final {
  private:
   scalar_t computeAlpha() {
     auto now = std::chrono::steady_clock::now();
-    std::chrono::duration<double> durationInSeconds = now - lastTimeFilterCalled;
+    std::chrono::duration<double> durationInSeconds =
+        now - lastTimeFilterCalled;
     scalar_t delta_t = durationInSeconds.count();
     return (delta_t / (delta_t + breakDeltaT_));
   }

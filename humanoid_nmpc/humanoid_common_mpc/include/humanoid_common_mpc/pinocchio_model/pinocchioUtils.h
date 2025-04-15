@@ -30,34 +30,38 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 // Pinocchio forward declarations must be included first
+#include <ocs2_pinocchio_interface/urdf.h>
 #include <pinocchio/fwd.hpp>
+#include <pinocchio/multibody/model.hpp>
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
-
-#include <ocs2_pinocchio_interface/urdf.h>
-#include <pinocchio/multibody/model.hpp>
 
 namespace ocs2::humanoid {
 
 ///
-/// \brief Checks that the joint names in the pinocchio interface are in the same order as defined in ModelSettings.cpp
+/// \brief Checks that the joint names in the pinocchio interface are in the
+/// same order as defined in ModelSettings.cpp
 ///
 /// \param[in] pinocchioInterface: A pinocchio Interface
 ///
 
-void checkPinocchioJointNaming(const PinocchioInterface& pinocchioInterface, const ModelSettings& modelSettings, bool verbose = false);
+void checkPinocchioJointNaming(const PinocchioInterface& pinocchioInterface,
+                               const ModelSettings& modelSettings,
+                               bool verbose = false);
 
 ///
 /// \brief Creates a standard pinocchio model from the urdf
 ///
 /// \param[in] urdfFilePath: The absolute path to the URDF file for the robot.
 ///
-/// \param[out] jointLimits A std pair of joint limits consisting of {lower_bounds, upper_bounds}
+/// \param[out] jointLimits A std pair of joint limits consisting of
+/// {lower_bounds, upper_bounds}
 
-std::pair<vector_t, vector_t> readPinocchioJointLimits(const PinocchioInterface& pinocchioInterface,
-                                                       const ModelSettings& modelSettings,
-                                                       bool verbose = true);
+std::pair<vector_t, vector_t> readPinocchioJointLimits(
+    const PinocchioInterface& pinocchioInterface,
+    const ModelSettings& modelSettings, bool verbose = true);
 
-void scalePinocchioModelInertia(pinocchio::ModelTpl<scalar_t>& model, scalar_t targetRobotMass, bool verbose = true);
+void scalePinocchioModelInertia(pinocchio::ModelTpl<scalar_t>& model,
+                                scalar_t targetRobotMass, bool verbose = true);
 
 }  // namespace ocs2::humanoid

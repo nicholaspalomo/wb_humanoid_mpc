@@ -42,13 +42,16 @@ struct ContactCenterPoint {
   const std::string parentJointName;
   const vector3_t translationFromParent;
 
-  ContactCenterPoint(const std::string& frameName, const std::string& parentJointName, const vector3_t& translationFromParent)
-      : frameName(frameName), parentJointName(parentJointName), translationFromParent(translationFromParent){};
+  ContactCenterPoint(const std::string& frameName,
+                     const std::string& parentJointName,
+                     const vector3_t& translationFromParent)
+      : frameName(frameName),
+        parentJointName(parentJointName),
+        translationFromParent(translationFromParent) {};
 
-  static ContactCenterPoint loadContactCenterPoint(const std::string& taskFile,
-                                                   const ModelSettings& modelSettings,
-                                                   int contactIndex,
-                                                   bool verbose = false);
+  static ContactCenterPoint loadContactCenterPoint(
+      const std::string& taskFile, const ModelSettings& modelSettings,
+      int contactIndex, bool verbose = false);
 };
 
 }  // namespace ocs2::humanoid

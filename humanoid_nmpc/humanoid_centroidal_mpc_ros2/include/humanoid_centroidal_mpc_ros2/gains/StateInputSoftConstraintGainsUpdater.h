@@ -36,16 +36,20 @@ namespace ocs2::humanoid {
 
 class StateInputSoftConstraintGainsUpdater : public GainsUpdaterInterface {
  public:
-  StateInputSoftConstraintGainsUpdater(std::shared_ptr<GenericGuiInterface> gui) : GainsUpdaterInterface(gui) {}
+  StateInputSoftConstraintGainsUpdater(std::shared_ptr<GenericGuiInterface> gui)
+      : GainsUpdaterInterface(gui) {}
   ~StateInputSoftConstraintGainsUpdater() override = default;
 
-  bool initialize(ocs2::OptimalControlProblem& optimalControlProblem, const std::string& description) override {
+  bool initialize(ocs2::OptimalControlProblem& optimalControlProblem,
+                  const std::string& description) override {
     try {
       auto& generic = optimalControlProblem.softConstraintPtr->get(description);
       auto& custom = dynamic_cast<ocs2::StateInputSoftConstraint&>(generic);
       auto& penaltyPtrArray = custom.getPenalty().getPenaltyPtrArray();
       if (penaltyPtrArray.size() != 1) {
-        throw std::runtime_error("[StateInputSoftConstraintGainsUpdater] Unexpected number of penalties!");
+        throw std::runtime_error(
+            "[StateInputSoftConstraintGainsUpdater] Unexpected number of "
+            "penalties!");
       }
       auto& constraint = custom.getConstraintPtr();
 
@@ -63,7 +67,9 @@ class StateInputSoftConstraintGainsUpdater : public GainsUpdaterInterface {
   }
 
   bool drawGui() override {
-    if (!gui_) return false;
+    if (!gui_) {
+      return false;
+    }
 
     bool hasBeenTriggered = false;
     if (gui_->TreeNode(name_.c_str())) {
@@ -72,14 +78,22 @@ class StateInputSoftConstraintGainsUpdater : public GainsUpdaterInterface {
       vector_t parameters;
       penalty_->getParameters(parameters);
       if (parameters.size() != 2) {
-        throw std::runtime_error("[StateInputSoftConstraintGainsUpdater] Unexpected number of parameters!");
+        throw std::runtime_error(
+            "[StateInputSoftConstraintGainsUpdater] Unexpected number of "
+            "parameters!");
       }
 
       // Draw gui
-      if (gui_->Checkbox("Active", &active)) hasBeenTriggered = true;
+      if (gui_->Checkbox("Active", &active)) {
+        hasBeenTriggered = true;
+      }
       if (active) {
-        if (gui_->InputDouble("mu", &parameters[0])) hasBeenTriggered = true;
-        if (gui_->InputDouble("delta", &parameters[1])) hasBeenTriggered = true;
+        if (gui_->InputDouble("mu", &parameters[0])) {
+          hasBeenTriggered = true;
+        }
+        if (gui_->InputDouble("delta", &parameters[1])) {
+          hasBeenTriggered = true;
+        }
       }
 
       // Update gains
@@ -101,7 +115,9 @@ class StateInputSoftConstraintGainsUpdater : public GainsUpdaterInterface {
     vector_t parameters;
     penalty_->getParameters(parameters);
     if (parameters.size() != 2) {
-      throw std::runtime_error("[StateInputSoftConstraintGainsUpdater] Unexpected number of parameters!");
+      throw std::runtime_error(
+          "[StateInputSoftConstraintGainsUpdater] Unexpected number of "
+          "parameters!");
     }
     auto& data = msg.value.back().values;
     data.reserve(2);
@@ -109,9 +125,12 @@ class StateInputSoftConstraintGainsUpdater : public GainsUpdaterInterface {
     data.emplace_back(parameters[1]);
   }
 
-  void setFromMessage(const ocs2_ros2_msgs::msg::IndividualGains& gains) override {
+  void setFromMessage(
+      const ocs2_ros2_msgs::msg::IndividualGains& gains) override {
     if (gains.values.size() != 2) {
-      throw std::runtime_error("[StateInputSoftConstraintGainsUpdater] Unexpected number of parameters!");
+      throw std::runtime_error(
+          "[StateInputSoftConstraintGainsUpdater] Unexpected number of "
+          "parameters!");
     }
     vector_t parameters(2);
     parameters[0] = gains.values[0];

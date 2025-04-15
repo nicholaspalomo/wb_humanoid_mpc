@@ -27,18 +27,14 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <string>
-
-#include <rclcpp/rclcpp.hpp>
-
-#include <ocs2_core/misc/LoadData.h>
-#include <ocs2_ros2_interfaces/command/TargetTrajectoriesKeyboardPublisher.h>
-
+#include <humanoid_centroidal_mpc/CentroidalMpcInterface.h>
 #include <humanoid_centroidal_mpc/command/CentroidalMpcTargetTrajectoriesCalculator.h>
 #include <humanoid_common_mpc/common/ModelSettings.h>
 #include <humanoid_common_mpc/common/Types.h>
-
-#include <humanoid_centroidal_mpc/CentroidalMpcInterface.h>
+#include <ocs2_core/misc/LoadData.h>
+#include <ocs2_ros2_interfaces/command/TargetTrajectoriesKeyboardPublisher.h>
+#include <rclcpp/rclcpp.hpp>
+#include <string>
 
 using namespace ocs2;
 using namespace ocs2::humanoid;
@@ -47,7 +43,9 @@ int main(int argc, char* argv[]) {
   std::vector<std::string> programArgs;
   programArgs = rclcpp::remove_ros_arguments(argc, argv);
   if (programArgs.size() < 5) {
-    throw std::runtime_error("No robot name, config folder, target command file, or description name specified. Aborting.");
+    throw std::runtime_error(
+        "No robot name, config folder, target command file, or description "
+        "name specified. Aborting.");
   }
 
   const std::string robotName(argv[1]);
@@ -61,22 +59,31 @@ int main(int argc, char* argv[]) {
   CentroidalMpcInterface interface(taskFile, urdfFile, gaitFile, referenceFile);
 
   CentroidalMpcTargetTrajectoriesCalculator mpcTargetTrajectoriesCalculator(
-      referenceFile, interface.getMpcRobotModel(), interface.getPinocchioInterface(), interface.getCentroidalModelInfo(),
+      referenceFile, interface.getMpcRobotModel(),
+      interface.getPinocchioInterface(), interface.getCentroidalModelInfo(),
       interface.mpcSettings().timeHorizon_);
 
-  TargetTrajectoriesKeyboardPublisher::CommandLineToTargetTrajectories targetTrajectoriesFunc =
-      [&mpcTargetTrajectoriesCalculator](const vector4_t& commandedVelocities, const SystemObservation& observation) mutable {
-        return mpcTargetTrajectoriesCalculator.commandedPositionToTargetTrajectories(commandedVelocities, observation.time,
-                                                                                     observation.state);
-      };
+  TargetTrajectoriesKeyboardPublisher::CommandLineToTargetTrajectories
+      targetTrajectoriesFunc =
+          [&mpcTargetTrajectoriesCalculator](
+              const vector4_t& commandedVelocities,
+              const SystemObservation& observation) mutable {
+            return mpcTargetTrajectoriesCalculator
+                .commandedPositionToTargetTrajectories(
+                    commandedVelocities, observation.time, observation.state);
+          };
 
-  rclcpp::Node::SharedPtr node = std::make_shared<rclcpp::Node>(robotName + "_target");
+  rclcpp::Node::SharedPtr node =
+      std::make_shared<rclcpp::Node>(robotName + "_target");
 
   // goalPose: [deltaX, deltaY, deltaZ, deltaYaw]
   const scalar_array_t relativeBaseLimit{10.0, 10.0, 0.5, 360.0};
-  TargetTrajectoriesKeyboardPublisher targetPoseCommand(node, robotName, relativeBaseLimit, targetTrajectoriesFunc);
+  TargetTrajectoriesKeyboardPublisher targetPoseCommand(
+      node, robotName, relativeBaseLimit, targetTrajectoriesFunc);
 
-  const std::string commandMsg = "Enter XYZ and Yaw (deg) displacements for the PELVIS, separated by spaces";
+  const std::string commandMsg =
+      "Enter XYZ and Yaw (deg) displacements for the PELVIS, separated by "
+      "spaces";
   targetPoseCommand.publishKeyboardCommand(commandMsg);
 
   // Successful exit

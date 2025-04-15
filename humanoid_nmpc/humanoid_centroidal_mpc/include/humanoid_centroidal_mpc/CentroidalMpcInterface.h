@@ -53,24 +53,31 @@ class CentroidalMpcInterface final : public RobotInterface {
   /**
    * Constructor
    *
-   * @throw Invalid argument error if input task file or urdf file does not exist.
+   * @throw Invalid argument error if input task file or urdf file does not
+   * exist.
    *
-   * @param [in] taskFile: The absolute path to the configuration file for the MPC.
+   * @param [in] taskFile: The absolute path to the configuration file for the
+   * MPC.
    * @param [in] urdfFile: The absolute path to the URDF file for the robot.
-   * @param [in] referenceFile: The absolute path to the reference configuration file.
+   * @param [in] referenceFile: The absolute path to the reference configuration
+   * file.
    */
   CentroidalMpcInterface(const std::string& taskFile,
                          const std::string& urdfFile,
                          const std::string& referenceFile,
-                         const std::string& gaitFile,
-                         bool setupOCP = true);
+                         const std::string& gaitFile, bool setupOCP = true);
 
   ~CentroidalMpcInterface() override = default;
 
-  const OptimalControlProblem& getOptimalControlProblem() const override { return *problemPtr_; }
+  const OptimalControlProblem& getOptimalControlProblem() const override {
+    return *problemPtr_;
+  }
 
-  // CAREFUL: This function is not const, so it can easily be abused. It is currently only for gui purposes. Use with care!
-  OptimalControlProblem& getOptimalControlProblemRef() const { return *problemPtr_; }
+  // CAREFUL: This function is not const, so it can easily be abused. It is
+  // currently only for gui purposes. Use with care!
+  OptimalControlProblem& getOptimalControlProblemRef() const {
+    return *problemPtr_;
+  }
 
   const ModelSettings& modelSettings() const { return modelSettings_; }
   const ddp::Settings& ddpSettings() const { return ddpSettings_; }
@@ -80,15 +87,31 @@ class CentroidalMpcInterface final : public RobotInterface {
 
   const vector_t& getInitialState() const { return initialState_; }
   const RolloutBase& getRollout() const { return *rolloutPtr_; }
-  PinocchioInterface& getPinocchioInterface() { return *pinocchioInterfacePtr_; }
-  const CentroidalModelInfo& getCentroidalModelInfo() const { return centroidalModelInfo_; }
-  std::shared_ptr<SwitchedModelReferenceManager> getSwitchedModelReferenceManagerPtr() const { return referenceManagerPtr_; }
+  PinocchioInterface& getPinocchioInterface() {
+    return *pinocchioInterfacePtr_;
+  }
+  const CentroidalModelInfo& getCentroidalModelInfo() const {
+    return centroidalModelInfo_;
+  }
+  std::shared_ptr<SwitchedModelReferenceManager>
+  getSwitchedModelReferenceManagerPtr() const {
+    return referenceManagerPtr_;
+  }
 
-  const CentroidalWeightCompInitializer& getInitializer() const override { return *initializerPtr_; }
-  std::shared_ptr<ReferenceManagerInterface> getReferenceManagerPtr() const override { return referenceManagerPtr_; }
+  const CentroidalWeightCompInitializer& getInitializer() const override {
+    return *initializerPtr_;
+  }
+  std::shared_ptr<ReferenceManagerInterface> getReferenceManagerPtr()
+      const override {
+    return referenceManagerPtr_;
+  }
 
-  const CentroidalMpcRobotModel<scalar_t>& getMpcRobotModel() const { return *mpcRobotModelPtr_; }
-  const CentroidalMpcRobotModel<ad_scalar_t>& getMpcRobotModelAD() const { return *mpcRobotModelADPtr_; }
+  const CentroidalMpcRobotModel<scalar_t>& getMpcRobotModel() const {
+    return *mpcRobotModelPtr_;
+  }
+  const CentroidalMpcRobotModel<ad_scalar_t>& getMpcRobotModelAD() const {
+    return *mpcRobotModelADPtr_;
+  }
 
   std::vector<std::string> getCostNames() const;
   std::vector<std::string> getTerminalCostNames() const;
@@ -99,14 +122,19 @@ class CentroidalMpcInterface final : public RobotInterface {
  private:
   void setupOptimalControlProblem();
 
-  std::unique_ptr<StateInputConstraint> getStanceFootConstraint(const EndEffectorKinematics<scalar_t>& eeKinematics,
-                                                                size_t contactPointIndex);
-  std::unique_ptr<StateInputConstraint> getNormalVelocityConstraint(const EndEffectorKinematics<scalar_t>& eeKinematics,
-                                                                    size_t contactPointIndex);
-  std::unique_ptr<StateInputConstraint> getJointMimicConstraint(size_t mimicIndex);
+  std::unique_ptr<StateInputConstraint> getStanceFootConstraint(
+      const EndEffectorKinematics<scalar_t>& eeKinematics,
+      size_t contactPointIndex);
+  std::unique_ptr<StateInputConstraint> getNormalVelocityConstraint(
+      const EndEffectorKinematics<scalar_t>& eeKinematics,
+      size_t contactPointIndex);
+  std::unique_ptr<StateInputConstraint> getJointMimicConstraint(
+      size_t mimicIndex);
 
-  void addTaskSpaceKinematicsCosts(const CentroidalModelPinocchioMappingCppAd& pinocchioMappingCppAd,
-                                   const PinocchioEndEffectorKinematicsCppAd::update_pinocchio_interface_callback& velocityUpdateCallback);
+  void addTaskSpaceKinematicsCosts(
+      const CentroidalModelPinocchioMappingCppAd& pinocchioMappingCppAd,
+      const PinocchioEndEffectorKinematicsCppAd::
+          update_pinocchio_interface_callback& velocityUpdateCallback);
 
   ModelSettings modelSettings_;
   ddp::Settings ddpSettings_;

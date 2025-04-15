@@ -37,30 +37,35 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-VelocityCommandKeyboardPublisher::VelocityCommandKeyboardPublisher(rclcpp::Node::SharedPtr nodeHandle,
-                                                                   const std::string& topicPrefix,
-                                                                   const scalar_array_t& targetCommandLimits,
-                                                                   scalar_t defaultBaseHeight)
-    : targetCommandLimits_(Eigen::Map<const vector_t>(targetCommandLimits.data(), targetCommandLimits.size())),
+VelocityCommandKeyboardPublisher::VelocityCommandKeyboardPublisher(
+    rclcpp::Node::SharedPtr nodeHandle, const std::string& topicPrefix,
+    const scalar_array_t& targetCommandLimits, scalar_t defaultBaseHeight)
+    : targetCommandLimits_(Eigen::Map<const vector_t>(
+          targetCommandLimits.data(), targetCommandLimits.size())),
       defaultBaseHeight_(defaultBaseHeight),
       node_(nodeHandle) {
   assert(targetCommandLimits_.size() == 4);
   // Target publisher
   commandPublisherPtr_ =
-      node_->create_publisher<humanoid_mpc_msgs::msg::WalkingVelocityCommand>(topicPrefix + "/walking_velocity_command", 1);
+      node_->create_publisher<humanoid_mpc_msgs::msg::WalkingVelocityCommand>(
+          topicPrefix + "/walking_velocity_command", 1);
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void VelocityCommandKeyboardPublisher::publishKeyboardCommand(const std::string& commadMsg) {
+void VelocityCommandKeyboardPublisher::publishKeyboardCommand(
+    const std::string& commadMsg) {
   while (rclcpp::ok()) {
     // get command line
     std::cout << commadMsg << ": ";
-    const vector4_t commandLineInput = getCommandLine().cwiseMin(targetCommandLimits_).cwiseMax(-targetCommandLimits_);
+    const vector4_t commandLineInput = getCommandLine()
+                                           .cwiseMin(targetCommandLimits_)
+                                           .cwiseMax(-targetCommandLimits_);
 
     // display
-    std::cout << "The following command is published: [" << toDelimitedString(commandLineInput) << "]\n\n";
+    std::cout << "The following command is published: ["
+              << toDelimitedString(commandLineInput) << "]\n\n";
 
     humanoid_mpc_msgs::msg::WalkingVelocityCommand msg;
     msg.linear_velocity_x = commandLineInput[0] / targetCommandLimits_[0];

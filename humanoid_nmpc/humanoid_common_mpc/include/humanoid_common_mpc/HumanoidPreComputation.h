@@ -30,16 +30,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <memory>
-#include <string>
-
 #include <ocs2_core/PreComputation.h>
 #include <ocs2_pinocchio_interface/PinocchioInterface.h>
-
-#include "humanoid_common_mpc/constraint/EndEffectorKinematicsLinearVelConstraint.h"
-
-#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include <string>
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/constraint/EndEffectorKinematicsLinearVelConstraint.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlannerBase.h"
 
 namespace ocs2::humanoid {
@@ -47,23 +44,32 @@ namespace ocs2::humanoid {
 /** Callback for caching and reference update */
 class HumanoidPreComputation : public PreComputation {
  public:
-  HumanoidPreComputation(PinocchioInterface pinocchioInterface,
-                         const SwingTrajectoryPlannerBase& swingTrajectoryPlanner,
-                         const MpcRobotModelBase<scalar_t>& mpcRobotModel);
+  HumanoidPreComputation(
+      PinocchioInterface pinocchioInterface,
+      const SwingTrajectoryPlannerBase& swingTrajectoryPlanner,
+      const MpcRobotModelBase<scalar_t>& mpcRobotModel);
   virtual ~HumanoidPreComputation() override = default;
 
   virtual HumanoidPreComputation* clone() const override;
 
-  virtual void request(RequestSet request, scalar_t t, const vector_t& x, const vector_t& u) override;
-  const matrix3_t& getRWorldToContacts(size_t contactIndex) const { return R_world_to_contacts_[contactIndex]; }
+  virtual void request(RequestSet request, scalar_t t, const vector_t& x,
+                       const vector_t& u) override;
+  const matrix3_t& getRWorldToContacts(size_t contactIndex) const {
+    return R_world_to_contacts_[contactIndex];
+  }
 
-  const std::vector<EndEffectorKinematicsLinearVelConstraint::Config>& getEeNormalVelocityConstraintConfigs() const {
+  const std::vector<EndEffectorKinematicsLinearVelConstraint::Config>&
+  getEeNormalVelocityConstraintConfigs() const {
     return eeNormalVelConConfigs_;
   }
-  scalar_t getFootReferenceHeight(size_t contactIndex) const { return footHeightReferences_[contactIndex]; }
+  scalar_t getFootReferenceHeight(size_t contactIndex) const {
+    return footHeightReferences_[contactIndex];
+  }
 
   PinocchioInterface& getPinocchioInterface() { return pinocchioInterface_; }
-  const PinocchioInterface& getPinocchioInterface() const { return pinocchioInterface_; }
+  const PinocchioInterface& getPinocchioInterface() const {
+    return pinocchioInterface_;
+  }
 
  protected:
   HumanoidPreComputation(const HumanoidPreComputation& rhs);
@@ -76,7 +82,8 @@ class HumanoidPreComputation : public PreComputation {
 
   std::vector<matrix3_t> R_world_to_contacts_;
 
-  std::vector<EndEffectorKinematicsLinearVelConstraint::Config> eeNormalVelConConfigs_;
+  std::vector<EndEffectorKinematicsLinearVelConstraint::Config>
+      eeNormalVelConConfigs_;
   std::vector<scalar_t> footHeightReferences_;
 };
 

@@ -30,35 +30,43 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/command/TargetTrajectoriesCalculatorBase.h"
 
 #include <algorithm>  // For std::clamp
-
+#include <cmath>
 #include <ocs2_core/misc/LoadData.h>
 
-#include <cmath>
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 
 namespace ocs2::humanoid {
 
-TargetTrajectoriesCalculatorBase::TargetTrajectoriesCalculatorBase(const std::string& referenceFile,
-                                                                   const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                                                                   scalar_t mpcHorizon)
+TargetTrajectoriesCalculatorBase::TargetTrajectoriesCalculatorBase(
+    const std::string& referenceFile,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel, scalar_t mpcHorizon)
     : mpcRobotModelPtr_(mpcRobotModel.clone()), mpcHorizon_(mpcHorizon) {
   std::cerr << "Loading reference file: " << referenceFile << std::endl;
   targetJointState_.resize(mpcRobotModel.getJointDim());
-  loadData::loadCppDataType(referenceFile, "defaultBaseHeight", defaultBaseHeight_);
-  loadData::loadEigenMatrix(referenceFile, "defaultJointState", targetJointState_);
-  loadData::loadCppDataType(referenceFile, "targetRotationVelocity", targetRotationVelocity_);
-  loadData::loadCppDataType(referenceFile, "targetDisplacementVelocity", targetDisplacementVelocity_);
-  loadData::loadCppDataType(referenceFile, "maxDisplacementVelocityX", maxDisplacementVelocityX_);
-  loadData::loadCppDataType(referenceFile, "maxDisplacementVelocityY", maxDisplacementVelocityY_);
-  loadData::loadCppDataType(referenceFile, "maxDeltaPelvisHeight", maxDeltaPelvisHeight_);
-  loadData::loadCppDataType(referenceFile, "maxRotationVelocity", maxRotationVelocity_);
+  loadData::loadCppDataType(referenceFile, "defaultBaseHeight",
+                            defaultBaseHeight_);
+  loadData::loadEigenMatrix(referenceFile, "defaultJointState",
+                            targetJointState_);
+  loadData::loadCppDataType(referenceFile, "targetRotationVelocity",
+                            targetRotationVelocity_);
+  loadData::loadCppDataType(referenceFile, "targetDisplacementVelocity",
+                            targetDisplacementVelocity_);
+  loadData::loadCppDataType(referenceFile, "maxDisplacementVelocityX",
+                            maxDisplacementVelocityX_);
+  loadData::loadCppDataType(referenceFile, "maxDisplacementVelocityY",
+                            maxDisplacementVelocityY_);
+  loadData::loadCppDataType(referenceFile, "maxDeltaPelvisHeight",
+                            maxDeltaPelvisHeight_);
+  loadData::loadCppDataType(referenceFile, "maxRotationVelocity",
+                            maxRotationVelocity_);
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-void TargetTrajectoriesCalculatorBase::setTargetJointState(const vector_t targetJointState) {
+void TargetTrajectoriesCalculatorBase::setTargetJointState(
+    const vector_t targetJointState) {
   assert(targetJointState.size() == mpcRobotModelPtr_->getJointDim());
   targetJointState_ = targetJointState;
 }
@@ -67,8 +75,9 @@ void TargetTrajectoriesCalculatorBase::setTargetJointState(const vector_t target
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-vector6_t TargetTrajectoriesCalculatorBase::getDeltaBaseTarget(const vector4_t& commadLinePoseTarget,
-                                                               const vector6_t& currentPoseTarget) const {
+vector6_t TargetTrajectoriesCalculatorBase::getDeltaBaseTarget(
+    const vector4_t& commadLinePoseTarget,
+    const vector6_t& currentPoseTarget) const {
   vector_t target(6);
 
   // X facing forward to the robot, Y to the left side in the baseFrame
@@ -76,14 +85,17 @@ vector6_t TargetTrajectoriesCalculatorBase::getDeltaBaseTarget(const vector4_t& 
   const scalar_t baseFrameDeltaY = commadLinePoseTarget(1);
   const scalar_t currentEulerZ = currentPoseTarget(3);
 
-  const scalar_t globalFrameDeltaX = std::cos(currentEulerZ) * baseFrameDeltaX - std::sin(currentEulerZ) * baseFrameDeltaY;
-  const scalar_t globalFrameDeltaY = std::sin(currentEulerZ) * baseFrameDeltaX + std::cos(currentEulerZ) * baseFrameDeltaY;
+  const scalar_t globalFrameDeltaX = std::cos(currentEulerZ) * baseFrameDeltaX -
+                                     std::sin(currentEulerZ) * baseFrameDeltaY;
+  const scalar_t globalFrameDeltaY = std::sin(currentEulerZ) * baseFrameDeltaX +
+                                     std::cos(currentEulerZ) * baseFrameDeltaY;
 
   // base p_x, p_y are relative to current state
   target(0) = currentPoseTarget(0) + globalFrameDeltaX;
   target(1) = currentPoseTarget(1) + globalFrameDeltaY;
   // base z relative to the default height
-  scalar_t deltaPelvisHeight = std::clamp(commadLinePoseTarget(2), -maxDeltaPelvisHeight_, maxDeltaPelvisHeight_);
+  scalar_t deltaPelvisHeight = std::clamp(
+      commadLinePoseTarget(2), -maxDeltaPelvisHeight_, maxDeltaPelvisHeight_);
   target(2) = defaultBaseHeight_ + deltaPelvisHeight;
   // theta_z relative to current
   target(3) = currentPoseTarget(3) + commadLinePoseTarget(3) * M_PI / 180.0;
@@ -97,9 +109,11 @@ vector6_t TargetTrajectoriesCalculatorBase::getDeltaBaseTarget(const vector4_t& 
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-vector6_t TargetTrajectoriesCalculatorBase::getCurrentBasePoseTarget(const vector_t& state) const {
+vector6_t TargetTrajectoriesCalculatorBase::getCurrentBasePoseTarget(
+    const vector_t& state) const {
   vector_t currentPoseTarget = mpcRobotModelPtr_->getBasePose(state);
-  // Zero out roll and pitch of the torso since target trajectories starts from current state
+  // Zero out roll and pitch of the torso since target trajectories starts from
+  // current state
   currentPoseTarget(4) = 0.0;
   currentPoseTarget(5) = 0.0;
 
@@ -110,17 +124,20 @@ vector6_t TargetTrajectoriesCalculatorBase::getCurrentBasePoseTarget(const vecto
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-vector4_t TargetTrajectoriesCalculatorBase::filterAndTransformVelCommandToLocal(const vector4_t& commandedVelLocal,
-                                                                                const scalar_t& currentEulerZ,
-                                                                                scalar_t filterAlpha) const {
+vector4_t TargetTrajectoriesCalculatorBase::filterAndTransformVelCommandToLocal(
+    const vector4_t& commandedVelLocal, const scalar_t& currentEulerZ,
+    scalar_t filterAlpha) const {
   static vector4_t commVelFiltered = vector4_t::Zero();
 
-  commVelFiltered = commVelFiltered * filterAlpha + commandedVelLocal * (1 - filterAlpha);
+  commVelFiltered =
+      commVelFiltered * filterAlpha + commandedVelLocal * (1 - filterAlpha);
 
   vector4_t globalTargetVel = commVelFiltered;
 
-  globalTargetVel(0) = std::cos(currentEulerZ) * commVelFiltered[0] - std::sin(currentEulerZ) * commVelFiltered[1];
-  globalTargetVel(1) = std::sin(currentEulerZ) * commVelFiltered[0] + std::cos(currentEulerZ) * commVelFiltered[1];
+  globalTargetVel(0) = std::cos(currentEulerZ) * commVelFiltered[0] -
+                       std::sin(currentEulerZ) * commVelFiltered[1];
+  globalTargetVel(1) = std::sin(currentEulerZ) * commVelFiltered[0] +
+                       std::cos(currentEulerZ) * commVelFiltered[1];
 
   return globalTargetVel;
 }
@@ -129,10 +146,9 @@ vector4_t TargetTrajectoriesCalculatorBase::filterAndTransformVelCommandToLocal(
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-vector6_t TargetTrajectoriesCalculatorBase::integrateTargetBasePose(const vector6_t& currentPose,
-                                                                    const vector3_t& averageVel,
-                                                                    scalar_t deltaPelvisHeight,
-                                                                    scalar_t deltaT) const {
+vector6_t TargetTrajectoriesCalculatorBase::integrateTargetBasePose(
+    const vector6_t& currentPose, const vector3_t& averageVel,
+    scalar_t deltaPelvisHeight, scalar_t deltaT) const {
   vector6_t targetPose = currentPose;
 
   targetPose[0] += averageVel[0] * deltaT;
@@ -148,7 +164,8 @@ vector6_t TargetTrajectoriesCalculatorBase::integrateTargetBasePose(const vector
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-scalar_t TargetTrajectoriesCalculatorBase::estimateTimeToTarget(const vector_t& desiredBaseDisplacement) const {
+scalar_t TargetTrajectoriesCalculatorBase::estimateTimeToTarget(
+    const vector_t& desiredBaseDisplacement) const {
   const scalar_t& dx = desiredBaseDisplacement(0);
   const scalar_t& dy = desiredBaseDisplacement(1);
   const scalar_t& dyaw = desiredBaseDisplacement(3);

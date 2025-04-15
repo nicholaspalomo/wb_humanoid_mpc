@@ -27,12 +27,11 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include <humanoid_centroidal_mpc/CentroidalMpcInterface.h>
 #include <ocs2_centroidal_model/CentroidalModelPinocchioMapping.h>
 #include <ocs2_pinocchio_interface/PinocchioEndEffectorKinematics.h>
 #include <ocs2_ros2_interfaces/mrt/MRT_ROS_Dummy_Loop.h>
 #include <ocs2_ros2_interfaces/mrt/MRT_ROS_Interface.h>
-
-#include <humanoid_centroidal_mpc/CentroidalMpcInterface.h>
 
 #include "humanoid_common_mpc_ros2/visualization/HumanoidVisualizer.h"
 
@@ -43,7 +42,9 @@ int main(int argc, char** argv) {
   std::vector<std::string> programArgs;
   programArgs = rclcpp::remove_ros_arguments(argc, argv);
   if (programArgs.size() < 5) {
-    throw std::runtime_error("No robot name, config folder, target command file, or description name specified. Aborting.");
+    throw std::runtime_error(
+        "No robot name, config folder, target command file, or description "
+        "name specified. Aborting.");
   }
 
   const std::string robotName(argv[1]);
@@ -59,30 +60,36 @@ int main(int argc, char** argv) {
   qos.best_effort();
 
   // Robot interface
-  CentroidalMpcInterface interface(taskFile, urdfFile, referenceFile, gaitFile, true);
+  CentroidalMpcInterface interface(taskFile, urdfFile, referenceFile, gaitFile,
+                                   true);
 
   // MRT
-  rclcpp::Node::SharedPtr nodeHandle = std::make_shared<rclcpp::Node>(robotName + "_mrt");
+  rclcpp::Node::SharedPtr nodeHandle =
+      std::make_shared<rclcpp::Node>(robotName + "_mrt");
 
   MRT_ROS_Interface mrt(robotName);
   mrt.initRollout(&interface.getRollout());
   mrt.launchNodes(nodeHandle, qos);
 
   std::shared_ptr<HumanoidVisualizer> humanoidVisualizer(
-      new HumanoidVisualizer(taskFile, interface.getPinocchioInterface(), interface.getMpcRobotModel(), nodeHandle));
+      new HumanoidVisualizer(taskFile, interface.getPinocchioInterface(),
+                             interface.getMpcRobotModel(), nodeHandle));
 
   // Dummy legged robot
-  MRT_ROS_Dummy_Loop dummySimulator(mrt, 100, interface.mpcSettings().mpcDesiredFrequency_);
+  MRT_ROS_Dummy_Loop dummySimulator(
+      mrt, 100, interface.mpcSettings().mpcDesiredFrequency_);
   dummySimulator.subscribeObservers({humanoidVisualizer});
 
   // Initial state
   SystemObservation initObservation;
   initObservation.state = interface.getInitialState();
-  initObservation.input = vector_t::Zero(interface.getCentroidalModelInfo().inputDim);
+  initObservation.input =
+      vector_t::Zero(interface.getCentroidalModelInfo().inputDim);
   initObservation.mode = ModeNumber::STANCE;
 
   // Initial command
-  TargetTrajectories initTargetTrajectories({0.0}, {initObservation.state}, {initObservation.input});
+  TargetTrajectories initTargetTrajectories({0.0}, {initObservation.state},
+                                            {initObservation.input});
 
   // run dummy
   dummySimulator.run(initObservation, initTargetTrajectories);

@@ -27,23 +27,22 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>
-
-#include <pinocchio/algorithm/kinematics.hpp>
-
-#include <ocs2_core/misc/Numerics.h>
-
 #include <humanoid_wb_mpc/WBMpcPreComputation.h>
+#include <ocs2_core/misc/Numerics.h>
+#include <pinocchio/algorithm/kinematics.hpp>
+#include <pinocchio/fwd.hpp>
 
 namespace ocs2::humanoid {
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-WBMpcPreComputation::WBMpcPreComputation(PinocchioInterface pinocchioInterface,
-                                         const SwingTrajectoryPlannerBase& swingTrajectoryPlanner,
-                                         const MpcRobotModelBase<scalar_t>& mpcRobotModel)
-    : HumanoidPreComputation(pinocchioInterface, swingTrajectoryPlanner, mpcRobotModel) {
+WBMpcPreComputation::WBMpcPreComputation(
+    PinocchioInterface pinocchioInterface,
+    const SwingTrajectoryPlannerBase& swingTrajectoryPlanner,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel)
+    : HumanoidPreComputation(pinocchioInterface, swingTrajectoryPlanner,
+                             mpcRobotModel) {
   eeNormalAccConConfigs_.resize(N_CONTACTS);
 }
 
@@ -52,7 +51,8 @@ WBMpcPreComputation::WBMpcPreComputation(PinocchioInterface pinocchioInterface,
 /******************************************************************************************************/
 
 WBMpcPreComputation::WBMpcPreComputation(const WBMpcPreComputation& rhs)
-    : HumanoidPreComputation(rhs), eeNormalAccConConfigs_(rhs.eeNormalAccConConfigs_) {}
+    : HumanoidPreComputation(rhs),
+      eeNormalAccConConfigs_(rhs.eeNormalAccConConfigs_) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -64,24 +64,36 @@ WBMpcPreComputation* WBMpcPreComputation::clone() const {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void WBMpcPreComputation::request(RequestSet request, scalar_t t, const vector_t& x, const vector_t& u) {
-  if (!request.containsAny(Request::Cost + Request::Constraint + Request::SoftConstraint)) {
+void WBMpcPreComputation::request(RequestSet request, scalar_t t,
+                                  const vector_t& x, const vector_t& u) {
+  if (!request.containsAny(Request::Cost + Request::Constraint +
+                           Request::SoftConstraint)) {
     return;
   }
 
-  const ModelSettings::FootConstraintConfig& footConstraintCfg = mpcRobotModelPtr_->modelSettings.footConstraintConfig;
-  updatePinocchioModelKinematics(mpcRobotModelPtr_->getGeneralizedCoordinates(x));
+  const ModelSettings::FootConstraintConfig& footConstraintCfg =
+      mpcRobotModelPtr_->modelSettings.footConstraintConfig;
+  updatePinocchioModelKinematics(
+      mpcRobotModelPtr_->getGeneralizedCoordinates(x));
 
   // lambda to set config for normal velocity constraints
   auto eeNormalVelConConfig = [&](size_t footIndex) {
     EndEffectorKinematicsLinearVelConstraint::Config config;
     config.b =
-        (vector_t(1) << -footConstraintCfg.linearVelocityErrorGain_z * swingTrajectoryPlannerPtr_->getZvelocityConstraint(footIndex, t))
+        (vector_t(1) << -footConstraintCfg.linearVelocityErrorGain_z *
+                            swingTrajectoryPlannerPtr_->getZvelocityConstraint(
+                                footIndex, t))
             .finished();
-    config.Av = (matrix_t(1, 3) << 0.0, 0.0, footConstraintCfg.linearVelocityErrorGain_z).finished();
+    config.Av = (matrix_t(1, 3) << 0.0, 0.0,
+                 footConstraintCfg.linearVelocityErrorGain_z)
+                    .finished();
     if (!numerics::almost_eq(footConstraintCfg.positionErrorGain_z, 0.0)) {
-      config.b(0) -= footConstraintCfg.positionErrorGain_z * swingTrajectoryPlannerPtr_->getZpositionConstraint(footIndex, t);
-      config.Ax = (matrix_t(1, 3) << 0.0, 0.0, footConstraintCfg.positionErrorGain_z).finished();
+      config.b(0) -=
+          footConstraintCfg.positionErrorGain_z *
+          swingTrajectoryPlannerPtr_->getZpositionConstraint(footIndex, t);
+      config.Ax =
+          (matrix_t(1, 3) << 0.0, 0.0, footConstraintCfg.positionErrorGain_z)
+              .finished();
     }
     return config;
   };
@@ -90,14 +102,26 @@ void WBMpcPreComputation::request(RequestSet request, scalar_t t, const vector_t
   auto eeNormalAccConConfig = [&](size_t footIndex) {
     EndEffectorDynamicsLinearAccConstraint::Config config;
     config.b =
-        (vector_t(1) << -footConstraintCfg.linearVelocityErrorGain_z * swingTrajectoryPlannerPtr_->getZvelocityConstraint(footIndex, t))
+        (vector_t(1) << -footConstraintCfg.linearVelocityErrorGain_z *
+                            swingTrajectoryPlannerPtr_->getZvelocityConstraint(
+                                footIndex, t))
             .finished();
-    config.Av = (matrix_t(1, 3) << 0.0, 0.0, footConstraintCfg.linearVelocityErrorGain_z).finished();
-    config.b(0) -= footConstraintCfg.linearAccelerationErrorGain_z * swingTrajectoryPlannerPtr_->getZaccelerationConstraint(footIndex, t);
-    config.Aa = (matrix_t(1, 3) << 0.0, 0.0, footConstraintCfg.linearAccelerationErrorGain_z).finished();
+    config.Av = (matrix_t(1, 3) << 0.0, 0.0,
+                 footConstraintCfg.linearVelocityErrorGain_z)
+                    .finished();
+    config.b(0) -=
+        footConstraintCfg.linearAccelerationErrorGain_z *
+        swingTrajectoryPlannerPtr_->getZaccelerationConstraint(footIndex, t);
+    config.Aa = (matrix_t(1, 3) << 0.0, 0.0,
+                 footConstraintCfg.linearAccelerationErrorGain_z)
+                    .finished();
     if (!numerics::almost_eq(footConstraintCfg.positionErrorGain_z, 0.0)) {
-      config.b(0) -= footConstraintCfg.positionErrorGain_z * swingTrajectoryPlannerPtr_->getZpositionConstraint(footIndex, t);
-      config.Ax = (matrix_t(1, 3) << 0.0, 0.0, footConstraintCfg.positionErrorGain_z).finished();
+      config.b(0) -=
+          footConstraintCfg.positionErrorGain_z *
+          swingTrajectoryPlannerPtr_->getZpositionConstraint(footIndex, t);
+      config.Ax =
+          (matrix_t(1, 3) << 0.0, 0.0, footConstraintCfg.positionErrorGain_z)
+              .finished();
     }
     return config;
   };
@@ -105,8 +129,10 @@ void WBMpcPreComputation::request(RequestSet request, scalar_t t, const vector_t
   if (request.contains(Request::Constraint)) {
     for (size_t i = 0; i < N_CONTACTS; i++) {
       eeNormalAccConConfigs_[i] = eeNormalAccConConfig(i);
-      pinocchio::FrameIndex frameID = pinocchioInterface_.getModel().getFrameId(mpcRobotModelPtr_->modelSettings.contactNames6DoF[i]);
-      R_world_to_contacts_[i] = pinocchioInterface_.getData().oMf[frameID].rotation().inverse();
+      pinocchio::FrameIndex frameID = pinocchioInterface_.getModel().getFrameId(
+          mpcRobotModelPtr_->modelSettings.contactNames6DoF[i]);
+      R_world_to_contacts_[i] =
+          pinocchioInterface_.getData().oMf[frameID].rotation().inverse();
     }
   }
 }

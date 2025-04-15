@@ -30,8 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <ocs2_core/dynamics/SystemDynamicsBaseAD.h>
-
 #include <ocs2_pinocchio_interface/PinocchioInterface.h>
+
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
 
@@ -49,10 +49,11 @@ class WBAccelDynamicsAD final : public SystemDynamicsBaseAD {
 
   WBAccelDynamicsAD(const WBAccelDynamicsAD& rhs) = default;
 
-  WBAccelDynamicsAD* clone() const override { return new WBAccelDynamicsAD(*this); }
+  WBAccelDynamicsAD* clone() const override {
+    return new WBAccelDynamicsAD(*this);
+  }
 
-  ad_vector_t systemFlowMap(ad_scalar_t time,
-                            const ad_vector_t& state,
+  ad_vector_t systemFlowMap(ad_scalar_t time, const ad_vector_t& state,
                             const ad_vector_t& input,
                             const ad_vector_t& parameters) const override;
 

@@ -30,17 +30,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <functional>
-#include <string>
-#include <vector>
-
-#include <ocs2_core/reference/TargetTrajectories.h>
-#include <ocs2_mpc/SystemObservation.h>
-
 #include <humanoid_common_mpc/command/WalkingVelocityCommand.h>
 #include <humanoid_common_mpc/gait/GaitScheduleBase.h>
 #include <humanoid_common_mpc/gait/ModeSequenceTemplate.h>
-
+#include <ocs2_core/reference/TargetTrajectories.h>
+#include <ocs2_mpc/SystemObservation.h>
 #include <ocs2_oc/synchronized_module/SolverSynchronizedModule.h>
+#include <string>
+#include <vector>
+
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/reference_manager/BreakFrequencyAlphaFilter.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"

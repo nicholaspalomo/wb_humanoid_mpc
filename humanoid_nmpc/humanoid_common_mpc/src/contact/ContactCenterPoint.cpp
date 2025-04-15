@@ -31,16 +31,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <boost/property_tree/info_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
-
 #include <ocs2_core/misc/LoadData.h>
+
 #include "humanoid_common_mpc/common/ModelSettings.h"
 
 namespace ocs2::humanoid {
 
-ContactCenterPoint ContactCenterPoint::loadContactCenterPoint(const std::string& taskFile,
-                                                              const ModelSettings& modelSettings,
-                                                              int contactIndex,
-                                                              bool verbose) {
+ContactCenterPoint ContactCenterPoint::loadContactCenterPoint(
+    const std::string& taskFile, const ModelSettings& modelSettings,
+    int contactIndex, bool verbose) {
   assert(contactIndex < N_CONTACTS && "Contact index is out of bound!");
   boost::property_tree::ptree pt;
   boost::property_tree::read_info(taskFile, pt);
@@ -49,20 +48,28 @@ ContactCenterPoint ContactCenterPoint::loadContactCenterPoint(const std::string&
   scalar_t x, y, z;
   if (verbose) {
     std::cerr << "\n #### Contact Center Point Settings: ";
-    std::cerr << "\n #### =============================================================================\n";
+    std::cerr << "\n #### "
+                 "============================================================="
+                 "================\n";
   }
-  loadData::loadPtreeValue(pt, x, prefix + "contact_frame_translation.x", verbose);
-  loadData::loadPtreeValue(pt, y, prefix + "contact_frame_translation.y", verbose);
-  loadData::loadPtreeValue(pt, z, prefix + "contact_frame_translation.z", verbose);
+  loadData::loadPtreeValue(pt, x, prefix + "contact_frame_translation.x",
+                           verbose);
+  loadData::loadPtreeValue(pt, y, prefix + "contact_frame_translation.y",
+                           verbose);
+  loadData::loadPtreeValue(pt, z, prefix + "contact_frame_translation.z",
+                           verbose);
 
   if (verbose) {
-    std::cerr << " #### =============================================================================\n";
+    std::cerr << " #### "
+                 "============================================================="
+                 "================\n";
   }
 
   vector3_t translationFromParent;
   translationFromParent << x, y, z;
   std::string frameName = modelSettings.contactNames[contactIndex];
-  std::string parentJointName = modelSettings.contactParentJointNames[contactIndex];
+  std::string parentJointName =
+      modelSettings.contactParentJointNames[contactIndex];
   return ContactCenterPoint(frameName, parentJointName, translationFromParent);
 }
 

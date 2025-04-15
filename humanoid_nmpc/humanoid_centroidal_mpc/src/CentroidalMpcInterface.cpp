@@ -31,10 +31,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 
 // Pinocchio forward declarations must be included first
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
-
-#include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
-
+#include <humanoid_common_mpc/HumanoidCostConstraintFactory.h>
+#include <humanoid_common_mpc/HumanoidPreComputation.h>
+#include <humanoid_common_mpc/constraint/EndEffectorKinematicsTwistConstraint.h>
+#include <humanoid_common_mpc/cost/EndEffectorKinematicsQuadraticCost.h>
+#include <humanoid_common_mpc/pinocchio_model/createPinocchioModel.h>
 #include <ocs2_centroidal_model/AccessHelperFunctions.h>
 #include <ocs2_centroidal_model/CentroidalModelPinocchioMapping.h>
 #include <ocs2_centroidal_model/FactoryFunctions.h>
@@ -44,13 +45,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_core/soft_constraint/StateInputSoftConstraint.h>
 #include <ocs2_oc/synchronized_module/SolverSynchronizedModule.h>
 #include <ocs2_pinocchio_interface/PinocchioEndEffectorKinematicsCppAd.h>
+#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
 
-#include <humanoid_common_mpc/HumanoidCostConstraintFactory.h>
-#include <humanoid_common_mpc/HumanoidPreComputation.h>
-#include <humanoid_common_mpc/constraint/EndEffectorKinematicsTwistConstraint.h>
-#include <humanoid_common_mpc/cost/EndEffectorKinematicsQuadraticCost.h>
-#include <humanoid_common_mpc/pinocchio_model/createPinocchioModel.h>
-
+#include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_centroidal_mpc/constraint/JointMimicKinematicConstraint.h"
 #include "humanoid_centroidal_mpc/constraint/NormalVelocityConstraintCppAd.h"
 #include "humanoid_centroidal_mpc/constraint/ZeroVelocityConstraintCppAd.h"

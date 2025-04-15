@@ -31,10 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 
 // Pinocchio forward declarations must be included first
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
-
-#include "humanoid_wb_mpc/WBMpcInterface.h"
-
+#include <humanoid_common_mpc/pinocchio_model/createPinocchioModel.h>
 #include <ocs2_core/misc/Display.h>
 #include <ocs2_core/misc/LoadData.h>
 #include <ocs2_core/misc/Numerics.h>
@@ -42,13 +39,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_core/soft_constraint/StateInputSoftConstraint.h>
 #include <ocs2_oc/synchronized_module/SolverSynchronizedModule.h>
 #include <ocs2_pinocchio_interface/PinocchioEndEffectorKinematicsCppAd.h>
+#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
 
-#include <humanoid_common_mpc/pinocchio_model/createPinocchioModel.h>
 #include "humanoid_common_mpc/HumanoidCostConstraintFactory.h"
-#include "humanoid_common_mpc/initialization/WeightCompInitializer.h"
-
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
+#include "humanoid_common_mpc/initialization/WeightCompInitializer.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
+#include "humanoid_wb_mpc/WBMpcInterface.h"
 #include "humanoid_wb_mpc/WBMpcPreComputation.h"
 #include "humanoid_wb_mpc/constraint/JointMimicDynamicsConstraint.h"
 #include "humanoid_wb_mpc/constraint/SwingLegVerticalConstraintCppAd.h"

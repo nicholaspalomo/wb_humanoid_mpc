@@ -29,18 +29,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <pinocchio/fwd.hpp>
-
 #include <array>
 #include <cppad/cg.hpp>
 #include <iostream>
 #include <memory>
-
-#include <pinocchio/algorithm/center-of-mass.hpp>
-
 #include <ocs2_centroidal_model/AccessHelperFunctions.h>
 #include <ocs2_pinocchio_interface/PinocchioInterface.h>
 #include <ocs2_robotic_tools/common/RotationTransforms.h>
+#include <pinocchio/algorithm/center-of-mass.hpp>
+#include <pinocchio/fwd.hpp>
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
@@ -53,18 +50,20 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-/** Computes an input with zero joint velocity and forces which equally distribute the robot weight between contact
- * feet. */
+/** Computes an input with zero joint velocity and forces which equally
+ * distribute the robot weight between contact feet. */
 
-inline vector_t weightCompensatingInput(const CentroidalModelInfoTpl<scalar_t>& info,
-                                        const contact_flag_t& contactFlags,
-                                        const MpcRobotModelBase<scalar_t>& mpcRobotModel) {
+inline vector_t weightCompensatingInput(
+    const CentroidalModelInfoTpl<scalar_t>& info,
+    const contact_flag_t& contactFlags,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel) {
   // Robot mass stays constant
   const static scalar_t totalGravitationalForce = info.robotMass * 9.81;
   const auto numStanceLegs = numberOfLegsInContacts(contactFlags);
   vector_t input = vector_t::Zero(mpcRobotModel.getInputDim());
   if (numStanceLegs > 0) {
-    const vector3_t forceInInertialFrame(0.0, 0.0, totalGravitationalForce / numStanceLegs);
+    const vector3_t forceInInertialFrame(
+        0.0, 0.0, totalGravitationalForce / numStanceLegs);
     for (size_t i = 0; i < contactFlags.size(); i++) {
       if (contactFlags[i]) {
         mpcRobotModel.setContactForce(input, forceInInertialFrame, i);

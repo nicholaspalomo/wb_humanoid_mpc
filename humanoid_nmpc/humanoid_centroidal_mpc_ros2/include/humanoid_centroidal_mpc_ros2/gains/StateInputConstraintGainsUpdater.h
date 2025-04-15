@@ -36,12 +36,15 @@ namespace ocs2::humanoid {
 
 class StateInputConstraintGainsUpdater : public GainsUpdaterInterface {
  public:
-  StateInputConstraintGainsUpdater(std::shared_ptr<GenericGuiInterface> gui) : GainsUpdaterInterface(gui) {}
+  StateInputConstraintGainsUpdater(std::shared_ptr<GenericGuiInterface> gui)
+      : GainsUpdaterInterface(gui) {}
   ~StateInputConstraintGainsUpdater() override = default;
 
-  bool initialize(ocs2::OptimalControlProblem& optimalControlProblem, const std::string& description) override {
+  bool initialize(ocs2::OptimalControlProblem& optimalControlProblem,
+                  const std::string& description) override {
     try {
-      auto& generic = optimalControlProblem.equalityConstraintPtr->get(description);
+      auto& generic =
+          optimalControlProblem.equalityConstraintPtr->get(description);
       auto& custom = dynamic_cast<ocs2::StateInputConstraint&>(generic);
 
       name_ = description;
@@ -57,7 +60,9 @@ class StateInputConstraintGainsUpdater : public GainsUpdaterInterface {
   }
 
   bool drawGui() override {
-    if (!gui_) return false;
+    if (!gui_) {
+      return false;
+    }
 
     bool hasBeenTriggered = false;
     if (gui_->TreeNode(name_.c_str())) {
@@ -65,7 +70,9 @@ class StateInputConstraintGainsUpdater : public GainsUpdaterInterface {
       bool active = component_->getActive();
 
       // Draw gui
-      if (gui_->Checkbox("Active", &active)) hasBeenTriggered = true;
+      if (gui_->Checkbox("Active", &active)) {
+        hasBeenTriggered = true;
+      }
 
       // Update gains
       if (hasBeenTriggered) {
@@ -83,7 +90,10 @@ class StateInputConstraintGainsUpdater : public GainsUpdaterInterface {
     msg.value.back().is_active = component_->getActive();
   }
 
-  void setFromMessage(const ocs2_ros2_msgs::msg::IndividualGains& gains) override { component_->setActive(gains.is_active); }
+  void setFromMessage(
+      const ocs2_ros2_msgs::msg::IndividualGains& gains) override {
+    component_->setActive(gains.is_active);
+  }
 
  private:
   ocs2::StateInputConstraint* component_;

@@ -45,13 +45,16 @@ class CentroidalDynamicsAD final : public SystemDynamicsBase {
                        const ModelSettings& modelSettings);
 
   ~CentroidalDynamicsAD() override = default;
-  CentroidalDynamicsAD* clone() const override { return new CentroidalDynamicsAD(*this); }
+  CentroidalDynamicsAD* clone() const override {
+    return new CentroidalDynamicsAD(*this);
+  }
 
-  vector_t computeFlowMap(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) override;
-  VectorFunctionLinearApproximation linearApproximation(scalar_t time,
-                                                        const vector_t& state,
-                                                        const vector_t& input,
-                                                        const PreComputation& preComp) override;
+  vector_t computeFlowMap(scalar_t time, const vector_t& state,
+                          const vector_t& input,
+                          const PreComputation& preComp) override;
+  VectorFunctionLinearApproximation linearApproximation(
+      scalar_t time, const vector_t& state, const vector_t& input,
+      const PreComputation& preComp) override;
 
  private:
   CentroidalDynamicsAD(const CentroidalDynamicsAD& rhs) = default;
