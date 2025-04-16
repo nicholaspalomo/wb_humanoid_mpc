@@ -79,9 +79,11 @@ MockMpcRobotModel createMpcRobotModel() {
                            "test", true);
 }
 
-auto getMockMpcRobotModel() {
+auto createMpcRobotModelPtr() {
+  const auto& taskFilePath = getTaskFilePath();
+  const auto& urdfFilePath = getUrdfFilePath();
   return std::make_unique<::testing::NiceMock<MockMpcRobotModel>>(
-      getTaskFilePath(), getUrdfFilePath(), kStateDim, kStateDim, "test", true);
+      taskFilePath, urdfFilePath, kStateDim, kStateDim, "test", true);
 }
 
 SwitchedModelReferenceManager createReferenceManager() {
@@ -325,7 +327,7 @@ TEST_F(FrictionForceConeLinearConstraintTest, TestIsActiveWithMocks) {
 
 TEST_F(FrictionForceConeLinearConstraintTest, TestGetValueWithMocks) {
   // Set up mock objects
-  auto mockModel = getMockMpcRobotModel();
+  auto mockModel = createMpcRobotModelPtr();
   auto mockCallback = std::make_unique<MockPreComputationCallback>();
   auto referenceManager = createReferenceManager();
 
@@ -377,7 +379,7 @@ TEST_F(FrictionForceConeLinearConstraintTest, TestGetValueWithMocks) {
 TEST_F(FrictionForceConeLinearConstraintTest,
        TestLinearApproximationWithMocks) {
   // Set up mock objects
-  auto mockModel = getMockMpcRobotModel();
+  auto mockModel = createMpcRobotModelPtr();
   auto mockCallback = std::make_unique<MockPreComputationCallback>();
   auto referenceManager = createReferenceManager();
 
