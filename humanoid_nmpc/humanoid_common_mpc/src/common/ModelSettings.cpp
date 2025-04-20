@@ -29,16 +29,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 
+#include <absl/log/check.h>
 #include <boost/property_tree/info_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
-
 #include <filesystem>
-#include <stdexcept>
-
 #include <ocs2_core/misc/LoadData.h>
 #include <ocs2_pinocchio_interface/PinocchioInterface.h>
-
-#include <absl/log/check.h>
+#include <stdexcept>
 
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 
@@ -64,10 +61,14 @@ static std::unordered_map<std::string, size_t> createJointIndexMap(
 
 static std::vector<std::string> initializeJointNames(
     const std::vector<std::string> &fullJointNames,
-    const std::vector<std::string> &fixedJointNames) {
-  std::cout << "Initialize the following active MPC joints: " << std::endl;
+    const std::vector<std::string> &fixedJointNames, bool verbose) {
+  if (verbose) {
+    std::cout << "Initialize the following active MPC joints: " << std::endl;
+  }
   size_t n_joints = fullJointNames.size() - fixedJointNames.size();
-  std::cout << "Num active joints: " << n_joints << std::endl;
+  if (verbose) {
+    std::cout << "Num active joints: " << n_joints << std::endl;
+  }
   std::vector<std::string> mpcModelJointNames;
   if (n_joints > 0) {
     mpcModelJointNames.reserve(n_joints);
@@ -79,7 +80,9 @@ static std::vector<std::string> initializeJointNames(
         fixedJointNames.end()) {
       // If the joint is not found in fixedJointNames, add it to
       // mpcModelJointNames
-      std::cout << joint << std::endl;
+      if (verbose) {
+        std::cout << joint << std::endl;
+      }
       mpcModelJointNames.emplace_back(joint);
     }
   }
@@ -157,9 +160,11 @@ ModelSettings::ModelSettings(const std::string &configFile,
   loadData::loadStdVector(configFile, prefix + "contactParentJointNames",
                           contactParentJointNames, verbose);
 
-  std::cout << "Initializing MPC by fixing joints: " << std::endl;
-  for (std::string fixedJoint : fixedJointNames) {
-    std::cout << fixedJoint << std::endl;
+  if (verbose) {
+    std::cout << "Initializing MPC by fixing joints: " << std::endl;
+    for (std::string fixedJoint : fixedJointNames) {
+      std::cout << fixedJoint << std::endl;
+    }
   }
 
   // Get full joint order from a full pinocchio interface, this removes any
@@ -167,17 +172,21 @@ ModelSettings::ModelSettings(const std::string &configFile,
   PinocchioInterface fullPinocchioInterface =
       createDefaultPinocchioInterface(urdfFile);
   const pinocchio::Model &model = fullPinocchioInterface.getModel();
-  std::cout << "Full URDF joints: " << std::endl;
+  if (verbose) {
+    std::cout << "Full URDF joints: " << std::endl;
+  }
   fullJointNames.reserve(model.njoints -
                          2);  // Substract universe and root joint
   for (pinocchio::JointIndex joint_id = 2;
        joint_id < (pinocchio::JointIndex)model.njoints; ++joint_id) {
-    std::cout << model.names[joint_id] << std::endl;
+    if (verbose) {
+      std::cout << model.names[joint_id] << std::endl;
+    }
     fullJointNames.emplace_back(model.names[joint_id]);
   }
 
-  this->mpcModelJointNames =
-      initializeJointNames(this->fullJointNames, this->fixedJointNames);
+  this->mpcModelJointNames = initializeJointNames(
+      this->fullJointNames, this->fixedJointNames, verbose);
   this->mpcModelToFullJointsIndices = initializeMpcToFullJointIndices(
       this->fullJointNames, this->mpcModelJointNames);
   this->jointIndexMap = createJointIndexMap(this->mpcModelJointNames);

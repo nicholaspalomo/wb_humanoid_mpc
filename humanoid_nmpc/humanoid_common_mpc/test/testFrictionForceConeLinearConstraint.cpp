@@ -37,7 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/constraint/FrictionForceConeLinearConstraint.h"
 #include "humanoid_common_mpc/gait/MockGaitSchedule.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
-#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
+#include "humanoid_common_mpc/reference_manager/MockSwitchedModelReferenceManager.h"
 #include "humanoid_common_mpc/swing_foot_planner/MockSwingTrajectoryPlanner.h"
 
 namespace ocs2::humanoid {
@@ -52,6 +52,7 @@ constexpr std::string_view kRobotModelConfigPackagePath =
     "drc_atlas_centroidal_mpc";
 constexpr std::string_view kUrdfFile = "/urdf/atlas.urdf";
 constexpr std::string_view kTaskFile = "/config/mpc/task.info";
+constexpr bool kVerbose = false;
 
 PinocchioInterface createPinocchioInterface() {
   return createDefaultPinocchioInterface(
@@ -76,14 +77,14 @@ MockMpcRobotModel createMpcRobotModel() {
   const auto& taskFilePath = getTaskFilePath();
   const auto& urdfFilePath = getUrdfFilePath();
   return MockMpcRobotModel(taskFilePath, urdfFilePath, kStateDim, kStateDim,
-                           "test", true);
+                           "test", kVerbose);
 }
 
 auto createMpcRobotModelPtr() {
   const auto& taskFilePath = getTaskFilePath();
   const auto& urdfFilePath = getUrdfFilePath();
   return std::make_unique<::testing::NiceMock<MockMpcRobotModel>>(
-      taskFilePath, urdfFilePath, kStateDim, kStateDim, "test", true);
+      taskFilePath, urdfFilePath, kStateDim, kStateDim, "test", kVerbose);
 }
 
 SwitchedModelReferenceManager createReferenceManager() {
@@ -95,18 +96,6 @@ SwitchedModelReferenceManager createReferenceManager() {
                                        std::move(swingTrajectoryPtr),
                                        pinocchioInterface, mpcRobotModel);
 }
-
-// Mock classes for testing with GMock
-class MockReferenceManager : public SwitchedModelReferenceManager {
- public:
-  MockReferenceManager()
-      : SwitchedModelReferenceManager(
-            std::make_shared<MockGaitSchedule>(),
-            std::make_shared<MockSwingTrajectoryPlanner>(),
-            createPinocchioInterface(), createMpcRobotModel()) {}
-
-  MOCK_METHOD(std::vector<bool>, getContactFlags, (scalar_t), (const));
-};
 
 // Mock callback for the PreComputation function
 class MockPreComputationCallback {
@@ -298,9 +287,10 @@ TEST_F(FrictionForceConeLinearConstraintTest, TestGetLinearApproximation) {
 // Test with mock objects to verify function calls
 TEST_F(FrictionForceConeLinearConstraintTest, TestIsActiveWithMocks) {
   // Create mock reference manager
-  auto mockReferenceManager =
-      std::make_unique<::testing::NiceMock<MockReferenceManager>>();
   auto mpcRobotModel = createMpcRobotModel();
+  auto mockReferenceManager =
+      std::make_unique<::testing::NiceMock<MockSwitchedModelReferenceManager>>(
+          createPinocchioInterface(), mpcRobotModel);
 
   // Set up the mock expectation
   std::vector<bool> contactFlags = {true, false, true, false};
