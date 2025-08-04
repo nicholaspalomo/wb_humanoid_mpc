@@ -42,8 +42,7 @@ target_link_libraries(${PROJECT_NAME}_absl_deps INTERFACE
 ## Build ##
 ###########
 
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_STANDARD 20)
 
 set(FLAGS ${OCS2_CXX_FLAGS} -Wno-invalid-partial-specialization)
 

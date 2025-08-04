@@ -1,4 +1,5 @@
 /******************************************************************************
+Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
 Copyright (c) 2024, 1X Technologies. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -162,33 +163,21 @@ ModelSettings::ModelSettings(const std::string &configFile,
 
   if (verbose) {
     std::cout << "Initializing MPC by fixing joints: " << std::endl;
-    for (std::string fixedJoint : fixedJointNames) {
-      std::cout << fixedJoint << std::endl;
-    }
+    for (std::string fixedJoint : fixedJointNames) std::cout << fixedJoint << std::endl;
   }
 
-  // Get full joint order from a full pinocchio interface, this removes any
-  // joints marked as fix in the urdf.
-  PinocchioInterface fullPinocchioInterface =
-      createDefaultPinocchioInterface(urdfFile);
-  const pinocchio::Model &model = fullPinocchioInterface.getModel();
-  if (verbose) {
-    std::cout << "Full URDF joints: " << std::endl;
-  }
-  fullJointNames.reserve(model.njoints -
-                         2);  // Substract universe and root joint
-  for (pinocchio::JointIndex joint_id = 2;
-       joint_id < (pinocchio::JointIndex)model.njoints; ++joint_id) {
-    if (verbose) {
-      std::cout << model.names[joint_id] << std::endl;
-    }
+  // Get full joint order from a full pinocchio interface, this removes any joints marked as fix in the urdf.
+  PinocchioInterface fullPinocchioInterface = createDefaultPinocchioInterface(urdfFile);
+  const pinocchio::Model& model = fullPinocchioInterface.getModel();
+  if (verbose) std::cout << "Full URDF joints: " << std::endl;
+  fullJointNames.reserve(model.njoints - 2);  // Substract universe and root joint
+  for (pinocchio::JointIndex joint_id = 2; joint_id < (pinocchio::JointIndex)model.njoints; ++joint_id) {
+    if (verbose) std::cout << model.names[joint_id] << std::endl;
     fullJointNames.emplace_back(model.names[joint_id]);
   }
 
-  this->mpcModelJointNames = initializeJointNames(
-      this->fullJointNames, this->fixedJointNames, verbose);
-  this->mpcModelToFullJointsIndices = initializeMpcToFullJointIndices(
-      this->fullJointNames, this->mpcModelJointNames);
+  this->mpcModelJointNames = initializeJointNames(this->fullJointNames, this->fixedJointNames, verbose);
+  this->mpcModelToFullJointsIndices = initializeMpcToFullJointIndices(this->fullJointNames, this->mpcModelJointNames);
   this->jointIndexMap = createJointIndexMap(this->mpcModelJointNames);
   this->contactNames =
       concatenateStringVectors(this->contactNames3DoF, this->contactNames6DoF);

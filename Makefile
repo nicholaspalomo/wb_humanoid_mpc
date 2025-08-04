@@ -48,8 +48,10 @@ NMPC_PACKAGES := $(call find_ros2_packages,$(current_path)/humanoid_nmpc)
 
 ROBOT_MODEL_PACKAGES := $(call find_ros2_packages,$(current_path)/robot_models)
 
+RUNTIME_PACKAGES := $(call find_ros2_packages,$(current_path)/robot_runtime)
+
 # Unified package list
-PACKAGES ?= $(NMPC_PACKAGES) $(ROBOT_MODEL_PACKAGES)
+PACKAGES ?= $(NMPC_PACKAGES) $(ROBOT_MODEL_PACKAGES) $(RUNTIME_PACKAGES)
 
 ############################################################
 # Customizable Configuration - User can override these
@@ -171,17 +173,21 @@ clean-cppad:
 	rm -rf cppad_code_gen
 
 format:
-	lib/halodi-ros2-code-quality/Tools/fix_code_style.sh robot_models humanoid_nmpc
-
-validate-format:
-	lib/halodi-ros2-code-quality/Tools/check_code_style.sh robot_models humanoid_nmpc
-
+	find . -name "lib" -prune -o \( -name "*.cpp" -o -name "*.h" -o -name "*.hpp" \) -print | xargs clang-format -i && \
+	black . --exclude="lib/"
 
 launch-g1-dummy-sim:
 	cd ${build_dir} && \
 	source ${ros_source_file} && \
 	source install/setup.bash && \
 	ros2 launch g1_centroidal_mpc dummy_sim.launch.py
+
+launch-g1-sim:
+	cd ${build_dir} && \
+	source ${ros_source_file} && \
+	source install/setup.bash && \
+	ros2 launch g1_centroidal_mpc mujoco_sim.launch.py 
+
 
 launch-wb-g1-dummy-sim:
 	cd ${build_dir} && \
@@ -201,11 +207,11 @@ launch-drc-atlas-sandbox:
 	source install/setup.bash && \
 	ros2 launch drc_atlas_description display.launch.py
 
-launch-neo-dummy-sim:
+launch-wb-g1-sim:
 	cd ${build_dir} && \
 	source ${ros_source_file} && \
 	source install/setup.bash && \
-	ros2 launch neo_centroidal_mpc dummy_sim.launch.py
+	ros2 launch g1_wb_mpc mujoco_sim.launch.py
 
 launch-wb-neo-dummy-sim:
 	cd ${build_dir} && \
@@ -232,6 +238,9 @@ test-pinocchio-model-atlas: build-atlas-model
 	source ${ros_source_file} && \
 	source install/setup.bash && \
 	ros2 run drc_atlas_centroidal_mpc test_pinocchio_model
+=======
+	ros2 launch g1_wb_mpc mujoco_sim.launch.py 
+>>>>>>> main
 
 run-ocs2-tests:
 	echo "make sure you call 'make build-relwithdebinfo' to build the tests before running them." && \
