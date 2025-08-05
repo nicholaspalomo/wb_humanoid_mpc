@@ -1,4 +1,5 @@
 /******************************************************************************
+Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
 Copyright (c) 2024, 1X Technologies. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -55,9 +56,9 @@ VECTOR_T<SCALAR_T> computeStateDerivative(
     WBAccelMpcRobotModel<SCALAR_T>& mpcRobotModel);
 
 template <typename SCALAR_T>
-VECTOR_T<SCALAR_T> computeJointTorques(
-    const VECTOR_T<SCALAR_T>& state, const VECTOR_T<SCALAR_T>& input,
-    const PinocchioInterfaceTpl<SCALAR_T>& pinInterface,
-    WBAccelMpcRobotModel<SCALAR_T>& mpcRobotModel);
+VECTOR_T<SCALAR_T> computeJointTorques(const VECTOR_T<SCALAR_T>& state,
+                                       const VECTOR_T<SCALAR_T>& input,
+                                       PinocchioInterfaceTpl<SCALAR_T>& pinInterface,
+                                       WBAccelMpcRobotModel<SCALAR_T>& mpcRobotModel);
 
 }  // namespace ocs2::humanoid

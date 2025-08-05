@@ -1,4 +1,5 @@
 /******************************************************************************
+Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
 Copyright (c) 2024, 1X Technologies. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -67,7 +68,7 @@ HumanoidVisualizer::HumanoidVisualizer(
                           .name),  // [0] universe frame, [1] root joint frame,
                                    // [2] root link frame.
       node_handle_(std::move(nodeHandle)) {
-  launchSubscribers();
+  // launchSubscribers();
   createVisualizationPublishers();
   prevPolicyState = vector_t::Zero(mpcRobotModelPtr_->getStateDim());
   prevPolicyInput = vector_t::Zero(mpcRobotModelPtr_->getInputDim());
@@ -329,9 +330,8 @@ void HumanoidVisualizer::publishOptimizedStateTrajectory(
   // required to run the visualization on a model that does not contain all the
   // frames
   static std::vector<std::string> frameNames = [&]() {
-    std::vector<std::string> fullFrameNames = {"foot_l_contact",
-                                               "foot_r_contact", "link_head",
-                                               "link_l_hand", "link_r_hand"};
+    std::vector<std::string> fullFrameNames = {"foot_l_contact", "foot_r_contact", "mid360_link", "left_hand_palm_joint",
+                                               "right_hand_palm_joint"};  // ToDo: generalize this
     std::vector<std::string> frameNames;
     frameNames.reserve(2);  // Feet and should always be present
     for (std::string& frameName : fullFrameNames) {

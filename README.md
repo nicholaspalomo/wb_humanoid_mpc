@@ -1,20 +1,21 @@
 # Whole-Body Humanoid MPC
 
-This repository contains a Whole-Body Nonlinear Model Predictive Controller (NMPC) for humanoid loco-manipulation control. This approach enables to directly optimize through the **full-order torque-level dynamics in realtime** to generate a wide range of humanoid behaviors building up on an [updated version of ocs2](https://github.com/manumerous/ocs2_ros2)
+This repository contains a Whole-Body Nonlinear Model Predictive Controller (NMPC) for humanoid loco-manipulation control. This approach enables to directly optimize through the **full-order torque-level dynamics in realtime** to generate a wide range of humanoid behaviors building up on an [extended & updated version of ocs2](https://github.com/manumerous/ocs2_ros2)
 
 **Interactive Velocity and Base Height Control via Joystick:**
-![Screencast2024-12-16180254-ezgif com-video-to-gif-converter(1)(3)](https://github.com/user-attachments/assets/a032477b-2e70-41b0-90d3-9539e1a4b723)
+![Screencast2024-12-16180254-ezgif com-optimize(3)](https://github.com/user-attachments/assets/d4b1f0da-39ca-4ce1-b53c-e1d040abe1be)
 
-It contains the following MPC fromulations to be applied to any humanoid robot. 
+
+It contains the following hardware platform agnostic MPC fromulations:
 
 ### Centroidal Dynamics MPC
 The centroidal MPC optimizes over the **whole-body kinematics** and the center off mass dynamics, with a choice to either use a single rigid 
-body model or the full centroidal dynamics. It's functionality is contained in `humanoid_centroidal_mpc`.
+body model or the full centroidal dynamics. This specific approach builds up on the centroidal model in ocs2 by generalizing costs and constraints to a 6 DoF contact among others. I am still working on documenting this. Until then a conscise explanation of the ocs2 centroidal model can be found here [Sleiman et. al., A Unified MPC Framework for Whole-Body Dynamic Locomotion and Manipulation](https://arxiv.org/abs/2103.00946)
 
 ### Whole-Body Dynamics MPC
 The **whole-body dynamics** MPC optimized over the contact forces and joint accelerations with the option to compute the joint torques for 
-each step planned accross the horizon. It's functionality is contained in `humanoid_wb_mpc`.
-
+each step planned accross the horizon. I am still working on documenting and publishing the approach. The most relevant information on the choosen approach can currently be found in [Galliker et al., Bipedal Locomotion with Nonlinear Model Predictive Control:
+Online Gait Generation using Whole-Body Dynamics](http://ames.caltech.edu/galliker2022bipedal.pdf)
 ### Robot Examples
 
 The project supports the following robot examples:
@@ -106,6 +107,15 @@ To cite the Whole-Body Humanoid MPC in your academic research, please consider c
 ```
 
 ## Acknowledgements
-This project was developed at [1X Technologies](https://www.1x.tech/) and is primarily authored and maintained by [Manuel Yves Galliker](https://github.com/manumerous).
+Created and actively maintained by [Manuel Yves Galliker](https://github.com/manumerous).
 
-Further acknowledgement for their contributions, insights, discussion and support goes to Michael Purcell, Jesper Smith, Simon Zimmermann, Joel Filho, Paal Arthur Schjelderup Thorseth, Varit (Ohm) Vichathorn, Sjur Grønnevik Wroldsen, Armin Nurkanovic, Charles Khazoom, Farbod Farshidian, Eric Jang, Bernt Børnich and everyone at 1X Technologies.
+Special thanks go to [Nicholas Palermo](https://github.com/nicholaspalomo) for implementing the dockerization among other great inputs and contributions. 
+
+This project is founded on the great work of many open-source contributors. I would especially like to acknowledge:
+- [ocs2](https://github.com/leggedrobotics/ocs2)
+- [pinocchio](https://github.com/stack-of-tasks/pinocchio)
+- [hpipm](https://github.com/giaf/hpipm)
+  
+Part of this work was developed during my time at [1X Technologies](https://www.1x.tech/). I would like to kindly thank Eric Jang and Bernt Børnich for supporting the open sourcing of this project. 
+
+Further I would like to thank Michael Purcell, Jesper Smith, Simon Zimmermann, Joel Filho, Paal Arthur Schjelderup Thorseth, Varit (Ohm) Vichathorn, Sjur Grønnevik Wroldsen, Armin Nurkanovic, Charles Khazoom and Farbod Farshidian for the many fruitful discussions, insights, contributions and support. 

@@ -1,4 +1,5 @@
 /******************************************************************************
+Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
 Copyright (c) 2024, 1X Technologies. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -444,9 +445,7 @@ ad_vector_t PinocchioEndEffectorDynamicsCppAd::getOrientationCppAd(
 /******************************************************************************************************/
 /******************************************************************************************************/
 auto PinocchioEndEffectorDynamicsCppAd::getOrientationError(
-    const vector_t& state,
-    const std::vector<quaternion_t>& referenceOrientations) const
-    -> std::vector<vector3_t> {
+    const vector_t& state, const std::vector<quaternion_t>& referenceOrientations) const -> std::vector<vector3_t> {
   vector_t params(4 * endEffectorIds_.size());
   for (size_t i = 0; i < endEffectorIds_.size(); i++) {
     params.segment<4>(i * 4) = referenceOrientations[i].coeffs();
@@ -575,11 +574,7 @@ PinocchioEndEffectorDynamicsCppAd::
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-
-ad_vector_t PinocchioEndEffectorDynamicsCppAd::getOrientationErrorWrtPlaneCppAd(
-    const ad_vector_t& state, const ad_vector_t& params) {
-  using ad_quaternion_t = Eigen::Quaternion<ad_scalar_t>;
-
+ad_vector_t PinocchioEndEffectorDynamicsCppAd::getOrientationErrorWrtPlaneCppAd(const ad_vector_t& state, const ad_vector_t& params) {
   // std::cout << "params: " << params.size() << std::endl;
 
   const auto& model = pinocchioInterfaceCppAd_.getModel();
@@ -768,9 +763,8 @@ ad_vector_t PinocchioEndEffectorDynamicsCppAd::getLinearAccelerationCppAd(
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-auto PinocchioEndEffectorDynamicsCppAd::getLinearAcceleration(
-    const vector_t& state,
-    const vector_t& input) const -> std::vector<vector3_t> {
+auto PinocchioEndEffectorDynamicsCppAd::getLinearAcceleration(const vector_t& state,
+                                                              const vector_t& input) const -> std::vector<vector3_t> {
   vector_t stateInput(state.rows() + input.rows());
   stateInput << state, input;
   const vector_t accelerationValues =
@@ -837,9 +831,8 @@ ad_vector_t PinocchioEndEffectorDynamicsCppAd::getAngularAccelerationCppAd(
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-auto PinocchioEndEffectorDynamicsCppAd::getAngularAcceleration(
-    const vector_t& state,
-    const vector_t& input) const -> std::vector<vector3_t> {
+auto PinocchioEndEffectorDynamicsCppAd::getAngularAcceleration(const vector_t& state,
+                                                               const vector_t& input) const -> std::vector<vector3_t> {
   vector_t stateInput(state.rows() + input.rows());
   stateInput << state, input;
   const vector_t accelerationValues =
