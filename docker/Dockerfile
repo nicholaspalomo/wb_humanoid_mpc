@@ -6,8 +6,10 @@ ARG USER_ID=1000
 ARG GROUP_ID=1000
 ARG WB_HUMANOID_MPC_DIR="/wb_humanoid_mpc_ws"
 ARG PYTHON_VERSION=3.12
+ARG APPLE_SILICON=0
 ENV DEBIAN_FRONTEND=noninteractive
 ENV ROS_DISTRO=${ROS_DISTRO}
+ENV APPLE_SILICON=${APPLE_SILICON}
 
 # Install system dependencies, ROS, Python, and development tools in a single step
 RUN apt-get update && apt-get install -y --no-install-recommends \
