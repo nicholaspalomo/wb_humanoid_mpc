@@ -13,22 +13,28 @@ services:
         GIT_USER_NAME: "${GIT_USER_NAME}"
         GIT_USER_EMAIL: "${GIT_USER_EMAIL}"
 
-    # You will need to set DOCKER_PLATFORM to another architecture if you're not using amd64.
+    # platform selectable via DOCKER_PLATFORM on host; default uses amd64 (Rosetta on Apple Silicon)
     platform: ${DOCKER_PLATFORM:-linux/amd64}
 
-    volumes:
-      - ../../..:/wb_humanoid_mpc_ws:cached
-      - /tmp/.X11-unix:/tmp/.X11-unix
-      - ${XDG_RUNTIME_DIR:-/tmp/xdg_runtime_dir}:${XDG_RUNTIME_DIR:-/tmp/xdg_runtime_dir}
-      - ${HOME}/.gitconfig:/home/vscode/.gitconfig
-
-    environment:
-      - DISPLAY=${DISPLAY}
-      - QT_X11_NO_MITSHM=1
-      - XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR}
-      - GIT_USER_NAME=${GIT_USER_NAME}
-      - GIT_USER_EMAIL=${GIT_USER_EMAIL}
-
+    user: "${CONTAINER_USER:-ubuntu}"
     network_mode: host
     privileged: true
+    stdin_open: true
+    tty: true
     command: sleep infinity
+
+    volumes:
+      - ../../..:/wb_humanoid_mpc_ws:delegated
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - ${XDG_RUNTIME_DIR:-/tmp/xdg_runtime_dir}:${XDG_RUNTIME_DIR:-/tmp/xdg_runtime_dir}
+      - ${HOME}/.gitconfig:/tmp/host.gitconfig:cached,ro
+      - ${HOME}/.ssh:/home/${CONTAINER_USER:-ubuntu}/.ssh:cached
+
+    environment:
+      DISPLAY: ${DISPLAY}
+      QT_X11_NO_MITSHM: "1"
+      XDG_RUNTIME_DIR: ${XDG_RUNTIME_DIR}
+      GIT_USER_NAME: ${GIT_USER_NAME}
+      GIT_USER_EMAIL: ${GIT_USER_EMAIL}
+      COLCON_HOME: /wb_humanoid_mpc_ws
+      COLCON_DEFAULTS_FILE: /wb_humanoid_mpc_ws/src/wb_humanoid_mpc/colcon.defaults.yaml

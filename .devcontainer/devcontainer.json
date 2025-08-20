@@ -1,10 +1,18 @@
 {
   "name": "Whole Body MPC Dev Container",
-  "initializeCommand": "xhost +local:",
-  "dockerComposeFile": "docker-compose.yml",
+  "initializeCommand": [
+    "bash",
+    "-c",
+    "xhost +local:"
+  ],
+  "dockerComposeFile": [
+    "docker-compose.yml"
+  ],
   "service": "app",
+  "remoteUser": "ubuntu",
+  "containerUser": "ubuntu",
+  "updateRemoteUserUID": false,
   "workspaceFolder": "/wb_humanoid_mpc_ws/src/wb_humanoid_mpc",
-  "overrideCommand": false,
   "customizations": {
     "vscode": {
       "settings": {
@@ -21,21 +29,18 @@
         "ms-python.vscode-pylance",
         "eamodio.gitlens",
         "GitHub.copilot",
-        "GitHub.copilot-chat",
-        "twxs.cmake",
-        "cheshirekow.cmake-format",
-        "xaver.clang-format",
-        "ms-toolsai.jupyter-keymap",
-        "ms-vscode-remote.remote-ssh",
-        "ms-vscode-remote.remote-ssh-edit",
-        "ms-vscode.remote-explorer",
-        "sankethdev.vscode-proto"
+        "GitHub.copilot-chat"
       ]
     }
   },
   "mounts": [
-    "source=${localWorkspaceFolder}/../..,target=/wb_humanoid_mpc_ws,type=bind,consistency=cached",
-    "source=${localEnv:HOME}/.gitconfig,target=/home/vscode/.gitconfig,type=bind"
+    "source=${localWorkspaceFolder}/../..,target=/wb_humanoid_mpc_ws,type=bind,consistency=delegated",
+    "source=${localEnv:HOME}/.gitconfig,target=/tmp/host.gitconfig,type=bind,consistency=cached,readOnly=true",
+    "source=${localEnv:HOME}/.ssh,target=/home/ubuntu/.ssh,type=bind,consistency=cached"
   ],
-  "postCreateCommand": "git config --global user.name \"$GIT_USER_NAME\" && git config --global user.email \"$GIT_USER_EMAIL\" && git config --global --add safe.directory /wb_humanoid_mpc_ws/src/wb_humanoid_mpc && curl -o .git-completion.bash https://raw.githubusercontent.com/git/git/master/contrib/completion/git-completion.bash && echo 'source /opt/ros/jazzy/setup.bash' >> ~/.bashrc && echo 'source ./.git-completion.bash' >> ~/.bashrc"
+  "containerEnv": {
+    "COLCON_HOME": "/wb_humanoid_mpc_ws",
+    "COLCON_DEFAULTS_FILE": "/wb_humanoid_mpc_ws/src/wb_humanoid_mpc/colcon.defaults.yaml"
+  },
+  "postCreateCommand": "${containerWorkspaceFolder}/.devcontainer/post_create.sh"
 }
