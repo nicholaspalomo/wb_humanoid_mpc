@@ -13,8 +13,8 @@ services:
         GIT_USER_NAME: "${GIT_USER_NAME}"
         GIT_USER_EMAIL: "${GIT_USER_EMAIL}"
 
-    # TODO(nicholaspalomo): Remove the hardcoding so that this is cross compatible with Linux and MacOS
-    platform: linux/amd64 # Force x86/amd64 platform for Rosetta 2 on Apple Silicon
+    # You will need to set DOCKER_PLATFORM to another architecture if you're not using amd64.
+    platform: ${DOCKER_PLATFORM:-linux/amd64}
 
     volumes:
       - ../../..:/wb_humanoid_mpc_ws:cached

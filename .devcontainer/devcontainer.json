@@ -3,7 +3,6 @@
   "initializeCommand": "xhost +local:",
   "dockerComposeFile": "docker-compose.yml",
   "service": "app",
-  "user": "${localEnv:USER_ID}:${localEnv:GROUP_ID}",
   "workspaceFolder": "/wb_humanoid_mpc_ws/src/wb_humanoid_mpc",
   "overrideCommand": false,
   "customizations": {
