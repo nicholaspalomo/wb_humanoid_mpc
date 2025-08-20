@@ -28,7 +28,7 @@ services:
       - /tmp/.X11-unix:/tmp/.X11-unix
       - ${XDG_RUNTIME_DIR:-/tmp/xdg_runtime_dir}:${XDG_RUNTIME_DIR:-/tmp/xdg_runtime_dir}
       - ${HOME}/.gitconfig:/tmp/host.gitconfig:cached,ro
-      - ${HOME}/.ssh:/home/${CONTAINER_USER:-ubuntu}/.ssh:cached
+      - ${HOME}/.ssh:/tmp/host_ssh:cached
 
     environment:
       DISPLAY: ${DISPLAY}

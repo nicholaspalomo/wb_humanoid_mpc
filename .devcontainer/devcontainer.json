@@ -36,11 +36,11 @@
   "mounts": [
     "source=${localWorkspaceFolder}/../..,target=/wb_humanoid_mpc_ws,type=bind,consistency=delegated",
     "source=${localEnv:HOME}/.gitconfig,target=/tmp/host.gitconfig,type=bind,consistency=cached,readOnly=true",
-    "source=${localEnv:HOME}/.ssh,target=/home/ubuntu/.ssh,type=bind,consistency=cached"
+    "source=${localEnv:HOME}/.ssh,target=/tmp/host_ssh,type=bind,consistency=cached"
   ],
   "containerEnv": {
     "COLCON_HOME": "/wb_humanoid_mpc_ws",
     "COLCON_DEFAULTS_FILE": "/wb_humanoid_mpc_ws/src/wb_humanoid_mpc/colcon.defaults.yaml"
   },
-  "postCreateCommand": "${containerWorkspaceFolder}/.devcontainer/post_create.sh"
+  "postCreateCommand": "chmod +x ${containerWorkspaceFolder}/.devcontainer/post_create.sh"
 }
