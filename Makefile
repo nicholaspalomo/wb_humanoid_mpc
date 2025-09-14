@@ -193,7 +193,19 @@ launch-wb-g1-dummy-sim:
 	cd ${build_dir} && \
 	source ${ros_source_file} && \
 	source install/setup.bash && \
-	ros2 launch g1_wb_mpc dummy_sim.launch.py
+	ros2 launch g1_wb_mpc wb_dummy_sim.launch.py
+
+launch-drc-atlas-dummy-sim:
+	cd ${build_dir} && \
+	source ${ros_source_file} && \
+	source install/setup.bash && \
+	ros2 launch drc_atlas_centroidal_mpc dummy_sim.launch.py
+
+launch-drc-atlas-sandbox:
+	cd ${build_dir} && \
+	source ${ros_source_file} && \
+	source install/setup.bash && \
+	ros2 launch drc_atlas_description display.launch.py
 
 launch-wb-g1-sim:
 	cd ${build_dir} && \

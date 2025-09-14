@@ -8,6 +8,7 @@ endif ()
 # Generate compile_commands.json for clang tools
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+find_package(absl REQUIRED)
 find_package(ament_cmake REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 find_package(rclcpp REQUIRED)
@@ -30,6 +31,13 @@ pkg_check_modules(pinocchio REQUIRED pinocchio)
 
 find_package(Eigen3 3.3 REQUIRED NO_MODULE)
 
+add_library(${PROJECT_NAME}_absl_deps INTERFACE)
+target_link_libraries(${PROJECT_NAME}_absl_deps INTERFACE
+    absl::base
+    absl::log
+    absl::check
+)
+
 ###########
 ## Build ##
 ###########
@@ -46,9 +54,11 @@ include_directories(
         ${Boost_INCLUDE_DIRS}
         ${pinocchio_INCLUDE_DIRS}
         ${GTEST_INCLUDE_DIRS}
+        /usr/local/include
 )
 
 set(dependencies
+        absl
         ament_cmake
         ament_index_cpp
         rclcpp
@@ -107,6 +117,12 @@ ament_target_dependencies(${PROJECT_NAME}
 target_link_libraries(${PROJECT_NAME}
         ${Boost_LIBRARIES}
         ${pinocchio_LIBRARIES}
+        ${PROJECT_NAME}_absl_deps
+)
+target_include_directories(${PROJECT_NAME}
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
 )
 target_compile_options(${PROJECT_NAME} PUBLIC ${OCS2_CXX_FLAGS})
 
@@ -144,6 +160,8 @@ endif ()
 #############
 
 install(TARGETS ${PROJECT_NAME}
+        ${PROJECT_NAME}_absl_deps
+        EXPORT ${PROJECT_NAME}_targets
         ARCHIVE DESTINATION lib
         LIBRARY DESTINATION lib
         RUNTIME DESTINATION bin
@@ -165,6 +183,7 @@ install(TARGETS
 #   DESTINATION share/${PROJECT_NAME}
 # )
 
+ament_export_targets(${PROJECT_NAME}_targets)
 ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME})
 ament_export_dependencies(${dependencies})
