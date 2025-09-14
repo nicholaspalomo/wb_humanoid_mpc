@@ -27,12 +27,19 @@ services:
       - ../../..:/wb_humanoid_mpc_ws:delegated
       - ${XDG_RUNTIME_DIR:-/tmp/xdg_runtime_dir}:${XDG_RUNTIME_DIR:-/tmp/xdg_runtime_dir}
       - ${HOME}/.gitconfig:/tmp/host.gitconfig:cached,ro
+      # Mount a default ALSA config to avoid "cannot find card '0'" in headless containers
+      - ./asound.conf:/etc/asound.conf:ro
       - ${HOME}/.ssh:/tmp/host_ssh:cached,z
 
     # Note: May need to run `xhost + 127.0.0.1` on host to allow GUI apps to connect to X server
     environment:
       DISPLAY: host.docker.internal:0
       QT_X11_NO_MITSHM: "1"
+      # Force Mesa software rendering (llvmpipe) — helps when XQuartz lacks GLX support
+      LIBGL_ALWAYS_SOFTWARE: "1"
+      MESA_LOADER_DRIVER_OVERRIDE: "llvmpipe"
+      LIBGL_ALWAYS_INDIRECT: "1"
+      ROS_DOMAIN_ID: "0"
       PULSE_SERVER: unix:${XDG_RUNTIME_DIR}/pulse/native
       XDG_RUNTIME_DIR: ${XDG_RUNTIME_DIR}
       GIT_USER_NAME: ${GIT_USER_NAME}

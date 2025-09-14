@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<!-- Cyclone DDS multicast (default) reference.
+     This file is no longer mounted by the devcontainer by default.
+     If multicast fails on your platform (Docker Desktop macOS) you can
+     re-enable an explicit unicast config and mount it into the container.
+-->
+<CycloneDDS>
+  <Domain>
+    <General>
+      <!-- Use default multicast discovery -->
+      <NetworkInterfaceAddress>auto</NetworkInterfaceAddress>
+      <AllowMulticast>true</AllowMulticast>
+      <!-- If you need unicast discovery instead, uncomment and set a reachable host:
+           <DiscoveryInitialPeers>
+             <Peer address="host.docker.internal"/>
+           </DiscoveryInitialPeers>
+      -->
+    </General>
+  </Domain>
+</CycloneDDS>
