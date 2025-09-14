@@ -40,7 +40,8 @@
   ],
   "containerEnv": {
     "COLCON_HOME": "/wb_humanoid_mpc_ws",
-    "COLCON_DEFAULTS_FILE": "/wb_humanoid_mpc_ws/src/wb_humanoid_mpc/colcon.defaults.yaml"
+    "COLCON_DEFAULTS_FILE": "/wb_humanoid_mpc_ws/src/wb_humanoid_mpc/colcon.defaults.yaml",
+    "DISPLAY": "host.docker.internal:0"
   },
   "postCreateCommand": "bash -c 'chmod +x ${containerWorkspaceFolder}/.devcontainer/post_create.sh && ${containerWorkspaceFolder}/.devcontainer/post_create.sh'"
 }

@@ -48,7 +48,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Set up environment variables
 ENV CMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}:/opt/ros/${ROS_DISTRO}"
-ENV DISPLAY=${DISPLAY:-:0} QT_X11_NO_MITSHM=1
 
 # Create directory for the Abseil volume mount and set appropriate permissions
 RUN mkdir -p /usr/local/include/absl /usr/local/lib && \
