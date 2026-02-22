@@ -11,6 +11,7 @@ def generate_launch_description():
         mpc_config_pkg="drc_atlas_centroidal_mpc",
         mpc_model_pkg="drc_atlas_description",
         urdf_rel_path="/urdf/atlas.urdf",
+        xml_rel_path="",
         robot_name="drc_atlas",
         solver="sqp",
         enable_debug=False,
