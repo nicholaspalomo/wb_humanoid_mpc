@@ -46,6 +46,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ccache \
     && rm -rf /var/lib/apt/lists/*
 
+# Install VNC, noVNC, and a lightweight window manager for remote visualization
+# Install VNC, noVNC, and a lightweight window manager for remote visualization
+# This allows viewing RViz/GUI apps via a browser on macOS without XQuartz
+# Uses Xvfb (Mesa GLX) + x11vnc instead of Xtigervnc to provide the GLX
+# context that RViz2/OGRE requires for OpenGL rendering.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    novnc \
+    websockify \
+    x11vnc \
+    openbox \
+    xvfb \
+    xterm \
+    dbus-x11 \
+    libgl1-mesa-dri \
+    libglx-mesa0 \
+    libegl-mesa0 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Set up environment variables
 ENV CMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}:/opt/ros/${ROS_DISTRO}"
 
