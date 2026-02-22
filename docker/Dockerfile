@@ -62,6 +62,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libegl-mesa0 \
     && rm -rf /var/lib/apt/lists/*
 
+
 # Set up environment variables
 ENV CMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}:/opt/ros/${ROS_DISTRO}"
 

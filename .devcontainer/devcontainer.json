@@ -47,7 +47,9 @@
         "sankethdev.vscode-proto",
         "Continue.continue",
         "ms-vscode.cpptools-extension-pack",
-        "ms-vscode.makefile-tools"
+        "ms-vscode.makefile-tools",
+        "Google.geminicodeassist",
+        "google.gemini-cli-vscode-ide-companion"
       ]
     }
   },
