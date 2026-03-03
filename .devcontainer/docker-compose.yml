@@ -26,8 +26,6 @@ services:
       - ../../..:/wb_humanoid_mpc_ws:delegated
       - ${XDG_RUNTIME_DIR:-/tmp/xdg_runtime_dir}:${XDG_RUNTIME_DIR:-/tmp/xdg_runtime_dir}
       - ${HOME}/.gitconfig:/tmp/host.gitconfig:cached,ro
-      # Mount a default ALSA config to avoid "cannot find card '0'" in headless containers
-      - ./asound.conf:/etc/asound.conf:ro
       - ${HOME}/.ssh:/tmp/host_ssh:cached,z
 
     environment:
