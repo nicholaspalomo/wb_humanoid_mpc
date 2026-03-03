@@ -19,7 +19,13 @@
           }
         },
         "editor.formatOnSave": true,
-        "files.trimTrailingWhitespace": true
+        "files.trimTrailingWhitespace": true,
+        "[cpp]": {
+          "editor.defaultFormatter": "xaver.clang-format"
+        },
+        "[c]": {
+          "editor.defaultFormatter": "xaver.clang-format"
+        }
       },
       "extensions": [
         "ms-vscode.cpptools",
@@ -28,6 +34,7 @@
         "ms-azuretools.vscode-docker",
         "ms-python.python",
         "ms-python.vscode-pylance",
+        "xaver.clang-format",
         "eamodio.gitlens",
         "GitHub.copilot",
         "GitHub.copilot-chat"
