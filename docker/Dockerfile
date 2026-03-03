@@ -46,11 +46,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ccache \
     && rm -rf /var/lib/apt/lists/*
 
-# Install VNC, noVNC, and a lightweight window manager for remote visualization
-# Install VNC, noVNC, and a lightweight window manager for remote visualization
-# This allows viewing RViz/GUI apps via a browser on macOS without XQuartz
-# Uses Xvfb (Mesa GLX) + x11vnc instead of Xtigervnc to provide the GLX
-# context that RViz2/OGRE requires for OpenGL rendering.
+# Install VNC, noVNC, and a lightweight window manager for headless remote visualization.
+# Uses Xvfb (Mesa GLX) + x11vnc to provide the GLX context that RViz2/OGRE requires.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     novnc \
     websockify \

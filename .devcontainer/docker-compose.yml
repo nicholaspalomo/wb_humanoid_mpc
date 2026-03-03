@@ -24,7 +24,6 @@ services:
 
     volumes:
       - ../../..:/wb_humanoid_mpc_ws:delegated
-      - ${XDG_RUNTIME_DIR:-/tmp/xdg_runtime_dir}:${XDG_RUNTIME_DIR:-/tmp/xdg_runtime_dir}
       - ${HOME}/.gitconfig:/tmp/host.gitconfig:cached,ro
       - ${HOME}/.ssh:/tmp/host_ssh:cached,z
 
@@ -37,8 +36,6 @@ services:
       MESA_LOADER_DRIVER_OVERRIDE: "llvmpipe"
       LIBGL_ALWAYS_INDIRECT: "0"
       ROS_DOMAIN_ID: "0"
-      PULSE_SERVER: unix:${XDG_RUNTIME_DIR}/pulse/native
-      XDG_RUNTIME_DIR: ${XDG_RUNTIME_DIR}
       GIT_USER_NAME: ${GIT_USER_NAME}
       GIT_USER_EMAIL: ${GIT_USER_EMAIL}
       COLCON_HOME: /wb_humanoid_mpc_ws

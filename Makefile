@@ -126,7 +126,8 @@ endef
 # Command Line Interface
 ############################################################
 .PHONY: build-all build-debug build-release build-relwithdebinfo build \
-        test-all test $(addprefix build-,$(PACKAGES)) $(addprefix test-,$(PACKAGES))
+        test-all test $(addprefix build-,$(PACKAGES)) $(addprefix test-,$(PACKAGES)) \
+        start-vnc stop-vnc
 
 build-all:
 	$(call default-build-package,$(PACKAGES))
@@ -197,6 +198,54 @@ launch-wb-g1-dummy-sim:
 
 launch-wb-g1-sim:
 	cd ${build_dir} && \
+	source ${ros_source_file} && \
+	source install/setup.bash && \
+	ros2 launch g1_wb_mpc mujoco_sim.launch.py
+
+############################################################
+# VNC visualization (for macOS host)
+############################################################
+start-vnc:
+	@chmod +x $(current_path)/.devcontainer/start_vnc.sh && \
+	$(current_path)/.devcontainer/start_vnc.sh $(RESOLUTION)
+
+stop-vnc:
+	@chmod +x $(current_path)/.devcontainer/start_vnc.sh && \
+	$(current_path)/.devcontainer/start_vnc.sh stop
+
+# Environment overrides for VNC display + Mesa software GLX (required for RViz2/OGRE)
+VNC_GL_ENV := export DISPLAY=:1 && \
+	export LIBGL_ALWAYS_SOFTWARE=1 && \
+	export LIBGL_ALWAYS_INDIRECT=0 && \
+	export GALLIUM_DRIVER=llvmpipe && \
+	export MESA_GL_VERSION_OVERRIDE=3.3 && \
+	export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
+
+# Launch targets that automatically start VNC
+launch-g1-dummy-sim-vnc: start-vnc
+	cd ${build_dir} && \
+	${VNC_GL_ENV} && \
+	source ${ros_source_file} && \
+	source install/setup.bash && \
+	ros2 launch g1_centroidal_mpc dummy_sim.launch.py
+
+launch-g1-sim-vnc: start-vnc
+	cd ${build_dir} && \
+	${VNC_GL_ENV} && \
+	source ${ros_source_file} && \
+	source install/setup.bash && \
+	ros2 launch g1_centroidal_mpc mujoco_sim.launch.py
+
+launch-wb-g1-dummy-sim-vnc: start-vnc
+	cd ${build_dir} && \
+	${VNC_GL_ENV} && \
+	source ${ros_source_file} && \
+	source install/setup.bash && \
+	ros2 launch g1_wb_mpc dummy_sim.launch.py
+
+launch-wb-g1-sim-vnc: start-vnc
+	cd ${build_dir} && \
+	${VNC_GL_ENV} && \
 	source ${ros_source_file} && \
 	source install/setup.bash && \
 	ros2 launch g1_wb_mpc mujoco_sim.launch.py

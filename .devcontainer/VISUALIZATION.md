@@ -23,8 +23,6 @@ Use the `-vnc` suffixed make targets to automatically start VNC and launch with 
 | `make launch-g1-sim-vnc` | G1 centroidal MPC — MuJoCo sim |
 | `make launch-wb-g1-dummy-sim-vnc` | G1 whole-body MPC — dummy sim |
 | `make launch-wb-g1-sim-vnc` | G1 whole-body MPC — MuJoCo sim |
-| `make launch-drc-atlas-dummy-sim-vnc` | DRC Atlas centroidal MPC — dummy sim |
-| `make launch-drc-atlas-sandbox-vnc` | DRC Atlas URDF viewer |
 
 Each `-vnc` target calls `start-vnc` automatically, so you do **not** need to
 run `make start-vnc` first.
