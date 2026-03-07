@@ -102,8 +102,12 @@ RUN mkdir -p ${WB_HUMANOID_MPC_DIR}/src/wb_humanoid_mpc
 # Copy the Makefile and other necessary files
 COPY . ${WB_HUMANOID_MPC_DIR}/src/wb_humanoid_mpc
 
+# Declare build arguments for user/group ID (passed from docker-compose.yml)
+ARG USER_ID=1000
+ARG GROUP_ID=1000
+
 # Use the ubuntu user that already exists in the base image
-RUN USERNAME=$(getent passwd 1000 | cut -d: -f1) && \
+RUN USERNAME=$(getent passwd ${USER_ID} | cut -d: -f1) && \
     echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
     # Create symbolic link from /home/devuser to ubuntu's home dir for compatibility
     ln -sf /home/${USERNAME} /home/devuser && \
@@ -113,13 +117,13 @@ RUN USERNAME=$(getent passwd 1000 | cut -d: -f1) && \
     # Ensure volume-mounted directories have correct permissions
     chown -R ${USERNAME}:${USERNAME} /usr/local && \
     # Check if we found the right username
-    echo "Found user with UID 1000: ${USERNAME}"
+    echo "Found user with UID ${USER_ID}: ${USERNAME}"
 
 # Set up colorful bash prompt for ubuntu user
-RUN USERNAME=$(getent passwd 1000 | cut -d: -f1) && \
+RUN USERNAME=$(getent passwd ${USER_ID} | cut -d: -f1) && \
     echo 'export PS1="\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ "' >> /home/${USERNAME}/.bashrc && \
     echo 'alias ls="ls --color=auto"' >> /home/${USERNAME}/.bashrc && \
     echo 'source /opt/ros/${ROS_DISTRO}/setup.bash' >> /home/${USERNAME}/.bashrc
 
 # Switch to ubuntu user for subsequent commands
-USER 1000
+USER ${USER_ID}
