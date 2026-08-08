@@ -1,0 +1,7 @@
+{
+  "build": {
+    "symlink-install": true,
+    "event-handlers": ["console_direct+"],
+    "parallel-workers": 4
+  }
+}
