@@ -225,7 +225,6 @@ stop-vnc:
 	@chmod +x $(current_path)/.devcontainer/start_vnc.sh && \
 	$(current_path)/.devcontainer/start_vnc.sh stop
 
-# Environment overrides for VNC display + Mesa software GLX (required for RViz2/OGRE)
 # LIBGL_ALWAYS_INDIRECT=0 is critical: the container sets =1, which breaks GLX in Xvfb.
 VNC_GL_ENV := export DISPLAY=:1 && \
 	export LIBGL_ALWAYS_SOFTWARE=1 && \
@@ -234,7 +233,7 @@ VNC_GL_ENV := export DISPLAY=:1 && \
 	export MESA_GL_VERSION_OVERRIDE=3.3 && \
 	export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
 
-# Launch targets that automatically use VNC display
+# Launch targets that automatically start VNC
 launch-g1-dummy-sim-vnc: start-vnc
 	cd ${build_dir} && \
 	${VNC_GL_ENV} && \
