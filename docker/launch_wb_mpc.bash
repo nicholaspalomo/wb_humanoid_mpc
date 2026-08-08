@@ -9,38 +9,43 @@
 #
 set -euo pipefail
 
-# Allow GUI applications
-xhost +SI:localuser:root
+# Allow GUI applications if DISPLAY is set
+if [ -n "${DISPLAY:-}" ]; then
+  xhost +SI:localuser:root 2>/dev/null || true
 
-# Generate Xauthority file for X11 forwarding
-XAUTH=/tmp/.docker.xauth
-if [ ! -f "${XAUTH}" ]; then
-  touch "${XAUTH}"
-  xauth nlist "${DISPLAY}" \
-    | sed -e 's/^..../ffff/' \
-    | xauth -f "${XAUTH}" nmerge -
-  chmod a+r "${XAUTH}"
+  # Generate Xauthority file for X11 forwarding
+  XAUTH=/tmp/.docker.xauth
+  if [ ! -f "${XAUTH}" ]; then
+    touch "${XAUTH}"
+    xauth nlist "${DISPLAY}" 2>/dev/null \
+      | sed -e 's/^..../ffff/' \
+      | xauth -f "${XAUTH}" nmerge - 2>/dev/null || true
+    chmod a+r "${XAUTH}" 2>/dev/null || true
+  fi
 fi
 
-# ROOT_COLCON_WS 
-HOST_WS="$(realpath "${PWD}/../../..")"
+# Detect repository root directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-# Run the container, mounting the entire workspace
+# Run the container, mounting the repository workspace
 docker run --rm -it \
   --name wb-mpc-dev \
   --net host \
   --privileged \
-  -u root \
-  -e DISPLAY \
+  -u ubuntu \
+  -e DISPLAY="${DISPLAY:-:1}" \
   -e QT_X11_NO_MITSHM=1 \
-  -e XAUTHORITY="${XAUTH}" \
+  -e XAUTHORITY="${XAUTH:-/tmp/.docker.xauth}" \
   -e XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp}" \
   -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
-  -v "${XAUTH}:${XAUTH}:rw" \
-  -v "${HOST_WS}:/wb_humanoid_mpc_ws:cached" \
-  --workdir /wb_humanoid_mpc_ws \
+  -v "${XAUTH:-/tmp/.docker.xauth}:${XAUTH:-/tmp/.docker.xauth}:rw" \
+  -v "${HOME}/.ssh:/tmp/host_ssh:cached" \
+  -v "${HOME}/.gitconfig:/tmp/host.gitconfig:cached,ro" \
+  -v "${REPO_ROOT}:/wb_humanoid_mpc_ws/src/wb_humanoid_mpc:cached" \
+  --workdir /wb_humanoid_mpc_ws/src/wb_humanoid_mpc \
   wb-humanoid-mpc:dev \
-  bash
+  bash -c "if [ -f .devcontainer/post_create.sh ]; then chmod +x .devcontainer/post_create.sh && .devcontainer/post_create.sh; fi; exec bash"
 
 echo "Done."
 

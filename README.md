@@ -58,7 +58,24 @@ For working in **Visual Studio Code**, we recommend to install the [Dev Containe
 </details>
 
 <details>
-<summary> Build & run Dockerized workspace with bash scripts</summary>
+<summary>Build & run Dockerized workspace in alternative IDE (e.g. Antigravity)</summary>
+
+If you are not using VS Code or are connected via Remote SSH, you can build and run the dev container using Docker Compose from the `.devcontainer` directory:
+
+1. Navigate to `.devcontainer` and spin up the container:
+
+```bash
+cd .devcontainer
+docker compose up -d --build
+```
+
+2. Attach Antigravity's (or your favorite IDE's) integrated terminal to the container:
+
+```bash
+docker compose exec app bash
+```
+
+</details>
 
 This repository includes two helper scripts: `image_build.bash` builds the `wb-humanoid-mpc:dev` Docker image using the arguments defined in `devcontainer.json`. `launch_wb_mpc.bash` starts the Docker container, mounts your workspace, and drops you into a bash shell ready to build and run the WB Humanoid MPC code. Example of building docker image:
 ```
