@@ -1,0 +1,1 @@
+/wb_humanoid_mpc_ws/build/ocs2_ros2_msgs/rosidl_typesupport_fastrtps_c/ocs2_ros2_msgs/msg/detail/mode_schedule__rosidl_typesupport_fastrtps_c.h

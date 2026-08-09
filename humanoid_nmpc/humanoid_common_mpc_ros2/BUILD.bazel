@@ -35,9 +35,9 @@ cc_library(
     deps = [
         "//humanoid_nmpc/humanoid_common_mpc",
         "//humanoid_nmpc/humanoid_mpc_msgs",
-        "//lib/ocs2_ros2:ocs2_ros2_interfaces",
-        "//lib/ocs2_ros2:ocs2_ros2_msgs",
-        "//lib/ocs2_ros2:ocs2_sqp",
+        "//lib/ocs2:ocs2_ros2_interfaces",
+        "//lib/ocs2:ocs2_ros2_msgs",
+        "//lib/ocs2:ocs2_sqp",
         "@eigen",
         "@boost",
         "@pinocchio",

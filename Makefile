@@ -1,15 +1,10 @@
 SHELL := /bin/bash
 
 ############################################################
-# Standard Configuration
+# Bazel Build System — drop-in replacement for colcon Makefile
 ############################################################
-mkfile_path := $(abspath $(lastword $(MAKEFILE_LIST)))
-current_path := $(dir $(mkfile_path))
-current_dir := $(notdir $(patsubst %/,%,$(dir $(mkfile_path))))
-build_dir ?= $(abspath $(lastword $(MAKEFILE_LIST))/../../..)
 
-CCACHE_DIR := $(build_dir)/.ccache
-
+# --- Detect ROS2 distro for launch commands ---
 ros_source_file := /bin/ros_setup.sh
 
 ifeq ("$(wildcard /opt/ros/jazzy/setup.bash)","")
@@ -22,185 +17,119 @@ else
     endif
 endif
 
-LINKER_FLAGS = "$(shell python3-config --ldflags --embed)"
-
-# Find ROS2 packages in a given directory, two levels deep, and return only the package name
-define find_ros2_packages
-$(shell \
-    for dir in $$(find $(1) -mindepth 1 -maxdepth 2 -type d); do \
-        if [ -f "$$dir/CMakeLists.txt" ] && [ -f "$$dir/package.xml" ]; then \
-            basename $$dir; \
-        fi; \
-    done)
-endef
-
-define find_ros2_python_packages
-$(shell \
-    for dir in $$(find $(1) -mindepth 1 -maxdepth 2 -type d); do \
-        if [ -f "$$dir/setup.py" ] && [ -f "$$dir/package.xml" ] && [[ "$$(basename $$dir)" == *_py ]]; then \
-            basename $$dir; \
-        fi; \
-    done)
-endef
-
-# Individual package lists from specific subdirectories
-NMPC_PACKAGES := $(call find_ros2_packages,$(current_path)/humanoid_nmpc)
-
-ROBOT_MODEL_PACKAGES := $(call find_ros2_packages,$(current_path)/robot_models)
-
-RUNTIME_PACKAGES := $(call find_ros2_packages,$(current_path)/robot_runtime)
-
-# Unified package list
-PACKAGES ?= $(NMPC_PACKAGES) $(ROBOT_MODEL_PACKAGES) $(RUNTIME_PACKAGES)
+mkfile_path := $(abspath $(lastword $(MAKEFILE_LIST)))
+current_path := $(dir $(mkfile_path))
+build_dir ?= $(abspath $(lastword $(MAKEFILE_LIST))/../../..)
 
 ############################################################
-# Customizable Configuration - User can override these
-############################################################
-BUILD_TYPE ?= Release
-BUILD_TESTING ?= ON
-BUILD_WITH_NINJA ?= ON
-NPROC = $(shell nproc 2>/dev/null || echo 1)
-PARALLEL_JOBS ?= $(NPROC)
-CPP_VERSION ?= -std=c++20
-
-############################################################
-# Set flags based on configuration
-############################################################
-
-COMMON_CMAKE_ARGS ?= \
-	-DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-	-DCMAKE_BUILD_TYPE=$(BUILD_TYPE) \
-	-DBUILD_TESTING=$(BUILD_TESTING) \
-	-DCMAKE_SHARED_LINKER_FLAGS=$(LINKER_FLAGS) \
-	-DCMAKE_CXX_FLAGS=$(CPP_VERSION)
-
-# Conditionally add flags specific for the Ninja build system
-ifeq ($(BUILD_WITH_NINJA), ON)
-	BUILD_SYSTEM=Ninja
-	EVENT_HANDLERS=--event-handlers=console_cohesion+
-	# Include ccache specific flags for Ninja builds
-	COMMON_CMAKE_ARGS += \
-	-G${BUILD_SYSTEM} \
-	-DCMAKE_C_COMPILER_LAUNCHER=ccache \
-	-DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-else
-	BUILD_SYSTEM="Unix Makefiles"
-	# Just specify the generator for non-Ninja builds
-	COMMON_CMAKE_ARGS += \
-	-G${BUILD_SYSTEM}
-endif
-
-COMMON_COLCON_BUILD_FLAGS ?= \
-	--parallel-workers=${PARALLEL_JOBS} \
-	${EVENT_HANDLERS} \
-	--symlink-install \
-	--build-base $(build_dir)/build \
-	--install-base $(build_dir)/install
-
-############################################################
-# Define build and test targets
-############################################################
-define default-build-package
-	cd ${build_dir} && \
-	export MAKEFLAGS="-j ${PARALLEL_JOBS} -d" && \
-	source ${ros_source_file} && \
-	colcon build ${COMMON_COLCON_BUILD_FLAGS} --packages-up-to $(1) \
-	--cmake-args ${COMMON_CMAKE_ARGS} $(EXTRA_CMAKE_ARGS) && \
-	source $(build_dir)/install/setup.bash
-endef
-
-define default-build-python-package
-	cd ${build_dir} && \
-	source ${ros_source_file} && \
-	colcon build ${COMMON_COLCON_BUILD_FLAGS} --packages-up-to $(1)
-endef
-
-define default-test-package
-  cd ${build_dir} && \
-  source ${ros_source_file} && \
-  source $(build_dir)/install/setup.bash && \
-  colcon test --packages-select $(1) --event-handlers console_direct+ --return-code-on-test-failure
-endef
-
-############################################################
-# Command Line Interface
+# Build targets
 ############################################################
 .PHONY: build-all build-debug build-release build-relwithdebinfo build \
-        test-all test $(addprefix build-,$(PACKAGES)) $(addprefix test-,$(PACKAGES)) \
-        start-vnc stop-vnc
+        test-all test clean format \
+        launch-g1-dummy-sim launch-g1-sim launch-wb-g1-dummy-sim launch-wb-g1-sim \
+        start-vnc stop-vnc \
+        launch-g1-dummy-sim-vnc launch-g1-sim-vnc launch-wb-g1-dummy-sim-vnc launch-wb-g1-sim-vnc \
+        run-ocs2-tests run-mpc-tests echo-packages update-submodules git-lfs
 
+## Build everything (optimized, equivalent to `make build-all`)
 build-all:
-	$(call default-build-package,$(PACKAGES))
+	bazel build //...
 
-$(addprefix build-,$(PACKAGES)):
-	$(call default-build-package,$(patsubst build-%,%,$@))
-
+## Build a single package: make build PKG=humanoid_common_mpc
 build:
-	@$(if $(PKG),$(call default-build-package,$(PKG)),@echo "Please specify a package to build by setting the PKG variable. Example: make build PKG=package_name")
+	@$(if $(PKG),bazel build //humanoid_nmpc/$(PKG) //robot_models/unitree_g1/$(PKG) //robot_runtime/$(PKG) //lib/ocs2_ros2:$(PKG) 2>/dev/null || \
+		echo "Trying direct target..." && bazel build //$(PKG), \
+		@echo "Please specify a package: make build PKG=package_name")
 
+## Debug build
 build-debug:
-	@$(MAKE) BUILD_TYPE=Debug $(if $(PKG),build PKG=$(PKG),build-all)
+	bazel build //... --config=dbg
 
+## Release build (no debug info, tests off)
 build-release:
-	@$(MAKE) BUILD_TYPE=Release BUILD_TESTING=OFF $(if $(PKG),build PKG=$(PKG),build-all)
+	bazel build //...
 
+## Release with debug info
 build-relwithdebinfo:
-	@$(MAKE) BUILD_TYPE=RelWithDebInfo $(if $(PKG),build PKG=$(PKG),build-all)
+	bazel build //... --config=relwithdebinfo
 
+############################################################
+# Test targets
+############################################################
 
-test-all: $(addprefix test-,$(PACKAGES))
+## Run all tests
+test-all:
+	bazel test //...
 
-$(addprefix test-,$(PACKAGES)):
-	$(call default-test-package,$(patsubst test-%,%,$@))
-
+## Run a single test package: make test PKG=humanoid_centroidal_mpc_test
 test:
-	@$(if $(PKG),$(call default-test-package,$(PKG)),@echo "Please specify a package to test by setting the PKG variable. Example: make test PKG=package_name")
+	@$(if $(PKG),bazel test //humanoid_nmpc/$(PKG)/... 2>/dev/null || \
+		bazel test //$(PKG)/..., \
+		@echo "Please specify a package: make test PKG=package_name")
 
+## Run OCS2 library tests
+run-ocs2-tests:
+	bazel test //lib/ocs2_ros2:all
+
+## Run MPC tests
+run-mpc-tests:
+	bazel test //humanoid_nmpc/...
+
+############################################################
+# Utility targets
+############################################################
+
+## List all Bazel targets
 echo-packages:
-	@echo "Packages to be built: $(PACKAGES)"
+	@bazel query '//...' 2>/dev/null | sort
 
-update-submodules:
-	git submodule update --init --recursive
+## Clean Bazel cache
+clean:
+	bazel clean
 
-git-lfs:
-	git lfs install && git lfs pull
-
+## Deep clean (remove entire Bazel cache)
 clean-ws:
-	cd ${build_dir} && \
-	rm -rf build install log .ccache
+	bazel clean --expunge
 
+## Clean CppAD generated code
 clean-cppad:
-	cd ${build_dir} && \
 	rm -rf cppad_code_gen
 
+## Format source code
 format:
 	find . -name "lib" -prune -o \( -name "*.cpp" -o -name "*.h" -o -name "*.hpp" \) -print | xargs clang-format -i && \
 	black . --exclude="lib/"
 
+## Update git submodules
+update-submodules:
+	git submodule update --init --recursive
+
+## Pull git-lfs files
+git-lfs:
+	git lfs install && git lfs pull
+
+############################################################
+# Launch targets (still use ROS2 launch — Bazel builds only)
+############################################################
+
+# Helper to source ROS2 and colcon install
+define ros2_launch
+	source $(ros_source_file) && \
+	source $(build_dir)/install/setup.bash && \
+	ros2 launch $(1) $(2)
+endef
+
 launch-g1-dummy-sim:
-	cd ${build_dir} && \
-	source ${ros_source_file} && \
-	source install/setup.bash && \
-	ros2 launch g1_centroidal_mpc dummy_sim.launch.py
+	@cd $(build_dir) && $(call ros2_launch,g1_centroidal_mpc,dummy_sim.launch.py)
 
 launch-g1-sim:
-	cd ${build_dir} && \
-	source ${ros_source_file} && \
-	source install/setup.bash && \
-	ros2 launch g1_centroidal_mpc mujoco_sim.launch.py
-
+	@cd $(build_dir) && $(call ros2_launch,g1_centroidal_mpc,mujoco_sim.launch.py)
 
 launch-wb-g1-dummy-sim:
-	cd ${build_dir} && \
-	source ${ros_source_file} && \
-	source install/setup.bash && \
-	ros2 launch g1_wb_mpc dummy_sim.launch.py
+	@cd $(build_dir) && $(call ros2_launch,g1_wb_mpc,dummy_sim.launch.py)
 
 launch-wb-g1-sim:
-	cd ${build_dir} && \
-	source ${ros_source_file} && \
-	source install/setup.bash && \
-	ros2 launch g1_wb_mpc mujoco_sim.launch.py
+	@cd $(build_dir) && $(call ros2_launch,g1_wb_mpc,mujoco_sim.launch.py)
 
 ############################################################
 # VNC visualization (for macOS host)
@@ -213,7 +142,7 @@ stop-vnc:
 	@chmod +x $(current_path)/.devcontainer/start_vnc.sh && \
 	$(current_path)/.devcontainer/start_vnc.sh stop
 
-# Environment overrides for VNC display + Mesa software GLX (required for RViz2/OGRE)
+# Environment overrides for VNC display + Mesa software GLX
 VNC_GL_ENV := export DISPLAY=:1 && \
 	export LIBGL_ALWAYS_SOFTWARE=1 && \
 	export LIBGL_ALWAYS_INDIRECT=0 && \
@@ -221,48 +150,14 @@ VNC_GL_ENV := export DISPLAY=:1 && \
 	export MESA_GL_VERSION_OVERRIDE=3.3 && \
 	export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
 
-# Launch targets that automatically start VNC
 launch-g1-dummy-sim-vnc: start-vnc
-	cd ${build_dir} && \
-	${VNC_GL_ENV} && \
-	source ${ros_source_file} && \
-	source install/setup.bash && \
-	ros2 launch g1_centroidal_mpc dummy_sim.launch.py
+	@cd $(build_dir) && $(VNC_GL_ENV) && $(call ros2_launch,g1_centroidal_mpc,dummy_sim.launch.py)
 
 launch-g1-sim-vnc: start-vnc
-	cd ${build_dir} && \
-	${VNC_GL_ENV} && \
-	source ${ros_source_file} && \
-	source install/setup.bash && \
-	ros2 launch g1_centroidal_mpc mujoco_sim.launch.py
+	@cd $(build_dir) && $(VNC_GL_ENV) && $(call ros2_launch,g1_centroidal_mpc,mujoco_sim.launch.py)
 
 launch-wb-g1-dummy-sim-vnc: start-vnc
-	cd ${build_dir} && \
-	${VNC_GL_ENV} && \
-	source ${ros_source_file} && \
-	source install/setup.bash && \
-	ros2 launch g1_wb_mpc dummy_sim.launch.py
+	@cd $(build_dir) && $(VNC_GL_ENV) && $(call ros2_launch,g1_wb_mpc,dummy_sim.launch.py)
 
 launch-wb-g1-sim-vnc: start-vnc
-	cd ${build_dir} && \
-	${VNC_GL_ENV} && \
-	source ${ros_source_file} && \
-	source install/setup.bash && \
-	ros2 launch g1_wb_mpc mujoco_sim.launch.py
-
-run-ocs2-tests:
-	echo "make sure you call 'make build-relwithdebinfo' to build the tests before running them." && \
-	cd ${build_dir} && \
-	source ${ros_source_file} && \
-	source install/setup.bash && \
-	colcon test --event-handlers console_direct+ --return-code-on-test-failure --packages-select ocs2_robotic_assets ocs2_thirdparty \
-	ocs2_robotic_assets ocs2_ros2_msgs ocs2_core ocs2_oc ocs2_qp_solver ocs2_mpc ocs2_robotic_tools ocs2_ddp ocs2_ros2_interfaces ocs2_sqp ocs2_pinocchio_interface ocs2_centroidal_model
-
-run-mpc-tests:
-	echo "make sure you call 'make build-relwithdebinfo' to build the tests before running them." && \
-	cd ${build_dir} && \
-	source ${ros_source_file} && \
-	source install/setup.bash && \
-	colcon test --event-handlers console_direct+ --return-code-on-test-failure --packages-select humanoid_common_mpc \
-	humanoid_common_mpc_ros2 humanoid_centroidal_mpc humanoid_centroidal_mpc_ros2 humanoid_wb_mpc
-
+	@cd $(build_dir) && $(VNC_GL_ENV) && $(call ros2_launch,g1_wb_mpc,mujoco_sim.launch.py)

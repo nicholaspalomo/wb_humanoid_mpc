@@ -54,9 +54,9 @@ cc_library(
     ],
     deps = [
         "//humanoid_nmpc/humanoid_mpc_msgs",
-        "//lib/ocs2_ros2:ocs2_core",
-        "//lib/ocs2_ros2:ocs2_mpc",
-        "//lib/ocs2_ros2:ocs2_pinocchio_interface",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_pinocchio_interface",
         "@eigen",
         "@boost",
         "@pinocchio",
