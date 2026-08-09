@@ -1,26 +1,20 @@
 # ==============================================================================
-# OCS2 ROS2 Library - Native Bazel cc_library build
+# OCS2 Library - Native Bazel cc_library build (monorepo layout)
 # ==============================================================================
 #
-# Each OCS2 sub-package is built as a native cc_library in topological
-# dependency order. Source files use glob() for maintainability.
-#
-# Build order (dependency chain):
-# 1. ocs2_thirdparty          (header-only)
-# 2. ocs2_core                (depends on ocs2_thirdparty, Eigen, Boost, OpenMP)
-# 3. ocs2_oc                  (depends on ocs2_core)
-# 4. ocs2_robotic_tools       (depends on ocs2_oc)
-# 5. ocs2_mpc                 (depends on ocs2_core, ocs2_oc)
-# 6. ocs2_qp_solver           (depends on ocs2_core, ocs2_oc)
-# 7. ocs2_ddp                 (depends on ocs2_core, ocs2_oc, ocs2_mpc, ocs2_qp_solver)
-# 8. blasfeo_catkin            (cmake() - downloads external C lib)
-# 9. hpipm_catkin              (cmake() - depends on blasfeo)
-# 10. ocs2_sqp                 (depends on ocs2_core, ocs2_mpc, ocs2_qp_solver, hpipm)
-# 11. ocs2_pinocchio_interface  (depends on ocs2_core, ocs2_robotic_tools, Pinocchio)
-# 12. ocs2_centroidal_model     (depends on ocs2_pinocchio_interface)
-# 13. ocs2_self_collision        (depends on ocs2_pinocchio_interface)
-# 14. ocs2_ros2_msgs            (pre-generated headers + type support libs)
-# 15. ocs2_ros2_interfaces      (depends on ocs2_core, ocs2_ddp, ocs2_mpc, ocs2_ros2_msgs)
+# Flattened directory layout: lib/ocs2/<package>/
+#   core/          (was ocs2_core)
+#   oc/            (was ocs2_oc)
+#   ddp/           (was ocs2_ddp)
+#   sqp/sqp/       (was ocs2_sqp/ocs2_sqp)
+#   mpc/           (was ocs2_mpc)
+#   robotic_tools/ (was ocs2_robotic_tools)
+#   thirdparty/    (was ocs2_thirdparty)
+#   test_tools/qp_solver/ (was ocs2_test_tools/ocs2_qp_solver)
+#   pinocchio/pinocchio_interface/ (was ocs2_pinocchio/ocs2_pinocchio_interface)
+#   pinocchio/centroidal_model/    (was ocs2_pinocchio/ocs2_centroidal_model)
+#   ros2_msgs/     (was ocs2_ros2_msgs)
+#   ros2_interfaces/ (was ocs2_ros2_interfaces)
 
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 
@@ -58,8 +52,8 @@ _PINOCCHIO_COPTS = _OCS2_COPTS + [
 
 cc_library(
     name = "ocs2_thirdparty",
-    hdrs = glob(["ocs2_thirdparty/include/**"]),
-    includes = ["ocs2_thirdparty/include"],
+    hdrs = glob(["thirdparty/include/**"]),
+    includes = ["thirdparty/include"],
 )
 
 # ==============================================================================
@@ -69,12 +63,12 @@ cc_library(
 cc_library(
     name = "ocs2_core",
     srcs = glob(
-        ["ocs2_core/src/**/*.cpp"],
-        exclude = ["ocs2_core/src/**/test/**", "ocs2_core/src/lintTarget.cpp"],
+        ["core/src/**/*.cpp"],
+        exclude = ["core/src/**/test/**", "core/src/lintTarget.cpp"],
     ),
-    hdrs = glob(["ocs2_core/include/**"]),
+    hdrs = glob(["core/include/**"]),
     copts = _OCS2_COPTS,
-    includes = ["ocs2_core/include"],
+    includes = ["core/include"],
     linkopts = _OCS2_LINKOPTS,
     deps = [
         ":ocs2_thirdparty",
@@ -90,12 +84,12 @@ cc_library(
 cc_library(
     name = "ocs2_oc",
     srcs = glob(
-        ["ocs2_oc/src/**/*.cpp"],
-        exclude = ["ocs2_oc/src/**/test/**", "ocs2_oc/src/lintTarget.cpp"],
+        ["oc/src/**/*.cpp"],
+        exclude = ["oc/src/**/test/**", "oc/src/lintTarget.cpp"],
     ),
-    hdrs = glob(["ocs2_oc/include/**"]),
+    hdrs = glob(["oc/include/**"]),
     copts = _OCS2_COPTS,
-    includes = ["ocs2_oc/include"],
+    includes = ["oc/include"],
     linkopts = _OCS2_LINKOPTS,
     deps = [
         ":ocs2_core",
@@ -112,12 +106,12 @@ cc_library(
 cc_library(
     name = "ocs2_robotic_tools",
     srcs = glob(
-        ["ocs2_robotic_tools/src/**/*.cpp"],
-        exclude = ["ocs2_robotic_tools/src/**/test/**", "ocs2_robotic_tools/src/lintTarget.cpp"],
+        ["robotic_tools/src/**/*.cpp"],
+        exclude = ["robotic_tools/src/**/test/**", "robotic_tools/src/lintTarget.cpp"],
     ),
-    hdrs = glob(["ocs2_robotic_tools/include/**"]),
+    hdrs = glob(["robotic_tools/include/**"]),
     copts = _OCS2_COPTS,
-    includes = ["ocs2_robotic_tools/include"],
+    includes = ["robotic_tools/include"],
     linkopts = _OCS2_LINKOPTS,
     deps = [
         ":ocs2_core",
@@ -135,12 +129,12 @@ cc_library(
 cc_library(
     name = "ocs2_mpc",
     srcs = glob(
-        ["ocs2_mpc/src/**/*.cpp"],
-        exclude = ["ocs2_mpc/src/**/test/**", "ocs2_mpc/src/lintTarget.cpp"],
+        ["mpc/src/**/*.cpp"],
+        exclude = ["mpc/src/**/test/**", "mpc/src/lintTarget.cpp"],
     ),
-    hdrs = glob(["ocs2_mpc/include/**"]),
+    hdrs = glob(["mpc/include/**"]),
     copts = _OCS2_COPTS,
-    includes = ["ocs2_mpc/include"],
+    includes = ["mpc/include"],
     linkopts = _OCS2_LINKOPTS,
     deps = [
         ":ocs2_core",
@@ -157,12 +151,12 @@ cc_library(
 cc_library(
     name = "ocs2_qp_solver",
     srcs = glob(
-        ["ocs2_test_tools/ocs2_qp_solver/src/**/*.cpp"],
-        exclude = ["ocs2_test_tools/ocs2_qp_solver/src/**/test/**"],
+        ["test_tools/qp_solver/src/**/*.cpp"],
+        exclude = ["test_tools/qp_solver/src/**/test/**"],
     ),
-    hdrs = glob(["ocs2_test_tools/ocs2_qp_solver/include/**"]),
+    hdrs = glob(["test_tools/qp_solver/include/**"]),
     copts = _OCS2_COPTS,
-    includes = ["ocs2_test_tools/ocs2_qp_solver/include"],
+    includes = ["test_tools/qp_solver/include"],
     linkopts = _OCS2_LINKOPTS,
     deps = [
         ":ocs2_core",
@@ -179,23 +173,23 @@ cc_library(
 cc_library(
     name = "ocs2_ddp",
     srcs = glob(
-        ["ocs2_ddp/src/**/*.cpp"],
+        ["ddp/src/**/*.cpp"],
         exclude = [
-            "ocs2_ddp/src/**/test/**",
-            "ocs2_ddp/src/unsupported/**",
-            "ocs2_ddp/src/DDP_DataCollector.cpp",
-            "ocs2_ddp/src/lintTarget.cpp",
+            "ddp/src/**/test/**",
+            "ddp/src/unsupported/**",
+            "ddp/src/DDP_DataCollector.cpp",
+            "ddp/src/lintTarget.cpp",
         ],
     ),
     hdrs = glob(
-        ["ocs2_ddp/include/**"],
+        ["ddp/include/**"],
         exclude = [
-            "ocs2_ddp/include/**/unsupported/**",
-            "ocs2_ddp/include/**/DDP_DataCollector.h",
+            "ddp/include/**/unsupported/**",
+            "ddp/include/**/DDP_DataCollector.h",
         ],
     ),
     copts = _OCS2_COPTS,
-    includes = ["ocs2_ddp/include"],
+    includes = ["ddp/include"],
     linkopts = _OCS2_LINKOPTS,
     deps = [
         ":ocs2_core",
@@ -218,12 +212,12 @@ cc_library(
 cc_library(
     name = "ocs2_sqp",
     srcs = glob(
-        ["ocs2_sqp/ocs2_sqp/src/**/*.cpp"],
-        exclude = ["ocs2_sqp/ocs2_sqp/src/**/test/**"],
+        ["sqp/sqp/src/**/*.cpp"],
+        exclude = ["sqp/sqp/src/**/test/**"],
     ),
-    hdrs = glob(["ocs2_sqp/ocs2_sqp/include/**"]),
+    hdrs = glob(["sqp/sqp/include/**"]),
     copts = _OCS2_COPTS,
-    includes = ["ocs2_sqp/ocs2_sqp/include"],
+    includes = ["sqp/sqp/include"],
     linkopts = _OCS2_LINKOPTS,
     deps = [
         ":ocs2_core",
@@ -244,12 +238,12 @@ cc_library(
 cc_library(
     name = "ocs2_pinocchio_interface",
     srcs = glob(
-        ["ocs2_pinocchio/ocs2_pinocchio_interface/src/**/*.cpp"],
-        exclude = ["ocs2_pinocchio/ocs2_pinocchio_interface/src/**/test/**"],
+        ["pinocchio/pinocchio_interface/src/**/*.cpp"],
+        exclude = ["pinocchio/pinocchio_interface/src/**/test/**"],
     ),
-    hdrs = glob(["ocs2_pinocchio/ocs2_pinocchio_interface/include/**"]),
+    hdrs = glob(["pinocchio/pinocchio_interface/include/**"]),
     copts = _PINOCCHIO_COPTS,
-    includes = ["ocs2_pinocchio/ocs2_pinocchio_interface/include"],
+    includes = ["pinocchio/pinocchio_interface/include"],
     linkopts = _OCS2_LINKOPTS,
     deps = [
         ":ocs2_core",
@@ -270,12 +264,12 @@ cc_library(
 cc_library(
     name = "ocs2_centroidal_model",
     srcs = glob(
-        ["ocs2_pinocchio/ocs2_centroidal_model/src/**/*.cpp"],
-        exclude = ["ocs2_pinocchio/ocs2_centroidal_model/src/**/test/**"],
+        ["pinocchio/centroidal_model/src/**/*.cpp"],
+        exclude = ["pinocchio/centroidal_model/src/**/test/**"],
     ),
-    hdrs = glob(["ocs2_pinocchio/ocs2_centroidal_model/include/**"]),
+    hdrs = glob(["pinocchio/centroidal_model/include/**"]),
     copts = _PINOCCHIO_COPTS,
-    includes = ["ocs2_pinocchio/ocs2_centroidal_model/include"],
+    includes = ["pinocchio/centroidal_model/include"],
     linkopts = _OCS2_LINKOPTS,
     deps = [
         ":ocs2_core",
@@ -300,8 +294,8 @@ cc_library(
 
 cc_library(
     name = "ocs2_ros2_msgs",
-    hdrs = glob(["ocs2_ros2_msgs/generated/**/*.hpp"]),
-    includes = ["ocs2_ros2_msgs/generated"],
+    hdrs = glob(["ros2_msgs/generated/**/*.hpp"]),
+    includes = ["ros2_msgs/generated"],
     linkopts = [
         "-L/wb_humanoid_mpc_ws/install/ocs2_ros2_msgs/lib",
         "-locs2_ros2_msgs__rosidl_typesupport_cpp",
@@ -321,16 +315,16 @@ cc_library(
 cc_library(
     name = "ocs2_ros2_interfaces",
     srcs = glob(
-        ["ocs2_ros2_interfaces/src/**/*.cpp"],
+        ["ros2_interfaces/src/**/*.cpp"],
         exclude = [
-            "ocs2_ros2_interfaces/src/**/test/**",
-            "ocs2_ros2_interfaces/src/lintTarget.cpp",
-            "ocs2_ros2_interfaces/src/multiplot/MultiplotRemap.cpp",
+            "ros2_interfaces/src/**/test/**",
+            "ros2_interfaces/src/lintTarget.cpp",
+            "ros2_interfaces/src/multiplot/MultiplotRemap.cpp",
         ],
     ),
-    hdrs = glob(["ocs2_ros2_interfaces/include/**"]),
+    hdrs = glob(["ros2_interfaces/include/**"]),
     copts = _OCS2_COPTS,
-    includes = ["ocs2_ros2_interfaces/include"],
+    includes = ["ros2_interfaces/include"],
     linkopts = _OCS2_LINKOPTS,
     deps = [
         ":ocs2_core",

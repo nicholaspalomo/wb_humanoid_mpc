@@ -6,3 +6,6 @@ bazel-wb_humanoid_mpc
 build
 install
 log
+
+# External submodules (not built by Bazel directly)
+lib/mujoco
