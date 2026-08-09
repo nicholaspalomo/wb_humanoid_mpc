@@ -99,11 +99,33 @@ ros2_package_repository = repository_rule(
 def register_ros2_packages():
     """Registers all ROS2 system package repositories."""
 
-    # Core ROS2 client library
+    # Core ROS2 client library (with all transitive runtime deps)
     ros2_package_repository(
         name = "ros2_rclcpp",
         pkg_name = "rclcpp",
-        extra_linkopts = ["-lrclcpp"],
+        extra_linkopts = [
+            "-lrclcpp",
+            "-lrcl",
+            "-lrcutils",
+            "-lrmw",
+            "-lrmw_implementation",
+            "-lrcl_logging_interface",
+            "-lrcl_logging_spdlog",
+            "-lrosidl_runtime_c",
+            "-lrosidl_typesupport_c",
+            "-lrosidl_typesupport_cpp",
+            "-llibstatistics_collector",
+            "-lstatistics_msgs__rosidl_typesupport_cpp",
+            "-ltracetools",
+            "-lrcl_yaml_param_parser",
+            "-lrcl_interfaces__rosidl_typesupport_cpp",
+            "-lrcl_interfaces__rosidl_typesupport_c",
+            "-lbuiltin_interfaces__rosidl_typesupport_cpp",
+            "-lbuiltin_interfaces__rosidl_typesupport_c",
+            "-lrosgraph_msgs__rosidl_typesupport_cpp",
+            "-ltype_description_interfaces__rosidl_typesupport_cpp",
+            "-lservice_msgs__rosidl_typesupport_cpp",
+        ],
     )
 
     # ament_index_cpp
@@ -127,11 +149,19 @@ def register_ros2_packages():
     ros2_package_repository(
         name = "ros2_visualization_msgs",
         pkg_name = "visualization_msgs",
+        extra_linkopts = [
+            "-lvisualization_msgs__rosidl_typesupport_cpp",
+            "-lvisualization_msgs__rosidl_typesupport_c",
+        ],
     )
 
     ros2_package_repository(
         name = "ros2_sensor_msgs",
         pkg_name = "sensor_msgs",
+        extra_linkopts = [
+            "-lsensor_msgs__rosidl_typesupport_cpp",
+            "-lsensor_msgs__rosidl_typesupport_c",
+        ],
     )
 
     ros2_package_repository(
@@ -153,7 +183,17 @@ def register_ros2_packages():
     ros2_package_repository(
         name = "ros2_tf2_ros",
         pkg_name = "tf2_ros",
-        extra_linkopts = ["-ltf2_ros"],
+        extra_linkopts = [
+            "-ltf2_ros",
+            "-ltf2",
+            "-ltf2_msgs__rosidl_typesupport_cpp",
+            "-lgeometry_msgs__rosidl_typesupport_cpp",
+            "-lgeometry_msgs__rosidl_typesupport_c",
+            "-lstd_msgs__rosidl_typesupport_cpp",
+            "-lstd_msgs__rosidl_typesupport_c",
+            "-laction_msgs__rosidl_typesupport_cpp",
+            "-lrclcpp_action",
+        ],
     )
 
     ros2_package_repository(

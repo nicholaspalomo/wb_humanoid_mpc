@@ -62,6 +62,12 @@ cc_import(
     visibility = ["//visibility:public"],
 )
 
+cc_import(
+    name = "thread_lib",
+    shared_library = "lib/libboost_thread.so",
+    visibility = ["//visibility:public"],
+)
+
 cc_library(
     name = "boost",
     visibility = ["//visibility:public"],
@@ -71,6 +77,7 @@ cc_library(
         ":filesystem_lib",
         ":log_lib",
         ":log_setup_lib",
+        ":thread_lib",
     ],
 )
 """)
@@ -80,7 +87,7 @@ cc_library(
     # Create lib dir with specific symlinks
     result = repo_ctx.execute(["bash", "-c", """
         mkdir -p lib
-        for comp in system filesystem log log_setup; do
+        for comp in system filesystem log log_setup thread; do
             src=$(find /usr/lib/x86_64-linux-gnu -name "libboost_${comp}.so*" -not -type d | head -1)
             if [ -n "$src" ]; then
                 ln -sf "$src" lib/libboost_${comp}.so
@@ -513,10 +520,10 @@ cc_library(
     name = "blasfeo",
     hdrs = glob(["include/**"]),
     includes = ["include"],
-    linkopts = ["-Llib", "-lblasfeo"],
+    linkopts = ["-L{prefix}/lib", "-lblasfeo"],
     visibility = ["//visibility:public"],
 )
-""")
+""".format(prefix = install_prefix))
 
 blasfeo_repository = repository_rule(
     implementation = _blasfeo_repository,
@@ -538,11 +545,11 @@ cc_library(
     name = "hpipm",
     hdrs = glob(["include/**"]),
     includes = ["include"],
-    linkopts = ["-Llib", "-lhpipm", "-lhpipm_catkin"],
+    linkopts = ["-L{prefix}/lib", "-lhpipm", "-lhpipm_catkin"],
     deps = ["@blasfeo"],
     visibility = ["//visibility:public"],
 )
-""")
+""".format(prefix = install_prefix))
 
 hpipm_repository = repository_rule(
     implementation = _hpipm_repository,
