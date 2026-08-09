@@ -1,0 +1,37 @@
+# humanoid_mpc_msgs - ROS2 message package (cmake wrapper)
+#
+# This package uses rosidl_generate_interfaces which requires the full
+# ROS2 CMake toolchain. We wrap it with cmake() from rules_foreign_cc.
+
+load("@rules_foreign_cc//foreign_cc:defs.bzl", "cmake")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "all_srcs",
+    srcs = glob(["**"]),
+)
+
+cmake(
+    name = "humanoid_mpc_msgs",
+    build_args = ["-j4"],
+    cache_entries = {
+        "BUILD_TESTING": "OFF",
+    },
+    lib_source = ":all_srcs",
+    out_shared_libs = select({
+        "@platforms//os:linux": [
+            "libhumanoid_mpc_msgs__rosidl_generator_c.so",
+            "libhumanoid_mpc_msgs__rosidl_typesupport_cpp.so",
+        ],
+        "//conditions:default": [],
+    }),
+    deps = [
+        "@ros2_rcl_interfaces",
+        "@ros2_builtin_interfaces",
+        "@ros2_geometry_msgs",
+        "@ros2_std_msgs",
+        "@ros2_unique_identifier_msgs",
+        "@ros2_rosidl",
+    ],
+)

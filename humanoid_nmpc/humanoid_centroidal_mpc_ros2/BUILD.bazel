@@ -1,0 +1,81 @@
+# humanoid_centroidal_mpc_ros2 - ROS2 nodes for centroidal MPC
+
+package(default_visibility = ["//visibility:public"])
+
+_COMMON_DEPS = [
+    "//humanoid_nmpc/humanoid_centroidal_mpc",
+    "//humanoid_nmpc/humanoid_common_mpc_ros2",
+    "//robot_runtime/mujoco_sim_interface",
+    "//lib/ocs2_ros2:ocs2_core",
+    "//lib/ocs2_ros2:ocs2_mpc",
+    "//lib/ocs2_ros2:ocs2_sqp",
+    "//lib/ocs2_ros2:ocs2_robotic_tools",
+    "//lib/ocs2_ros2:ocs2_centroidal_model",
+    "//lib/ocs2_ros2:ocs2_pinocchio_interface",
+    "//lib/ocs2_ros2:ocs2_ros2_interfaces",
+    "//lib/ocs2_ros2:ocs2_ros2_msgs",
+    "@eigen",
+    "@boost",
+    "@pinocchio",
+    "@ros2_rclcpp",
+    "@ros2_ament_index_cpp",
+    "@ros2_tf2_ros",
+    "@ros2_tf2_eigen",
+    "@urdf",
+    "@ros2_kdl_parser",
+    "@ros2_visualization_msgs",
+    "@ros2_geometry_msgs",
+    "@ros2_sensor_msgs",
+]
+
+_COMMON_COPTS = [
+    "-std=c++20",
+    "-Wall",
+    "-Wextra",
+    "-Wpedantic",
+    "-Werror=return-type",
+]
+
+# Dummy simulator node
+cc_binary(
+    name = "humanoid_centroidal_mpc_dummy_sim_node",
+    srcs = ["src/CentroidalMpcDummySimNode.cpp"],
+    copts = _COMMON_COPTS,
+    deps = _COMMON_DEPS,
+)
+
+# SQP MPC node
+cc_binary(
+    name = "humanoid_centroidal_mpc_sqp_node",
+    srcs = ["src/CentroidalMpcSqpNode.cpp"],
+    copts = _COMMON_COPTS,
+    deps = _COMMON_DEPS,
+)
+
+# MuJoCo simulator
+cc_binary(
+    name = "humanoid_centroidal_mpc_sim",
+    srcs = ["src/CentroidalMpcRobotSim.cpp"],
+    copts = _COMMON_COPTS,
+    deps = _COMMON_DEPS + [
+        "@abseil_system",
+        "@glfw",
+        "@glew",
+    ],
+)
+
+# Pose command node
+cc_binary(
+    name = "humanoid_centroidal_mpc_pose_command_node",
+    srcs = ["src/CentroidalMpcKeyboardPoseCommandNode.cpp"],
+    copts = _COMMON_COPTS,
+    deps = _COMMON_DEPS,
+)
+
+# Test visualizer
+cc_binary(
+    name = "test_visualizer",
+    srcs = ["test/testHumanoidVisualizer.cpp"],
+    copts = _COMMON_COPTS,
+    deps = _COMMON_DEPS,
+)

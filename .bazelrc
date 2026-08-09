@@ -1,0 +1,56 @@
+# Put symlinks inside hidden .bazel/ dir so colcon ignores them
+build --symlink_prefix=.bazel/
+
+# --- C++ Standard & Compiler Flags ---
+build --cxxopt=-std=c++20
+build --host_cxxopt=-std=c++20
+build --copt=-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS
+build --copt=-DBOOST_MPL_LIMIT_LIST_SIZE=50
+build --copt=-DBOOST_VARIANT_LIMIT_TYPES=50
+build --copt=-DBOOST_FUSION_INVOKE_MAX_ARITY=10
+build --copt=-DPINOCCHIO_URDFDOM_TYPEDEF_SHARED_PTR
+build --copt=-DPINOCCHIO_URDFDOM_USE_STD_SHARED_PTR
+
+# --- Parallelism ---
+build --jobs=HOST_CPUS
+
+# --- Default Compilation Mode (Release) ---
+# Override with: bazel build -c dbg //...
+build --compilation_mode=opt
+
+# --- Linking ---
+build --linkopt=-lpthread
+build --linkopt=-ldl
+
+# --- Sandboxing ---
+# Allow access to system headers/libraries needed by ROS2 and system deps
+build --sandbox_writable_path=/tmp
+
+# --- Environment Variables ---
+# Propagate ROS2 environment to build actions
+build --action_env=ROS_DISTRO
+build --action_env=AMENT_PREFIX_PATH
+build --action_env=CMAKE_PREFIX_PATH
+build --action_env=PYTHONPATH
+build --action_env=LD_LIBRARY_PATH
+build --action_env=PATH
+build --action_env=HOME
+
+# --- rules_foreign_cc ---
+# Allow network access for FetchContent in cmake() targets (blasfeo, hpipm)
+build --experimental_allow_unresolved_symlinks
+
+# --- Convenience Aliases ---
+# Debug build
+build:dbg --compilation_mode=dbg
+build:dbg --copt=-g
+build:dbg --strip=never
+
+# Release with debug info
+build:relwithdebinfo --compilation_mode=opt
+build:relwithdebinfo --copt=-g
+build:relwithdebinfo --strip=never
+
+# --- Test Configuration ---
+test --test_output=errors
+test --test_verbose_timeout_warnings

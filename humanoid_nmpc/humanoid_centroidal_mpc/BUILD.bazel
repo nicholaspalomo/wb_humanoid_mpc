@@ -1,0 +1,47 @@
+# humanoid_centroidal_mpc - Centroidal MPC library
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "humanoid_centroidal_mpc",
+    srcs = [
+        "src/dynamics/CentroidalDynamicsAD.cpp",
+        "src/cost/CentroidalMpcEndEffectorFootCost.cpp",
+        "src/cost/ICPCost.cpp",
+        "src/constraint/ZeroVelocityConstraintCppAd.cpp",
+        "src/constraint/NormalVelocityConstraintCppAd.cpp",
+        "src/constraint/JointMimicKinematicConstraint.cpp",
+        "src/initialization/CentroidalWeightCompInitializer.cpp",
+        "src/CentroidalMpcInterface.cpp",
+        "src/command/CentroidalMpcTargetTrajectoriesCalculator.cpp",
+        "src/mrt/CentroidalMpcMrtJointController.cpp",
+    ],
+    hdrs = glob(["include/**"]),
+    includes = ["include"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+        "-DBOOST_VARIANT_LIMIT_TYPES=50",
+    ],
+    deps = [
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//robot_runtime/robot_model",
+        "//lib/ocs2_ros2:ocs2_core",
+        "//lib/ocs2_ros2:ocs2_centroidal_model",
+        "//lib/ocs2_ros2:ocs2_ros2_interfaces",
+        "//lib/ocs2_ros2:ocs2_ddp",
+        "//lib/ocs2_ros2:ocs2_mpc",
+        "//lib/ocs2_ros2:ocs2_sqp",
+        "//lib/ocs2_ros2:ocs2_pinocchio_interface",
+        "@eigen",
+        "@boost",
+        "@pinocchio",
+        "@ros2_rclcpp",
+        "@ros2_ament_index_cpp",
+    ],
+)

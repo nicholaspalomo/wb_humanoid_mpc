@@ -1,0 +1,13 @@
+# g1_description - URDF, meshes, launch, rviz data files for Unitree G1
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "g1_description",
+    srcs = glob([
+        "urdf/**",
+        "meshes/**",
+        "launch/**",
+        "rviz/**",
+    ]),
+)

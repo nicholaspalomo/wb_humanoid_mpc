@@ -1,0 +1,13 @@
+# robot_core - Header-only library (no source files)
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "robot_core",
+    hdrs = glob(["include/**"]),
+    includes = ["include"],
+    deps = [
+        "@eigen",
+        "@ros2_ament_index_cpp",
+    ],
+)

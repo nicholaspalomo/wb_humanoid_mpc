@@ -1,0 +1,60 @@
+# humanoid_common_mpc_ros2 - ROS2 interface library for humanoid MPC
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "humanoid_common_mpc_ros2",
+    srcs = [
+        "src/gait/GaitKeyboardPublisher.cpp",
+        "src/gait/GaitScheduleUpdaterRos2.cpp",
+        "src/visualization/HumanoidVisualizer.cpp",
+        "src/visualization/HumanoidVisualizerRos2Interface.cpp",
+        "src/visualization/EquivalentContactCornerForcesVisualizer.cpp",
+        "src/ros_comm/MRTPolicySubscriber.cpp",
+        "src/ros_comm/Ros2ProceduralMpcMotionManager.cpp",
+        "src/ros_comm/VelocityCommandKeyboardPublisher.cpp",
+        "src/benchmarks/SqpBenchmarksPublisher.cpp",
+        "src/benchmarks/DdpBenchmarksPublisher.cpp",
+    ],
+    hdrs = glob(["include/**"]),
+    includes = ["include"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+    ],
+    data = glob(["rviz/**"]),
+    deps = [
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_mpc_msgs",
+        "//lib/ocs2_ros2:ocs2_ros2_interfaces",
+        "//lib/ocs2_ros2:ocs2_ros2_msgs",
+        "//lib/ocs2_ros2:ocs2_sqp",
+        "@eigen",
+        "@boost",
+        "@pinocchio",
+        "@ros2_rclcpp",
+        "@ros2_ament_index_cpp",
+        "@ros2_tf2_ros",
+        "@ros2_tf2_eigen",
+        "@urdf",
+        "@ros2_kdl_parser",
+        "@ros2_visualization_msgs",
+        "@ros2_geometry_msgs",
+        "@ros2_sensor_msgs",
+    ],
+)
+
+cc_binary(
+    name = "gait_keyboard_command_node",
+    srcs = ["src/HumanoidGaitCommandNode.cpp"],
+    deps = [":humanoid_common_mpc_ros2"],
+)
+
+cc_binary(
+    name = "velocity_keyboard_command_node",
+    srcs = ["src/MpcKeyboardVelocityCommandNode.cpp"],
+    deps = [":humanoid_common_mpc_ros2"],
+)

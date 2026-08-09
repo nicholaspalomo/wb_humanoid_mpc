@@ -1,0 +1,37 @@
+# robot_model - Robot description and state library
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "robot_model",
+    srcs = [
+        "src/RobotDescription.cpp",
+        "src/RobotState.cpp",
+    ],
+    hdrs = glob(["include/**"]),
+    includes = ["include"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+    ],
+    deps = [
+        "//robot_runtime/robot_core",
+        "@eigen",
+        "@abseil_system",
+        "@urdf",
+        "@ros2_ament_index_cpp",
+    ],
+)
+
+cc_test(
+    name = "test_robot_description",
+    srcs = ["test/testRobotDescription.cpp"],
+    deps = [
+        ":robot_model",
+        "@googletest//:gtest_main",
+        "@urdf",
+    ],
+)

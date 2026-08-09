@@ -60,3 +60,8 @@ install/
 **/.gdb_history
 
 .git-completion.bash
+
+# Bazel
+bazel-*
+.bazel-cache/
+MODULE.bazel.lock

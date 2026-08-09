@@ -62,8 +62,15 @@ link_directories(
   ${pinocchio_LIBRARY_DIRS}
 )
 
-add_definitions("-DBOOST_MPL_LIMIT_LIST_SIZE=30")
+add_compile_definitions(
+  BOOST_MPL_CFG_NO_PREPROCESSED_HEADERS
+  BOOST_MPL_LIMIT_LIST_SIZE=50
+  BOOST_VARIANT_LIMIT_TYPES=50
+  BOOST_FUSION_INVOKE_MAX_ARITY=10
+)
 
+# Pinocchio 3.x backward compat for old-style includes
+include_directories("/opt/ros/jazzy/include/pinocchio/deprecated")
 
 # ############
 # # Testing ##

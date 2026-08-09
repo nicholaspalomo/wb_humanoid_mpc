@@ -1,0 +1,56 @@
+# humanoid_centroidal_mpc_test - Test package for centroidal MPC
+
+package(default_visibility = ["//visibility:public"])
+
+_TEST_DEPS = [
+    "//humanoid_nmpc/humanoid_centroidal_mpc",
+    "//humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_dummy_sim_node",
+    "@eigen",
+    "@boost",
+    "@pinocchio",
+    "@ros2_rclcpp",
+    "@ros2_ament_index_cpp",
+    "@googletest//:gtest_main",
+]
+
+_TEST_DATA = [
+    "//robot_models/unitree_g1/g1_description",
+    "//robot_models/unitree_g1/g1_centroidal_mpc",
+]
+
+_TEST_COPTS = [
+    "-std=c++20",
+    "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+    "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+    "-DBOOST_VARIANT_LIMIT_TYPES=50",
+]
+
+cc_test(
+    name = "test_centroidal_mpc_robot_model",
+    srcs = ["src/testCentroidalMpcRobotModel.cpp"],
+    copts = _TEST_COPTS,
+    data = _TEST_DATA,
+    deps = _TEST_DEPS,
+)
+
+cc_test(
+    name = "test_pinocchio_frame_conversions",
+    srcs = ["src/testPinocchioFrameConversions.cpp"],
+    copts = _TEST_COPTS,
+    data = _TEST_DATA,
+    deps = _TEST_DEPS,
+)
+
+cc_test(
+    name = "test_dynamics_helper_functions",
+    srcs = ["src/testDynamicsHelperFunctions.cpp"],
+    copts = _TEST_COPTS,
+    data = _TEST_DATA,
+    deps = _TEST_DEPS,
+)
+
+cc_library(
+    name = "humanoid_centroidal_mpc_test_headers",
+    hdrs = glob(["include/**"]),
+    includes = ["include"],
+)

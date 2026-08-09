@@ -1,0 +1,73 @@
+# humanoid_common_mpc - Core humanoid MPC library
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "humanoid_common_mpc",
+    srcs = [
+        "src/contact/ContactCenterPoint.cpp",
+        "src/contact/ContactPolygon.cpp",
+        "src/contact/ContactRectangle.cpp",
+        "src/pinocchio_model/pinocchioUtils.cpp",
+        "src/pinocchio_model/createPinocchioModel.cpp",
+        "src/pinocchio_model/DynamicsHelperFunctions.cpp",
+        "src/common/ModelSettings.cpp",
+        "src/constraint/JointLimitsSoftConstraint.cpp",
+        "src/constraint/FootCollisionConstraint.cpp",
+        "src/constraint/ZeroWrenchConstraint.cpp",
+        "src/constraint/EndEffectorKinematicsTwistConstraint.cpp",
+        "src/constraint/FrictionForceConeConstraint.cpp",
+        "src/constraint/ContactMomentXYConstraintCppAd.cpp",
+        "src/constraint/EndEffectorKinematicsLinearVelConstraint.cpp",
+        "src/cost/StateInputQuadraticCost.cpp",
+        "src/cost/EndEffectorKinematicCostHelpers.cpp",
+        "src/cost/EndEffectorKinematicsQuadraticCost.cpp",
+        "src/cost/ExternalTorqueQuadraticCostAD.cpp",
+        "src/command/TargetTrajectoriesCalculatorBase.cpp",
+        "src/gait/Gait.cpp",
+        "src/gait/GaitSchedule.cpp",
+        "src/gait/ModeSequenceTemplate.cpp",
+        "src/gait/GaitScheduleUpdater.cpp",
+        "src/swing_foot_planner/CubicSpline.cpp",
+        "src/swing_foot_planner/SplineCpg.cpp",
+        "src/swing_foot_planner/SwingTrajectoryPlanner.cpp",
+        "src/reference_manager/SwitchedModelReferenceManager.cpp",
+        "src/reference_manager/ProceduralMpcMotionManager.cpp",
+        "src/HumanoidCostConstraintFactory.cpp",
+        "src/HumanoidPreComputation.cpp",
+        "src/initialization/WeightCompInitializer.cpp",
+    ],
+    hdrs = glob(["include/**"]),
+    includes = ["include"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+        "-DBOOST_VARIANT_LIMIT_TYPES=50",
+    ],
+    deps = [
+        "//humanoid_nmpc/humanoid_mpc_msgs",
+        "//lib/ocs2_ros2:ocs2_core",
+        "//lib/ocs2_ros2:ocs2_mpc",
+        "//lib/ocs2_ros2:ocs2_pinocchio_interface",
+        "@eigen",
+        "@boost",
+        "@pinocchio",
+        "@ros2_rclcpp",
+        "@ros2_ament_index_cpp",
+    ],
+    # Config data files
+    data = glob(["config/**"]),
+)
+
+cc_binary(
+    name = "test_end_effector_kinematic_cost_element",
+    srcs = ["test/testEndEffectorKinematicsCostElement.cpp"],
+    deps = [
+        ":humanoid_common_mpc",
+    ],
+)

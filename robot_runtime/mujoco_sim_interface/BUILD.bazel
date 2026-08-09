@@ -1,0 +1,42 @@
+# mujoco_sim_interface - MuJoCo simulation interface library
+
+package(default_visibility = ["//visibility:public"])
+
+cc_library(
+    name = "mujoco_sim_interface",
+    srcs = [
+        "src/MujocoSimInterface.cpp",
+        "src/MujocoRenderer.cpp",
+    ],
+    hdrs = glob(["include/**"]),
+    includes = ["include"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+    ],
+    deps = [
+        "//lib/mujoco_vendor",
+        "//robot_runtime/robot_core",
+        "//robot_runtime/robot_model",
+        "@eigen",
+        "@boost",
+        "@abseil_system",
+        "@urdf",
+        "@glfw",
+        "@glew",
+        "@ros2_ament_index_cpp",
+    ],
+)
+
+cc_binary(
+    name = "mujoco_sim_no_torques",
+    srcs = ["exe/mujocoSimNoTorques.cpp"],
+    deps = [
+        ":mujoco_sim_interface",
+        "@boost",
+        "@glfw",
+    ],
+)

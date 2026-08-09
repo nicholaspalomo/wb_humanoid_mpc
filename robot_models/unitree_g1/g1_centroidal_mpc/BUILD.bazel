@@ -1,0 +1,37 @@
+# g1_centroidal_mpc - G1 robot centroidal MPC configuration and tests
+
+package(default_visibility = ["//visibility:public"])
+
+# Configuration and launch files
+filegroup(
+    name = "g1_centroidal_mpc",
+    srcs = glob([
+        "config/**",
+        "launch/**",
+    ]),
+)
+
+# Test executable for Pinocchio model
+cc_binary(
+    name = "test_pinocchio_model",
+    srcs = ["test/testPinocchioModel.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+    ],
+    data = [
+        ":g1_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_description",
+    ],
+    deps = [
+        "//humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_dummy_sim_node",
+        "@eigen",
+        "@boost",
+        "@pinocchio",
+        "@ros2_rclcpp",
+        "@ros2_ament_index_cpp",
+    ],
+)

@@ -1,0 +1,6 @@
+# Ignore magic_enum's test directory - it references @magic_enum which is
+# only resolvable within its own workspace, not from our root MODULE.bazel.
+lib/magic_enum/test
+bazel-bin
+bazel-wb_humanoid_mpc
+
