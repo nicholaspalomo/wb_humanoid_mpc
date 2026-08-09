@@ -66,3 +66,6 @@ bazel-*
 .bazel-cache/
 .bazel_ros_install/
 MODULE.bazel.lock
+
+# CppAD generated code (runtime)
+cppad_code_gen/
