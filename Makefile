@@ -72,7 +72,7 @@ COMMON_CMAKE_ARGS ?= \
 	-DCMAKE_BUILD_TYPE=$(BUILD_TYPE) \
 	-DBUILD_TESTING=$(BUILD_TESTING) \
 	-DCMAKE_SHARED_LINKER_FLAGS=$(LINKER_FLAGS) \
-	-DCMAKE_CXX_FLAGS=$(CPP_VERSION)
+	-DCMAKE_CXX_FLAGS="$(CPP_VERSION) -I/opt/ros/jazzy/include/pinocchio/deprecated -DPINOCCHIO_ENABLE_COMPATIBILITY_TAGS -DPINOCCHIO_WITH_CPPADCG_SUPPORT -Dparent=parentJoint -DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS -DBOOST_MPL_LIMIT_LIST_SIZE=30 -DBOOST_MPL_LIMIT_VECTOR_SIZE=30 -DBOOST_FUSION_INVOKE_MAX_ARITY=15 -DBOOST_RESULT_OF_NUM_ARGS=15"
 
 # Conditionally add flags specific for the Ninja build system
 ifeq ($(BUILD_WITH_NINJA), ON)
@@ -226,7 +226,7 @@ stop-vnc:
 	$(current_path)/.devcontainer/start_vnc.sh stop
 
 # LIBGL_ALWAYS_INDIRECT=0 is critical: the container sets =1, which breaks GLX in Xvfb.
-VNC_GL_ENV := export DISPLAY=:1 && \
+VNC_GL_ENV := export DISPLAY=:99 && \
 	export LIBGL_ALWAYS_SOFTWARE=1 && \
 	export LIBGL_ALWAYS_INDIRECT=0 && \
 	export GALLIUM_DRIVER=llvmpipe && \

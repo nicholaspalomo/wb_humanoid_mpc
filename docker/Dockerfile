@@ -59,7 +59,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1-mesa-dri \
     libglx-mesa0 \
     libegl-mesa0 \
+    ros-${ROS_DISTRO}-desktop \
+    ros-${ROS_DISTRO}-pinocchio \
+    ros-${ROS_DISTRO}-rmw-fastrtps-cpp \
+    ros-${ROS_DISTRO}-urdfdom-headers \
     && rm -rf /var/lib/apt/lists/*
+
+# Create pkg-config metadata for pinocchio in ROS 2 Jazzy
+RUN mkdir -p /usr/lib/x86_64-linux-gnu/pkgconfig /opt/ros/jazzy/lib/pkgconfig && \
+    echo "prefix=/opt/ros/jazzy\nexec_prefix=\${prefix}\nlibdir=\${prefix}/lib/x86_64-linux-gnu\nincludedir=\${prefix}/include\n\nName: pinocchio\nDescription: Rigid Body Dynamics algorithms\nVersion: 4.0.0\nCflags: -I\${includedir}\nLibs: -L\${libdir} -lpinocchio_default -lpinocchio_parsers -lpinocchio_collision" > /usr/lib/x86_64-linux-gnu/pkgconfig/pinocchio.pc
 
 # Set up environment variables
 ENV CMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}:/opt/ros/${ROS_DISTRO}"
