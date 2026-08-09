@@ -6,14 +6,16 @@ CONTAINER_HOME=$(getent passwd $(id -u) | cut -d: -f6)
 
 # Setup SSH keys if mounted
 if [ -d /tmp/host_ssh ]; then
-  # Remove any existing .ssh and symlink to host_ssh
-  rm -rf "${CONTAINER_HOME}/.ssh"
-  ln -s /tmp/host_ssh "${CONTAINER_HOME}/.ssh"
+  # Symlink ~/.ssh to /tmp/host_ssh if it isn't already a symlink pointing to /tmp/host_ssh
+  if [ "$(readlink -f "${CONTAINER_HOME}/.ssh" 2>/dev/null)" != "/tmp/host_ssh" ]; then
+    rm -rf "${CONTAINER_HOME}/.ssh"
+    ln -s /tmp/host_ssh "${CONTAINER_HOME}/.ssh"
+  fi
   chmod 700 /tmp/host_ssh
   chmod 600 /tmp/host_ssh/id_* 2>/dev/null || true
   echo "SSH keys mounted and permissions set"
 
-  eval "$(ssh-agent -s)"
+  eval "$(ssh-agent -s)" > /dev/null
   find /tmp/host_ssh -type f -name "id_*" ! -name "*.pub" | xargs -I{} ssh-add {} 2>/dev/null
   echo "SSH agent started and keys added"
 fi
@@ -61,7 +63,8 @@ echo 'source /opt/ros/$ROS_DISTRO/setup.bash' >> "${CONTAINER_HOME}/.bashrc"
 
 # SSH agent in bashrc
 echo '# Start SSH agent on terminal startup' >> "${CONTAINER_HOME}/.bashrc"
-echo 'if [ -d ~/.ssh ]; then' >> "${CONTAINER_HOME}/.bashrc"
+echo 'if [ -d /tmp/host_ssh ]; then' >> "${CONTAINER_HOME}/.bashrc"
+echo '  if [ "$(readlink -f ~/.ssh 2>/dev/null)" != "/tmp/host_ssh" ]; then rm -rf ~/.ssh && ln -s /tmp/host_ssh ~/.ssh; fi' >> "${CONTAINER_HOME}/.bashrc"
 echo '  eval $(ssh-agent -s) > /dev/null' >> "${CONTAINER_HOME}/.bashrc"
 echo '  find ~/.ssh -type f -name "id_*" ! -name "*.pub" | xargs -I{} ssh-add {} 2>/dev/null' >> "${CONTAINER_HOME}/.bashrc"
 echo 'fi' >> "${CONTAINER_HOME}/.bashrc"
