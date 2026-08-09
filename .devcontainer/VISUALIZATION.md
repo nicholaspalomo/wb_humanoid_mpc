@@ -1,17 +1,36 @@
-# Visualization on macOS
+# Visualization on macOS / Remote Hosts
 
-This guide explains how to see RViz and other GUI apps running inside the dev container on your MacBook. The container uses a built-in VNC server with a browser-based viewer (noVNC) — no extra software needed on your Mac.
+This guide explains how to see RViz and other GUI apps running inside the dev container on your local computer or MacBook when developing locally or via Remote SSH. The container uses a built-in VNC server with a browser-based viewer (noVNC) — no extra software needed on your local machine.
 
 ## Quick Start
 
 ```bash
 # Inside the container terminal:
-make start-vnc
+make launch-drc-atlas-dummy-sim-vnc
 ```
 
-Then open **http://localhost:6080/vnc.html** in your Mac browser.
+Then open **http://localhost:6080/vnc.html** in your browser.
 
 All GUI applications will render in the browser window automatically.
+
+## Remote SSH Development
+
+If your dev container is running on a **remote Linux machine** (e.g. over Remote SSH in Antigravity or VS Code):
+
+1. **Forward Port 6080**:
+   - In Antigravity / VS Code: Check the **Ports** panel tab and ensure port `6080` is forwarded.
+   - Or from your local terminal, set up SSH port forwarding:
+     ```bash
+     ssh -L 6080:localhost:6080 user@remote-host
+     ```
+
+2. **Launch Target**:
+   ```bash
+   make launch-drc-atlas-dummy-sim-vnc
+   ```
+
+3. **View in Local Browser**:
+   Navigate to **http://localhost:6080/vnc.html** on your local machine and click **Connect**.
 
 ## Launch Targets
 

@@ -60,7 +60,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1-mesa-dri \
     libglx-mesa0 \
     libegl-mesa0 \
+    ros-${ROS_DISTRO}-desktop \
+    ros-${ROS_DISTRO}-pinocchio \
+    ros-${ROS_DISTRO}-rmw-fastrtps-cpp \
+    ros-${ROS_DISTRO}-urdfdom-headers \
     && rm -rf /var/lib/apt/lists/*
+
 
 
 # Set up environment variables
