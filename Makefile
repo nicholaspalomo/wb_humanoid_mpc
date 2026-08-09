@@ -1,51 +1,40 @@
 SHELL := /bin/bash
 
 ############################################################
-# Bazel Build System — drop-in replacement for colcon Makefile
+# Bazel Build System — Monorepo Makefile
 ############################################################
-
-# --- Detect ROS2 distro for launch commands ---
-ros_source_file := /bin/ros_setup.sh
-
-ifeq ("$(wildcard /opt/ros/jazzy/setup.bash)","")
-    ifeq ("$(wildcard $(ros_source_file))","")
-        ros_source_file := /opt/ros/humble/setup.bash
-    endif
-else
-    ifeq ("$(wildcard $(ros_source_file))","")
-        ros_source_file := /opt/ros/jazzy/setup.bash
-    endif
-endif
 
 mkfile_path := $(abspath $(lastword $(MAKEFILE_LIST)))
 current_path := $(dir $(mkfile_path))
-build_dir ?= $(abspath $(lastword $(MAKEFILE_LIST))/../../..)
+
+# Source the Bazel+ROS2 environment
+define source_env
+	source $(current_path)/setup_env.sh
+endef
 
 ############################################################
 # Build targets
 ############################################################
 .PHONY: build-all build-debug build-release build-relwithdebinfo build \
-        test-all test clean format \
+        test-all test clean clean-all format \
         launch-g1-dummy-sim launch-g1-sim launch-wb-g1-dummy-sim launch-wb-g1-sim \
         start-vnc stop-vnc \
         launch-g1-dummy-sim-vnc launch-g1-sim-vnc launch-wb-g1-dummy-sim-vnc launch-wb-g1-sim-vnc \
         run-ocs2-tests run-mpc-tests echo-packages update-submodules git-lfs
 
-## Build everything (optimized, equivalent to `make build-all`)
+## Build everything
 build-all:
 	bazel build //...
 
-## Build a single package: make build PKG=humanoid_common_mpc
+## Build a single target: make build PKG=//humanoid_nmpc/humanoid_common_mpc
 build:
-	@$(if $(PKG),bazel build //humanoid_nmpc/$(PKG) //robot_models/unitree_g1/$(PKG) //robot_runtime/$(PKG) //lib/ocs2_ros2:$(PKG) 2>/dev/null || \
-		echo "Trying direct target..." && bazel build //$(PKG), \
-		@echo "Please specify a package: make build PKG=package_name")
+	@$(if $(PKG),bazel build $(PKG),@echo "Usage: make build PKG=//path/to:target")
 
 ## Debug build
 build-debug:
 	bazel build //... --config=dbg
 
-## Release build (no debug info, tests off)
+## Release build
 build-release:
 	bazel build //...
 
@@ -61,15 +50,13 @@ build-relwithdebinfo:
 test-all:
 	bazel test //...
 
-## Run a single test package: make test PKG=humanoid_centroidal_mpc_test
+## Run a single test: make test PKG=//humanoid_nmpc/humanoid_centroidal_mpc_test:test_pinocchio_frame_conversions
 test:
-	@$(if $(PKG),bazel test //humanoid_nmpc/$(PKG)/... 2>/dev/null || \
-		bazel test //$(PKG)/..., \
-		@echo "Please specify a package: make test PKG=package_name")
+	@$(if $(PKG),bazel test $(PKG),@echo "Usage: make test PKG=//path/to:test_target")
 
 ## Run OCS2 library tests
 run-ocs2-tests:
-	bazel test //lib/ocs2_ros2:all
+	bazel test //lib/ocs2:all
 
 ## Run MPC tests
 run-mpc-tests:
@@ -87,20 +74,17 @@ echo-packages:
 clean:
 	bazel clean
 
-## Deep clean (remove entire Bazel cache)
-clean-ws:
+## Deep clean (remove entire Bazel cache + generated env)
+clean-all:
 	bazel clean --expunge
-
-## Clean CppAD generated code
-clean-cppad:
-	rm -rf cppad_code_gen
+	rm -rf $(current_path)/.bazel_ros_install
 
 ## Format source code
 format:
 	find . -name "lib" -prune -o \( -name "*.cpp" -o -name "*.h" -o -name "*.hpp" \) -print | xargs clang-format -i && \
 	black . --exclude="lib/"
 
-## Update git submodules
+## Update git submodules (mujoco)
 update-submodules:
 	git submodule update --init --recursive
 
@@ -109,27 +93,24 @@ git-lfs:
 	git lfs install && git lfs pull
 
 ############################################################
-# Launch targets (still use ROS2 launch — Bazel builds only)
+# Launch targets (Bazel build + ROS2 launch)
 ############################################################
 
-# Helper to source ROS2 and colcon install
-define ros2_launch
-	source $(ros_source_file) && \
-	source $(build_dir)/install/setup.bash && \
-	ros2 launch $(1) $(2)
-endef
-
 launch-g1-dummy-sim:
-	@cd $(build_dir) && $(call ros2_launch,g1_centroidal_mpc,dummy_sim.launch.py)
+	@bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:all //humanoid_nmpc/humanoid_common_mpc_ros2:all && \
+	$(source_env) && ros2 launch g1_centroidal_mpc dummy_sim.launch.py
 
 launch-g1-sim:
-	@cd $(build_dir) && $(call ros2_launch,g1_centroidal_mpc,mujoco_sim.launch.py)
+	@bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:all //humanoid_nmpc/humanoid_common_mpc_ros2:all && \
+	$(source_env) && ros2 launch g1_centroidal_mpc mujoco_sim.launch.py
 
 launch-wb-g1-dummy-sim:
-	@cd $(build_dir) && $(call ros2_launch,g1_wb_mpc,dummy_sim.launch.py)
+	@bazel build //humanoid_nmpc/humanoid_wb_mpc_ros2:all //humanoid_nmpc/humanoid_common_mpc_ros2:all && \
+	$(source_env) && ros2 launch g1_wb_mpc dummy_sim.launch.py
 
 launch-wb-g1-sim:
-	@cd $(build_dir) && $(call ros2_launch,g1_wb_mpc,mujoco_sim.launch.py)
+	@bazel build //humanoid_nmpc/humanoid_wb_mpc_ros2:all //humanoid_nmpc/humanoid_common_mpc_ros2:all && \
+	$(source_env) && ros2 launch g1_wb_mpc mujoco_sim.launch.py
 
 ############################################################
 # VNC visualization (for macOS host)
@@ -151,13 +132,13 @@ VNC_GL_ENV := export DISPLAY=:1 && \
 	export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
 
 launch-g1-dummy-sim-vnc: start-vnc
-	@cd $(build_dir) && $(VNC_GL_ENV) && $(call ros2_launch,g1_centroidal_mpc,dummy_sim.launch.py)
+	@$(source_env) && $(VNC_GL_ENV) && ros2 launch g1_centroidal_mpc dummy_sim.launch.py
 
 launch-g1-sim-vnc: start-vnc
-	@cd $(build_dir) && $(VNC_GL_ENV) && $(call ros2_launch,g1_centroidal_mpc,mujoco_sim.launch.py)
+	@$(source_env) && $(VNC_GL_ENV) && ros2 launch g1_centroidal_mpc mujoco_sim.launch.py
 
 launch-wb-g1-dummy-sim-vnc: start-vnc
-	@cd $(build_dir) && $(VNC_GL_ENV) && $(call ros2_launch,g1_wb_mpc,dummy_sim.launch.py)
+	@$(source_env) && $(VNC_GL_ENV) && ros2 launch g1_wb_mpc dummy_sim.launch.py
 
 launch-wb-g1-sim-vnc: start-vnc
-	@cd $(build_dir) && $(VNC_GL_ENV) && $(call ros2_launch,g1_wb_mpc,mujoco_sim.launch.py)
+	@$(source_env) && $(VNC_GL_ENV) && ros2 launch g1_wb_mpc mujoco_sim.launch.py

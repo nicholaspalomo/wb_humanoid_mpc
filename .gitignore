@@ -64,4 +64,5 @@ install/
 # Bazel
 bazel-*
 .bazel-cache/
+.bazel_ros_install/
 MODULE.bazel.lock
