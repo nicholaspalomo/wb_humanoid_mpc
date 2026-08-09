@@ -1,3 +1,5 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 # humanoid_common_mpc - Core humanoid MPC library
 
 package(default_visibility = ["//visibility:public"])
@@ -48,6 +50,7 @@ cc_library(
         "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
         "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
         "-DBOOST_VARIANT_LIMIT_TYPES=50",
+        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     deps = [
         "//humanoid_nmpc/humanoid_mpc_msgs",

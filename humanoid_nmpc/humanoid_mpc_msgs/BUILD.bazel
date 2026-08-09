@@ -1,31 +1,21 @@
-# humanoid_mpc_msgs - ROS2 message package (cmake wrapper)
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+# humanoid_mpc_msgs - ROS2 message package (pre-generated headers)
 #
-# This package uses rosidl_generate_interfaces which requires the full
-# ROS2 CMake toolchain. We wrap it with cmake() from rules_foreign_cc.
-
-load("@rules_foreign_cc//foreign_cc:defs.bzl", "cmake")
+# Generated C++ headers are checked into generated/ directory.
+# Type support shared libraries come from the colcon install.
+# To regenerate: run `make build-all` then copy from install dir.
 
 package(default_visibility = ["//visibility:public"])
 
-filegroup(
-    name = "all_srcs",
-    srcs = glob(["**"]),
-)
-
-cmake(
+cc_library(
     name = "humanoid_mpc_msgs",
-    build_args = ["-j4"],
-    cache_entries = {
-        "BUILD_TESTING": "OFF",
-    },
-    lib_source = ":all_srcs",
-    out_shared_libs = select({
-        "@platforms//os:linux": [
-            "libhumanoid_mpc_msgs__rosidl_generator_c.so",
-            "libhumanoid_mpc_msgs__rosidl_typesupport_cpp.so",
-        ],
-        "//conditions:default": [],
-    }),
+    hdrs = glob(["generated/**/*.hpp"]),
+    includes = ["generated"],
+    linkopts = [
+        "-L/wb_humanoid_mpc_ws/install/humanoid_mpc_msgs/lib",
+        "-lhumanoid_mpc_msgs__rosidl_typesupport_cpp",
+        "-lhumanoid_mpc_msgs__rosidl_generator_c",
+    ],
     deps = [
         "@ros2_rcl_interfaces",
         "@ros2_builtin_interfaces",

@@ -36,9 +36,13 @@ build --action_env=LD_LIBRARY_PATH
 build --action_env=PATH
 build --action_env=HOME
 
+# --- Bazel 9.x compatibility ---
+# Auto-load removed built-in rules (cc_library, cc_binary, etc.) for external
+# deps that haven't been updated yet (e.g., googletest)
+build --incompatible_autoload_externally=+cc_library,+cc_binary,+cc_test,+cc_import,+cc_shared_library
+
 # --- rules_foreign_cc ---
-# Allow network access for FetchContent in cmake() targets (blasfeo, hpipm)
-build --experimental_allow_unresolved_symlinks
+build --allow_unresolved_symlinks
 
 # --- Convenience Aliases ---
 # Debug build

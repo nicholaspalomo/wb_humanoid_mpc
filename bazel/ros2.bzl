@@ -33,10 +33,15 @@ def _ros2_package_repository(repo_ctx):
     # prefix (e.g., '_main~system_libs~ros2_foo'). We need the apparent name
     # (e.g., 'ros2_foo') so that target references like @ros2_foo//:ros2_foo work.
     apparent_name = repo_ctx.attr.name
-    if "~" in apparent_name:
+    # Bazel 9.x uses '+' separator (e.g., '+system_libs+ros2_foo')
+    # Older versions use '~' separator (e.g., '_main~system_libs~ros2_foo')
+    if "+" in apparent_name:
+        apparent_name = apparent_name.split("+")[-1]
+    elif "~" in apparent_name:
         apparent_name = apparent_name.split("~")[-1]
 
     repo_ctx.file("BUILD.bazel", content = """
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
 cc_library(
     name = "{name}",
     hdrs = glob(["include/**"]),
@@ -49,36 +54,32 @@ cc_library(
         deps = deps_str,
     ))
 
-    # Symlink headers from the ROS2 install
-    # ROS2 Jazzy installs headers as /opt/ros/jazzy/include/<pkg>/<pkg>/headers.hpp
-    # We need include/<pkg>/headers.hpp so that #include <pkg/header.hpp> works.
+    # Symlink ALL ROS2 headers so transitive deps are always available.
+    # ROS2 Jazzy has a doubly-nested layout: include/<pkg>/<subdir>/headers.hpp
+    # Some packages contain headers for MULTIPLE packages (e.g., rosidl_runtime_cpp
+    # contains both rosidl_runtime_cpp/ and rosidl_typesupport_cpp/ subdirs).
+    # We symlink ALL subdirs from ALL packages so every header is findable.
     repo_ctx.execute(["bash", "-c", """
         mkdir -p include
         ros_prefix="{ros_prefix}"
-        pkg="{pkg_name}"
 
-        # ROS2 Jazzy has a doubly-nested layout: include/<pkg>/<pkg>/
-        # Symlink the inner directory so headers are at include/<pkg>/
-        if [ -d "${{ros_prefix}}/include/${{pkg}}/${{pkg}}" ]; then
-            ln -sf "${{ros_prefix}}/include/${{pkg}}/${{pkg}}" "include/${{pkg}}"
-        elif [ -d "${{ros_prefix}}/include/${{pkg}}" ]; then
-            # Fallback: single-level layout (Humble or non-nested packages)
-            ln -sf "${{ros_prefix}}/include/${{pkg}}" "include/${{pkg}}"
-        fi
-
-        # Some packages have related include directories (e.g., pkg_detail)
-        for inc_dir in $(find "${{ros_prefix}}/include" -maxdepth 1 -type d -name "${{pkg}}*" 2>/dev/null); do
-            basename=$(basename "$inc_dir")
-            # Check for doubly-nested first
-            if [ -d "$inc_dir/$basename" ]; then
-                if [ ! -e "include/$basename" ]; then
-                    ln -sf "$inc_dir/$basename" "include/$basename"
+        # Iterate over all ROS2 package include directories
+        for pkg_dir in "${{ros_prefix}}"/include/*/; do
+            # Symlink ALL subdirectories inside this package dir
+            for sub_dir in "$pkg_dir"/*/; do
+                [ -d "$sub_dir" ] || continue
+                sub_name=$(basename "$sub_dir")
+                if [ ! -e "include/$sub_name" ]; then
+                    ln -sf "$sub_dir" "include/$sub_name"
                 fi
-            elif [ ! -e "include/$basename" ]; then
-                ln -sf "$inc_dir" "include/$basename"
+            done
+            # Also handle non-nested packages (single header files directly in pkg_dir)
+            pkg_name=$(basename "$pkg_dir")
+            if [ ! -d "$pkg_dir/$pkg_name" ] && [ ! -e "include/$pkg_name" ]; then
+                ln -sf "$pkg_dir" "include/$pkg_name"
             fi
         done
-    """.format(ros_prefix = ros_prefix, pkg_name = pkg_name)])
+    """.format(ros_prefix = ros_prefix)])
 
 ros2_package_repository = repository_rule(
     implementation = _ros2_package_repository,

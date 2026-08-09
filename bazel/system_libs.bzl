@@ -8,6 +8,7 @@ def _eigen_repository(repo_ctx):
     """Wraps system-installed Eigen3."""
     repo_ctx.symlink("/usr/include/eigen3", "include")
     repo_ctx.file("BUILD.bazel", content = """
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
 cc_library(
     name = "eigen",
     hdrs = glob(["include/**"]),
@@ -28,6 +29,8 @@ def _boost_repository(repo_ctx):
     # Find Boost shared libraries
     lib_dir = "/usr/lib/x86_64-linux-gnu"
     repo_ctx.file("BUILD.bazel", content = """
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_import.bzl", "cc_import")
 cc_library(
     name = "headers",
     hdrs = glob(["include/boost/**"]),
@@ -96,13 +99,14 @@ def _pinocchio_repository(repo_ctx):
     ros_prefix = "/opt/ros/" + ros_distro
 
     repo_ctx.file("BUILD.bazel", content = """
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
 cc_library(
     name = "pinocchio",
     hdrs = glob(["include/**"]),
     includes = ["include", "include/pinocchio/deprecated"],
     linkopts = [
-        "-L{ros_prefix}/lib",
-        "-lpinocchio",
+        "-L{ros_prefix}/lib/x86_64-linux-gnu",
+        "-lpinocchio_parsers",
         "-lpinocchio_default",
     ],
     visibility = ["//visibility:public"],
@@ -131,6 +135,43 @@ cc_library(
                 break
             fi
         done
+        # Link urdf_parser headers (needed by pinocchio urdf parser)
+        for dir in /usr/include/urdf_parser; do
+            if [ -d "$dir" ]; then
+                ln -sf "$dir" include/urdf_parser
+                break
+            fi
+        done
+        # Link console_bridge headers (needed by urdfdom)
+        for dir in /usr/include/console_bridge; do
+            if [ -d "$dir" ]; then
+                ln -sf "$dir" include/console_bridge
+                break
+            fi
+        done
+        # Link hpp-fcl / coal headers (needed by ocs2_self_collision)
+        # In pinocchio 3.x, hpp-fcl was renamed to coal but provides hpp/fcl/ compat headers
+        for dir in {ros_prefix}/include/coal/coal /usr/include/coal /usr/local/include/coal; do
+            if [ -d "$dir" ]; then
+                ln -sf "$dir" include/coal
+                break
+            fi
+        done
+        # hpp/fcl backward-compat headers
+        for dir in {ros_prefix}/include/coal/hpp/fcl {ros_prefix}/include/hpp-fcl/hpp/fcl /usr/include/hpp/fcl; do
+            if [ -d "$dir" ]; then
+                mkdir -p include/hpp
+                ln -sf "$dir" include/hpp/fcl
+                break
+            fi
+        done
+        # octomap headers (needed by hpp-fcl/coal)
+        for dir in /usr/include/octomap; do
+            if [ -d "$dir" ]; then
+                ln -sf "$dir" include/octomap
+                break
+            fi
+        done
     """.format(ros_prefix = ros_prefix)])
 
 pinocchio_repository = repository_rule(
@@ -143,6 +184,7 @@ def _glfw_repository(repo_ctx):
     """Wraps system-installed GLFW3."""
     repo_ctx.symlink("/usr/include/GLFW", "include/GLFW")
     repo_ctx.file("BUILD.bazel", content = """
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
 cc_library(
     name = "glfw",
     hdrs = glob(["include/GLFW/**"]),
@@ -161,6 +203,7 @@ def _glew_repository(repo_ctx):
     """Wraps system-installed GLEW."""
     repo_ctx.symlink("/usr/include/GL", "include/GL")
     repo_ctx.file("BUILD.bazel", content = """
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
 cc_library(
     name = "glew",
     hdrs = glob(["include/GL/**"]),
@@ -195,6 +238,8 @@ def _abseil_system_repository(repo_ctx):
     """])
 
     repo_ctx.file("BUILD.bazel", content = """
+load("@rules_cc//cc:cc_import.bzl", "cc_import")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
 cc_import(
     name = "absl_hash_lib",
     static_library = "lib/libabsl_hash.a",
@@ -343,6 +388,7 @@ def _urdf_repository(repo_ctx):
     ros_prefix = "/opt/ros/" + ros_distro
 
     repo_ctx.file("BUILD.bazel", content = """
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
 cc_library(
     name = "urdf",
     hdrs = glob(["include/**"]),
@@ -372,6 +418,45 @@ cc_library(
                 break
             fi
         done
+        # urdf_parser headers (for urdf_parser/urdf_parser.h)
+        # Actual location is /usr/include/urdfdom/urdf_parser/
+        for dir in /usr/include/urdfdom/urdf_parser /usr/include/urdf_parser; do
+            if [ -d "$dir" ]; then
+                ln -sf "$dir" include/urdf_parser
+                break
+            fi
+        done
+        # urdfdom headers - also symlink inner dirs for flat access
+        for dir in {ros_prefix}/include/urdfdom /usr/include/urdfdom; do
+            if [ -d "$dir" ]; then
+                # symlink each subdir inside urdfdom to include/
+                for sub in "$dir"/*/; do
+                    subname=$(basename "$sub")
+                    if [ ! -e "include/$subname" ]; then
+                        ln -sf "$sub" "include/$subname"
+                    fi
+                done
+                break
+            fi
+        done
+        # urdfdom_headers
+        for dir in {ros_prefix}/include/urdfdom_headers /usr/include/urdfdom_headers; do
+            if [ -d "$dir" ]; then
+                ln -sf "$dir" include/urdfdom_headers
+                break
+            fi
+        done
+        # console_bridge (required by urdfdom)
+        for dir in /usr/include/console_bridge; do
+            if [ -d "$dir" ]; then
+                ln -sf "$dir" include/console_bridge
+                break
+            fi
+        done
+        # tinyxml2
+        if [ -f /usr/include/tinyxml2.h ]; then
+            ln -sf /usr/include/tinyxml2.h include/tinyxml2.h
+        fi
     """.format(ros_prefix = ros_prefix)])
 
 urdf_repository = repository_rule(
@@ -383,6 +468,7 @@ urdf_repository = repository_rule(
 def _urdfdom_repository(repo_ctx):
     """Wraps system-installed urdfdom."""
     repo_ctx.file("BUILD.bazel", content = """
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
 cc_library(
     name = "urdfdom",
     hdrs = glob(["include/**"]),
@@ -413,6 +499,57 @@ urdfdom_repository = repository_rule(
 )
 
 # ==============================================================================
+# blasfeo (pre-built from colcon install)
+# ==============================================================================
+
+def _blasfeo_repository(repo_ctx):
+    """Wraps pre-built blasfeo from colcon install."""
+    install_prefix = "/wb_humanoid_mpc_ws/install/blasfeo_catkin"
+    repo_ctx.symlink(install_prefix + "/include", "include")
+    repo_ctx.symlink(install_prefix + "/lib", "lib")
+    repo_ctx.file("BUILD.bazel", content = """
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+cc_library(
+    name = "blasfeo",
+    hdrs = glob(["include/**"]),
+    includes = ["include"],
+    linkopts = ["-Llib", "-lblasfeo"],
+    visibility = ["//visibility:public"],
+)
+""")
+
+blasfeo_repository = repository_rule(
+    implementation = _blasfeo_repository,
+    local = True,
+)
+
+# ==============================================================================
+# hpipm (pre-built from colcon install)
+# ==============================================================================
+
+def _hpipm_repository(repo_ctx):
+    """Wraps pre-built hpipm from colcon install."""
+    install_prefix = "/wb_humanoid_mpc_ws/install/hpipm_catkin"
+    repo_ctx.symlink(install_prefix + "/include", "include")
+    repo_ctx.symlink(install_prefix + "/lib", "lib")
+    repo_ctx.file("BUILD.bazel", content = """
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+cc_library(
+    name = "hpipm",
+    hdrs = glob(["include/**"]),
+    includes = ["include"],
+    linkopts = ["-Llib", "-lhpipm", "-lhpipm_catkin"],
+    deps = ["@blasfeo"],
+    visibility = ["//visibility:public"],
+)
+""")
+
+hpipm_repository = repository_rule(
+    implementation = _hpipm_repository,
+    local = True,
+)
+
+# ==============================================================================
 # Public function to register all system library repositories
 # ==============================================================================
 
@@ -426,3 +563,5 @@ def register_system_libs():
     abseil_system_repository(name = "abseil_system")
     urdf_repository(name = "urdf")
     urdfdom_repository(name = "urdfdom")
+    blasfeo_repository(name = "blasfeo")
+    hpipm_repository(name = "hpipm")

@@ -1,3 +1,4 @@
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 # humanoid_wb_mpc_ros2 - ROS2 nodes for whole-body MPC
 
 package(default_visibility = ["//visibility:public"])
@@ -34,6 +35,10 @@ _COMMON_COPTS = [
     "-Wextra",
     "-Wpedantic",
     "-Werror=return-type",
+    "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+    "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+    "-DBOOST_VARIANT_LIMIT_TYPES=50",
+    "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
 ]
 
 # Dummy simulator node

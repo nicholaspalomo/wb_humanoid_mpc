@@ -9,11 +9,11 @@ module(
 # External Dependencies via bzlmod
 # ==============================================================================
 
-bazel_dep(name = "rules_cc", version = "0.0.17")
-bazel_dep(name = "rules_foreign_cc", version = "0.12.0")
-bazel_dep(name = "rules_python", version = "0.40.0")
-bazel_dep(name = "googletest", version = "1.15.2")
-bazel_dep(name = "platforms", version = "0.0.10")
+bazel_dep(name = "rules_cc", version = "0.2.17")
+bazel_dep(name = "rules_foreign_cc", version = "0.14.0")
+bazel_dep(name = "rules_python", version = "1.7.0")
+bazel_dep(name = "googletest", version = "1.17.0")
+bazel_dep(name = "platforms", version = "1.0.0")
 
 # ==============================================================================
 # System Library Repositories (non-bzlmod)
@@ -31,7 +31,8 @@ use_repo(
     "glew",
     "abseil_system",
     "urdf",
-    "urdfdom",
+    "blasfeo",
+    "hpipm",
     # ROS2 system packages
     "ros2_rclcpp",
     "ros2_ament_index_cpp",

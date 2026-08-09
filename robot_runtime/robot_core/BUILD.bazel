@@ -1,3 +1,4 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
 # robot_core - Header-only library (no source files)
 
 package(default_visibility = ["//visibility:public"])
