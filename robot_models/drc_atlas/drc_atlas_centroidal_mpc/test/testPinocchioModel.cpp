@@ -10,9 +10,9 @@ Copyright (c) 2022, Halodi Robotics AS. All rights reserved.
 
 #include <pinocchio/fwd.hpp>
 
-#include <iostream>
 #include <filesystem>
 #include <functional>
+#include <iostream>
 
 #include <pinocchio/algorithm/crba.hpp>
 #include <pinocchio/algorithm/frames.hpp>
@@ -155,7 +155,8 @@ int main(int argc, char** argv) {
 
   std::string urdfFile;
   try {
-    urdfFile = ament_index_cpp::get_package_share_directory(std::string(kRobotModelPackagePath)) + std::filesystem::path::preferred_separator + std::string(kUrdfFileName);
+    urdfFile = ament_index_cpp::get_package_share_directory(std::string(kRobotModelPackagePath)) +
+               std::filesystem::path::preferred_separator + std::string(kUrdfFileName);
   } catch (const std::exception& e) {
     throw std::runtime_error("Failed to get package share directory: drc_atlas_description. Error: " + std::string(e.what()));
   }

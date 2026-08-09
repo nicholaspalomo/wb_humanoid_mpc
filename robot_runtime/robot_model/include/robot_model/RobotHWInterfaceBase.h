@@ -17,7 +17,7 @@ class RobotHWInterfaceBase {
         robotState_((model::RobotState(robotDescription_))),
         robotJointAction_(model::RobotJointAction(robotDescription_)),
         threadSafeRobotState_(robotState_),
-        threadSafeRobotJointAction_(robotJointAction_){};
+        threadSafeRobotJointAction_(robotJointAction_) {};
 
   const model::RobotDescription& getRobotDescription() const { return robotDescription_; }
 
