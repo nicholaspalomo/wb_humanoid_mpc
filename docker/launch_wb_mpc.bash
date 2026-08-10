@@ -45,7 +45,7 @@ else
     --net host \
     --privileged \
     -u ubuntu \
-    -e DISPLAY="${DISPLAY:-:1}" \
+    -e DISPLAY="${DISPLAY:-:99}" \
     -e QT_X11_NO_MITSHM=1 \
     -e XAUTHORITY="${XAUTH:-/tmp/.docker.xauth}" \
     -e XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp}" \
