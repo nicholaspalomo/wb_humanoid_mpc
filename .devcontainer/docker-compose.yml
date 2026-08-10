@@ -20,6 +20,7 @@ services:
     privileged: true
     stdin_open: true
     tty: true
+    working_dir: /wb_humanoid_mpc_ws/workspace/wb_humanoid_mpc
     command: >
       bash -c "
       grep -q 'wb_humanoid_mpc.sh' ~/.bashrc 2>/dev/null ||
