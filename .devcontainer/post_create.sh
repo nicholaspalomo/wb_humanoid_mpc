@@ -46,18 +46,41 @@ else
 fi
 
 # Safe directories
-git config --global --add safe.directory /wb_humanoid_mpc_ws/src/wb_humanoid_mpc
-git submodule foreach --recursive bash -c "git config --global --add safe.directory \$(realpath .)"
+WORKSPACE_DIR="/wb_humanoid_mpc_ws/workspace/wb_humanoid_mpc"
+git config --global --add safe.directory "${WORKSPACE_DIR}"
+git submodule foreach --recursive bash -c "git config --global --add safe.directory \$(realpath .)" 2>/dev/null || true
 
 # Git completion
 curl -sSLo "${CONTAINER_HOME}/.git-completion.bash" https://raw.githubusercontent.com/git/git/master/contrib/completion/git-completion.bash
 echo "source ${CONTAINER_HOME}/.git-completion.bash" >> "${CONTAINER_HOME}/.bashrc"
 
-# Colcon + ROS setup
-echo '# Colcon settings' >> "${CONTAINER_HOME}/.bashrc"
-echo 'export COLCON_HOME=/wb_humanoid_mpc_ws' >> "${CONTAINER_HOME}/.bashrc"
-echo 'export COLCON_DEFAULTS_FILE=/wb_humanoid_mpc_ws/src/wb_humanoid_mpc/colcon.defaults.yaml' >> "${CONTAINER_HOME}/.bashrc"
-echo 'source /opt/ros/$ROS_DISTRO/setup.bash' >> "${CONTAINER_HOME}/.bashrc"
+# Bazel tab completion
+echo '# Bazel completion' >> "${CONTAINER_HOME}/.bashrc"
+echo 'if command -v bazel &>/dev/null; then' >> "${CONTAINER_HOME}/.bashrc"
+echo '  source <(bazel completion bash 2>/dev/null) || true' >> "${CONTAINER_HOME}/.bashrc"
+echo 'fi' >> "${CONTAINER_HOME}/.bashrc"
+
+# Make target tab completion
+cat >> "${CONTAINER_HOME}/.bashrc" << 'MAKE_COMPLETION'
+
+# Make target completion
+_make_targets() {
+    local cur="${COMP_WORDS[COMP_CWORD]}"
+    local makefile="Makefile"
+    if [ -f "$makefile" ]; then
+        local targets=$(grep -oE '^[a-zA-Z0-9_-]+:' "$makefile" | sed 's/://' | sort -u)
+        COMPREPLY=($(compgen -W "$targets" -- "$cur"))
+    fi
+}
+complete -F _make_targets make
+MAKE_COMPLETION
+
+# Auto-source Bazel+ROS2 environment
+echo '# Bazel + ROS2 environment' >> "${CONTAINER_HOME}/.bashrc"
+echo 'WORKSPACE_DIR="/wb_humanoid_mpc_ws/workspace/wb_humanoid_mpc"' >> "${CONTAINER_HOME}/.bashrc"
+echo 'if [ -f "${WORKSPACE_DIR}/setup_env.sh" ]; then' >> "${CONTAINER_HOME}/.bashrc"
+echo '  cd "${WORKSPACE_DIR}" && source setup_env.sh && cd - >/dev/null' >> "${CONTAINER_HOME}/.bashrc"
+echo 'fi' >> "${CONTAINER_HOME}/.bashrc"
 
 # SSH agent in bashrc
 echo '# Start SSH agent on terminal startup' >> "${CONTAINER_HOME}/.bashrc"

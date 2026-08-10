@@ -20,12 +20,18 @@ services:
     privileged: true
     stdin_open: true
     tty: true
-    command: sleep infinity
+    command: >
+      bash -c "
+      grep -q 'wb_humanoid_mpc.sh' ~/.bashrc 2>/dev/null ||
+      echo '[ -f /etc/profile.d/wb_humanoid_mpc.sh ] && source /etc/profile.d/wb_humanoid_mpc.sh' >> ~/.bashrc;
+      sleep infinity"
 
     volumes:
       - ../../..:/wb_humanoid_mpc_ws:delegated
       - ${HOME}/.gitconfig:/tmp/host.gitconfig:cached,ro
       - ${HOME}/.ssh:/tmp/host_ssh:cached,z
+      # Shell init for tab completion (make, bazel, git) + auto-env setup
+      - ./shell_init.sh:/etc/profile.d/wb_humanoid_mpc.sh:cached,ro
 
     environment:
       # VNC display (start with `make start-vnc`, view at http://localhost:6080/vnc.html)
@@ -38,8 +44,8 @@ services:
       ROS_DOMAIN_ID: "0"
       GIT_USER_NAME: ${GIT_USER_NAME}
       GIT_USER_EMAIL: ${GIT_USER_EMAIL}
-      COLCON_HOME: /wb_humanoid_mpc_ws
-      COLCON_DEFAULTS_FILE: /wb_humanoid_mpc_ws/src/wb_humanoid_mpc/colcon.defaults.yaml
+      # Tell bash to source our shell init on interactive shells
+      BASH_ENV: /etc/profile.d/wb_humanoid_mpc.sh
 
     ports:
       - "7400:7400/udp"
