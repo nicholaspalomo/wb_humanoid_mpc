@@ -64,6 +64,13 @@ _setup_package "g1_centroidal_mpc" \
 _setup_package "g1_wb_mpc" \
     "${SCRIPT_DIR}/robot_models/unitree_g1/g1_wb_mpc"
 
+# --- DRC Atlas robot model packages ---
+_setup_package "drc_atlas_description" \
+    "${SCRIPT_DIR}/robot_models/drc_atlas/drc_atlas_description"
+
+_setup_package "drc_atlas_centroidal_mpc" \
+    "${SCRIPT_DIR}/robot_models/drc_atlas/drc_atlas_centroidal_mpc"
+
 # --- Humanoid MPC packages ---
 _setup_package "humanoid_common_mpc" \
     "${SCRIPT_DIR}/humanoid_nmpc/humanoid_common_mpc"
