@@ -11,8 +11,11 @@ build --copt=-DBOOST_FUSION_INVOKE_MAX_ARITY=10
 build --copt=-DPINOCCHIO_URDFDOM_TYPEDEF_SHARED_PTR
 build --copt=-DPINOCCHIO_URDFDOM_USE_STD_SHARED_PTR
 
-# --- Parallelism ---
-build --jobs=HOST_CPUS
+# --- Parallelism & Resource Limits ---
+# Prevent OOM kills: C++ compilations can use 1-2GB each.
+# Limit concurrent jobs so peak RAM stays within system capacity.
+# On a 20-core/31GB system, 8 jobs × ~2GB = ~16GB peak, leaving headroom.
+build --jobs=8
 
 # --- Default Compilation Mode (Release) ---
 # Override with: bazel build -c dbg //...

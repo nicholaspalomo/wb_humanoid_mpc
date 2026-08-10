@@ -22,7 +22,7 @@ cc_library(
     deps = [
         "//robot_runtime/robot_core",
         "@eigen",
-        "@abseil_system",
+        "@abseil-cpp//absl/container:flat_hash_map",
         "@urdf",
         "@ros2_ament_index_cpp",
     ],

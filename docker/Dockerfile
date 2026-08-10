@@ -47,6 +47,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     bash-completion \
     && rm -rf /var/lib/apt/lists/*
 
+# Install Bazelisk (Bazel version manager) — reads .bazelversion for the correct version
+RUN curl -fSsL -o /usr/local/bin/bazel https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64 \
+    && chmod +x /usr/local/bin/bazel
+
 # Install VNC, noVNC, and a lightweight window manager for headless remote visualization.
 # Uses Xvfb (Mesa GLX) + x11vnc to provide the GLX context that RViz2/OGRE requires.
 RUN apt-get update && apt-get install -y --no-install-recommends \

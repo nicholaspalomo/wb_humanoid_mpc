@@ -15,6 +15,7 @@ bazel_dep(name = "rules_python", version = "1.7.0")
 bazel_dep(name = "googletest", version = "1.17.0")
 bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "magic_enum", version = "0.9.7")
+bazel_dep(name = "abseil-cpp", version = "20240722.0")
 
 # ==============================================================================
 # System Library Repositories (non-bzlmod)
@@ -30,7 +31,6 @@ use_repo(
     "pinocchio",
     "glfw",
     "glew",
-    "abseil_system",
     "urdf",
     "blasfeo",
     "hpipm",

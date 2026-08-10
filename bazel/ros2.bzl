@@ -40,11 +40,62 @@ def _ros2_package_repository(repo_ctx):
     elif "~" in apparent_name:
         apparent_name = apparent_name.split("~")[-1]
 
+    # Symlink ALL ROS2 headers using Bazel-native APIs.
+    # ROS2 Jazzy layout: /opt/ros/jazzy/include/<pkg>/<subdir>/headers.hpp
+    # Some packages contribute headers to the SAME namespace (e.g.,
+    # rosidl_runtime_cpp contains both rosidl_runtime_cpp/ and
+    # rosidl_typesupport_cpp/ subdirs). We must merge when collisions occur.
+
+    # Scan all package directories under /opt/ros/jazzy/include/
+    # Track which namespace dirs we've already seen to detect collisions
+    result = repo_ctx.execute(["find", ros_prefix + "/include", "-mindepth", "2", "-maxdepth", "2", "-type", "d"])
+    if result.return_code == 0:
+        for line in result.stdout.strip().split("\n"):
+            if not line:
+                continue
+            # line is e.g. /opt/ros/jazzy/include/rclcpp/rclcpp
+            subdir_name = line.split("/")[-1]  # e.g. "rclcpp"
+            target = repo_ctx.path("include/" + subdir_name)
+            if not target.exists:
+                # First occurrence — symlink the whole directory (preserves nesting)
+                repo_ctx.symlink(line, "include/" + subdir_name)
+            else:
+                # Collision: another package contributes to the same namespace.
+                # We need to convert the existing symlink to a real dir, then
+                # merge children from both sources.
+                #
+                # 1) Read the original symlink target
+                readlink = repo_ctx.execute(["readlink", "-f", "include/" + subdir_name])
+                original_dir = readlink.stdout.strip() if readlink.return_code == 0 else ""
+                #
+                # 2) Remove the symlink, create a real directory
+                repo_ctx.execute(["rm", "-f", "include/" + subdir_name])
+                repo_ctx.execute(["mkdir", "-p", "include/" + subdir_name])
+                #
+                # 3) Symlink all children from the ORIGINAL source
+                if original_dir:
+                    orig_children = repo_ctx.execute(["find", original_dir, "-maxdepth", "1", "-mindepth", "1"])
+                    if orig_children.return_code == 0:
+                        for child in orig_children.stdout.strip().split("\n"):
+                            if child:
+                                child_name = child.split("/")[-1]
+                                if not repo_ctx.path("include/" + subdir_name + "/" + child_name).exists:
+                                    repo_ctx.symlink(child, "include/" + subdir_name + "/" + child_name)
+                #
+                # 4) Symlink all children from the NEW source
+                new_children = repo_ctx.execute(["find", line, "-maxdepth", "1", "-mindepth", "1"])
+                if new_children.return_code == 0:
+                    for child in new_children.stdout.strip().split("\n"):
+                        if child:
+                            child_name = child.split("/")[-1]
+                            if not repo_ctx.path("include/" + subdir_name + "/" + child_name).exists:
+                                repo_ctx.symlink(child, "include/" + subdir_name + "/" + child_name)
+
     repo_ctx.file("BUILD.bazel", content = """
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 cc_library(
     name = "{name}",
-    hdrs = glob(["include/**"]),
+    hdrs = glob(["include/**"], allow_empty = True),
     includes = ["include"],
 {linkopts}{deps}    visibility = ["//visibility:public"],
 )
@@ -53,33 +104,6 @@ cc_library(
         linkopts = linkopts_str,
         deps = deps_str,
     ))
-
-    # Symlink ALL ROS2 headers so transitive deps are always available.
-    # ROS2 Jazzy has a doubly-nested layout: include/<pkg>/<subdir>/headers.hpp
-    # Some packages contain headers for MULTIPLE packages (e.g., rosidl_runtime_cpp
-    # contains both rosidl_runtime_cpp/ and rosidl_typesupport_cpp/ subdirs).
-    # We symlink ALL subdirs from ALL packages so every header is findable.
-    repo_ctx.execute(["bash", "-c", """
-        mkdir -p include
-        ros_prefix="{ros_prefix}"
-
-        # Iterate over all ROS2 package include directories
-        for pkg_dir in "${{ros_prefix}}"/include/*/; do
-            # Symlink ALL subdirectories inside this package dir
-            for sub_dir in "$pkg_dir"/*/; do
-                [ -d "$sub_dir" ] || continue
-                sub_name=$(basename "$sub_dir")
-                if [ ! -e "include/$sub_name" ]; then
-                    ln -sf "$sub_dir" "include/$sub_name"
-                fi
-            done
-            # Also handle non-nested packages (single header files directly in pkg_dir)
-            pkg_name=$(basename "$pkg_dir")
-            if [ ! -d "$pkg_dir/$pkg_name" ] && [ ! -e "include/$pkg_name" ]; then
-                ln -sf "$pkg_dir" "include/$pkg_name"
-            fi
-        done
-    """.format(ros_prefix = ros_prefix)])
 
 ros2_package_repository = repository_rule(
     implementation = _ros2_package_repository,

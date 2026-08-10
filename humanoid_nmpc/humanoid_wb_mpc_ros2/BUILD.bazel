@@ -71,7 +71,8 @@ cc_binary(
     srcs = ["src/WBMpcRobotSim.cpp"],
     copts = _COMMON_COPTS,
     deps = _COMMON_DEPS + [
-        "@abseil_system",
+        "@abseil-cpp//absl/log:check",
+        "@abseil-cpp//absl/log:initialize",
         "@glfw",
         "@glew",
     ],
