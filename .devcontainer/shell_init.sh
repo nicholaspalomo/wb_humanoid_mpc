@@ -4,6 +4,13 @@
 # Provides: Bazel/make tab completion, ROS2+Bazel env, git completion
 # ==============================================================================
 
+# --- Source bash-completion framework (provides git, etc.) ---
+if [ -f /usr/share/bash-completion/bash_completion ]; then
+    source /usr/share/bash-completion/bash_completion
+elif [ -f /etc/bash_completion ]; then
+    source /etc/bash_completion
+fi
+
 # --- Git completion ---
 if [ -f ~/.git-completion.bash ]; then
     source ~/.git-completion.bash

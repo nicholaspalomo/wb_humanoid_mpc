@@ -44,6 +44,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gettext-base \
     sudo \
     ccache \
+    bash-completion \
     && rm -rf /var/lib/apt/lists/*
 
 # Install VNC, noVNC, and a lightweight window manager for headless remote visualization.
