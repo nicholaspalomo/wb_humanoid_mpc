@@ -23,8 +23,9 @@ services:
     working_dir: /wb_humanoid_mpc_ws/workspace/wb_humanoid_mpc
     command: >
       bash -c "
-      grep -q 'wb_humanoid_mpc.sh' ~/.bashrc 2>/dev/null ||
-      echo '[ -f /etc/profile.d/wb_humanoid_mpc.sh ] && source /etc/profile.d/wb_humanoid_mpc.sh' >> ~/.bashrc;
+      grep -q 'wb_humanoid_mpc.sh' ~/.bashrc 2>/dev/null || echo '[ -f /etc/profile.d/wb_humanoid_mpc.sh ] && source /etc/profile.d/wb_humanoid_mpc.sh' >> ~/.bashrc;
+      if [ -d /tmp/host_ssh ]; then rm -rf ~/.ssh && ln -s /tmp/host_ssh ~/.ssh; fi;
+      if [ -f /tmp/host.gitconfig ]; then cp /tmp/host.gitconfig ~/.gitconfig; fi;
       sleep infinity"
 
     volumes:
