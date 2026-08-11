@@ -166,7 +166,7 @@ To cite Whole-Body Humanoid MPC in your academic research, please use the follow
 ## Acknowledgements
 Created and actively maintained by [Manuel Yves Galliker](https://github.com/manumerous).
 
-Special thanks to [Nicholas Palermo](https://github.com/nicholaspalomo) for implementing the Dockerization, Bazel monorepo migration, and CI automation.
+Special thanks to [Nicholas Palomo](https://github.com/nicholaspalomo) for implementing the Dockerization, Bazel monorepo migration, and CI automation.
 
 This project is founded on the great work of many open-source contributors:
 - [ocs2](https://github.com/leggedrobotics/ocs2)
