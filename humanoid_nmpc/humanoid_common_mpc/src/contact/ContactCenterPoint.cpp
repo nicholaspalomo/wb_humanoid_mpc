@@ -44,7 +44,7 @@ ContactCenterPoint ContactCenterPoint::loadContactCenterPoint(const std::string&
                                                               bool verbose) {
   assert(contactIndex < N_CONTACTS && "Contact index is out of bound!");
   boost::property_tree::ptree pt;
-  boost::property_tree::read_info(taskFile, pt);
+  loadData::readPropertyTree(taskFile, pt);
   const std::string prefix = "contacts.";
 
   scalar_t x, y, z;

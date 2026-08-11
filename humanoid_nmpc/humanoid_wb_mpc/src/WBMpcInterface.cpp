@@ -158,7 +158,7 @@ void WBMpcInterface::setupOptimalControlProblem() {
 
   // check for mimic joints
   boost::property_tree::ptree pt;
-  boost::property_tree::read_info(taskFile_, pt);
+  loadData::readPropertyTree(taskFile_, pt);
   bool hasMimicJoints = loadData::containsPtreeValueFind(pt, "mimicJoints");
 
   for (size_t i = 0; i < N_CONTACTS; i++) {
@@ -233,7 +233,7 @@ std::unique_ptr<StateInputConstraint> WBMpcInterface::getStanceFootConstraint(co
 /******************************************************************************************************/
 std::unique_ptr<StateInputConstraint> WBMpcInterface::getJointMimicConstraint(size_t mimicIndex) {
   boost::property_tree::ptree pt;
-  boost::property_tree::read_info(taskFile_, pt);
+  loadData::readPropertyTree(taskFile_, pt);
   std::string prefix;
   if (mimicIndex == 0) {
     prefix = "mimicJoints.left_knee.";

@@ -35,6 +35,7 @@ use_repo(
     "urdf",
     "blasfeo",
     "hpipm",
+    "yaml_cpp",
     # ROS2 system packages
     "ros2_rclcpp",
     "ros2_ament_index_cpp",

@@ -50,13 +50,13 @@ class MPCLaunchConfig:
 
         ### MPC Config ###
         default_mpc_config_path = os.path.join(
-            self.mpc_config_pkg_dir, "config/mpc/task.info"
+            self.mpc_config_pkg_dir, "config/mpc/task.yaml"
         )
         default_target_command_path = os.path.join(
-            self.mpc_config_pkg_dir, "config/command/reference.info"
+            self.mpc_config_pkg_dir, "config/command/reference.yaml"
         )
         default_gait_command_path = os.path.join(
-            self.common_mpc_dir, "config/command/gait.info"
+            self.common_mpc_dir, "config/command/gait.yaml"
         )
 
         print("MPC config urdf file path: ", self.urdf_path)

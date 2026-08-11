@@ -98,7 +98,7 @@ std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getStateInputQuad
 
 std::unique_ptr<StateCost> HumanoidCostConstraintFactory::getFootCollisionConstraint() const {
   boost::property_tree::ptree pt;
-  boost::property_tree::read_info(taskFile_, pt);
+  loadData::readPropertyTree(taskFile_, pt);
   const std::string prefix = "collision_constraint.";
 
   FootCollisionConstraint::Config collisionConfig = FootCollisionConstraint::loadFootCollisionConstraintConfig(taskFile_, verbose_);
@@ -122,7 +122,7 @@ std::unique_ptr<StateCost> HumanoidCostConstraintFactory::getFootCollisionConstr
 
 std::unique_ptr<StateCost> HumanoidCostConstraintFactory::getJointLimitsConstraint() const {
   boost::property_tree::ptree pt;
-  boost::property_tree::read_info(taskFile_, pt);
+  loadData::readPropertyTree(taskFile_, pt);
   const std::string prefix = "jointLimits.";
 
   PieceWisePolynomialBarrierPenalty::Config barrierPenaltyConfig;
@@ -156,7 +156,7 @@ std::unique_ptr<StateCost> HumanoidCostConstraintFactory::getJointLimitsConstrai
 std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getContactMomentXYConstraint(size_t contactPointIndex,
                                                                                             const std::string& name) const {
   boost::property_tree::ptree pt;
-  boost::property_tree::read_info(taskFile_, pt);
+  loadData::readPropertyTree(taskFile_, pt);
   const std::string prefix = "contacts.contactMomentXYSoftConstraint.";
 
   RelaxedBarrierPenalty::Config barrierPenaltyConfig;
@@ -186,7 +186,7 @@ std::unique_ptr<StateInputConstraint> HumanoidCostConstraintFactory::getZeroWren
 
 std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getFrictionForceConeConstraint(size_t contactPointIndex) const {
   boost::property_tree::ptree pt;
-  boost::property_tree::read_info(taskFile_, pt);
+  loadData::readPropertyTree(taskFile_, pt);
   const std::string prefix = "contacts.frictionForceConeSoftConstraint.";
 
   scalar_t frictionCoefficient = 1.0;

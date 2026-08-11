@@ -149,7 +149,7 @@ ad_vector_t FootCollisionConstraint::constraintFunction(ad_scalar_t time, const 
 
 FootCollisionConstraint::Config FootCollisionConstraint::loadFootCollisionConstraintConfig(const std::string taskFile, bool verbose) {
   boost::property_tree::ptree pt;
-  boost::property_tree::read_info(taskFile, pt);
+  loadData::readPropertyTree(taskFile, pt);
   const std::string prefix = "collision_constraint.";
 
   Config collisionConfig;

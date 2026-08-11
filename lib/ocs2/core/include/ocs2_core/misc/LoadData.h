@@ -37,8 +37,55 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <boost/property_tree/info_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 
+#include <yaml-cpp/yaml.h>
+
 namespace ocs2 {
 namespace loadData {
+
+/**
+ * Helper: recursively convert a YAML::Node into a boost::property_tree::ptree.
+ * - Scalar nodes become leaf values.
+ * - Map nodes become named children.
+ * - Sequence nodes become children keyed by "[0]", "[1]", etc.
+ *   (matching the OCS2 INFO-format indexing convention).
+ */
+inline void yamlToPropertyTree(const YAML::Node& node, boost::property_tree::ptree& pt) {
+  if (node.IsScalar()) {
+    pt.put_value(node.as<std::string>());
+  } else if (node.IsMap()) {
+    for (const auto& kv : node) {
+      boost::property_tree::ptree child;
+      yamlToPropertyTree(kv.second, child);
+      pt.push_back({kv.first.as<std::string>(), child});
+    }
+  } else if (node.IsSequence()) {
+    for (size_t i = 0; i < node.size(); ++i) {
+      boost::property_tree::ptree child;
+      yamlToPropertyTree(node[i], child);
+      pt.push_back({"[" + std::to_string(i) + "]", child});
+    }
+  }
+  // Null nodes are ignored (produce empty ptree).
+}
+
+/**
+ * Reads a property tree from a config file, auto-detecting the format by extension.
+ * - .yaml / .yml  → parsed via yaml-cpp, then converted to ptree
+ * - anything else  → parsed via boost::property_tree::read_info()
+ */
+inline void readPropertyTree(const std::string& filename, boost::property_tree::ptree& pt) {
+  const auto dot = filename.rfind('.');
+  if (dot != std::string::npos) {
+    const std::string ext = filename.substr(dot);
+    if (ext == ".yaml" || ext == ".yml") {
+      YAML::Node root = YAML::LoadFile(filename);
+      yamlToPropertyTree(root, pt);
+      return;
+    }
+  }
+  // Default: Boost INFO format
+  boost::property_tree::read_info(filename, pt);
+}
 
 /**
  * Print settings option
@@ -114,7 +161,7 @@ inline bool containsPtreeValueFind(const boost::property_tree::ptree& pt, const 
 template <typename cpp_data_t>
 inline void loadCppDataType(const std::string& filename, const std::string& dataName, cpp_data_t& value) {
   boost::property_tree::ptree pt;
-  boost::property_tree::read_info(filename, pt);
+  readPropertyTree(filename, pt);
 
   value = pt.get<cpp_data_t>(dataName);
 }
@@ -151,7 +198,7 @@ inline void loadEigenMatrix(const std::string& filename, const std::string& matr
   }
 
   boost::property_tree::ptree pt;
-  boost::property_tree::read_info(filename, pt);
+  readPropertyTree(filename, pt);
 
   const scalar_t scaling = pt.get<scalar_t>(matrixName + ".scaling", 1.0);
   const scalar_t defaultValue = pt.get<scalar_t>(matrixName + ".default", 0.0);
@@ -180,7 +227,7 @@ inline void loadEigenMatrix(const std::string& filename, const std::string& matr
 template <typename T>
 inline void loadStdVector(const std::string& filename, const std::string& topicName, std::vector<T>& loadVector, bool verbose = true) {
   boost::property_tree::ptree pt;
-  boost::property_tree::read_info(filename, pt);
+  readPropertyTree(filename, pt);
 
   std::vector<T> backup;
   backup.swap(loadVector);

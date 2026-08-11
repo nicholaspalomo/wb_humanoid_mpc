@@ -62,7 +62,7 @@ ContactRectangle ContactRectangle::loadContactRectangle(const std::string& taskF
                                                         int contactIndex,
                                                         bool verbose) {
   boost::property_tree::ptree pt;
-  boost::property_tree::read_info(taskFile, pt);
+  loadData::readPropertyTree(taskFile, pt);
   const std::string prefix = "contacts.";
 
   scalar_t x_min = 0;
