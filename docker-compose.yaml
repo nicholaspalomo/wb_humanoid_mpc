@@ -1,3 +1,5 @@
+name: devcontainer
+
 version: '3.8'
 services:
   app:

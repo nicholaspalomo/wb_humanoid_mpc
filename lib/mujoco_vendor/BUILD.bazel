@@ -19,6 +19,9 @@ filegroup(
 cmake(
     name = "mujoco_vendor",
     build_args = ["-j4"],
+    cache_entries = {
+        "CMAKE_PREFIX_PATH": "/opt/ros/jazzy",
+    },
     lib_source = ":all_srcs",
     out_shared_libs = select({
         "@platforms//os:linux": ["libmujoco.so.3.3.4"],
