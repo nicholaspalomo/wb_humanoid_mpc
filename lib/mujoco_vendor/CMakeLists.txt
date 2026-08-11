@@ -1,8 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 project(mujoco_vendor)
 
-find_package(ament_cmake QUIET)
-
 include(ExternalProject)
 
 # Set the Mujoco version and download details
@@ -48,10 +46,3 @@ install(CODE "
         WORKING_DIRECTORY \${CMAKE_INSTALL_PREFIX}/lib
     )
 ")
-      
-# Export Mujoco as a dependency if building with ament
-if(ament_cmake_FOUND)
-  ament_export_include_directories(${MUJOCO_INSTALL_DIR}/include)
-  ament_export_libraries(mujoco)
-  ament_package()
-endif()

@@ -1,13 +1,6 @@
 # ==============================================================================
 # MuJoCo Vendor - Downloads prebuilt MuJoCo binary and exposes as cc_library
 # ==============================================================================
-#
-# This replaces the CMake ExternalProject approach. The actual download is
-# handled by a repository rule in MODULE.bazel. This BUILD file wraps the
-# locally-built mujoco_vendor CMake package output.
-#
-# For Bazel, we use the prebuilt MuJoCo binary that the cmake() build
-# downloads, and expose the headers and shared library.
 
 load("@rules_foreign_cc//foreign_cc:defs.bzl", "cmake")
 
@@ -19,9 +12,6 @@ filegroup(
 cmake(
     name = "mujoco_vendor",
     build_args = ["-j4"],
-    cache_entries = {
-        "CMAKE_PREFIX_PATH": "/opt/ros/jazzy",
-    },
     lib_source = ":all_srcs",
     out_shared_libs = select({
         "@platforms//os:linux": ["libmujoco.so.3.3.4"],
