@@ -39,8 +39,8 @@ _setup_package() {
     touch "${prefix}/share/ament_index/resource_index/packages/${pkg_name}"
 
     # Symlink the source directory as the share directory
-    rm -f "${prefix}/share/${pkg_name}" 2>/dev/null
-    ln -sf "${source_dir}" "${prefix}/share/${pkg_name}"
+    rm -rf "${prefix}/share/${pkg_name}" 2>/dev/null
+    ln -sfn "${source_dir}" "${prefix}/share/${pkg_name}"
 
     # Create lib directory for executables (required by ros2 launch)
     mkdir -p "${prefix}/lib/${pkg_name}"
