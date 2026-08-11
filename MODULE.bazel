@@ -23,6 +23,7 @@ bazel_dep(name = "abseil-cpp", version = "20250814.1")
 # These are configured in MODULE.bazel extensions below, pointing to
 # system-installed libraries (Eigen, Boost, Pinocchio, ROS2, etc.)
 
+# LINT.IfChange(system_repositories)
 system_libs = use_extension("//bazel:extensions.bzl", "system_libs")
 use_repo(
     system_libs,
@@ -50,3 +51,4 @@ use_repo(
     "ros2_unique_identifier_msgs",
     "ros2_rosidl",
 )
+# LINT.ThenChange(//bazel/system_libs.bzl:system_repositories, //bazel/ros2.bzl:ros2_packages)

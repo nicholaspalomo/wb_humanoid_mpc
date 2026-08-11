@@ -36,6 +36,7 @@ If your dev container is running on a **remote Linux machine** (e.g. over Remote
 
 Use the `-vnc` suffixed Make targets to automatically build Bazel targets, start VNC, and launch with correctly configured Mesa GL rendering:
 
+<!-- LINT.IfChange(launch_targets) -->
 | Target | Description |
 |--------|-------------|
 | `make launch-g1-dummy-sim-vnc` | G1 centroidal MPC — dummy sim |
@@ -44,6 +45,7 @@ Use the `-vnc` suffixed Make targets to automatically build Bazel targets, start
 | `make launch-wb-g1-sim-vnc` | G1 whole-body MPC — MuJoCo sim |
 | `make launch-drc-atlas-dummy-sim-vnc` | DRC Atlas centroidal MPC — dummy sim |
 | `make launch-drc-atlas-sandbox-vnc` | DRC Atlas URDF viewer |
+<!-- LINT.ThenChange(//Makefile:launch_targets, //setup_env.sh:registered_packages) -->
 
 Each `-vnc` target calls `start-vnc` automatically, so you do **not** need to run `make start-vnc` first.
 

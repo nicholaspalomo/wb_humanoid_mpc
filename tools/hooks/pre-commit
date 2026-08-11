@@ -1,16 +1,18 @@
 #!/bin/bash
 # ==============================================================================
-# Git Pre-Commit Hook — Automatic formatting via `make format`
+# Git Pre-Commit Hook — Automatic formatting & IFTTT cross-file directive linting
 # ==============================================================================
 set -e
 
-echo "🔍 Pre-Commit Hook: Running linter and code formatter (make format)..."
-
-# Ensure we're at the root of the repository
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
-# Run formatting
+echo "🔍 Pre-Commit Hook: Running IFTTT cross-file directive linter..."
+if [ -f "tools/hooks/check_ifttt.py" ]; then
+    python3 tools/hooks/check_ifttt.py
+fi
+
+echo "🔍 Pre-Commit Hook: Running code formatter (make format)..."
 if command -v make >/dev/null 2>&1; then
     make format
 elif command -v docker >/dev/null 2>&1 && docker ps | grep -q devcontainer-app; then
@@ -36,4 +38,4 @@ if [ -n "$STAGED_FILES" ]; then
     fi
 fi
 
-echo "✅ Pre-commit linter check completed successfully."
+echo "✅ Pre-commit checks completed successfully."

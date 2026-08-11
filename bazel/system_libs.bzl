@@ -385,6 +385,7 @@ hpipm_repository = repository_rule(
 # Public function to register all system library repositories
 # ==============================================================================
 
+# LINT.IfChange(system_repositories)
 def register_system_libs():
     """Registers all system library repositories."""
     eigen_repository(name = "eigen")
@@ -396,3 +397,4 @@ def register_system_libs():
     urdfdom_repository(name = "urdfdom")
     blasfeo_repository(name = "blasfeo")
     hpipm_repository(name = "hpipm")
+# LINT.ThenChange(//MODULE.bazel:system_repositories)

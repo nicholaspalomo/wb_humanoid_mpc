@@ -120,6 +120,7 @@ ros2_package_repository = repository_rule(
 # Public function to register all ROS2 package repositories
 # ==============================================================================
 
+# LINT.IfChange(ros2_packages)
 def register_ros2_packages():
     """Registers all ROS2 system package repositories."""
 
@@ -244,3 +245,4 @@ def register_ros2_packages():
         name = "ros2_rosidl",
         pkg_name = "rosidl_default_generators",
     )
+# LINT.ThenChange(//MODULE.bazel:system_repositories)

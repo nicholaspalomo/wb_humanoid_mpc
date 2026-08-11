@@ -1,0 +1,3 @@
+[submodule "tools/ifttt-lint"]
+	path = tools/ifttt-lint
+	url = https://github.com/simonepri/ifttt-lint.git

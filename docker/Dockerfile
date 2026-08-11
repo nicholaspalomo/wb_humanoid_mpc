@@ -32,6 +32,7 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+# LINT.IfChange(system_dependencies)
 # Install system dependencies, ROS, Python, and development tools in a single step
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl gnupg2 lsb-release software-properties-common \
@@ -46,6 +47,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ccache \
     bash-completion \
     && rm -rf /var/lib/apt/lists/*
+# LINT.ThenChange(//dependencies.txt:system_dependencies, //.github/workflows/build_test.yml:system_dependencies)
 
 # Install Bazelisk (Bazel version manager) — reads .bazelversion for the correct version
 RUN curl -fSsL -o /usr/local/bin/bazel https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64 \

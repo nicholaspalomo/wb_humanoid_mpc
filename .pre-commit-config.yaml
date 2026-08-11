@@ -1,10 +1,15 @@
 # pre-commit configuration for wb_humanoid_mpc
 repos:
+  - repo: https://github.com/simonepri/ifttt-lint
+    rev: v0.11.0
+    hooks:
+      - id: ifttt-lint
+      - id: ifttt-lint-diff
   - repo: local
     hooks:
       - id: clang-format-and-black
-        name: Code Formatter (make format)
+        name: Code Formatter & IFTTT Linter (make format)
         entry: tools/hooks/pre-commit
         language: script
-        types_or: [c++, c, python]
+        types_or: [c++, c, python, shell, make, markdown, yaml]
         pass_filenames: false

@@ -110,6 +110,7 @@ git-lfs:
 # Launch targets (Bazel build + ROS2 launch)
 ############################################################
 
+# LINT.IfChange(launch_targets)
 launch-g1-dummy-sim:
 	@bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:all //humanoid_nmpc/humanoid_common_mpc_ros2:all && \
 	$(source_env) && ros2 launch g1_centroidal_mpc dummy_sim.launch.py
@@ -172,3 +173,4 @@ launch-drc-atlas-dummy-sim-vnc: start-vnc
 launch-drc-atlas-sandbox-vnc: start-vnc
 	@bazel build //... && \
 	$(source_env) && $(VNC_GL_ENV) && ros2 launch drc_atlas_description display.launch.py
+# LINT.ThenChange(//setup_env.sh:registered_packages, //.devcontainer/VISUALIZATION.md:launch_targets)

@@ -27,11 +27,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # LINT.IfChange(system_dependencies)
       - name: Install Base Dependencies & Tools
         run: |
           apt-get update && apt-get install -y --no-install-recommends \
           curl gnupg2 lsb-release software-properties-common \
           locales git gettext-base sudo wget build-essential
+      # LINT.ThenChange(//dependencies.txt:system_dependencies, //docker/Dockerfile:system_dependencies)
 
       - name: Install Bazel (via Bazelisk)
         run: |

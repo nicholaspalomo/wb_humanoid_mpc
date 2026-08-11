@@ -1,3 +1,4 @@
+# LINT.IfChange(system_dependencies)
 clang-format
 make
 build-essential
@@ -30,3 +31,4 @@ ros-${ROS_DISTRO}-pinocchio
 ros-${ROS_DISTRO}-rviz2
 ros-${ROS_DISTRO}-rosidl-typesupport-fastrtps-c
 ros-${ROS_DISTRO}-ament-cmake-gmock
+# LINT.ThenChange(//docker/Dockerfile:system_dependencies, //.github/workflows/build_test.yml:system_dependencies)
