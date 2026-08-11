@@ -88,8 +88,8 @@ clean-all:
 
 ## Format source code
 format:
-	find . -name "lib" -prune -o \( -name "*.cpp" -o -name "*.h" -o -name "*.hpp" \) -print | xargs clang-format -i && \
-	black . --exclude="lib/"
+	find . \( -name "lib" -o -name "build" -o -name "install" -o -name "bazel-*" -o -name ".bazel*" -o -name ".git" \) -prune -o \( -name "*.cpp" -o -name "*.h" -o -name "*.hpp" \) -type f -print | xargs clang-format -i && \
+	black . --exclude="lib/|build/|install/|bazel"
 
 ## Update git submodules (mujoco)
 update-submodules:
