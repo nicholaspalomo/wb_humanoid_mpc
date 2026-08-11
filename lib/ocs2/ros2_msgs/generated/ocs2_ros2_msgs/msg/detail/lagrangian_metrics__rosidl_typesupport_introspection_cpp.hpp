@@ -1,1 +1,0 @@
-/wb_humanoid_mpc_ws/build/ocs2_ros2_msgs/rosidl_typesupport_introspection_cpp/ocs2_ros2_msgs/msg/detail/lagrangian_metrics__rosidl_typesupport_introspection_cpp.hpp

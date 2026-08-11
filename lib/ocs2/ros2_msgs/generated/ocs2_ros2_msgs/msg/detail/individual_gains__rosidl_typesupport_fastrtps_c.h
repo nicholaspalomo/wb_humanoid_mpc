@@ -1,1 +1,0 @@
-/wb_humanoid_mpc_ws/build/ocs2_ros2_msgs/rosidl_typesupport_fastrtps_c/ocs2_ros2_msgs/msg/detail/individual_gains__rosidl_typesupport_fastrtps_c.h

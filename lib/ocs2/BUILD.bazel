@@ -327,23 +327,9 @@ cc_library(
 # 14. ocs2_ros2_msgs (pre-generated headers + type support from colcon install)
 # ==============================================================================
 
-cc_library(
+alias(
     name = "ocs2_ros2_msgs",
-    hdrs = glob(
-        ["ros2_msgs/generated/**/*.hpp", "ros2_msgs/generated/**/*.h"],
-        allow_empty = True,
-    ),
-    includes = ["ros2_msgs/generated"],
-    linkopts = [
-        "-L/wb_humanoid_mpc_ws/install/ocs2_ros2_msgs/lib",
-        "-locs2_ros2_msgs__rosidl_typesupport_cpp",
-        "-locs2_ros2_msgs__rosidl_generator_c",
-    ],
-    deps = [
-        "@ros2_std_msgs",
-        "@ros2_geometry_msgs",
-        "@ros2_rosidl",
-    ],
+    actual = "@ocs2_ros2_msgs_repo//:ocs2_ros2_msgs",
 )
 
 # ==============================================================================

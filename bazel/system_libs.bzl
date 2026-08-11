@@ -441,6 +441,60 @@ hpipm_repository = repository_rule(
 )
 
 # ==============================================================================
+# ROS 2 Messages Builder (runs colcon build to generate headers & libraries)
+# ==============================================================================
+def _ros2_msgs_repository(repo_ctx):
+    """Builds a ROS 2 message package from source using colcon."""
+    pkg_name = repo_ctx.attr.pkg_name
+    
+    workspace_root = str(repo_ctx.path(Label("@//:MODULE.bazel")).dirname)
+    src_dir_path = workspace_root + "/" + repo_ctx.attr.src_dir
+
+    # We need to copy the source directory into our external repo so colcon can build it
+    repo_ctx.execute(["cp", "-r", src_dir_path, "src"], quiet = False)
+
+    ros_distro = repo_ctx.os.environ.get("ROS_DISTRO", "jazzy")
+    setup_bash = "/opt/ros/" + ros_distro + "/setup.bash"
+
+    # Build the package using colcon
+    # We must source the ROS 2 setup.bash before building
+    build_cmd = "source " + setup_bash + " && colcon build --packages-select " + pkg_name + " --cmake-args -DCMAKE_BUILD_TYPE=Release"
+    repo_ctx.execute(["bash", "-c", build_cmd], quiet = False, timeout = 300)
+
+    # Symlink the generated headers and libraries
+    repo_ctx.symlink("install/" + pkg_name + "/include", "include")
+    repo_ctx.symlink("install/" + pkg_name + "/lib", "lib")
+
+    lib_dir = str(repo_ctx.path("lib"))
+
+    # Identify the typesupport shared libraries generated
+    # (Typically <pkg_name>__rosidl_typesupport_cpp and <pkg_name>__rosidl_generator_c)
+    linkopts = '["-L{lib_dir}", "-l{pkg_name}__rosidl_typesupport_cpp", "-l{pkg_name}__rosidl_generator_c"]'.format(
+        lib_dir = lib_dir,
+        pkg_name = pkg_name,
+    )
+
+    repo_ctx.file("BUILD.bazel", content = """\
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+cc_library(
+    name = "{pkg_name}",
+    hdrs = glob(["include/**"], allow_empty = True),
+    includes = ["include"],
+    linkopts = {linkopts},
+    visibility = ["//visibility:public"],
+)
+""".format(pkg_name = pkg_name, linkopts = linkopts))
+
+ros2_msgs_repository = repository_rule(
+    implementation = _ros2_msgs_repository,
+    local = True,
+    attrs = {
+        "pkg_name": attr.string(mandatory = True),
+        "src_dir": attr.string(mandatory = True),
+    },
+)
+
+# ==============================================================================
 # Public function to register all system library repositories
 # ==============================================================================
 
@@ -456,4 +510,15 @@ def register_system_libs():
     urdfdom_repository(name = "urdfdom")
     blasfeo_repository(name = "blasfeo")
     hpipm_repository(name = "hpipm")
+    
+    ros2_msgs_repository(
+        name = "ocs2_ros2_msgs_repo",
+        pkg_name = "ocs2_ros2_msgs",
+        src_dir = "lib/ocs2/ros2_msgs",
+    )
+    ros2_msgs_repository(
+        name = "humanoid_mpc_msgs_repo",
+        pkg_name = "humanoid_mpc_msgs",
+        src_dir = "humanoid_nmpc/humanoid_mpc_msgs",
+    )
 # LINT.ThenChange(//MODULE.bazel:system_repositories)
