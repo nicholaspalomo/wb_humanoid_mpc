@@ -52,7 +52,7 @@ _PINOCCHIO_COPTS = _OCS2_COPTS + [
 
 cc_library(
     name = "ocs2_thirdparty",
-    hdrs = glob(["thirdparty/include/**"]),
+    hdrs = glob(["thirdparty/include/**"], allow_empty = True),
     includes = ["thirdparty/include"],
 )
 
@@ -65,8 +65,9 @@ cc_library(
     srcs = glob(
         ["core/src/**/*.cpp"],
         exclude = ["core/src/**/test/**", "core/src/lintTarget.cpp"],
+        allow_empty = True,
     ),
-    hdrs = glob(["core/include/**"]),
+    hdrs = glob(["core/include/**"], allow_empty = True),
     copts = _OCS2_COPTS,
     includes = ["core/include"],
     linkopts = _OCS2_LINKOPTS,
@@ -86,8 +87,9 @@ cc_library(
     srcs = glob(
         ["oc/src/**/*.cpp"],
         exclude = ["oc/src/**/test/**", "oc/src/lintTarget.cpp"],
+        allow_empty = True,
     ),
-    hdrs = glob(["oc/include/**"]),
+    hdrs = glob(["oc/include/**"], allow_empty = True),
     copts = _OCS2_COPTS,
     includes = ["oc/include"],
     linkopts = _OCS2_LINKOPTS,
@@ -108,8 +110,9 @@ cc_library(
     srcs = glob(
         ["robotic_tools/src/**/*.cpp"],
         exclude = ["robotic_tools/src/**/test/**", "robotic_tools/src/lintTarget.cpp"],
+        allow_empty = True,
     ),
-    hdrs = glob(["robotic_tools/include/**"]),
+    hdrs = glob(["robotic_tools/include/**"], allow_empty = True),
     copts = _OCS2_COPTS,
     includes = ["robotic_tools/include"],
     linkopts = _OCS2_LINKOPTS,
@@ -131,8 +134,9 @@ cc_library(
     srcs = glob(
         ["mpc/src/**/*.cpp"],
         exclude = ["mpc/src/**/test/**", "mpc/src/lintTarget.cpp"],
+        allow_empty = True,
     ),
-    hdrs = glob(["mpc/include/**"]),
+    hdrs = glob(["mpc/include/**"], allow_empty = True),
     copts = _OCS2_COPTS,
     includes = ["mpc/include"],
     linkopts = _OCS2_LINKOPTS,
@@ -153,8 +157,9 @@ cc_library(
     srcs = glob(
         ["test_tools/qp_solver/src/**/*.cpp"],
         exclude = ["test_tools/qp_solver/src/**/test/**"],
+        allow_empty = True,
     ),
-    hdrs = glob(["test_tools/qp_solver/include/**"]),
+    hdrs = glob(["test_tools/qp_solver/include/**"], allow_empty = True),
     copts = _OCS2_COPTS,
     includes = ["test_tools/qp_solver/include"],
     linkopts = _OCS2_LINKOPTS,
@@ -180,6 +185,7 @@ cc_library(
             "ddp/src/DDP_DataCollector.cpp",
             "ddp/src/lintTarget.cpp",
         ],
+        allow_empty = True,
     ),
     hdrs = glob(
         ["ddp/include/**"],
@@ -187,6 +193,7 @@ cc_library(
             "ddp/include/**/unsupported/**",
             "ddp/include/**/DDP_DataCollector.h",
         ],
+        allow_empty = True,
     ),
     copts = _OCS2_COPTS,
     includes = ["ddp/include"],
@@ -214,8 +221,9 @@ cc_library(
     srcs = glob(
         ["sqp/sqp/src/**/*.cpp"],
         exclude = ["sqp/sqp/src/**/test/**"],
+        allow_empty = True,
     ),
-    hdrs = glob(["sqp/sqp/include/**"]),
+    hdrs = glob(["sqp/sqp/include/**"], allow_empty = True),
     copts = _OCS2_COPTS,
     includes = ["sqp/sqp/include"],
     linkopts = _OCS2_LINKOPTS,
@@ -240,8 +248,9 @@ cc_library(
     srcs = glob(
         ["pinocchio/pinocchio_interface/src/**/*.cpp"],
         exclude = ["pinocchio/pinocchio_interface/src/**/test/**"],
+        allow_empty = True,
     ),
-    hdrs = glob(["pinocchio/pinocchio_interface/include/**"]),
+    hdrs = glob(["pinocchio/pinocchio_interface/include/**"], allow_empty = True),
     copts = _PINOCCHIO_COPTS,
     includes = ["pinocchio/pinocchio_interface/include"],
     linkopts = _OCS2_LINKOPTS,
@@ -266,8 +275,9 @@ cc_library(
     srcs = glob(
         ["pinocchio/centroidal_model/src/**/*.cpp"],
         exclude = ["pinocchio/centroidal_model/src/**/test/**"],
+        allow_empty = True,
     ),
-    hdrs = glob(["pinocchio/centroidal_model/include/**"]),
+    hdrs = glob(["pinocchio/centroidal_model/include/**"], allow_empty = True),
     copts = _PINOCCHIO_COPTS,
     includes = ["pinocchio/centroidal_model/include"],
     linkopts = _OCS2_LINKOPTS,
@@ -294,7 +304,10 @@ cc_library(
 
 cc_library(
     name = "ocs2_ros2_msgs",
-    hdrs = glob(["ros2_msgs/generated/**/*.hpp"]),
+    hdrs = glob(
+        ["ros2_msgs/generated/**/*.hpp", "ros2_msgs/generated/**/*.h"],
+        allow_empty = True,
+    ),
     includes = ["ros2_msgs/generated"],
     linkopts = [
         "-L/wb_humanoid_mpc_ws/install/ocs2_ros2_msgs/lib",
@@ -321,8 +334,9 @@ cc_library(
             "ros2_interfaces/src/lintTarget.cpp",
             "ros2_interfaces/src/multiplot/MultiplotRemap.cpp",
         ],
+        allow_empty = True,
     ),
-    hdrs = glob(["ros2_interfaces/include/**"]),
+    hdrs = glob(["ros2_interfaces/include/**"], allow_empty = True),
     copts = _OCS2_COPTS,
     includes = ["ros2_interfaces/include"],
     linkopts = _OCS2_LINKOPTS,

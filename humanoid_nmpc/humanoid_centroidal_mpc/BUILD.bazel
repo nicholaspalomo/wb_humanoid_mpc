@@ -17,7 +17,7 @@ cc_library(
         "src/command/CentroidalMpcTargetTrajectoriesCalculator.cpp",
         "src/mrt/CentroidalMpcMrtJointController.cpp",
     ],
-    hdrs = glob(["include/**"]),
+    hdrs = glob(["include/**"], allow_empty = True),
     includes = ["include"],
     copts = [
         "-std=c++20",

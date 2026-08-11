@@ -18,7 +18,7 @@ cc_library(
         "src/benchmarks/SqpBenchmarksPublisher.cpp",
         "src/benchmarks/DdpBenchmarksPublisher.cpp",
     ],
-    hdrs = glob(["include/**"]),
+    hdrs = glob(["include/**"], allow_empty = True),
     includes = ["include"],
     copts = [
         "-std=c++20",
@@ -31,7 +31,7 @@ cc_library(
         "-DBOOST_VARIANT_LIMIT_TYPES=50",
         "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
-    data = glob(["rviz/**"]),
+    data = glob(["rviz/**"], allow_empty = True),
     deps = [
         "//humanoid_nmpc/humanoid_common_mpc",
         "//humanoid_nmpc/humanoid_mpc_msgs",

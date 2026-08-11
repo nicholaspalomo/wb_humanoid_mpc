@@ -10,5 +10,5 @@ filegroup(
         "launch/**",
         "rviz/**",
         "materials/**",
-    ]),
+    ], allow_empty = True),
 )

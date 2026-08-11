@@ -9,5 +9,5 @@ filegroup(
         "meshes/**",
         "launch/**",
         "rviz/**",
-    ]),
+    ], allow_empty = True),
 )

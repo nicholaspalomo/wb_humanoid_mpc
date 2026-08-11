@@ -8,5 +8,5 @@ filegroup(
     srcs = glob([
         "config/**",
         "launch/**",
-    ]),
+    ], allow_empty = True),
 )

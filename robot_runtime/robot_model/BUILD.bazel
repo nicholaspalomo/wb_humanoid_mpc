@@ -10,7 +10,7 @@ cc_library(
         "src/RobotDescription.cpp",
         "src/RobotState.cpp",
     ],
-    hdrs = glob(["include/**"]),
+    hdrs = glob(["include/**"], allow_empty = True),
     includes = ["include"],
     copts = [
         "-std=c++20",

@@ -9,7 +9,10 @@ package(default_visibility = ["//visibility:public"])
 
 cc_library(
     name = "humanoid_mpc_msgs",
-    hdrs = glob(["generated/**/*.hpp"]),
+    hdrs = glob(
+        ["generated/**/*.hpp", "generated/**/*.h"],
+        allow_empty = True,
+    ),
     includes = ["generated"],
     linkopts = [
         "-L/wb_humanoid_mpc_ws/install/humanoid_mpc_msgs/lib",

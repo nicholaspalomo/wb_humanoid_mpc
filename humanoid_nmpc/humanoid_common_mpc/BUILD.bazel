@@ -39,7 +39,7 @@ cc_library(
         "src/HumanoidPreComputation.cpp",
         "src/initialization/WeightCompInitializer.cpp",
     ],
-    hdrs = glob(["include/**"]),
+    hdrs = glob(["include/**"], allow_empty = True),
     includes = ["include"],
     copts = [
         "-std=c++20",
@@ -65,7 +65,7 @@ cc_library(
         "@ros2_ament_index_cpp",
     ],
     # Config data files
-    data = glob(["config/**"]),
+    data = glob(["config/**"], allow_empty = True),
 )
 
 cc_binary(

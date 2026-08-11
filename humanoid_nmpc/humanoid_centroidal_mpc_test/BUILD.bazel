@@ -55,6 +55,6 @@ cc_test(
 
 cc_library(
     name = "humanoid_centroidal_mpc_test_headers",
-    hdrs = glob(["include/**"]),
+    hdrs = glob(["include/**"], allow_empty = True),
     includes = ["include"],
 )
