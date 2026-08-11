@@ -2,7 +2,7 @@ version: '3.8'
 services:
   app:
     build:
-      context: ..
+      context: .
       dockerfile: docker/Dockerfile
       target: base
       args:
@@ -29,11 +29,11 @@ services:
       sleep infinity"
 
     volumes:
-      - ../../..:/wb_humanoid_mpc_ws:delegated
+      - ../..:/wb_humanoid_mpc_ws:delegated
       - ${HOME}/.gitconfig:/tmp/host.gitconfig:cached,ro
       - ${HOME}/.ssh:/tmp/host_ssh:cached,z
       # Shell init for tab completion (make, bazel, git) + auto-env setup
-      - ./shell_init.sh:/etc/profile.d/wb_humanoid_mpc.sh:cached,ro
+      - ./.devcontainer/shell_init.sh:/etc/profile.d/wb_humanoid_mpc.sh:cached,ro
 
     environment:
       # VNC display (start with `make start-vnc`, view at http://localhost:6080/vnc.html)

@@ -101,7 +101,7 @@ COPY dependencies.txt /tmp/dependencies.txt
 
 # Install dependencies from dependencies.txt
 RUN apt-get update && \
-    envsubst < /tmp/dependencies.txt | xargs apt-get install -y --no-install-recommends && \
+    grep -v '^\s*#' /tmp/dependencies.txt | envsubst | xargs apt-get install -y --no-install-recommends && \
     rm -rf /var/lib/apt/lists/*
 
 # Set default shell to bash
