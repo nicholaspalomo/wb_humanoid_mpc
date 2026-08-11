@@ -133,9 +133,11 @@ For **Centroidal Dynamics MPC**:
 make launch-g1-dummy-sim          # X11 Forwarding (Linux)
 make launch-g1-dummy-sim-vnc      # VNC Browser Display (macOS / Remote)
 
-# DRC Atlas Robot Dummy Simulation
-make launch-drc-atlas-dummy-sim
-make launch-drc-atlas-dummy-sim-vnc
+# DRC Atlas Robot Simulation
+make launch-drc-atlas-dummy-sim     # Dummy simulation (Linux)
+make launch-drc-atlas-dummy-sim-vnc # Dummy simulation (macOS / VNC)
+make launch-drc-atlas-sim           # MuJoCo simulation (Linux)
+make launch-drc-atlas-sim-vnc       # MuJoCo simulation (macOS / VNC)
 ```
 
 For **Whole-Body Dynamics MPC**:

@@ -35,7 +35,7 @@ cleanup() {
     pkill -9 -f "openbox" 2>/dev/null || true
     fuser -k -9 ${NOVNC_PORT}/tcp 2>/dev/null || true
     fuser -k -9 ${VNC_PORT}/tcp 2>/dev/null || true
-    sudo rm -f /tmp/.X*-lock /tmp/.X11-unix/X* 2>/dev/null || true
+    sudo -n rm -f /tmp/.X*-lock /tmp/.X11-unix/X* 2>/dev/null || true
     rm -f /tmp/.X*-lock /tmp/.X11-unix/X* 2>/dev/null || true
     echo "VNC services stopped."
 }

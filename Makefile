@@ -131,6 +131,10 @@ launch-drc-atlas-dummy-sim:
 	@bazel build //... && \
 	$(source_env) && ros2 launch drc_atlas_centroidal_mpc dummy_sim.launch.py
 
+launch-drc-atlas-sim:
+	@bazel build //... && \
+	$(source_env) && ros2 launch drc_atlas_centroidal_mpc mujoco_sim.launch.py
+
 launch-drc-atlas-sandbox:
 	@bazel build //... && \
 	$(source_env) && ros2 launch drc_atlas_description display.launch.py
@@ -155,22 +159,37 @@ VNC_GL_ENV := export DISPLAY=:99 && \
 	export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
 
 launch-g1-dummy-sim-vnc: start-vnc
-	@$(source_env) && $(VNC_GL_ENV) && ros2 launch g1_centroidal_mpc dummy_sim.launch.py
+	@echo "🚀 Building targets and launching G1 Centroidal MPC Dummy Simulation..."
+	@bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:all //humanoid_nmpc/humanoid_common_mpc_ros2:all && \
+	$(source_env) && $(VNC_GL_ENV) && ros2 launch g1_centroidal_mpc dummy_sim.launch.py
 
 launch-g1-sim-vnc: start-vnc
-	@$(source_env) && $(VNC_GL_ENV) && ros2 launch g1_centroidal_mpc mujoco_sim.launch.py
+	@echo "🚀 Building targets and launching G1 Centroidal MPC MuJoCo Simulation..."
+	@bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:all //humanoid_nmpc/humanoid_common_mpc_ros2:all && \
+	$(source_env) && $(VNC_GL_ENV) && ros2 launch g1_centroidal_mpc mujoco_sim.launch.py
 
 launch-wb-g1-dummy-sim-vnc: start-vnc
-	@$(source_env) && $(VNC_GL_ENV) && ros2 launch g1_wb_mpc dummy_sim.launch.py
+	@echo "🚀 Building targets and launching G1 Whole-Body MPC Dummy Simulation..."
+	@bazel build //humanoid_nmpc/humanoid_wb_mpc_ros2:all //humanoid_nmpc/humanoid_common_mpc_ros2:all && \
+	$(source_env) && $(VNC_GL_ENV) && ros2 launch g1_wb_mpc dummy_sim.launch.py
 
 launch-wb-g1-sim-vnc: start-vnc
-	@$(source_env) && $(VNC_GL_ENV) && ros2 launch g1_wb_mpc mujoco_sim.launch.py
+	@echo "🚀 Building targets and launching G1 Whole-Body MPC MuJoCo Simulation..."
+	@bazel build //humanoid_nmpc/humanoid_wb_mpc_ros2:all //humanoid_nmpc/humanoid_common_mpc_ros2:all && \
+	$(source_env) && $(VNC_GL_ENV) && ros2 launch g1_wb_mpc mujoco_sim.launch.py
 
 launch-drc-atlas-dummy-sim-vnc: start-vnc
+	@echo "🚀 Building targets and launching DRC Atlas Dummy Simulation..."
 	@bazel build //... && \
 	$(source_env) && $(VNC_GL_ENV) && ros2 launch drc_atlas_centroidal_mpc dummy_sim.launch.py
 
+launch-drc-atlas-sim-vnc: start-vnc
+	@echo "🚀 Building targets and launching DRC Atlas MuJoCo Simulation..."
+	@bazel build //... && \
+	$(source_env) && $(VNC_GL_ENV) && ros2 launch drc_atlas_centroidal_mpc mujoco_sim.launch.py
+
 launch-drc-atlas-sandbox-vnc: start-vnc
+	@echo "🚀 Building targets and launching DRC Atlas URDF Viewer..."
 	@bazel build //... && \
 	$(source_env) && $(VNC_GL_ENV) && ros2 launch drc_atlas_description display.launch.py
 # LINT.ThenChange(//setup_env.sh:registered_packages, //.devcontainer/VISUALIZATION.md:launch_targets)
