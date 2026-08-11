@@ -65,7 +65,9 @@ ament_target_dependencies(test_pinocchio_model
 )
 target_link_libraries(test_pinocchio_model
   ${Boost_LIBRARIES}
-  ${pinocchio_LIBRARIES}
+  pinocchio::pinocchio
+  absl::flat_hash_map
+  absl::raw_hash_set
   absl::log_initialize
 )
 target_compile_options(test_pinocchio_model PUBLIC ${FLAGS})

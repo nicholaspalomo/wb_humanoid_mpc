@@ -86,6 +86,7 @@ set(dependencies
   ocs2_pinocchio_interface
   humanoid_common_mpc_ros2
   mujoco_sim_interface
+  pinocchio
 )
 
 link_directories(
@@ -114,9 +115,9 @@ add_executable(humanoid_centroidal_mpc_dummy_sim_node
 ament_target_dependencies(humanoid_centroidal_mpc_dummy_sim_node
   ${dependencies}
 )
-# target_link_libraries(humanoid_centroidal_mpc_dummy_sim_node
-#   ${PROJECT_NAME}
-# )
+target_link_libraries(humanoid_centroidal_mpc_dummy_sim_node
+  pinocchio::pinocchio
+)
 target_compile_options(humanoid_centroidal_mpc_dummy_sim_node PUBLIC ${FLAGS})
 
 # MPC Node
@@ -126,9 +127,9 @@ add_executable(humanoid_centroidal_mpc_sqp_node
 ament_target_dependencies(humanoid_centroidal_mpc_sqp_node
   ${dependencies}
 )
-# target_link_libraries(humanoid_centroidal_mpc_sqp_node
-#   ${PROJECT_NAME}
-# )
+target_link_libraries(humanoid_centroidal_mpc_sqp_node
+  pinocchio::pinocchio
+)
 target_compile_options(humanoid_centroidal_mpc_sqp_node PUBLIC ${FLAGS})
 
 # MPC Sim Executable
@@ -140,8 +141,10 @@ ament_target_dependencies(humanoid_centroidal_mpc_sim
 )
 target_link_libraries(humanoid_centroidal_mpc_sim
         absl::flat_hash_map
+        absl::raw_hash_set
         glfw
         GLEW
+        pinocchio::pinocchio
 )
 target_compile_options(humanoid_centroidal_mpc_sim PUBLIC ${FLAGS})
 
@@ -152,9 +155,9 @@ add_executable(humanoid_centroidal_mpc_pose_command_node
 ament_target_dependencies(humanoid_centroidal_mpc_pose_command_node
   ${dependencies}
 )
-# target_link_libraries(humanoid_centroidal_mpc_pose_command_node
-#   ${PROJECT_NAME}
-# )
+target_link_libraries(humanoid_centroidal_mpc_pose_command_node
+  pinocchio::pinocchio
+)
 target_compile_options(humanoid_centroidal_mpc_pose_command_node PUBLIC ${FLAGS})
 
 #############
@@ -167,9 +170,9 @@ add_executable(test_visualizer
 ament_target_dependencies(test_visualizer
   ${dependencies}
 )
-# target_link_libraries(test_visualizer
-#   ${PROJECT_NAME}
-# )
+target_link_libraries(test_visualizer
+  pinocchio::pinocchio
+)
 target_compile_options(test_visualizer PUBLIC ${FLAGS})
 
 

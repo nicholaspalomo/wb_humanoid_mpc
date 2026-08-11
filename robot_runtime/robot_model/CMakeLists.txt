@@ -60,6 +60,7 @@ ament_target_dependencies(${PROJECT_NAME}
 target_link_libraries(${PROJECT_NAME}
         ${urdf_LIBRARIES}
         absl::flat_hash_map
+        absl::raw_hash_set
 )
 target_include_directories(${PROJECT_NAME}
     PUBLIC

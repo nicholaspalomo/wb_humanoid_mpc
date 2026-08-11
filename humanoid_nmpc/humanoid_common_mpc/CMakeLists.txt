@@ -115,13 +115,15 @@ ament_target_dependencies(${PROJECT_NAME}
 )
 target_link_libraries(${PROJECT_NAME}
         ${Boost_LIBRARIES}
-        ${pinocchio_LIBRARIES}
+        pinocchio::pinocchio
         ${PROJECT_NAME}_absl_deps
 )
 target_include_directories(${PROJECT_NAME}
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
+        ${pinocchio_INCLUDE_DIRS}
+        /opt/ros/jazzy/include/pinocchio/deprecated
 )
 target_compile_options(${PROJECT_NAME} PUBLIC ${OCS2_CXX_FLAGS})
 

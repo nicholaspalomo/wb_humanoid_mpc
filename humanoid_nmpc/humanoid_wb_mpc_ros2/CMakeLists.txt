@@ -83,6 +83,7 @@ set(dependencies
   ocs2_pinocchio_interface
   humanoid_common_mpc_ros2
   mujoco_sim_interface
+  pinocchio
 )
 
 link_directories(
@@ -101,6 +102,9 @@ add_executable(humanoid_wb_mpc_dummy_sim_node
 ament_target_dependencies(humanoid_wb_mpc_dummy_sim_node
   ${dependencies}
 )
+target_link_libraries(humanoid_wb_mpc_dummy_sim_node
+  pinocchio::pinocchio
+)
 target_compile_options(humanoid_wb_mpc_dummy_sim_node PUBLIC ${FLAGS})
 
 # MPC Node
@@ -110,6 +114,9 @@ add_executable(humanoid_wb_mpc_sqp_node
 ament_target_dependencies(humanoid_wb_mpc_sqp_node
   ${dependencies}
 )
+target_link_libraries(humanoid_wb_mpc_sqp_node
+  pinocchio::pinocchio
+)
 target_compile_options(humanoid_wb_mpc_sqp_node PUBLIC ${FLAGS})
 
 # Pose Command Node
@@ -118,6 +125,9 @@ add_executable(humanoid_wb_mpc_pose_command_node
 )
 ament_target_dependencies(humanoid_wb_mpc_pose_command_node
   ${dependencies}
+)
+target_link_libraries(humanoid_wb_mpc_pose_command_node
+  pinocchio::pinocchio
 )
 target_compile_options(humanoid_wb_mpc_pose_command_node PUBLIC ${FLAGS})
 
@@ -130,8 +140,10 @@ ament_target_dependencies(humanoid_wb_mpc_sim
 )
 target_link_libraries(humanoid_wb_mpc_sim
         absl::flat_hash_map
+        absl::raw_hash_set
         glfw
         GLEW
+        pinocchio::pinocchio
 )
 target_compile_options(humanoid_wb_mpc_sim PUBLIC ${FLAGS})
 
