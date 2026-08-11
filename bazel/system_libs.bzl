@@ -333,23 +333,48 @@ urdfdom_repository = repository_rule(
 )
 
 # ==============================================================================
-# blasfeo (pre-built from colcon install)
+# blasfeo (pre-built from colcon install, or built from source)
 # ==============================================================================
+_BLASFEO_GIT_REPO = "https://github.com/giaf/blasfeo"
+_BLASFEO_GIT_COMMIT = "ae6e2d1dea015862a09990b95905038a756ffc7d"
+
 def _blasfeo_repository(repo_ctx):
-    """Wraps pre-built blasfeo from colcon install."""
+    """Wraps pre-built blasfeo from colcon install, or builds from source."""
     install_prefix = "/wb_humanoid_mpc_ws/install/blasfeo_catkin"
-    _symlink_if_exists(repo_ctx, install_prefix + "/include", "include")
-    _symlink_if_exists(repo_ctx, install_prefix + "/lib", "lib")
-    repo_ctx.file("BUILD.bazel", content = """
+    have_prebuilt = repo_ctx.path(install_prefix + "/include").exists
+
+    if have_prebuilt:
+        repo_ctx.symlink(install_prefix + "/include", "include")
+        repo_ctx.symlink(install_prefix + "/lib", "lib")
+    else:
+        # Build from source
+        repo_ctx.execute(["git", "clone", _BLASFEO_GIT_REPO, "src"], quiet = False)
+        repo_ctx.execute(["git", "-C", "src", "checkout", _BLASFEO_GIT_COMMIT], quiet = False)
+        repo_ctx.execute(["mkdir", "-p", "build"])
+        repo_ctx.execute([
+            "cmake", "-S", "src", "-B", "build",
+            "-DCMAKE_BUILD_TYPE=Release",
+            "-DCMAKE_INSTALL_PREFIX=" + str(repo_ctx.path("install")),
+            "-DTARGET=GENERIC",
+            "-DBUILD_SHARED_LIBS=ON",
+        ], quiet = False)
+        repo_ctx.execute(["cmake", "--build", "build", "-j4"], quiet = False, timeout = 300)
+        repo_ctx.execute(["cmake", "--install", "build"], quiet = False)
+        # Symlink installed artifacts into the repo root
+        repo_ctx.symlink("install/include", "include")
+        repo_ctx.symlink("install/lib", "lib")
+
+    lib_dir = str(repo_ctx.path("lib"))
+    repo_ctx.file("BUILD.bazel", content = """\
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 cc_library(
     name = "blasfeo",
     hdrs = glob(["include/**"], allow_empty = True),
     includes = ["include"],
-    linkopts = ["-L{prefix}/lib", "-lblasfeo"],
+    linkopts = ["-L{lib_dir}", "-lblasfeo"],
     visibility = ["//visibility:public"],
 )
-""".format(prefix = install_prefix))
+""".format(lib_dir = lib_dir))
 
 blasfeo_repository = repository_rule(
     implementation = _blasfeo_repository,
@@ -357,24 +382,58 @@ blasfeo_repository = repository_rule(
 )
 
 # ==============================================================================
-# hpipm (pre-built from colcon install)
+# hpipm (pre-built from colcon install, or built from source)
 # ==============================================================================
+_HPIPM_GIT_REPO = "https://github.com/giaf/hpipm"
+_HPIPM_GIT_COMMIT = "255ffdf38d3a5e2c3285b29568ce65ae286e5faf"
+
 def _hpipm_repository(repo_ctx):
-    """Wraps pre-built hpipm from colcon install."""
+    """Wraps pre-built hpipm from colcon install, or builds from source."""
     install_prefix = "/wb_humanoid_mpc_ws/install/hpipm_catkin"
-    _symlink_if_exists(repo_ctx, install_prefix + "/include", "include")
-    _symlink_if_exists(repo_ctx, install_prefix + "/lib", "lib")
-    repo_ctx.file("BUILD.bazel", content = """
+    have_prebuilt = repo_ctx.path(install_prefix + "/include").exists
+
+    if have_prebuilt:
+        repo_ctx.symlink(install_prefix + "/include", "include")
+        repo_ctx.symlink(install_prefix + "/lib", "lib")
+        lib_dir = install_prefix + "/lib"
+        linkopts = '["-L{lib_dir}", "-lhpipm"]'.format(lib_dir = lib_dir)
+    else:
+        # Need blasfeo install location for hpipm's cmake
+        blasfeo_prefix = "/wb_humanoid_mpc_ws/install/blasfeo_catkin"
+        if not repo_ctx.path(blasfeo_prefix + "/include").exists:
+            # blasfeo was built from source by its repository rule
+            blasfeo_prefix = str(repo_ctx.path(Label("@blasfeo//:BUILD.bazel")).dirname) + "/install"
+
+        repo_ctx.execute(["git", "clone", _HPIPM_GIT_REPO, "src"], quiet = False)
+        repo_ctx.execute(["git", "-C", "src", "checkout", _HPIPM_GIT_COMMIT], quiet = False)
+        repo_ctx.execute(["mkdir", "-p", "build"])
+        repo_ctx.execute([
+            "cmake", "-S", "src", "-B", "build",
+            "-DCMAKE_BUILD_TYPE=Release",
+            "-DCMAKE_INSTALL_PREFIX=" + str(repo_ctx.path("install")),
+            "-DTARGET=GENERIC",
+            "-DBUILD_SHARED_LIBS=ON",
+            "-DBLASFEO_PATH=" + blasfeo_prefix,
+            "-DBLASFEO_INCLUDE_DIR=" + blasfeo_prefix + "/include",
+        ], quiet = False)
+        repo_ctx.execute(["cmake", "--build", "build", "-j4"], quiet = False, timeout = 300)
+        repo_ctx.execute(["cmake", "--install", "build"], quiet = False)
+        repo_ctx.symlink("install/include", "include")
+        repo_ctx.symlink("install/lib", "lib")
+        lib_dir = str(repo_ctx.path("lib"))
+        linkopts = '["-L{lib_dir}", "-lhpipm"]'.format(lib_dir = lib_dir)
+
+    repo_ctx.file("BUILD.bazel", content = """\
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 cc_library(
     name = "hpipm",
     hdrs = glob(["include/**"], allow_empty = True),
     includes = ["include"],
-    linkopts = ["-L{prefix}/lib", "-lhpipm", "-lhpipm_catkin"],
+    linkopts = {linkopts},
     deps = ["@blasfeo"],
     visibility = ["//visibility:public"],
 )
-""".format(prefix = install_prefix))
+""".format(linkopts = linkopts))
 
 hpipm_repository = repository_rule(
     implementation = _hpipm_repository,
