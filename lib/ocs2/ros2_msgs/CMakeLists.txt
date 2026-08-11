@@ -39,7 +39,7 @@ set(msg_files
 )
 
 set(srv_files
-  "srv/Reset.idl"
+  "srv/Reset.srv"
 )
 
 rosidl_generate_interfaces(${PROJECT_NAME}

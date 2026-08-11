@@ -479,7 +479,7 @@ load("@rules_cc//cc:cc_library.bzl", "cc_library")
 cc_library(
     name = "{pkg_name}",
     hdrs = glob(["include/**"], allow_empty = True),
-    includes = ["include"],
+    includes = ["include", "include/{pkg_name}"],
     linkopts = {linkopts},
     visibility = ["//visibility:public"],
 )
