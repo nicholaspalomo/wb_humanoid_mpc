@@ -92,6 +92,11 @@ echo '  eval $(ssh-agent -s) > /dev/null' >> "${CONTAINER_HOME}/.bashrc"
 echo '  find ~/.ssh -type f -name "id_*" ! -name "*.pub" | xargs -I{} ssh-add {} 2>/dev/null' >> "${CONTAINER_HOME}/.bashrc"
 echo 'fi' >> "${CONTAINER_HOME}/.bashrc"
 
+# Auto-install Git pre-commit hook
+if [ -f "${WORKSPACE_DIR}/Makefile" ]; then
+  cd "${WORKSPACE_DIR}" && make install-hooks 2>/dev/null || true
+fi
+
 echo "Container environment setup complete."
 echo "- SSH authentication configured: $([ -d /tmp/host_ssh ] && echo "Yes" || echo "No")"
 echo "- HTTPS credential helper: $(git config --global credential.helper)"

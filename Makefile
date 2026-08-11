@@ -22,7 +22,7 @@ endef
         start-vnc stop-vnc \
         launch-g1-dummy-sim-vnc launch-g1-sim-vnc launch-wb-g1-dummy-sim-vnc launch-wb-g1-sim-vnc \
         launch-drc-atlas-dummy-sim-vnc launch-drc-atlas-sandbox-vnc \
-        run-ocs2-tests run-mpc-tests echo-packages update-submodules git-lfs
+        run-ocs2-tests run-mpc-tests echo-packages update-submodules git-lfs install-hooks
 
 ## Build everything
 build-all:
@@ -90,6 +90,13 @@ clean-all:
 format:
 	find . \( -name "lib" -o -name "build" -o -name "install" -o -name "bazel-*" -o -name ".bazel*" -o -name ".git" \) -prune -o \( -name "*.cpp" -o -name "*.h" -o -name "*.hpp" \) -type f -print | xargs clang-format -i && \
 	black . --exclude="lib/|build/|install/|bazel"
+
+## Install git pre-commit hook
+install-hooks:
+	@chmod +x tools/hooks/pre-commit && \
+	cp tools/hooks/pre-commit .git/hooks/pre-commit && \
+	chmod +x .git/hooks/pre-commit && \
+	echo "✅ Git pre-commit hook installed successfully."
 
 ## Update git submodules (mujoco)
 update-submodules:
