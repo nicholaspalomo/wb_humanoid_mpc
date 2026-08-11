@@ -216,6 +216,26 @@ cc_library(
 # 8-9. blasfeo + hpipm: provided as @blasfeo and @hpipm system repos
 # ==============================================================================
 
+cc_library(
+    name = "ocs2_hpipm_catkin",
+    srcs = glob(
+        ["sqp/hpipm_catkin/src/**/*.cpp"],
+        exclude = ["sqp/hpipm_catkin/src/**/test/**"],
+        allow_empty = True,
+    ),
+    hdrs = glob(["sqp/hpipm_catkin/include/**"], allow_empty = True),
+    copts = _OCS2_COPTS,
+    includes = ["sqp/hpipm_catkin/include"],
+    linkopts = _OCS2_LINKOPTS,
+    deps = [
+        ":ocs2_core",
+        ":ocs2_oc",
+        "@blasfeo",
+        "@hpipm",
+        "@eigen",
+    ],
+)
+
 # ==============================================================================
 # 10. ocs2_sqp
 # ==============================================================================
@@ -236,6 +256,7 @@ cc_library(
         ":ocs2_oc",
         ":ocs2_mpc",
         ":ocs2_qp_solver",
+        ":ocs2_hpipm_catkin",
         "@blasfeo",
         "@hpipm",
         "@eigen",
