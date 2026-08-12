@@ -26,7 +26,7 @@ endef
 
 ## Build everything
 build-all:
-	bazel build //...
+	$(source_env) && bazel build //...
 
 ## Build a single target: make build PKG=//humanoid_nmpc/humanoid_common_mpc
 build:
@@ -50,7 +50,7 @@ build-relwithdebinfo:
 
 ## Run all tests
 test-all:
-	bazel test //...
+	$(source_env) && bazel test //...
 
 ## Run local CI emulator (matches GitHub Actions clean container setup)
 ci-local:

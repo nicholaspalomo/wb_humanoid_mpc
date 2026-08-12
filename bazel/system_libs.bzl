@@ -301,6 +301,7 @@ cc_library(
         "-lurdf",
         "-lurdfdom_model",
         "-lurdfdom_world",
+        "-lclass_loader",
     ],
     visibility = ["//visibility:public"],
 )
