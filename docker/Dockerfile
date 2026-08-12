@@ -1,4 +1,6 @@
+# LINT.IfChange(ros_distro)
 ARG ROS_DISTRO=jazzy
+# LINT.ThenChange(//setup_env.sh:ros_distro, //tools/ci_local.sh:ros_distro, //bazel/ros2.bzl:ros_distro, //bazel/system_libs.bzl:ros_distro)
 ARG BASE_IMAGE=ros:${ROS_DISTRO}-ros-base
 FROM ${BASE_IMAGE} AS base
 
@@ -32,6 +34,7 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+# LINT.IfChange(system_dependencies)
 # Install system dependencies, ROS, Python, and development tools in a single step
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl gnupg2 lsb-release software-properties-common \
@@ -44,7 +47,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gettext-base \
     sudo \
     ccache \
+    bash-completion \
     && rm -rf /var/lib/apt/lists/*
+# LINT.ThenChange(//dependencies.txt:system_dependencies, //.github/workflows/build_test.yml:system_dependencies)
+
+# Install Bazelisk (Bazel version manager) — reads .bazelversion for the correct version
+RUN curl -fSsL -o /usr/local/bin/bazel https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64 \
+    && chmod +x /usr/local/bin/bazel
 
 # Install VNC, noVNC, and a lightweight window manager for headless remote visualization.
 # Uses Xvfb (Mesa GLX) + x11vnc to provide the GLX context that RViz2/OGRE requires.
@@ -59,7 +68,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1-mesa-dri \
     libglx-mesa0 \
     libegl-mesa0 \
+    ros-${ROS_DISTRO}-desktop \
+    ros-${ROS_DISTRO}-pinocchio \
+    ros-${ROS_DISTRO}-rmw-fastrtps-cpp \
+    ros-${ROS_DISTRO}-urdfdom-headers \
     && rm -rf /var/lib/apt/lists/*
+
+
 
 # Set up environment variables
 ENV CMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}:/opt/ros/${ROS_DISTRO}"
@@ -84,12 +99,11 @@ RUN if [ ! -f /usr/local/lib/libabsl_base.a ]; then \
     else \
       echo "Abseil already installed in volume, skipping compilation"; \
     fi
-
 COPY dependencies.txt /tmp/dependencies.txt
 
 # Install dependencies from dependencies.txt
 RUN apt-get update && \
-    envsubst < /tmp/dependencies.txt | xargs apt-get install -y --no-install-recommends && \
+    grep -v '^\s*#' /tmp/dependencies.txt | envsubst | xargs apt-get install -y --no-install-recommends && \
     rm -rf /var/lib/apt/lists/*
 
 # Set default shell to bash

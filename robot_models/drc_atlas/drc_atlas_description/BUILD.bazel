@@ -1,0 +1,14 @@
+# drc_atlas_description - URDF, meshes, launch, rviz data files for DRC Atlas
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "drc_atlas_description",
+    srcs = glob([
+        "urdf/**",
+        "meshes/**",
+        "launch/**",
+        "rviz/**",
+        "materials/**",
+    ], allow_empty = True),
+)

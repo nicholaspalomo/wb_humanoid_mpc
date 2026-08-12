@@ -1,0 +1,79 @@
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+# humanoid_wb_mpc_ros2 - ROS2 nodes for whole-body MPC
+
+package(default_visibility = ["//visibility:public"])
+
+_COMMON_DEPS = [
+    "//humanoid_nmpc/humanoid_wb_mpc",
+    "//humanoid_nmpc/humanoid_common_mpc_ros2",
+    "//robot_runtime/mujoco_sim_interface",
+    "//lib/ocs2:ocs2_core",
+    "//lib/ocs2:ocs2_ddp",
+    "//lib/ocs2:ocs2_mpc",
+    "//lib/ocs2:ocs2_sqp",
+    "//lib/ocs2:ocs2_robotic_tools",
+    "//lib/ocs2:ocs2_pinocchio_interface",
+    "//lib/ocs2:ocs2_ros2_interfaces",
+    "//lib/ocs2:ocs2_ros2_msgs",
+    "@eigen",
+    "@boost",
+    "@pinocchio",
+    "@ros2_rclcpp",
+    "@ros2_ament_index_cpp",
+    "@ros2_tf2_ros",
+    "@ros2_tf2_eigen",
+    "@urdf",
+    "@ros2_kdl_parser",
+    "@ros2_visualization_msgs",
+    "@ros2_geometry_msgs",
+    "@ros2_sensor_msgs",
+]
+
+_COMMON_COPTS = [
+    "-std=c++20",
+    "-Wall",
+    "-Wextra",
+    "-Wpedantic",
+    "-Werror=return-type",
+    "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+    "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+    "-DBOOST_VARIANT_LIMIT_TYPES=50",
+    "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+]
+
+# Dummy simulator node
+cc_binary(
+    name = "humanoid_wb_mpc_dummy_sim_node",
+    srcs = ["src/WBMpcDummySimNode.cpp"],
+    copts = _COMMON_COPTS,
+    deps = _COMMON_DEPS,
+)
+
+# SQP MPC node
+cc_binary(
+    name = "humanoid_wb_mpc_sqp_node",
+    srcs = ["src/WBMpcSqpNode.cpp"],
+    copts = _COMMON_COPTS,
+    deps = _COMMON_DEPS,
+)
+
+# Pose command node
+cc_binary(
+    name = "humanoid_wb_mpc_pose_command_node",
+    srcs = ["src/WBMpcPoseCommandNode.cpp"],
+    copts = _COMMON_COPTS,
+    deps = _COMMON_DEPS,
+)
+
+# MuJoCo simulator
+cc_binary(
+    name = "humanoid_wb_mpc_sim",
+    srcs = ["src/WBMpcRobotSim.cpp"],
+    copts = _COMMON_COPTS,
+    deps = _COMMON_DEPS + [
+        "@abseil-cpp//absl/log:check",
+        "@abseil-cpp//absl/log:initialize",
+        "@glfw",
+        "@glew",
+    ],
+)

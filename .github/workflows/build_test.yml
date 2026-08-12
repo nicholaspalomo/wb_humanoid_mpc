@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - user/**
   pull_request:
     branches: 
       - '**'
@@ -24,45 +25,43 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Cache APT packages
-        uses: actions/cache@v3
-        with:
-          path: /var/cache/apt
-          key: ${{ runner.os }}-apt-${{ hashFiles('dependencies.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-apt-
-
-      - name: Install Base Dependencies
+      # LINT.IfChange(system_dependencies)
+      - name: Install Base Dependencies & Tools
         run: |
-          sudo apt-get update && sudo apt-get upgrade -y
-          sudo apt-get update && apt-get install -y --no-install-recommends \
+          apt-get update && apt-get install -y --no-install-recommends \
           curl gnupg2 lsb-release software-properties-common \
-          locales \
-          git \
-          x11-apps \
-          mesa-utils \
-          gettext-base 
+          locales git gettext-base sudo wget build-essential
+      # LINT.ThenChange(//dependencies.txt:system_dependencies, //docker/Dockerfile:system_dependencies)
+
+      - name: Install Bazel (via Bazelisk)
+        run: |
+          curl -sSL -o /usr/local/bin/bazel https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64
+          chmod +x /usr/local/bin/bazel
+          bazel --version
 
       - name: Install Project Dependencies
         run: |
-          envsubst < dependencies.txt | xargs sudo apt-get install -y --no-install-recommends
+          grep -v '^\s*#' dependencies.txt | envsubst | xargs apt-get install -y --no-install-recommends
 
-      - name: Initialize submodules
+      - name: Configure Git Safe Directory
         run: |
           git config --global --add safe.directory $GITHUB_WORKSPACE
-          git submodule update --init --recursive
 
-      - name: Cache Build Artifacts
+      - name: Cache Bazel Downloads and Build Artifacts
         uses: actions/cache@v3
         with:
-          path: build/
-          key: ${{ runner.os }}-build-${{ hashFiles('**/CMakeLists.txt') }}
+          path: |
+            ~/.cache/bazel
+          key: ${{ runner.os }}-bazel-${{ hashFiles('MODULE.bazel', '**/BUILD.bazel') }}
           restore-keys: |
-            ${{ runner.os }}-build-
+            ${{ runner.os }}-bazel-
 
-      - name: Build All
+      - name: Build All (Bazel Monorepo)
         run: |
-          export PARALLEL_JOBS=1
           make build-all
+
+      - name: Run All Tests (Bazel Monorepo)
+        run: |
+          make test-all

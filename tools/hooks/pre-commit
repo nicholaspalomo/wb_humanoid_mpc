@@ -1,0 +1,41 @@
+#!/bin/bash
+# ==============================================================================
+# Git Pre-Commit Hook — Automatic formatting & IFTTT cross-file directive linting
+# ==============================================================================
+set -e
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+echo "🔍 Pre-Commit Hook: Running IFTTT cross-file directive linter..."
+if [ -f "tools/hooks/check_ifttt.py" ]; then
+    python3 tools/hooks/check_ifttt.py
+fi
+
+echo "🔍 Pre-Commit Hook: Running code formatter (make format)..."
+if command -v make >/dev/null 2>&1; then
+    make format
+elif command -v docker >/dev/null 2>&1 && docker ps | grep -q devcontainer-app; then
+    docker exec devcontainer-app-1 bash -c "cd /wb_humanoid_mpc_ws/workspace/wb_humanoid_mpc && make format"
+else
+    echo "⚠️ Warning: 'make' not found. Skipping auto-formatting."
+    exit 0
+fi
+
+# Automatically stage any formatting changes to files that were staged for commit
+STAGED_FILES=$(git diff --cached --name-only)
+
+if [ -n "$STAGED_FILES" ]; then
+    FORMATTED_COUNT=0
+    for file in $STAGED_FILES; do
+        if [ -f "$file" ] && [ -n "$(git status --porcelain "$file")" ]; then
+            git add "$file"
+            FORMATTED_COUNT=$((FORMATTED_COUNT + 1))
+        fi
+    done
+    if [ "$FORMATTED_COUNT" -gt 0 ]; then
+        echo "✨ Auto-formatted and staged $FORMATTED_COUNT file(s) before commit."
+    fi
+fi
+
+echo "✅ Pre-commit checks completed successfully."

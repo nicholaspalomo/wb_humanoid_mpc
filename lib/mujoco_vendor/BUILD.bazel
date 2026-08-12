@@ -1,0 +1,21 @@
+# ==============================================================================
+# MuJoCo Vendor - Downloads prebuilt MuJoCo binary and exposes as cc_library
+# ==============================================================================
+
+load("@rules_foreign_cc//foreign_cc:defs.bzl", "cmake")
+
+filegroup(
+    name = "all_srcs",
+    srcs = glob(["**"], allow_empty = True),
+)
+
+cmake(
+    name = "mujoco_vendor",
+    build_args = ["-j4"],
+    lib_source = ":all_srcs",
+    out_shared_libs = select({
+        "@platforms//os:linux": ["libmujoco.so.3.3.4"],
+        "//conditions:default": ["libmujoco.so.3.3.4"],
+    }),
+    visibility = ["//visibility:public"],
+)

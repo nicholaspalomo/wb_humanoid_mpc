@@ -1,0 +1,56 @@
+"""wb_humanoid_mpc Bazel module."""
+
+module(
+    name = "wb_humanoid_mpc",
+    version = "0.1.0",
+)
+
+# ==============================================================================
+# External Dependencies via bzlmod
+# ==============================================================================
+
+bazel_dep(name = "rules_cc", version = "0.2.17")
+bazel_dep(name = "rules_foreign_cc", version = "0.14.0")
+bazel_dep(name = "rules_python", version = "1.7.0")
+bazel_dep(name = "googletest", version = "1.17.0")
+bazel_dep(name = "platforms", version = "1.0.0")
+bazel_dep(name = "magic_enum", version = "0.9.7")
+bazel_dep(name = "abseil-cpp", version = "20250814.1")
+
+# ==============================================================================
+# System Library Repositories (non-bzlmod)
+# ==============================================================================
+# These are configured in MODULE.bazel extensions below, pointing to
+# system-installed libraries (Eigen, Boost, Pinocchio, ROS2, etc.)
+
+# LINT.IfChange(system_repositories)
+system_libs = use_extension("//bazel:extensions.bzl", "system_libs")
+use_repo(
+    system_libs,
+    "eigen",
+    "boost",
+    "pinocchio",
+    "glfw",
+    "glew",
+    "urdf",
+    "blasfeo",
+    "hpipm",
+    "ocs2_ros2_msgs_repo",
+    "humanoid_mpc_msgs_repo",
+    # ROS2 system packages
+    "ros2_rclcpp",
+    "ros2_ament_index_cpp",
+    "ros2_std_msgs",
+    "ros2_geometry_msgs",
+    "ros2_visualization_msgs",
+    "ros2_sensor_msgs",
+    "ros2_tf2_ros",
+    "ros2_tf2_eigen",
+    "ros2_kdl_parser",
+    "ros2_interactive_markers",
+    "ros2_rcl_interfaces",
+    "ros2_builtin_interfaces",
+    "ros2_unique_identifier_msgs",
+    "ros2_rosidl",
+)
+# LINT.ThenChange(//bazel/system_libs.bzl:system_repositories, //bazel/ros2.bzl:ros2_packages)

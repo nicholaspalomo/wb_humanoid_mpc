@@ -1,0 +1,13 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+# humanoid_mpc_msgs - ROS2 message package (pre-generated headers)
+#
+# Generated C++ headers are checked into generated/ directory.
+# Type support shared libraries come from the colcon install.
+# To regenerate: run `make build-all` then copy from install dir.
+
+package(default_visibility = ["//visibility:public"])
+
+alias(
+    name = "humanoid_mpc_msgs",
+    actual = "@humanoid_mpc_msgs_repo//:humanoid_mpc_msgs",
+)

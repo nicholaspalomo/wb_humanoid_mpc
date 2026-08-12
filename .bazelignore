@@ -1,0 +1,11 @@
+# Bazel output directories
+bazel-bin
+bazel-wb_humanoid_mpc
+
+# Legacy colcon build/install directories
+build
+install
+log
+
+# External submodules (not built by Bazel directly)
+lib/mujoco

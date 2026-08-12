@@ -1,0 +1,368 @@
+# ==============================================================================
+# OCS2 Library - Native Bazel cc_library build (monorepo layout)
+# ==============================================================================
+#
+# Flattened directory layout: lib/ocs2/<package>/
+#   core/          (was ocs2_core)
+#   oc/            (was ocs2_oc)
+#   ddp/           (was ocs2_ddp)
+#   sqp/sqp/       (was ocs2_sqp/ocs2_sqp)
+#   mpc/           (was ocs2_mpc)
+#   robotic_tools/ (was ocs2_robotic_tools)
+#   thirdparty/    (was ocs2_thirdparty)
+#   test_tools/qp_solver/ (was ocs2_test_tools/ocs2_qp_solver)
+#   pinocchio/pinocchio_interface/ (was ocs2_pinocchio/ocs2_pinocchio_interface)
+#   pinocchio/centroidal_model/    (was ocs2_pinocchio/ocs2_centroidal_model)
+#   ros2_msgs/     (was ocs2_ros2_msgs)
+#   ros2_interfaces/ (was ocs2_ros2_interfaces)
+
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+# ==============================================================================
+# Shared compile options for all OCS2 packages
+# ==============================================================================
+
+_OCS2_COPTS = [
+    "-std=c++20",
+    "-pthread",
+    "-DBOOST_ALL_DYN_LINK",
+    "-DBOOST_SPIRIT_THREADSAFE",
+    "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+    "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+    "-DBOOST_VARIANT_LIMIT_TYPES=50",
+    "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+    "-fopenmp",
+    "-Wno-ignored-attributes",
+    "-fPIC",
+]
+
+_OCS2_LINKOPTS = [
+    "-lpthread",
+    "-ldl",
+    "-fopenmp",
+]
+
+# Pinocchio-specific compile options
+_PINOCCHIO_COPTS = _OCS2_COPTS + [
+    "-DPINOCCHIO_URDFDOM_TYPEDEF_SHARED_PTR",
+    "-DPINOCCHIO_URDFDOM_USE_STD_SHARED_PTR",
+]
+
+# ==============================================================================
+# 1. ocs2_thirdparty (header-only)
+# ==============================================================================
+
+cc_library(
+    name = "ocs2_thirdparty",
+    hdrs = glob(["thirdparty/include/**"], allow_empty = True),
+    includes = ["thirdparty/include"],
+)
+
+# ==============================================================================
+# 2. ocs2_core
+# ==============================================================================
+
+cc_library(
+    name = "ocs2_core",
+    srcs = glob(
+        ["core/src/**/*.cpp"],
+        exclude = ["core/src/**/test/**", "core/src/lintTarget.cpp"],
+        allow_empty = True,
+    ),
+    hdrs = glob(["core/include/**"], allow_empty = True),
+    copts = _OCS2_COPTS,
+    includes = ["core/include"],
+    linkopts = _OCS2_LINKOPTS,
+    deps = [
+        ":ocs2_thirdparty",
+        "@eigen",
+        "@boost",
+    ],
+)
+
+# ==============================================================================
+# 3. ocs2_oc
+# ==============================================================================
+
+cc_library(
+    name = "ocs2_oc",
+    srcs = glob(
+        ["oc/src/**/*.cpp"],
+        exclude = ["oc/src/**/test/**", "oc/src/lintTarget.cpp"],
+        allow_empty = True,
+    ),
+    hdrs = glob(["oc/include/**"], allow_empty = True),
+    copts = _OCS2_COPTS,
+    includes = ["oc/include"],
+    linkopts = _OCS2_LINKOPTS,
+    deps = [
+        ":ocs2_core",
+        ":ocs2_thirdparty",
+        "@eigen",
+        "@boost",
+    ],
+)
+
+# ==============================================================================
+# 4. ocs2_robotic_tools
+# ==============================================================================
+
+cc_library(
+    name = "ocs2_robotic_tools",
+    srcs = glob(
+        ["robotic_tools/src/**/*.cpp"],
+        exclude = ["robotic_tools/src/**/test/**", "robotic_tools/src/lintTarget.cpp"],
+        allow_empty = True,
+    ),
+    hdrs = glob(["robotic_tools/include/**"], allow_empty = True),
+    copts = _OCS2_COPTS,
+    includes = ["robotic_tools/include"],
+    linkopts = _OCS2_LINKOPTS,
+    deps = [
+        ":ocs2_core",
+        ":ocs2_oc",
+        ":ocs2_thirdparty",
+        "@eigen",
+        "@boost",
+    ],
+)
+
+# ==============================================================================
+# 5. ocs2_mpc
+# ==============================================================================
+
+cc_library(
+    name = "ocs2_mpc",
+    srcs = glob(
+        ["mpc/src/**/*.cpp"],
+        exclude = ["mpc/src/**/test/**", "mpc/src/lintTarget.cpp"],
+        allow_empty = True,
+    ),
+    hdrs = glob(["mpc/include/**"], allow_empty = True),
+    copts = _OCS2_COPTS,
+    includes = ["mpc/include"],
+    linkopts = _OCS2_LINKOPTS,
+    deps = [
+        ":ocs2_core",
+        ":ocs2_oc",
+        "@eigen",
+        "@boost",
+    ],
+)
+
+# ==============================================================================
+# 6. ocs2_qp_solver
+# ==============================================================================
+
+cc_library(
+    name = "ocs2_qp_solver",
+    srcs = glob(
+        ["test_tools/qp_solver/src/**/*.cpp"],
+        exclude = ["test_tools/qp_solver/src/**/test/**"],
+        allow_empty = True,
+    ),
+    hdrs = glob(["test_tools/qp_solver/include/**"], allow_empty = True),
+    copts = _OCS2_COPTS,
+    includes = ["test_tools/qp_solver/include"],
+    linkopts = _OCS2_LINKOPTS,
+    deps = [
+        ":ocs2_core",
+        ":ocs2_oc",
+        "@eigen",
+        "@boost",
+    ],
+)
+
+# ==============================================================================
+# 7. ocs2_ddp
+# ==============================================================================
+
+cc_library(
+    name = "ocs2_ddp",
+    srcs = glob(
+        ["ddp/src/**/*.cpp"],
+        exclude = [
+            "ddp/src/**/test/**",
+            "ddp/src/unsupported/**",
+            "ddp/src/DDP_DataCollector.cpp",
+            "ddp/src/lintTarget.cpp",
+        ],
+        allow_empty = True,
+    ),
+    hdrs = glob(
+        ["ddp/include/**"],
+        exclude = [
+            "ddp/include/**/unsupported/**",
+            "ddp/include/**/DDP_DataCollector.h",
+        ],
+        allow_empty = True,
+    ),
+    copts = _OCS2_COPTS,
+    includes = ["ddp/include"],
+    linkopts = _OCS2_LINKOPTS,
+    deps = [
+        ":ocs2_core",
+        ":ocs2_oc",
+        ":ocs2_mpc",
+        ":ocs2_qp_solver",
+        "@eigen",
+        "@boost",
+    ],
+)
+
+# ==============================================================================
+# 8-9. blasfeo + hpipm: provided as @blasfeo and @hpipm system repos
+# ==============================================================================
+
+cc_library(
+    name = "ocs2_hpipm_catkin",
+    srcs = glob(
+        ["sqp/hpipm_catkin/src/**/*.cpp"],
+        exclude = ["sqp/hpipm_catkin/src/**/test/**"],
+        allow_empty = True,
+    ),
+    hdrs = glob(["sqp/hpipm_catkin/include/**"], allow_empty = True),
+    copts = _OCS2_COPTS,
+    includes = ["sqp/hpipm_catkin/include"],
+    linkopts = _OCS2_LINKOPTS,
+    deps = [
+        ":ocs2_core",
+        ":ocs2_oc",
+        "@blasfeo",
+        "@hpipm",
+        "@eigen",
+    ],
+)
+
+# ==============================================================================
+# 10. ocs2_sqp
+# ==============================================================================
+
+cc_library(
+    name = "ocs2_sqp",
+    srcs = glob(
+        ["sqp/sqp/src/**/*.cpp"],
+        exclude = ["sqp/sqp/src/**/test/**"],
+        allow_empty = True,
+    ),
+    hdrs = glob(["sqp/sqp/include/**"], allow_empty = True),
+    copts = _OCS2_COPTS,
+    includes = ["sqp/sqp/include"],
+    linkopts = _OCS2_LINKOPTS,
+    deps = [
+        ":ocs2_core",
+        ":ocs2_oc",
+        ":ocs2_mpc",
+        ":ocs2_qp_solver",
+        ":ocs2_hpipm_catkin",
+        "@blasfeo",
+        "@hpipm",
+        "@eigen",
+        "@boost",
+    ],
+)
+
+# ==============================================================================
+# 11. ocs2_pinocchio_interface
+# ==============================================================================
+
+cc_library(
+    name = "ocs2_pinocchio_interface",
+    srcs = glob(
+        ["pinocchio/pinocchio_interface/src/**/*.cpp"],
+        exclude = ["pinocchio/pinocchio_interface/src/**/test/**"],
+        allow_empty = True,
+    ),
+    hdrs = glob(["pinocchio/pinocchio_interface/include/**"], allow_empty = True),
+    copts = _PINOCCHIO_COPTS,
+    includes = ["pinocchio/pinocchio_interface/include"],
+    linkopts = _OCS2_LINKOPTS,
+    deps = [
+        ":ocs2_core",
+        ":ocs2_oc",
+        ":ocs2_robotic_tools",
+        ":ocs2_thirdparty",
+        "@pinocchio",
+        "@urdf",
+        "@eigen",
+        "@boost",
+    ],
+)
+
+# ==============================================================================
+# 12. ocs2_centroidal_model
+# ==============================================================================
+
+cc_library(
+    name = "ocs2_centroidal_model",
+    srcs = glob(
+        ["pinocchio/centroidal_model/src/**/*.cpp"],
+        exclude = ["pinocchio/centroidal_model/src/**/test/**"],
+        allow_empty = True,
+    ),
+    hdrs = glob(["pinocchio/centroidal_model/include/**"], allow_empty = True),
+    copts = _PINOCCHIO_COPTS,
+    includes = ["pinocchio/centroidal_model/include"],
+    linkopts = _OCS2_LINKOPTS,
+    deps = [
+        ":ocs2_core",
+        ":ocs2_robotic_tools",
+        ":ocs2_pinocchio_interface",
+        "@pinocchio",
+        "@urdf",
+        "@eigen",
+        "@boost",
+    ],
+)
+
+# ==============================================================================
+# 13. ocs2_self_collision (DISABLED - requires hpp-fcl, replaced by coal in Jazzy)
+# ==============================================================================
+# Not used by any downstream humanoid_nmpc package.
+# To re-enable: port from hpp-fcl to coal API.
+
+# ==============================================================================
+# 14. ocs2_ros2_msgs (pre-generated headers + type support from colcon install)
+# ==============================================================================
+
+alias(
+    name = "ocs2_ros2_msgs",
+    actual = "@ocs2_ros2_msgs_repo//:ocs2_ros2_msgs",
+)
+
+# ==============================================================================
+# 15. ocs2_ros2_interfaces
+# ==============================================================================
+
+cc_library(
+    name = "ocs2_ros2_interfaces",
+    srcs = glob(
+        ["ros2_interfaces/src/**/*.cpp"],
+        exclude = [
+            "ros2_interfaces/src/**/test/**",
+            "ros2_interfaces/src/lintTarget.cpp",
+            "ros2_interfaces/src/multiplot/MultiplotRemap.cpp",
+        ],
+        allow_empty = True,
+    ),
+    hdrs = glob(["ros2_interfaces/include/**"], allow_empty = True),
+    copts = _OCS2_COPTS,
+    includes = ["ros2_interfaces/include"],
+    linkopts = _OCS2_LINKOPTS,
+    deps = [
+        ":ocs2_core",
+        ":ocs2_ddp",
+        ":ocs2_oc",
+        ":ocs2_mpc",
+        ":ocs2_ros2_msgs",
+        "@ros2_rclcpp",
+        "@ros2_std_msgs",
+        "@ros2_geometry_msgs",
+        "@ros2_visualization_msgs",
+        "@ros2_interactive_markers",
+        "@eigen",
+        "@boost",
+    ],
+)

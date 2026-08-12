@@ -19,7 +19,7 @@ RESOLUTION="${1:-1920x1080}"
 VNC_PORT="${VNC_PORT:-5901}"
 NOVNC_PORT="${NOVNC_PORT:-6080}"
 VNC_DEPTH="${VNC_DEPTH:-24}"
-VNC_DISPLAY=":1"
+VNC_DISPLAY=":99"
 
 # Derive noVNC web root – works on Ubuntu 22.04+ (may be /usr/share/novnc)
 NOVNC_DIR="/usr/share/novnc"
@@ -29,12 +29,14 @@ fi
 
 cleanup() {
     echo "Stopping VNC services..."
-    pkill -f "Xvfb ${VNC_DISPLAY}" 2>/dev/null || true
-    pkill -f "x11vnc.*display ${VNC_DISPLAY}" 2>/dev/null || true
-    pkill -f "x11vnc.*rfbport ${VNC_PORT}" 2>/dev/null || true
-    pkill -f "websockify.*${NOVNC_PORT}" 2>/dev/null || true
-    pkill -f "openbox" 2>/dev/null || true
-    rm -f /tmp/.X1-lock /tmp/.X11-unix/X1 2>/dev/null || true
+    pkill -9 -f "Xvfb" 2>/dev/null || true
+    pkill -9 -f "x11vnc" 2>/dev/null || true
+    pkill -9 -f "websockify" 2>/dev/null || true
+    pkill -9 -f "openbox" 2>/dev/null || true
+    fuser -k -9 ${NOVNC_PORT}/tcp 2>/dev/null || true
+    fuser -k -9 ${VNC_PORT}/tcp 2>/dev/null || true
+    sudo -n rm -f /tmp/.X*-lock /tmp/.X11-unix/X* 2>/dev/null || true
+    rm -f /tmp/.X*-lock /tmp/.X11-unix/X* 2>/dev/null || true
     echo "VNC services stopped."
 }
 
@@ -65,7 +67,7 @@ export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
 
 # --- Start Xvfb (virtual framebuffer with proper Mesa GLX support) ---
 echo "Starting Xvfb on display ${VNC_DISPLAY} ..."
-Xvfb ${VNC_DISPLAY} -screen 0 "${RESOLUTION}x${VNC_DEPTH}" +iglx &
+Xvfb ${VNC_DISPLAY} -screen 0 "${RESOLUTION}x${VNC_DEPTH}" +iglx >/dev/null 2>&1 &
 sleep 1
 
 export DISPLAY=${VNC_DISPLAY}
@@ -80,7 +82,7 @@ x11vnc -display ${VNC_DISPLAY} \
     -noxdamage \
     -bg \
     -o /tmp/x11vnc.log \
-    2>/dev/null
+    >/dev/null 2>&1 || true
 sleep 0.5
 
 # Start a lightweight window manager
@@ -90,7 +92,7 @@ sleep 0.5
 
 # Launch noVNC (websockify proxy)
 echo "Starting noVNC websockify on port ${NOVNC_PORT} ..."
-websockify --web="${NOVNC_DIR}" ${NOVNC_PORT} localhost:${VNC_PORT} &
+websockify --web="${NOVNC_DIR}" ${NOVNC_PORT} localhost:${VNC_PORT} >/dev/null 2>&1 &
 sleep 1
 
 echo ""

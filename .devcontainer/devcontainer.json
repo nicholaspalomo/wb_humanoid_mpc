@@ -1,7 +1,7 @@
 {
   "name": "Whole Body MPC Dev Container",
   "dockerComposeFile": [
-    "docker-compose.yml"
+    "../docker-compose.yaml"
   ],
   "service": "app",
   "remoteUser": "ubuntu",
@@ -37,7 +37,19 @@
         "xaver.clang-format",
         "eamodio.gitlens",
         "GitHub.copilot",
-        "GitHub.copilot-chat"
+        "GitHub.copilot-chat",
+        "twxs.cmake",
+        "cheshirekow.cmake-format",
+        "ms-toolsai.jupyter-keymap",
+        "ms-vscode-remote.remote-ssh",
+        "ms-vscode-remote.remote-ssh-edit",
+        "ms-vscode.remote-explorer",
+        "sankethdev.vscode-proto",
+        "Continue.continue",
+        "ms-vscode.cpptools-extension-pack",
+        "ms-vscode.makefile-tools",
+        "Google.geminicodeassist",
+        "google.gemini-cli-vscode-ide-companion"
       ]
     }
   },
@@ -47,9 +59,7 @@
     "source=${localEnv:HOME}/.ssh,target=/tmp/host_ssh,type=bind,consistency=cached"
   ],
   "containerEnv": {
-    "COLCON_HOME": "/wb_humanoid_mpc_ws",
-    "COLCON_DEFAULTS_FILE": "/wb_humanoid_mpc_ws/src/wb_humanoid_mpc/colcon.defaults.yaml",
-    "DISPLAY": ":1",
+    "DISPLAY": ":99",
     "ROS_DOMAIN_ID": "0",
     "LIBGL_ALWAYS_SOFTWARE": "1",
     "MESA_LOADER_DRIVER_OVERRIDE": "llvmpipe",

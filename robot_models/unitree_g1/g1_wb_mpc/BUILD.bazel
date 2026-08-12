@@ -1,0 +1,12 @@
+# g1_wb_mpc - G1 robot whole-body MPC configuration
+
+package(default_visibility = ["//visibility:public"])
+
+# Configuration and launch files
+filegroup(
+    name = "g1_wb_mpc",
+    srcs = glob([
+        "config/**",
+        "launch/**",
+    ], allow_empty = True),
+)

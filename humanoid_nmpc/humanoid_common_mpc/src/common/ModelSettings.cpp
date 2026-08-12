@@ -36,7 +36,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <stdexcept>
 
 #include <ocs2_core/misc/LoadData.h>
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
+#include <cassert>
+#include <stdexcept>
+
+#ifndef CHECK
+#define CHECK(cond)                                     \
+  do {                                                  \
+    if (!(cond)) {                                      \
+      throw std::runtime_error("Check failed: " #cond); \
+    }                                                   \
+  } while (0)
+#endif
 
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 
@@ -87,6 +97,7 @@ std::vector<size_t> initializeMpcToFullJointIndices(const std::vector<std::strin
   std::vector<size_t> mpcModelJointIndices;
   mpcModelJointIndices.reserve(mpcModelJointNames.size());
   for (size_t i = 0; i < mpcModelJointNames.size(); ++i) {
+    CHECK(fullJointIndexMap.find(mpcModelJointNames[i]) != fullJointIndexMap.end());
     mpcModelJointIndices[i] = fullJointIndexMap[mpcModelJointNames[i]];
   }
   return mpcModelJointIndices;
@@ -108,7 +119,9 @@ ModelSettings::ModelSettings(const std::string& configFile, const std::string& u
 
   if (verbose) {
     std::cerr << "\n #### Robot Model Settings:";
-    std::cerr << "\n #### =============================================================================\n";
+    std::cerr << "\n #### "
+                 "============================================================="
+                 "================\n";
   }
 
   loadData::loadPtreeValue(pt, this->robotName, prefix + "robotName", verbose);
@@ -145,20 +158,24 @@ ModelSettings::ModelSettings(const std::string& configFile, const std::string& u
   this->mpcModelToFullJointsIndices = initializeMpcToFullJointIndices(this->fullJointNames, this->mpcModelJointNames);
   this->jointIndexMap = createJointIndexMap(this->mpcModelJointNames);
   this->contactNames = concatenateStringVectors(this->contactNames3DoF, this->contactNames6DoF);
-
   this->mpc_joint_dim = this->mpcModelJointNames.size();
   this->full_joint_dim = this->fullJointNames.size();
-
+  CHECK(this->jointIndexMap.find(j_l_shoulder_y_name) != this->jointIndexMap.end());
   j_l_shoulder_y_index = this->jointIndexMap.at(j_l_shoulder_y_name);
+  CHECK(this->jointIndexMap.find(j_r_shoulder_y_name) != this->jointIndexMap.end());
   j_r_shoulder_y_index = this->jointIndexMap.at(j_r_shoulder_y_name);
+  CHECK(this->jointIndexMap.find(j_l_elbow_y_name) != this->jointIndexMap.end());
   j_l_elbow_y_index = this->jointIndexMap.at(j_l_elbow_y_name);
+  CHECK(this->jointIndexMap.find(j_r_elbow_y_name) != this->jointIndexMap.end());
   j_r_elbow_y_index = this->jointIndexMap.at(j_r_elbow_y_name);
 
   const std::string footConstraintPrefix = prefix + "foot_constraint.";
 
   if (verbose) {
     std::cerr << "\n #### Robot Model Foot Constraint Config:";
-    std::cerr << "\n #### =============================================================================\n";
+    std::cerr << "\n #### "
+                 "============================================================="
+                 "================\n";
   }
 
   loadData::loadPtreeValue(pt, this->footConstraintConfig.positionErrorGain_z, footConstraintPrefix + "positionErrorGain_z", verbose);
@@ -177,8 +194,14 @@ ModelSettings::ModelSettings(const std::string& configFile, const std::string& u
                            footConstraintPrefix + "angularAccelerationErrorGain", verbose);
 
   if (verbose) {
-    std::cerr << " #### =============================================================================" << std::endl;
-    std::cerr << " #### =============================================================================" << std::endl;
+    std::cerr << " #### "
+                 "============================================================="
+                 "================"
+              << std::endl;
+    std::cerr << " #### "
+                 "============================================================="
+                 "================"
+              << std::endl;
   }
 }
 

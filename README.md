@@ -1,49 +1,44 @@
 # Whole-Body Humanoid MPC
 
-This repository contains a Whole-Body Nonlinear Model Predictive Controller (NMPC) for humanoid loco-manipulation control. This approach enables to directly optimize through the **full-order torque-level dynamics in realtime** to generate a wide range of humanoid behaviors building up on an [extended & updated version of ocs2](https://github.com/manumerous/ocs2_ros2)
+This repository contains a Whole-Body Nonlinear Model Predictive Controller (NMPC) for humanoid loco-manipulation control. This approach enables to directly optimize through the **full-order torque-level dynamics in realtime** to generate a wide range of humanoid behaviors building up on an extended & updated version of [OCS2](https://github.com/leggedrobotics/ocs2) integrated natively into a **Bazel monorepo**.
 
 **Interactive Velocity and Base Height Control via Joystick:**
 
 ![vokoscreenNG-2025-12-21_20-35-31-ezgif com-optimize](https://github.com/user-attachments/assets/daf374ba-fe82-469d-9270-63d18a51bb53)
 
 
-It contains the following hardware platform agnostic MPC fromulations:
+It contains the following hardware platform agnostic MPC formulations:
 
 ### Centroidal Dynamics MPC
-The centroidal MPC optimizes over the **whole-body kinematics** and the center off mass dynamics, with a choice to either use a single rigid
-body model or the full centroidal dynamics. This specific approach builds up on the centroidal model in ocs2 by generalizing costs and constraints to a 6 DoF contact among others. I am still working on documenting this. Until then a conscise explanation of the ocs2 centroidal model can be found here [Sleiman et. al., A Unified MPC Framework for Whole-Body Dynamic Locomotion and Manipulation](https://arxiv.org/abs/2103.00946)
+The centroidal MPC optimizes over the **whole-body kinematics** and the center of mass dynamics, with a choice to either use a single rigid body model or the full centroidal dynamics. This specific approach builds up on the centroidal model in OCS2 by generalizing costs and constraints to a 6 DoF contact among others. A concise explanation of the OCS2 centroidal model can be found in [Sleiman et. al., A Unified MPC Framework for Whole-Body Dynamic Locomotion and Manipulation](https://arxiv.org/abs/2103.00946).
 
 ### Whole-Body Dynamics MPC
-The **whole-body dynamics** MPC optimized over the contact forces and joint accelerations with the option to compute the joint torques for
-each step planned accross the horizon. I am still working on documenting and publishing the approach. The most relevant information on the choosen approach can currently be found in [Galliker et al., Bipedal Locomotion with Nonlinear Model Predictive Control:
-Online Gait Generation using Whole-Body Dynamics](http://ames.caltech.edu/galliker2022bipedal.pdf)
+The **whole-body dynamics** MPC optimizes over the contact forces and joint accelerations with the option to compute the joint torques for each step planned across the horizon. The most relevant information on the chosen approach can currently be found in [Galliker et al., Bipedal Locomotion with Nonlinear Model Predictive Control: Online Gait Generation using Whole-Body Dynamics](http://ames.caltech.edu/galliker2022bipedal.pdf).
+
 ### Robot Examples
 
 The project supports the following robot examples:
 
 - Unitree G1
-- 1X Neo (Comming soon)
+- DRC Atlas
+- 1X Neo (Coming soon)
 
 ![Screencast2024-12-16180254-ezgif com-optimize(3)](https://github.com/user-attachments/assets/d4b1f0da-39ca-4ce1-b53c-e1d040abe1be)
 
 ## Get Started
 
-### Setup Colcon Workspace
+### Repository Setup
 
-Create a colcon workspace and clone the repository into the src folder:
+Clone the repository:
 
 ```bash
-mkdir -p humanoid_mpc_ws/src && cd humanoid_mpc_ws/src
 git clone https://github.com/1x-technologies/wb-humanoid-mpc.git
-```
-
-Then initialize all submodules using:
-
-```bash
 cd wb-humanoid-mpc
-git submodule update --init --recursive
 ```
-### Install Dependencies
+
+> **Note:** The repository uses **Bazel 9.x** with `bzlmod` for native dependency resolution. Legacy ROS/colcon submodules are fully integrated into the monorepo structure.
+
+### Install Dependencies & Workspace Setup
 The project supports both Dockerized workspaces (recommended) or a local installation for developing and running the humanoid MPC.
 
 **Platform Support:** The Docker setup is fully compatible with **Linux** and **macOS** (including Apple Silicon via Rosetta 2 x86 emulation). On macOS, GUI visualization uses VNC instead of native X11 forwarding — see the [Visualization Guide](.devcontainer/VISUALIZATION.md) for details.
@@ -51,41 +46,35 @@ The project supports both Dockerized workspaces (recommended) or a local install
 <details>
 <summary>Build & run Dockerized workspace in VS Code</summary>
 
-We provide a [Dockerfile](https://github.com/manumerous/wb_humanoid_mpc/blob/main/docker/Dockerfile) to enable running and devloping the project from a containerized environment. Check out the [devcontainer.json](https://github.com/manumerous/wb_humanoid_mpc/blob/main/.devcontainer/devcontainer.json) for the arguments that must be supplied to the `docker build` and `docker run` commands.
+We provide a [Dockerfile](docker/Dockerfile) to enable running and developing the project from a containerized environment. Check out [devcontainer.json](.devcontainer/devcontainer.json) for environment configuration.
 
-For working in **Visual Studio Code**, we recommend to install the [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) extension. Then, with the root of this repository as the root of your VS Code workspace, enter `Ctrl + Shift + P` and select `Dev Containers: Rebuild and Reopen in Container` at the top of the screen. VS Code will then automatically handle calling the `docker build` and `docker run` commands for you and will reopen the window at the root of the containerized workspace. Once this step is completed, you are ready to [build and run the code](https://github.com/manumerous/wb_humanoid_mpc/tree/main?tab=readme-ov-file#building-the-mpc).
+For working in **Visual Studio Code**, install the [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) extension. Open the repository in VS Code, press `Ctrl + Shift + P` (or `Cmd + Shift + P`), and select `Dev Containers: Rebuild and Reopen in Container`.
+
+Once the container starts, the Git pre-commit hooks and Bazel environment are automatically configured.
 
 </details>
 
 <details>
-<summary>Build & run Dockerized workspace in alternative IDE (e.g. Antigravity)</summary>
+<summary>Build & run Dockerized workspace in alternative IDE (e.g. Antigravity / Cursor)</summary>
 
-If you are not using VS Code or are connected via Remote SSH, you can build and run the dev container using Docker Compose from the `.devcontainer` directory:
+If you are not using VS Code or are connected via Remote SSH:
 
-1. Navigate to `.devcontainer` and spin up the container:
+1. Spin up the container from the repository root (`docker-compose.yaml`):
 
 ```bash
-cd .devcontainer
 docker compose up -d --build
 ```
 
-2. Attach Antigravity's (or your favorite IDE's) integrated terminal to the container:
+2. Attach your IDE terminal to the container:
 
 ```bash
 docker compose exec app bash
 ```
 
-</details>
-
-This repository includes two helper scripts: `image_build.bash` builds the `wb-humanoid-mpc:dev` Docker image using the arguments defined in `devcontainer.json`. `launch_wb_mpc.bash` starts the Docker container, mounts your workspace, and drops you into a bash shell ready to build and run the WB Humanoid MPC code. Example of building docker image:
-```
-cd /path/to/humanoid_mpc_ws/src/wb_humanoid_mpc/docker
-./image_build.bash
-```
-and launching the docker container:
-```
-cd /path/to/humanoid_mpc_ws/src/wb_humanoid_mpc/docker
-./launch_wb_mpc.bash
+Alternatively, use the provided helper scripts:
+```bash
+./docker/image_build.bash
+./docker/launch_wb_mpc.bash
 ```
 
 </details>
@@ -93,73 +82,80 @@ cd /path/to/humanoid_mpc_ws/src/wb_humanoid_mpc/docker
 <details>
 <summary>Install Dependencies Locally</summary>
 
-Make sure you have **ros2** installed on your system as e.g specified for jazzy in
-the [installation guide](https://docs.ros.org/en/jazzy/Installation/Ubuntu-Install-Debs.html).
+Make sure you have **ROS 2** installed on your system (e.g. ROS 2 Jazzy as specified in the [installation guide](https://docs.ros.org/en/jazzy/Installation/Ubuntu-Install-Debs.html)).
 
-Then install all dependencies using:
+Install system dependencies and Bazel (via Bazelisk):
 
 ```bash
-envsubst < dependencies.txt | xargs sudo apt install -y
+envsubst < dependencies.txt | xargs sudo apt-get install -y --no-install-recommends
+curl -sSL -o /usr/local/bin/bazel https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64
+sudo chmod +x /usr/local/bin/bazel
 ```
+
+Install Git pre-commit formatting hooks:
+```bash
+make install-hooks
+```
+
 </details>
 
+### Building the MPC with Bazel
 
-### Building the MPC
-
-Building the WB MPC consumes a significant amount of RAM. We recommend saving all open work before starting the first build. The RAM usage can be adjusted by setting the PARALLEL_JOBS environment variable. Our recommendation is:
-
-| PARALLEL_JOBS | Required System RAM |
-|--------------:|--------------------:|
-| 2 (default)   |  16 GiB             |
-| 4             |  32 GiB             |
-| 6             |  64 GiB             |
-
+The repository uses **Bazel** for high-performance parallel compilation. Build limits are pre-configured in `.bazelrc` (`--jobs=8`) to optimize build times while preventing system RAM exhaustion.
 
 ```bash
+# Build all Bazel targets across the monorepo
 make build-all
+
+# Run all unit tests
+make test-all
+
+# Auto-format C++ and Python source files
+make format
 ```
 
-## Running the examples
-Once you run the NMPC a window with RViz will appear for visualization. The first time you start the MPC for a certain robot model the auto differentiation code will be generated which might take up to 5-15 min depending on your system. Once done the robot appears and you can control it via an xbox gamepad or the controls in the terminal.
+## Running the Examples
+
+Once you launch the NMPC, an RViz visualization window will appear. The first time you start the MPC for a robot model, CppAD auto-differentiation code generation will run (which may take a few minutes depending on your system). Subsequent runs reuse generated dynamic libraries instantly.
 
 ### Visualization Setup
 
-**Linux:** GUI applications work directly via X11 forwarding.
-
-**macOS:** Since Docker on macOS doesn't support X11 forwarding, use the built-in VNC server for GUI visualization. Use the `-vnc` suffixed make targets which automatically start the VNC server and configure rendering, or manually run `make start-vnc` and open **http://localhost:6080/vnc.html** in your browser. See the [Visualization Guide](.devcontainer/VISUALIZATION.md) for complete instructions.
+- **Linux:** GUI applications render directly via X11 forwarding (`DISPLAY=:99` or host display).
+- **macOS / Remote SSH:** Use the `-vnc` suffixed Makefile targets which automatically launch the built-in VNC server. Open **http://localhost:6080/vnc.html** in your browser and click **Connect**. See the [Visualization Guide](.devcontainer/VISUALIZATION.md) for complete details.
 
 ### Launch Commands
 
-For the **Centroidal Dynamics MPC**
+For **Centroidal Dynamics MPC**:
 
 ```bash
-# Linux
-make launch-g1-dummy-sim
+# G1 Robot Dummy Simulation
+make launch-g1-dummy-sim          # X11 Forwarding (Linux)
+make launch-g1-dummy-sim-vnc      # VNC Browser Display (macOS / Remote)
 
-# macOS (auto-starts VNC)
-make launch-g1-dummy-sim-vnc
+# DRC Atlas Robot Simulation
+make launch-drc-atlas-dummy-sim     # Dummy simulation (Linux)
+make launch-drc-atlas-dummy-sim-vnc # Dummy simulation (macOS / VNC)
+make launch-drc-atlas-sim           # MuJoCo simulation (Linux)
+make launch-drc-atlas-sim-vnc       # MuJoCo simulation (macOS / VNC)
 ```
 
-For the **Whole-Body Dynamics MPC**
+For **Whole-Body Dynamics MPC**:
 
 ```bash
-# Linux
-make launch-wb-g1-dummy-sim
-
-# macOS (auto-starts VNC)
-make launch-wb-g1-dummy-sim-vnc
+# G1 Robot Whole-Body Simulation
+make launch-wb-g1-dummy-sim       # X11 Forwarding (Linux)
+make launch-wb-g1-dummy-sim-vnc   # VNC Browser Display (macOS / Remote)
 ```
 
 #### Interactive Robot Control
-Command a desired base velocity and root link height via **Robot Base Controller GUI** and **XBox Controller Joystick**. For the joystick it is easiest to directly connect via USB. Otherwise you need to install the required bluetooth Xbox controller drivers on your linux system. The GUI application automatically scanns for Joysticks and indicates whether one is connected.
+Command a desired base velocity and root link height via the **Robot Base Controller GUI** and an **Xbox Controller Joystick**. For the joystick, connect via USB or Bluetooth. The GUI automatically detects connected joysticks and provides interactive velocity sliders.
 
 ![robot_remote_control](https://github.com/user-attachments/assets/779be1da-97a1-4d0c-8f9b-b9d2df88384f)
 
-
 ## Citing Whole-Body Humanoid MPC
-To cite the Whole-Body Humanoid MPC in your academic research, please consider citing the following web BibTeX entry:
+To cite Whole-Body Humanoid MPC in your academic research, please use the following BibTeX entry:
 
-```
+```bibtex
 @misc{wholebodyhumanoidmpcweb,
    author = {Manuel Yves Galliker},
    title = {Whole-body Humanoid MPC: Realtime Physics-Based Procedural Loco-Manipulation Planning and Control},
@@ -171,9 +167,9 @@ To cite the Whole-Body Humanoid MPC in your academic research, please consider c
 ## Acknowledgements
 Created and actively maintained by [Manuel Yves Galliker](https://github.com/manumerous).
 
-Special thanks go to [Nicholas Palermo](https://github.com/nicholaspalomo) for implementing the dockerization among other great inputs and contributions.
+Special thanks to [Nicholas Palomo](https://github.com/nicholaspalomo) for implementing the Dockerization, Bazel monorepo migration, and CI automation.
 
-This project is founded on the great work of many open-source contributors. I would especially like to acknowledge:
+This project is founded on the great work of many open-source contributors:
 - [ocs2](https://github.com/leggedrobotics/ocs2)
 - [pinocchio](https://github.com/stack-of-tasks/pinocchio)
 - [hpipm](https://github.com/giaf/hpipm)

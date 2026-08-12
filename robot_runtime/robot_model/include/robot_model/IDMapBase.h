@@ -152,7 +152,7 @@ class IDMapBase {
 
   IDMapBase() = delete;
 
-  IDMapBase(const IDMapBase<T>& other) : map_elements_(other.map_elements_){};
+  IDMapBase(const IDMapBase<T>& other) : map_elements_(other.map_elements_) {}
 
   IDMapBase& operator=(const IDMapBase<T>& other) {
     for (size_t i = 0; i < map_elements_.size(); ++i) {
