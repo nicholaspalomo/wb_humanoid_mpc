@@ -10,7 +10,9 @@ def _ros2_package_repository(repo_ctx):
     Creates a cc_library that wraps the headers and shared libraries
     of a ROS2 package installed under /opt/ros/${ROS_DISTRO}.
     """
+    # LINT.IfChange(ros_distro)
     ros_distro = repo_ctx.os.environ.get("ROS_DISTRO", "jazzy")
+    # LINT.ThenChange(//docker/Dockerfile:ros_distro, //setup_env.sh:ros_distro, //tools/ci_local.sh:ros_distro, //bazel/system_libs.bzl:ros_distro)
     ros_prefix = "/opt/ros/" + ros_distro
     pkg_name = repo_ctx.attr.pkg_name
     extra_linkopts = repo_ctx.attr.extra_linkopts

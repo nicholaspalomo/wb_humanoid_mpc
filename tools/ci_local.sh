@@ -3,6 +3,7 @@ set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# LINT.IfChange(ros_distro)
 echo "🚀 Running local CI emulator using official GitHub Actions runner container (ros:jazzy)..."
 
 rm -rf "${SCRIPT_DIR}/.bazel" "${SCRIPT_DIR}"/bazel-* 2>/dev/null || true
@@ -12,6 +13,7 @@ docker run --rm \
   -w /workspace \
   ros:jazzy \
   bash -c "
+# LINT.ThenChange(//docker/Dockerfile:ros_distro, //setup_env.sh:ros_distro, //bazel/ros2.bzl:ros_distro, //bazel/system_libs.bzl:ros_distro)
     set -eo pipefail
     echo '=== 1. Installing Base System Dependencies ==='
     apt-get update && apt-get install -y --no-install-recommends \

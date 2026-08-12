@@ -10,6 +10,7 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# LINT.IfChange(ros_distro)
 # Source base ROS2 installation
 if [ -f /opt/ros/jazzy/setup.bash ]; then
     source /opt/ros/jazzy/setup.bash
@@ -18,6 +19,7 @@ elif [ -f /opt/ros/humble/setup.bash ]; then
 elif [ -f /bin/ros_setup.sh ]; then
     source /bin/ros_setup.sh
 fi
+# LINT.ThenChange(//docker/Dockerfile:ros_distro, //tools/ci_local.sh:ros_distro, //bazel/ros2.bzl:ros_distro, //bazel/system_libs.bzl:ros_distro)
 
 # ==============================================================================
 # Create ament_index-compatible directory structure pointing to source tree

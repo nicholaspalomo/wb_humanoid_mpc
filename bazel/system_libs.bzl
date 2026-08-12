@@ -123,7 +123,9 @@ boost_repository = repository_rule(
 # ==============================================================================
 def _pinocchio_repository(repo_ctx):
     """Wraps system-installed Pinocchio (from ROS2 package)."""
+    # LINT.IfChange(ros_distro)
     ros_distro = repo_ctx.os.environ.get("ROS_DISTRO", "jazzy")
+    # LINT.ThenChange(//docker/Dockerfile:ros_distro, //setup_env.sh:ros_distro, //tools/ci_local.sh:ros_distro, //bazel/ros2.bzl:ros_distro)
     ros_prefix = "/opt/ros/" + ros_distro
 
     # Symlink pinocchio headers (doubly-nested in ROS2 Jazzy)
