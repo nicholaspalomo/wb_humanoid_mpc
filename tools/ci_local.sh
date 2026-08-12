@@ -34,6 +34,7 @@ docker run --rm \
     make test-all
 
     echo '✅ Local CI Verification Passed Successfully!'
+    rm -rf /workspace/.bazel /workspace/bazel-*
 "
 
 rm -rf "${SCRIPT_DIR}/.bazel" "${SCRIPT_DIR}"/bazel-* 2>/dev/null || true
