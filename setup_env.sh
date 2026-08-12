@@ -8,8 +8,9 @@
 #   ros2 launch g1_centroidal_mpc dummy_sim.launch.py
 # ==============================================================================
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 
+# LINT.IfChange(ros_distro)
 # Source base ROS2 installation
 if [ -f /opt/ros/jazzy/setup.bash ]; then
     source /opt/ros/jazzy/setup.bash
@@ -18,17 +19,13 @@ elif [ -f /opt/ros/humble/setup.bash ]; then
 elif [ -f /bin/ros_setup.sh ]; then
     source /bin/ros_setup.sh
 fi
+# LINT.ThenChange(//docker/Dockerfile:ros_distro, //tools/ci_local.sh:ros_distro, //bazel/ros2.bzl:ros_distro, //bazel/system_libs.bzl:ros_distro)
 
 # ==============================================================================
 # Create ament_index-compatible directory structure pointing to source tree
 # ==============================================================================
-BAZEL_INSTALL="${SCRIPT_DIR}/.bazel_ros_install"
-# Resolve actual bazel-bin path
-if [ -L "${SCRIPT_DIR}/bazel-bin" ] || [ -d "${SCRIPT_DIR}/bazel-bin" ]; then
-    BAZEL_BIN="${SCRIPT_DIR}/bazel-bin"
-else
-    BAZEL_BIN="$(cd "${SCRIPT_DIR}" && bazel info bazel-bin 2>/dev/null || echo "${SCRIPT_DIR}/bazel-bin")"
-fi
+BAZEL_INSTALL="${TMPDIR:-/tmp}/.bazel_ros_install"
+BAZEL_BIN="${SCRIPT_DIR}/bazel-bin"
 
 _setup_package() {
     local pkg_name="$1"
@@ -38,9 +35,17 @@ _setup_package() {
     mkdir -p "${prefix}/share/ament_index/resource_index/packages"
     touch "${prefix}/share/ament_index/resource_index/packages/${pkg_name}"
 
-    # Symlink the source directory as the share directory
-    rm -f "${prefix}/share/${pkg_name}" 2>/dev/null
-    ln -sf "${source_dir}" "${prefix}/share/${pkg_name}"
+    # Copy share assets (config, urdf, launch, package.xml, etc.) excluding Bazel BUILD files and source code
+    rm -rf "${prefix}/share/${pkg_name}" 2>/dev/null
+    mkdir -p "${prefix}/share/${pkg_name}"
+    for item in "${source_dir}"/*; do
+        if [ -e "$item" ]; then
+            local base="$(basename "$item")"
+            if [ "$base" != "BUILD.bazel" ] && [ "$base" != "BUILD" ] && [ "$base" != "src" ] && [ "$base" != "test" ] && [ "$base" != "include" ]; then
+                cp -rL "$item" "${prefix}/share/${pkg_name}/${base}"
+            fi
+        fi
+    done
 
     # Create lib directory for executables (required by ros2 launch)
     mkdir -p "${prefix}/lib/${pkg_name}"

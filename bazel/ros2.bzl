@@ -10,7 +10,9 @@ def _ros2_package_repository(repo_ctx):
     Creates a cc_library that wraps the headers and shared libraries
     of a ROS2 package installed under /opt/ros/${ROS_DISTRO}.
     """
+    # LINT.IfChange(ros_distro)
     ros_distro = repo_ctx.os.environ.get("ROS_DISTRO", "jazzy")
+    # LINT.ThenChange(//docker/Dockerfile:ros_distro, //setup_env.sh:ros_distro, //tools/ci_local.sh:ros_distro, //bazel/system_libs.bzl:ros_distro)
     ros_prefix = "/opt/ros/" + ros_distro
     pkg_name = repo_ctx.attr.pkg_name
     extra_linkopts = repo_ctx.attr.extra_linkopts
@@ -22,9 +24,14 @@ def _ros2_package_repository(repo_ctx):
         deps_entries = ", ".join(['"%s"' % d for d in extra_deps])
         deps_str = "    deps = [%s],\n" % deps_entries
 
-    linkopts_str = ""
-    # Always include the ROS2 library path so -l flags can resolve
-    all_linkopts = ["-L" + ros_prefix + "/lib"] + extra_linkopts
+    ros_lib_dir = ros_prefix + "/lib"
+    ros_lib_arch = ros_prefix + "/lib/x86_64-linux-gnu"
+    all_linkopts = [
+        "-L" + ros_lib_dir,
+        "-L" + ros_lib_arch,
+        "-Wl,-rpath," + ros_lib_dir,
+        "-Wl,-rpath," + ros_lib_arch,
+    ] + extra_linkopts
     if all_linkopts:
         linkopts_entries = ", ".join(['"%s"' % l for l in all_linkopts])
         linkopts_str = "    linkopts = [%s],\n" % linkopts_entries

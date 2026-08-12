@@ -36,9 +36,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <stdexcept>
 
 #include <ocs2_core/misc/LoadData.h>
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
+#include <cassert>
+#include <stdexcept>
 
-#include <absl/log/check.h>
+#ifndef CHECK
+#define CHECK(cond)                                     \
+  do {                                                  \
+    if (!(cond)) {                                      \
+      throw std::runtime_error("Check failed: " #cond); \
+    }                                                   \
+  } while (0)
+#endif
 
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 
@@ -89,8 +97,7 @@ std::vector<size_t> initializeMpcToFullJointIndices(const std::vector<std::strin
   std::vector<size_t> mpcModelJointIndices;
   mpcModelJointIndices.reserve(mpcModelJointNames.size());
   for (size_t i = 0; i < mpcModelJointNames.size(); ++i) {
-    CHECK(fullJointIndexMap.find(mpcModelJointNames[i]) != fullJointIndexMap.end())
-        << "Joint " << mpcModelJointNames[i] << " not found in full joint names";
+    CHECK(fullJointIndexMap.find(mpcModelJointNames[i]) != fullJointIndexMap.end());
     mpcModelJointIndices[i] = fullJointIndexMap[mpcModelJointNames[i]];
   }
   return mpcModelJointIndices;

@@ -1,1 +1,0 @@
-/wb_humanoid_mpc_ws/build/ocs2_ros2_msgs/rosidl_generator_cpp/ocs2_ros2_msgs/msg/detail/bezier_trajectory__type_support.hpp

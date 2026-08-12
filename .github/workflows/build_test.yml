@@ -43,7 +43,7 @@ jobs:
 
       - name: Install Project Dependencies
         run: |
-          envsubst < dependencies.txt | xargs apt-get install -y --no-install-recommends
+          grep -v '^\s*#' dependencies.txt | envsubst | xargs apt-get install -y --no-install-recommends
 
       - name: Configure Git Safe Directory
         run: |

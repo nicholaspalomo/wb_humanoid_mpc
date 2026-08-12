@@ -59,10 +59,9 @@ Once the container starts, the Git pre-commit hooks and Bazel environment are au
 
 If you are not using VS Code or are connected via Remote SSH:
 
-1. Navigate to `.devcontainer` and spin up the container:
+1. Spin up the container from the repository root (`docker-compose.yaml`):
 
 ```bash
-cd .devcontainer
 docker compose up -d --build
 ```
 
