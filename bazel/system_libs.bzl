@@ -172,7 +172,10 @@ cc_library(
     hdrs = glob(["include/**"], allow_empty = True),
     includes = ["include", "include/pinocchio_deprecated"],
     linkopts = [
+        "-L{ros_prefix}/lib",
         "-L{ros_prefix}/lib/x86_64-linux-gnu",
+        "-Wl,-rpath,{ros_prefix}/lib",
+        "-Wl,-rpath,{ros_prefix}/lib/x86_64-linux-gnu",
         "-lpinocchio_parsers",
         "-lpinocchio_default",
     ],
@@ -289,6 +292,9 @@ cc_library(
     includes = ["include"],
     linkopts = [
         "-L{ros_prefix}/lib",
+        "-L{ros_prefix}/lib/x86_64-linux-gnu",
+        "-Wl,-rpath,{ros_prefix}/lib",
+        "-Wl,-rpath,{ros_prefix}/lib/x86_64-linux-gnu",
         "-L/usr/lib/x86_64-linux-gnu",
         "-lurdf",
         "-lurdfdom_model",

@@ -22,7 +22,7 @@ fi
 # ==============================================================================
 # Create ament_index-compatible directory structure pointing to source tree
 # ==============================================================================
-BAZEL_INSTALL="${SCRIPT_DIR}/.bazel_ros_install"
+BAZEL_INSTALL="${TMPDIR:-/tmp}/.bazel_ros_install"
 BAZEL_BIN="${SCRIPT_DIR}/bazel-bin"
 
 _setup_package() {
