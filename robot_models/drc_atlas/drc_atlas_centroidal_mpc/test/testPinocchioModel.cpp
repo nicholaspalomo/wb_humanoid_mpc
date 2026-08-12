@@ -33,8 +33,6 @@ Copyright (c) 2022, Halodi Robotics AS. All rights reserved.
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
 
-#include <absl/log/initialize.h>
-
 using namespace ocs2;
 using namespace ocs2::humanoid;
 
@@ -148,8 +146,6 @@ void computeInverseDyanmics(PinocchioInterface pin_interface, Eigen::VectorXd q,
 }
 
 int main(int argc, char** argv) {
-  absl::InitializeLog();
-
   const std::string path(__FILE__);
   const std::string dir = path.substr(0, path.find_last_of("/"));
 

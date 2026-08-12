@@ -61,6 +61,6 @@ build:relwithdebinfo --strip=never
 # --- Test Configuration ---
 test --test_output=errors
 test --test_verbose_timeout_warnings
-test --test_env=LD_LIBRARY_PATH=/opt/ros/jazzy/lib:/opt/ros/jazzy/lib/x86_64-linux-gnu:/wb_humanoid_mpc_ws/install/humanoid_mpc_msgs/lib:/wb_humanoid_mpc_ws/install/ocs2_ros2_msgs/lib:/wb_humanoid_mpc_ws/install/blasfeo_catkin/lib:/wb_humanoid_mpc_ws/install/hpipm_catkin/lib
-test --test_env=AMENT_PREFIX_PATH=/wb_humanoid_mpc_ws/install/g1_centroidal_mpc:/wb_humanoid_mpc_ws/install/g1_description:/wb_humanoid_mpc_ws/install/g1_wb_mpc:/opt/ros/jazzy
+test --test_env=LD_LIBRARY_PATH
+test --test_env=AMENT_PREFIX_PATH
 test --test_env=ROS_DISTRO

@@ -44,6 +44,7 @@ cc_binary(
         "@urdf",
         "@ros2_rclcpp",
         "@ros2_ament_index_cpp",
+        "@abseil-cpp//absl/log:check",
         "@abseil-cpp//absl/log:initialize",
     ],
 )

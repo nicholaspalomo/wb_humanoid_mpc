@@ -23,12 +23,7 @@ fi
 # Create ament_index-compatible directory structure pointing to source tree
 # ==============================================================================
 BAZEL_INSTALL="${SCRIPT_DIR}/.bazel_ros_install"
-# Resolve actual bazel-bin path
-if [ -L "${SCRIPT_DIR}/bazel-bin" ] || [ -d "${SCRIPT_DIR}/bazel-bin" ]; then
-    BAZEL_BIN="${SCRIPT_DIR}/bazel-bin"
-else
-    BAZEL_BIN="$(cd "${SCRIPT_DIR}" && bazel info bazel-bin 2>/dev/null || echo "${SCRIPT_DIR}/bazel-bin")"
-fi
+BAZEL_BIN="${SCRIPT_DIR}/bazel-bin"
 
 _setup_package() {
     local pkg_name="$1"

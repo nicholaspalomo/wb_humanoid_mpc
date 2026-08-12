@@ -371,7 +371,7 @@ cc_library(
     name = "blasfeo",
     hdrs = glob(["include/**"], allow_empty = True),
     includes = ["include"],
-    linkopts = ["-L{lib_dir}", "-lblasfeo"],
+    linkopts = ["-L{lib_dir}", "-Wl,-rpath,{lib_dir}", "-lblasfeo"],
     visibility = ["//visibility:public"],
 )
 """.format(lib_dir = lib_dir))
@@ -396,7 +396,7 @@ def _hpipm_repository(repo_ctx):
         repo_ctx.symlink(install_prefix + "/include", "include")
         repo_ctx.symlink(install_prefix + "/lib", "lib")
         lib_dir = install_prefix + "/lib"
-        linkopts = '["-L{lib_dir}", "-lhpipm"]'.format(lib_dir = lib_dir)
+        linkopts = '["-L{lib_dir}", "-Wl,-rpath,{lib_dir}", "-lhpipm"]'.format(lib_dir = lib_dir)
     else:
         # Need blasfeo install location for hpipm's cmake
         blasfeo_prefix = "/wb_humanoid_mpc_ws/install/blasfeo_catkin"
@@ -421,7 +421,7 @@ def _hpipm_repository(repo_ctx):
         repo_ctx.symlink("install/include", "include")
         repo_ctx.symlink("install/lib", "lib")
         lib_dir = str(repo_ctx.path("lib"))
-        linkopts = '["-L{lib_dir}", "-lhpipm"]'.format(lib_dir = lib_dir)
+        linkopts = '["-L{lib_dir}", "-Wl,-rpath,{lib_dir}", "-lhpipm"]'.format(lib_dir = lib_dir)
 
     repo_ctx.file("BUILD.bazel", content = """\
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
@@ -447,7 +447,7 @@ def _ros2_msgs_repository(repo_ctx):
     """Builds a ROS 2 message package from source using colcon."""
     pkg_name = repo_ctx.attr.pkg_name
     
-    workspace_root = str(repo_ctx.path(Label("@//:MODULE.bazel")).dirname)
+    workspace_root = str(repo_ctx.path(Label("//:MODULE.bazel")).dirname)
     src_dir_path = workspace_root + "/" + repo_ctx.attr.src_dir
 
     # We need to copy the source directory into our external repo so colcon can build it
@@ -458,18 +458,18 @@ def _ros2_msgs_repository(repo_ctx):
 
     # Build the package using colcon
     # We must source the ROS 2 setup.bash before building
-    build_cmd = "source " + setup_bash + " && colcon build --packages-select " + pkg_name + " --cmake-args -DCMAKE_BUILD_TYPE=Release"
+    build_cmd = "source " + setup_bash + " && colcon build --packages-select " + pkg_name + " --event-handlers console_direct+ --cmake-args -DCMAKE_BUILD_TYPE=Release"
     repo_ctx.execute(["bash", "-c", build_cmd], quiet = False, timeout = 300)
 
     # Symlink the generated headers and libraries
-    repo_ctx.symlink("install/" + pkg_name + "/include", "include")
-    repo_ctx.symlink("install/" + pkg_name + "/lib", "lib")
+    repo_ctx.symlink(str(repo_ctx.path("install/" + pkg_name + "/include/" + pkg_name)), "include")
+    repo_ctx.symlink(str(repo_ctx.path("install/" + pkg_name + "/lib")), "lib")
 
     lib_dir = str(repo_ctx.path("lib"))
 
     # Identify the typesupport shared libraries generated
     # (Typically <pkg_name>__rosidl_typesupport_cpp and <pkg_name>__rosidl_generator_c)
-    linkopts = '["-L{lib_dir}", "-l{pkg_name}__rosidl_typesupport_cpp", "-l{pkg_name}__rosidl_generator_c"]'.format(
+    linkopts = '["-L{lib_dir}", "-Wl,-rpath,{lib_dir}", "-l{pkg_name}__rosidl_typesupport_cpp", "-l{pkg_name}__rosidl_generator_c"]'.format(
         lib_dir = lib_dir,
         pkg_name = pkg_name,
     )
@@ -479,7 +479,7 @@ load("@rules_cc//cc:cc_library.bzl", "cc_library")
 cc_library(
     name = "{pkg_name}",
     hdrs = glob(["include/**"], allow_empty = True),
-    includes = ["include", "include/{pkg_name}"],
+    includes = ["include"],
     linkopts = {linkopts},
     visibility = ["//visibility:public"],
 )

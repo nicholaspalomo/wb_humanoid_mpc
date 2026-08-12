@@ -60,7 +60,10 @@ class RobotDescriptionTest : public ::testing::Test {
     urdfFile.close();
   }
 
-  void TearDown() override { std::filesystem::remove_all(tempDir_); }
+  void TearDown() override {
+    std::error_code ec;
+    std::filesystem::remove_all(tempDir_, ec);
+  }
 
   std::filesystem::path tempDir_;
   std::filesystem::path urdf_path_;

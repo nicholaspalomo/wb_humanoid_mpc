@@ -16,7 +16,7 @@ endef
 # Build targets
 ############################################################
 .PHONY: build-all build-debug build-release build-relwithdebinfo build \
-        test-all test clean clean-all format \
+        test-all test clean clean-all format ci-local \
         launch-g1-dummy-sim launch-g1-sim launch-wb-g1-dummy-sim launch-wb-g1-sim \
         launch-drc-atlas-dummy-sim launch-drc-atlas-sandbox test-pinocchio-model-atlas \
         start-vnc stop-vnc \
@@ -51,6 +51,10 @@ build-relwithdebinfo:
 ## Run all tests
 test-all:
 	bazel test //...
+
+## Run local CI emulator (matches GitHub Actions clean container setup)
+ci-local:
+	@tools/ci_local.sh
 
 ## Run a single test: make test PKG=//humanoid_nmpc/humanoid_centroidal_mpc_test:test_pinocchio_frame_conversions
 test:
