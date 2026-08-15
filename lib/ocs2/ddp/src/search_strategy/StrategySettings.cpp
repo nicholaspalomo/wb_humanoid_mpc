@@ -66,7 +66,7 @@ namespace line_search {
 
 Settings load(const std::string& filename, const std::string& fieldName, bool verbose) {
   boost::property_tree::ptree pt;
-  boost::property_tree::read_info(filename, pt);
+  loadData::readPropertyTree(filename, pt);
   if (verbose) {
     std::cerr << " #### LINE_SEARCH Settings: {\n";
   }
@@ -100,7 +100,7 @@ namespace levenberg_marquardt {
 
 Settings load(const std::string& filename, const std::string& fieldName, bool verbose) {
   boost::property_tree::ptree pt;
-  boost::property_tree::read_info(filename, pt);
+  loadData::readPropertyTree(filename, pt);
   if (verbose) {
     std::cerr << " #### LEVENBERG_MARQUARDT Settings: {\n";
   }

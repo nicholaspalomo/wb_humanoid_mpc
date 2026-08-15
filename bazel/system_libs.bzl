@@ -450,6 +450,52 @@ hpipm_repository = repository_rule(
 )
 
 # ==============================================================================
+# ==============================================================================
+# yaml-cpp
+# ==============================================================================
+def _yaml_cpp_repository(repo_ctx):
+    """Wraps system-installed yaml-cpp."""
+    repo_ctx.symlink("/usr/include/yaml-cpp", "include/yaml-cpp")
+
+    # Find and symlink yaml-cpp shared library
+    lib_dir = "/usr/lib/x86_64-linux-gnu"
+    result = repo_ctx.execute(["find", lib_dir, "-name", "libyaml-cpp.so*", "-not", "-type", "d"])
+    if result.return_code == 0 and result.stdout.strip():
+        first_match = result.stdout.strip().split("\n")[0]
+        repo_ctx.symlink(first_match, "lib/libyaml-cpp.so")
+
+    repo_ctx.file("BUILD.bazel", content = """
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_import.bzl", "cc_import")
+cc_library(
+    name = "headers",
+    hdrs = glob(["include/yaml-cpp/**"], allow_empty = True),
+    includes = ["include"],
+    visibility = ["//visibility:public"],
+)
+
+cc_import(
+    name = "yaml_cpp_lib",
+    shared_library = "lib/libyaml-cpp.so",
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "yaml_cpp",
+    visibility = ["//visibility:public"],
+    deps = [
+        ":headers",
+        ":yaml_cpp_lib",
+    ],
+)
+""")
+
+yaml_cpp_repository = repository_rule(
+    implementation = _yaml_cpp_repository,
+    local = True,
+)
+
+# ==============================================================================
 # ROS 2 Messages Builder (runs colcon build to generate headers & libraries)
 # ==============================================================================
 def _ros2_msgs_repository(repo_ctx):
@@ -519,6 +565,7 @@ def register_system_libs():
     urdfdom_repository(name = "urdfdom")
     blasfeo_repository(name = "blasfeo")
     hpipm_repository(name = "hpipm")
+    yaml_cpp_repository(name = "yaml_cpp")
     
     ros2_msgs_repository(
         name = "ocs2_ros2_msgs_repo",

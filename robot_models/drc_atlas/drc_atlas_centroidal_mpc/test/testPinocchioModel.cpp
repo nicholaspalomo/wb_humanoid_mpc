@@ -38,7 +38,7 @@ using namespace ocs2::humanoid;
 
 constexpr std::string_view kRobotModelPackagePath = "drc_atlas_description";
 constexpr std::string_view kUrdfFileName = "urdf/atlas.urdf";
-constexpr std::string_view kTaskConfigPath = "/../config/mpc/task.info";
+constexpr std::string_view kTaskConfigPath = "/../config/mpc/task.yaml";
 constexpr int kStateDim = 34;
 constexpr int kNominalBaseHeight = 0.8415;
 

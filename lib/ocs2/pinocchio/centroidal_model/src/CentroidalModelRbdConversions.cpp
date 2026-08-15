@@ -235,7 +235,7 @@ void CentroidalModelRbdConversions::loadSettings(const std::string& fileName, co
   }
 
   boost::property_tree::ptree pt;
-  boost::property_tree::read_info(fileName, pt);
+  loadData::readPropertyTree(fileName, pt);
   const std::string centroidalModelRbdConversionsFieldName = fieldName + ".centroidal_model_rbd_conversions";
 
   std::vector<scalar_t> pGainsVec, dGainsVec;

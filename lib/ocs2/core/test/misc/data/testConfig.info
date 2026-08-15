@@ -1,0 +1,110 @@
+centroidalModelType             0
+
+interface
+{
+  verbose                               true
+  useAnalyticalGradientsDynamics        false
+}
+
+model_settings
+{
+  robotName                      test_robot
+
+  foot_constraint
+  {
+    positionErrorGain_z             5.0
+    orientationErrorGain            20.0
+  }
+
+  phaseTransitionStanceTime       0.0
+  verboseCppAd                  true
+  recompileLibrariesCppAd       false
+  modelFolderCppAd              build/test_cppad
+
+  fixedJointNames
+  {
+    [0] "left_wrist_roll_joint"
+    [1] "left_wrist_pitch_joint"
+  }
+
+  contactNames6DoF
+  {
+    [0] "foot_l_contact"
+    [1] "foot_r_contact"
+  }
+
+  contactParentJointNames
+  {
+    [0] "left_ankle_roll_joint"
+    [1] "right_ankle_roll_joint"
+  }
+
+  armJointNames {
+    left_shoulder_y       left_shoulder_pitch_joint
+    right_shoulder_y      right_shoulder_pitch_joint
+  }
+}
+
+swing_trajectory_config
+{
+  liftOffVelocity                         0.05
+  touchDownVelocity                      -0.0
+  swingHeight                             0.08
+}
+
+multiple_shooting
+{
+  nThreads                              4
+  dt                                    0.02
+  sqpIteration                          1
+  deltaTol                              1e-4
+}
+
+rollout
+{
+  AbsTolODE                       5e-5
+  RelTolODE                       5e-3
+  timeStep                        0.015
+  integratorType                  ODE45
+}
+
+mpc
+{
+  timeHorizon                     1.2
+  solutionTimeWindow              -1
+  coldStart                       false
+  debugPrint                      false
+  mpcDesiredFrequency             80
+  mrtDesiredFrequency             100
+}
+
+initialState
+{
+  scaling 1.0
+  (0,0)  0.0
+  (1,0)  0.0
+  (2,0)  0.0
+  (3,0)  0.0
+  (4,0)  0.0
+  (5,0)  0.0
+  (6,0)  0.0
+  (7,0)  0.0
+  (8,0)  0.79
+}
+
+Q
+{
+  scaling 1.0
+  (0,0)   8.0
+  (1,1)   8.0
+  (2,2)   15.0
+  (3,3)   15.0
+}
+
+R
+{
+  scaling 0.001
+  (0,0)   0.05
+  (1,1)   0.05
+  (2,2)   0.01
+}

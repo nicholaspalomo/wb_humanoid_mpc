@@ -194,7 +194,7 @@ void CentroidalMpcInterface::setupOptimalControlProblem() {
 
   // check for mimic joints
   boost::property_tree::ptree pt;
-  boost::property_tree::read_info(taskFile_, pt);
+  loadData::readPropertyTree(taskFile_, pt);
   bool hasMimicJoints = loadData::containsPtreeValueFind(pt, "mimicJoints");
 
   for (size_t i = 0; i < N_CONTACTS; i++) {
@@ -276,7 +276,7 @@ std::unique_ptr<StateInputConstraint> CentroidalMpcInterface::getNormalVelocityC
 /******************************************************************************************************/
 std::unique_ptr<StateInputConstraint> CentroidalMpcInterface::getJointMimicConstraint(size_t mimicIndex) {
   boost::property_tree::ptree pt;
-  boost::property_tree::read_info(taskFile_, pt);
+  loadData::readPropertyTree(taskFile_, pt);
   std::string prefix;
   if (mimicIndex == 0) {
     prefix = "mimicJoints.left_knee.";
@@ -319,7 +319,7 @@ void CentroidalMpcInterface::addTaskSpaceKinematicsCosts(
     const CentroidalModelPinocchioMappingCppAd& pinocchioMappingCppAd,
     const PinocchioEndEffectorKinematicsCppAd::update_pinocchio_interface_callback& velocityUpdateCallback) {
   boost::property_tree::ptree pt;
-  boost::property_tree::read_info(taskFile_, pt);
+  loadData::readPropertyTree(taskFile_, pt);
 
   boost::property_tree::ptree task_space_costs_pt = pt.get_child("task_space_costs");
 

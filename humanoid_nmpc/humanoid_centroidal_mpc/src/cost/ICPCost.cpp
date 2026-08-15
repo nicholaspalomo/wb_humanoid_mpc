@@ -133,7 +133,7 @@ vector_t ICPCost::getParameters(scalar_t time, const TargetTrajectories& targetT
 
 vector2_t ICPCost::getWeights(const std::string& taskFile, const std::string prefix, bool verbose) {
   boost::property_tree::ptree pt;
-  boost::property_tree::read_info(taskFile, pt);
+  loadData::readPropertyTree(taskFile, pt);
 
   // Load all weights
   scalar_t icpErrorWeight = 0;

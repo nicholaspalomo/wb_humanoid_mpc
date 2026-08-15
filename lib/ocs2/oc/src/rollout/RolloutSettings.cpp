@@ -39,7 +39,7 @@ namespace rollout {
 
 Settings loadSettings(const std::string& filename, const std::string& fieldName, bool verbose) {
   boost::property_tree::ptree pt;
-  boost::property_tree::read_info(filename, pt);
+  loadData::readPropertyTree(filename, pt);
 
   Settings settings;
 

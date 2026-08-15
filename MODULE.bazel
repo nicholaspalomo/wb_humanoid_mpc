@@ -35,6 +35,7 @@ use_repo(
     "urdf",
     "blasfeo",
     "hpipm",
+    "yaml_cpp",
     "ocs2_ros2_msgs_repo",
     "humanoid_mpc_msgs_repo",
     # ROS2 system packages

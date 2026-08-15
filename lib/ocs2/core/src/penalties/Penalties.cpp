@@ -44,7 +44,7 @@ template <>
 void loadPenaltyConfig<augmented::SmoothAbsolutePenalty::Config>(const std::string& fileName, const std::string& fieldName,
                                                                  augmented::SmoothAbsolutePenalty::Config& config, bool verbose) {
   boost::property_tree::ptree pt;
-  boost::property_tree::read_info(fileName, pt);
+  loadData::readPropertyTree(fileName, pt);
 
   if (verbose) {
     std::cerr << "\n #### " << fieldName;
@@ -67,7 +67,7 @@ template <>
 void loadPenaltyConfig<augmented::QuadraticPenalty::Config>(const std::string& fileName, const std::string& fieldName,
                                                             augmented::QuadraticPenalty::Config& config, bool verbose) {
   boost::property_tree::ptree pt;
-  boost::property_tree::read_info(fileName, pt);
+  loadData::readPropertyTree(fileName, pt);
 
   if (verbose) {
     std::cerr << "\n #### " << fieldName;
@@ -90,7 +90,7 @@ void loadPenaltyConfig<augmented::ModifiedRelaxedBarrierPenalty::Config>(const s
                                                                          augmented::ModifiedRelaxedBarrierPenalty::Config& config,
                                                                          bool verbose) {
   boost::property_tree::ptree pt;
-  boost::property_tree::read_info(fileName, pt);
+  loadData::readPropertyTree(fileName, pt);
 
   if (verbose) {
     std::cerr << "\n #### " << fieldName;
@@ -114,7 +114,7 @@ void loadPenaltyConfig<augmented::SlacknessSquaredHingePenalty::Config>(const st
                                                                         augmented::SlacknessSquaredHingePenalty::Config& config,
                                                                         bool verbose) {
   boost::property_tree::ptree pt;
-  boost::property_tree::read_info(fileName, pt);
+  loadData::readPropertyTree(fileName, pt);
 
   if (verbose) {
     std::cerr << "\n #### " << fieldName;

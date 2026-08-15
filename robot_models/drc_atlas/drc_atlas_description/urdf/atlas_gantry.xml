@@ -16,17 +16,236 @@
              markrgb="0.6 0.7 0.8" 
              width="512" height="512"/>
     <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="2 2" reflectance="0.05"/>
+    <mesh name="base_link" content_type="model/stl" file="base_link.STL"/>
+    <mesh name="l_clav" content_type="model/stl" file="l_clav.stl"/>
+    <mesh name="l_farm" content_type="model/stl" file="l_farm.stl"/>
+    <mesh name="l_foot" content_type="model/stl" file="l_foot.stl"/>
+    <mesh name="l_hand" content_type="model/stl" file="l_hand.stl"/>
+    <mesh name="l_larm" content_type="model/stl" file="l_larm.stl"/>
+    <mesh name="l_lglut" content_type="model/stl" file="l_lglut.stl"/>
+    <mesh name="l_lleg" content_type="model/stl" file="l_lleg.stl"/>
+    <mesh name="l_scap" content_type="model/stl" file="l_scap.stl"/>
+    <mesh name="l_talus" content_type="model/stl" file="l_talus.stl"/>
+    <mesh name="l_uarm" content_type="model/stl" file="l_uarm.stl"/>
+    <mesh name="l_uglut" content_type="model/stl" file="l_uglut.stl"/>
+    <mesh name="l_uleg" content_type="model/stl" file="l_uleg.stl"/>
+    <mesh name="ltorso" content_type="model/stl" file="ltorso.stl"/>
+    <mesh name="mtorso" content_type="model/stl" file="mtorso.stl"/>
+    <mesh name="pelvis_mesh" content_type="model/stl" file="pelvis.stl"/>
+    <mesh name="r_clav" content_type="model/stl" file="r_clav.stl"/>
+    <mesh name="r_farm" content_type="model/stl" file="r_farm.stl"/>
+    <mesh name="r_foot" content_type="model/stl" file="r_foot.stl"/>
+    <mesh name="r_hand" content_type="model/stl" file="r_hand.stl"/>
+    <mesh name="r_larm" content_type="model/stl" file="r_larm.stl"/>
+    <mesh name="r_lglut" content_type="model/stl" file="r_lglut.stl"/>
+    <mesh name="r_lleg" content_type="model/stl" file="r_lleg.stl"/>
+    <mesh name="r_scap" content_type="model/stl" file="r_scap.stl"/>
+    <mesh name="r_talus" content_type="model/stl" file="r_talus.stl"/>
+    <mesh name="r_uarm" content_type="model/stl" file="r_uarm.stl"/>
+    <mesh name="r_uglut" content_type="model/stl" file="r_uglut.stl"/>
+    <mesh name="r_uleg" content_type="model/stl" file="r_uleg.stl"/>
+    <mesh name="utorso" content_type="model/stl" file="utorso.stl"/>
+    <mesh name="head_mesh" content_type="model/stl" file="head.stl"/>
   </asset>
-
-  <include file="atlas.urdf"/>
 
   <worldbody>
     <light pos="1 0 3.5" dir="0 0 -1" directional="true"/>
     <geom name="floor" size="10 10 0.05" type="plane" material="groundplane"/>
+
+    <!-- Atlas robot - pelvis is the floating base body -->
+    <body name="pelvis" pos="0 0 0.7">
+      <freejoint name="root"/>
+      <inertial pos="-0.0346 0.00 0.02" mass="17.882" diaginertia="0.126 0.099 0.117"/>
+      <geom type="mesh" mesh="pelvis_mesh"/>
+
+      <!-- Torso chain -->
+      <body name="ltorso" pos="-0.0125 0 0">
+        <inertial pos="-0.0112984 -3.15366e-06 0.0746835" quat="0.997071 0.000128212 0.076485 -0.00012406" mass="2.409" diaginertia="0.003962 0.00341694 0.00169212"/>
+        <joint name="back_bkz" pos="0 0 0" axis="0 0 1" range="-0.663225 0.663225" actuatorfrcrange="-106 106" damping="0.1"/>
+        <geom type="mesh" mesh="ltorso"/>
+        <body name="mtorso" pos="0 0 0.162">
+          <inertial pos="-0.00816266 -0.0131245 0.0305974" quat="0.108378 0.49314 0.746335 0.433648" mass="0.69" diaginertia="0.000536243 0.000487378 0.000358057"/>
+          <joint name="back_bky" pos="0 0 0" axis="0 1 0" range="-0.219388 0.538783" actuatorfrcrange="-445 445" damping="0.1"/>
+          <geom type="mesh" mesh="mtorso"/>
+          <body name="utorso" pos="0 0 0.05">
+            <inertial pos="-0.0571559 4.12307e-05 0.306477" quat="0.945702 -0.00432926 -0.324953 0.00585631" mass="64.03" diaginertia="1.74 1.54023 1.06239"/>
+            <joint name="back_bkx" pos="0 0 0" axis="1 0 0" range="-0.523599 0.523599" actuatorfrcrange="-300 300" damping="0.1"/>
+            <geom type="mesh" mesh="utorso"/>
+
+            <!-- Left arm -->
+            <body name="l_clav" pos="0.1406 0.2036 0.4776">
+              <inertial pos="0 0.048 -0.084" quat="0.684588 -0.177029 0.177029 0.684588" mass="3.45" diaginertia="0.011217 0.011 0.00178301"/>
+              <joint name="l_arm_shz" pos="0 0 0" axis="0 0 1" range="-1.5708 0.785398" actuatorfrcrange="-87 87" damping="0.1"/>
+              <geom pos="0 -0.044 -0.34" type="mesh" mesh="l_clav"/>
+              <body name="l_scap" pos="0 0.0981 -0.2511">
+                <inertial pos="0 0 0" quat="0.5 0.5 0.5 0.5" mass="3.012" diaginertia="0.00583 0.00583 0.00319"/>
+                <joint name="l_arm_shx" pos="0 0 0" axis="1 0 0" range="-1.5708 1.5708" actuatorfrcrange="-99 99" damping="0.1"/>
+                <geom type="mesh" mesh="l_scap"/>
+                <body name="l_uarm" pos="0 0.187 0.016">
+                  <inertial pos="0 -0.065 0" quat="0.707107 0.707107 0 0" mass="3.388" diaginertia="0.00656 0.00656 0.00358"/>
+                  <joint name="l_arm_ely" pos="0 0 0" axis="0 1 0" range="0 3.14159" actuatorfrcrange="-63 63" damping="0.1"/>
+                  <geom type="mesh" mesh="l_uarm"/>
+                  <body name="l_larm" pos="0 0.119 0.0092">
+                    <inertial pos="0 0 0" quat="0.5 0.5 0.5 0.5" mass="2.509" diaginertia="0.00446 0.00446 0.00265"/>
+                    <joint name="l_arm_elx" pos="0 0 0" axis="1 0 0" range="0 2.35619" actuatorfrcrange="-112 112" damping="0.1"/>
+                    <geom type="mesh" mesh="l_larm"/>
+                    <body name="l_farm" pos="0 0.187 -0.0092">
+                      <inertial pos="0 -0.065 0" quat="0.707107 0.707107 0 0" mass="3.388" diaginertia="0.00656 0.00656 0.00358"/>
+                      <joint name="l_arm_wry" pos="0 0 0" axis="0 1 0" range="0 3.14159" actuatorfrcrange="-25 25" damping="0.1"/>
+                      <geom type="mesh" mesh="l_farm"/>
+                      <body name="l_hand" pos="0 0.119 0.0092">
+                        <inertial pos="0 0 0" quat="0.5 0.5 0.5 0.5" mass="2.509" diaginertia="0.00446 0.00446 0.00265"/>
+                        <joint name="l_arm_wrx" pos="0 0 0" axis="1 0 0" range="-1.1781 1.1781" actuatorfrcrange="-25 25" damping="0.1"/>
+                        <geom type="mesh" mesh="l_hand"/>
+                      </body>
+                    </body>
+                  </body>
+                </body>
+              </body>
+            </body>
+
+            <!-- Head -->
+            <body name="head" pos="0.2546 0 0.6215">
+              <inertial pos="-0.075493 3.3383e-05 0.02774" quat="0.945485 -0.000797655 0.325663 -0.000518426" mass="1.4199" diaginertia="0.00466672 0.0041178 0.00282637"/>
+              <joint name="neck_ry" pos="0 0 0" axis="0 1 0" range="-0.602139 1.14319" actuatorfrcrange="-5 5" damping="0.1"/>
+              <geom pos="-0.0446 0 0.088" quat="0.707107 0 0 0.707106" type="mesh" rgba="0.9098 0.44314 0.031373 1" mesh="base_link"/>
+            </body>
+
+            <!-- Right arm -->
+            <body name="r_clav" pos="0.1406 -0.2036 0.4776">
+              <inertial pos="0 -0.048 -0.084" quat="0.684588 0.177029 -0.177029 0.684588" mass="3.45" diaginertia="0.011217 0.011 0.00178301"/>
+              <joint name="r_arm_shz" pos="0 0 0" axis="0 0 1" range="-0.785398 1.5708" actuatorfrcrange="-87 87" damping="0.1"/>
+              <geom pos="0 0.044 -0.34" type="mesh" mesh="r_clav"/>
+              <body name="r_scap" pos="0 -0.0981 -0.2511">
+                <inertial pos="0 0 0" quat="0.5 0.5 0.5 0.5" mass="3.012" diaginertia="0.00583 0.00583 0.00319"/>
+                <joint name="r_arm_shx" pos="0 0 0" axis="1 0 0" range="-1.5708 1.5708" actuatorfrcrange="-99 99" damping="0.1"/>
+                <geom type="mesh" mesh="r_scap"/>
+                <body name="r_uarm" pos="0 -0.187 0.016">
+                  <inertial pos="0 0.065 0" quat="0.707107 0.707107 0 0" mass="3.388" diaginertia="0.00656 0.00656 0.00358"/>
+                  <joint name="r_arm_ely" pos="0 0 0" axis="0 1 0" range="0 3.14159" actuatorfrcrange="-63 63" damping="0.1"/>
+                  <geom type="mesh" mesh="r_uarm"/>
+                  <body name="r_larm" pos="0 -0.119 0.0092">
+                    <inertial pos="0 0 0" quat="0.5 0.5 0.5 0.5" mass="2.509" diaginertia="0.00446 0.00446 0.00265"/>
+                    <joint name="r_arm_elx" pos="0 0 0" axis="1 0 0" range="-2.35619 0" actuatorfrcrange="-112 112" damping="0.1"/>
+                    <geom type="mesh" mesh="r_larm"/>
+                    <body name="r_farm" pos="0 -0.187 -0.0092">
+                      <inertial pos="0 0.065 0" quat="0.707107 0.707107 0 0" mass="3.388" diaginertia="0.00656 0.00656 0.00358"/>
+                      <joint name="r_arm_wry" pos="0 0 0" axis="0 1 0" range="0 3.14159" actuatorfrcrange="-25 25" damping="0.1"/>
+                      <geom type="mesh" mesh="r_farm"/>
+                      <body name="r_hand" pos="0 -0.119 0.0092">
+                        <inertial pos="0 0 0" quat="0.5 0.5 0.5 0.5" mass="2.509" diaginertia="0.00446 0.00446 0.00265"/>
+                        <joint name="r_arm_wrx" pos="0 0 0" axis="1 0 0" range="-1.1781 1.1781" actuatorfrcrange="-25 25" damping="0.1"/>
+                        <geom type="mesh" mesh="r_hand"/>
+                      </body>
+                    </body>
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+
+      <!-- Left leg -->
+      <body name="l_uglut" pos="0 0.089 0">
+        <inertial pos="0.00529262 -0.00344732 0.00313046" quat="0.999122 -7.72169e-05 0.0419028 -0.000305187" mass="0.648" diaginertia="0.000745109 0.000688179 0.000410071"/>
+        <joint name="l_leg_hpz" pos="0 0 0" axis="0 0 1" range="-0.174358 0.786794" actuatorfrcrange="-275 275" damping="0.1"/>
+        <geom type="mesh" mesh="l_uglut"/>
+        <body name="l_lglut">
+          <inertial pos="0.0133341 0.0170484 -0.0312052" quat="0.353465 0.600383 0.388609 0.602981" mass="0.866" diaginertia="0.00133867 0.000995812 0.000690275"/>
+          <joint name="l_leg_hpx" pos="0 0 0" axis="1 0 0" range="-0.523599 0.523599" actuatorfrcrange="-530 530" damping="0.1"/>
+          <geom pos="0 0.005 -0.01" type="mesh" mesh="l_lglut"/>
+          <body name="l_uleg" pos="0.05 0.0225 -0.066">
+            <inertial pos="0 0 -0.21" mass="9.209" diaginertia="0.09 0.09 0.02"/>
+            <joint name="l_leg_hpy" pos="0 0 0" axis="0 1 0" range="-1.61234 0.65764" actuatorfrcrange="-840 840" damping="0.1"/>
+            <geom pos="-0.002 -0.015 0.006" type="mesh" mesh="l_uleg"/>
+            <body name="l_lleg" pos="-0.05 0 -0.374">
+              <inertial pos="0.001 0 -0.187" quat="0.999751 0 0.0223266 0" mass="5.479" diaginertia="0.0771341 0.076 0.00986594"/>
+              <joint name="l_leg_kny" pos="0 0 0" axis="0 1 0" range="0 2.35637" actuatorfrcrange="-890 890" damping="0.1"/>
+              <geom pos="0 0 -0.002" type="mesh" mesh="l_lleg"/>
+              <body name="l_talus" pos="0 0 -0.422">
+                <inertial pos="0 0 0" quat="0.5 0.5 -0.5 0.5" mass="0.125" diaginertia="1.30101e-05 1.01674e-05 8.42775e-06"/>
+                <joint name="l_leg_aky" pos="0 0 0" axis="0 1 0" range="-1 0.7" actuatorfrcrange="-740 740" damping="0.1"/>
+                <geom pos="0.014 0 0.008" type="mesh" mesh="l_talus"/>
+                <body name="l_foot">
+                  <inertial pos="0.027 0 -0.067" quat="0 0.707107 0 0.707107" mass="2.05" diaginertia="0.008 0.007 0.002"/>
+                  <joint name="l_leg_akx" pos="0 0 0" axis="1 0 0" range="-0.8 0.8" actuatorfrcrange="-360 360" damping="0.1"/>
+                  <geom pos="-0.008 0.002 0.024" type="mesh" mesh="l_foot"/>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+
+      <!-- Right leg -->
+      <body name="r_uglut" pos="0 -0.089 0">
+        <inertial pos="0.00529262 0.00344732 0.00313046" quat="0.999122 7.72169e-05 0.0419028 0.000305187" mass="0.648" diaginertia="0.000745109 0.000688179 0.000410071"/>
+        <joint name="r_leg_hpz" pos="0 0 0" axis="0 0 1" range="-0.786794 0.174358" actuatorfrcrange="-275 275" damping="0.1"/>
+        <geom type="mesh" mesh="r_uglut"/>
+        <body name="r_lglut">
+          <inertial pos="0.0133341 -0.0170484 -0.0312052" quat="0.602981 0.388609 0.600383 0.353465" mass="0.866" diaginertia="0.00133867 0.000995812 0.000690275"/>
+          <joint name="r_leg_hpx" pos="0 0 0" axis="1 0 0" range="-0.523599 0.523599" actuatorfrcrange="-530 530" damping="0.1"/>
+          <geom pos="0.01 -0.005 0" type="mesh" mesh="r_lglut"/>
+          <body name="r_uleg" pos="0.05 -0.0225 -0.066">
+            <inertial pos="0 0 -0.21" mass="9.209" diaginertia="0.09 0.09 0.02"/>
+            <joint name="r_leg_hpy" pos="0 0 0" axis="0 1 0" range="-1.61234 0.65764" actuatorfrcrange="-840 840" damping="0.1"/>
+            <geom pos="-0.002 0.015 0.006" type="mesh" mesh="r_uleg"/>
+            <body name="r_lleg" pos="-0.05 0 -0.374">
+              <inertial pos="0.001 0 -0.187" quat="0.999751 0 0.0223266 0" mass="5.479" diaginertia="0.0771341 0.076 0.00986594"/>
+              <joint name="r_leg_kny" pos="0 0 0" axis="0 1 0" range="0 2.35637" actuatorfrcrange="-890 890" damping="0.1"/>
+              <geom pos="0 0 -0.002" type="mesh" mesh="r_lleg"/>
+              <body name="r_talus" pos="0 0 -0.422">
+                <inertial pos="0 0 0" quat="0.5 0.5 -0.5 0.5" mass="0.125" diaginertia="1.30101e-05 1.01674e-05 8.42775e-06"/>
+                <joint name="r_leg_aky" pos="0 0 0" axis="0 1 0" range="-1 0.7" actuatorfrcrange="-740 740" damping="0.1"/>
+                <geom pos="0.014 0 0.008" type="mesh" mesh="r_talus"/>
+                <body name="r_foot">
+                  <inertial pos="0.027 0 -0.067" quat="0 0.707107 0 0.707107" mass="2.05" diaginertia="0.008 0.007 0.002"/>
+                  <joint name="r_leg_akx" pos="0 0 0" axis="1 0 0" range="-0.8 0.8" actuatorfrcrange="-360 360" damping="0.1"/>
+                  <geom pos="-0.008 -0.002 0.024" type="mesh" mesh="r_foot"/>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
   </worldbody>
 
+  <!-- Actuators for all joints -->
+  <actuator>
+    <motor name="back_bkz_motor" joint="back_bkz"/>
+    <motor name="back_bky_motor" joint="back_bky"/>
+    <motor name="back_bkx_motor" joint="back_bkx"/>
+    <motor name="l_arm_shz_motor" joint="l_arm_shz"/>
+    <motor name="l_arm_shx_motor" joint="l_arm_shx"/>
+    <motor name="l_arm_ely_motor" joint="l_arm_ely"/>
+    <motor name="l_arm_elx_motor" joint="l_arm_elx"/>
+    <motor name="l_arm_wry_motor" joint="l_arm_wry"/>
+    <motor name="l_arm_wrx_motor" joint="l_arm_wrx"/>
+    <motor name="neck_ry_motor" joint="neck_ry"/>
+    <motor name="r_arm_shz_motor" joint="r_arm_shz"/>
+    <motor name="r_arm_shx_motor" joint="r_arm_shx"/>
+    <motor name="r_arm_ely_motor" joint="r_arm_ely"/>
+    <motor name="r_arm_elx_motor" joint="r_arm_elx"/>
+    <motor name="r_arm_wry_motor" joint="r_arm_wry"/>
+    <motor name="r_arm_wrx_motor" joint="r_arm_wrx"/>
+    <motor name="l_leg_hpz_motor" joint="l_leg_hpz"/>
+    <motor name="l_leg_hpx_motor" joint="l_leg_hpx"/>
+    <motor name="l_leg_hpy_motor" joint="l_leg_hpy"/>
+    <motor name="l_leg_kny_motor" joint="l_leg_kny"/>
+    <motor name="l_leg_aky_motor" joint="l_leg_aky"/>
+    <motor name="l_leg_akx_motor" joint="l_leg_akx"/>
+    <motor name="r_leg_hpz_motor" joint="r_leg_hpz"/>
+    <motor name="r_leg_hpx_motor" joint="r_leg_hpx"/>
+    <motor name="r_leg_hpy_motor" joint="r_leg_hpy"/>
+    <motor name="r_leg_kny_motor" joint="r_leg_kny"/>
+    <motor name="r_leg_aky_motor" joint="r_leg_aky"/>
+    <motor name="r_leg_akx_motor" joint="r_leg_akx"/>
+  </actuator>
+
   <equality>
-    <!-- Invisible Gantry: flexible weld constraint attaching pelvis link overhead -->
+    <!-- Invisible Gantry: flexible weld constraint attaching pelvis overhead -->
     <weld body1="pelvis" active="true" solref="0.02 1"/>
   </equality>
 </mujoco>

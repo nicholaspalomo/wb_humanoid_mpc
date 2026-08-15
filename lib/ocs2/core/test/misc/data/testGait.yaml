@@ -1,0 +1,23 @@
+list:
+  - stance
+  - walk
+
+stance:
+  modeSequence:
+    - STANCE
+  switchingTimes:
+    - 0.0
+    - 0.5
+
+walk:
+  modeSequence:
+    - LF
+    - STANCE
+    - RF
+    - STANCE
+  switchingTimes:
+    - 0.0
+    - 0.6
+    - 0.7
+    - 1.3
+    - 1.4

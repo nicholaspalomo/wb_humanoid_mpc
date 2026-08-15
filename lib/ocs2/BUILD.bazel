@@ -17,6 +17,7 @@
 #   ros2_interfaces/ (was ocs2_ros2_interfaces)
 
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -79,6 +80,7 @@ cc_library(
         ":ocs2_thirdparty",
         "@eigen",
         "@boost",
+        "@yaml_cpp",
     ],
 )
 
@@ -364,5 +366,23 @@ cc_library(
         "@ros2_interactive_markers",
         "@eigen",
         "@boost",
+    ],
+)
+
+# ==============================================================================
+# Tests
+# ==============================================================================
+
+cc_test(
+    name = "test_load_data_yaml",
+    srcs = ["core/test/misc/testLoadDataYaml.cpp"],
+    copts = _OCS2_COPTS,
+    data = glob(["core/test/misc/data/**"]),
+    deps = [
+        ":ocs2_core",
+        "@eigen",
+        "@boost",
+        "@yaml_cpp",
+        "@googletest//:gtest_main",
     ],
 )

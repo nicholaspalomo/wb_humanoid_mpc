@@ -113,7 +113,7 @@ std::vector<std::string> concatenateStringVectors(const std::vector<std::string>
 
 ModelSettings::ModelSettings(const std::string& configFile, const std::string& urdfFile, const std::string& mpcName, bool verbose) {
   boost::property_tree::ptree pt;
-  boost::property_tree::read_info(configFile, pt);
+  loadData::readPropertyTree(configFile, pt);
 
   std::string prefix{"model_settings."};
 

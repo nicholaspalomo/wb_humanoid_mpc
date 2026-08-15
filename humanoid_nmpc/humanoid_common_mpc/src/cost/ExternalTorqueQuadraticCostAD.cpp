@@ -142,7 +142,7 @@ ExternalTorqueQuadraticCostAD::Config ExternalTorqueQuadraticCostAD::loadConfigF
                                                                                         const std::string& fieldname,
                                                                                         bool verbose) {
   boost::property_tree::ptree pt;
-  boost::property_tree::read_info(filename, pt);
+  loadData::readPropertyTree(filename, pt);
 
   Config config;
 

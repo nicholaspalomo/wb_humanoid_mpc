@@ -50,7 +50,7 @@ VECTOR18_T<scalar_t> EndEffectorDynamicsWeights::toVector() {
 
 EndEffectorDynamicsWeights EndEffectorDynamicsWeights::getWeights(const std::string& taskFile, const std::string prefix, bool verbose) {
   boost::property_tree::ptree pt;
-  boost::property_tree::read_info(taskFile, pt);
+  loadData::readPropertyTree(taskFile, pt);
 
   // Load all weights
   scalar_t pos_x = 0;

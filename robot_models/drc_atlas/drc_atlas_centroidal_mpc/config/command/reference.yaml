@@ -1,0 +1,50 @@
+targetDisplacementVelocity: 0.5
+targetRotationVelocity: 0.5
+
+maxDisplacementVelocityX: 1.2
+maxDisplacementVelocityY: 0.8
+maxDeltaPelvisHeight: 0.4
+maxRotationVelocity: 1.0
+
+defaultBaseHeight: 0.7
+
+defaultJointState:
+  "(0,0)": 0.0  # back_bkz
+  "(1,0)": 0.0  # back_bky
+  "(2,0)": 0.0  # back_bkx
+  "(3,0)": 0.3  # l_arm_shz
+  "(4,0)": -1.2  # l_arm_shx
+  "(5,0)": 2.2  # l_arm_ely
+  "(6,0)": 0.55  # l_arm_elx
+  "(7,0)": 0.0  # neck_ry
+  "(8,0)": -0.3  # r_arm_shz
+  "(9,0)": 1.2  # r_arm_shx
+  "(10,0)": 2.2  # r_arm_ely
+  "(11,0)": -0.55  # r_arm_elx
+  "(12,0)": 0.0  # l_leg_hpz
+  "(13,0)": 0.0  # l_leg_hpx
+  "(14,0)": -0.42  # l_leg_hpy
+  "(15,0)": 0.84  # l_leg_kny
+  "(16,0)": -0.42  # l_leg_aky
+  "(17,0)": 0.0  # l_leg_akx
+  "(18,0)": 0.0  # r_leg_hpz
+  "(19,0)": 0.0  # r_leg_hpx
+  "(20,0)": -0.42  # r_leg_hpy
+  "(21,0)": 0.84  # r_leg_kny
+  "(22,0)": -0.42  # r_leg_aky
+  "(23,0)": 0.0  # r_leg_akx
+
+initialModeSchedule:
+  modeSequence:
+    - STANCE
+    - STANCE
+  eventTimes:
+    - 0.5
+
+defaultModeSequenceTemplate:
+  modeSequence:
+    - STANCE
+  switchingTimes:
+    - 0.0
+    - 0.5
+

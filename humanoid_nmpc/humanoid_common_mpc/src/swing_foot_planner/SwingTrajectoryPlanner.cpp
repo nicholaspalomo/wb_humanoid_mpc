@@ -302,7 +302,7 @@ scalar_t SwingTrajectoryPlanner::swingTrajectoryScaling(scalar_t startTime, scal
 
 SwingTrajectoryPlanner::Config loadSwingTrajectorySettings(const std::string& fileName, const std::string& fieldName, bool verbose) {
   boost::property_tree::ptree pt;
-  boost::property_tree::read_info(fileName, pt);
+  loadData::readPropertyTree(fileName, pt);
 
   if (verbose) {
     std::cerr << "\n #### Swing Trajectory Config:";
