@@ -157,6 +157,8 @@ def register_ros2_packages():
             "-lrosgraph_msgs__rosidl_typesupport_cpp",
             "-ltype_description_interfaces__rosidl_typesupport_cpp",
             "-lservice_msgs__rosidl_typesupport_cpp",
+            "-lservice_msgs__rosidl_generator_c",
+            "-lclass_loader",
         ],
     )
 

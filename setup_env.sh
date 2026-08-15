@@ -12,8 +12,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 
 # LINT.IfChange(ros_distro)
 # Source base ROS2 installation
-if [ -f /opt/ros/jazzy/setup.bash ]; then
+if [ -f "/opt/ros/jazzy/setup.bash" ]; then
+    set +u
     source /opt/ros/jazzy/setup.bash
+    set -u
 elif [ -f /opt/ros/humble/setup.bash ]; then
     source /opt/ros/humble/setup.bash
 elif [ -f /bin/ros_setup.sh ]; then
