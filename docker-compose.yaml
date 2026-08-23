@@ -58,3 +58,7 @@ services:
       # VNC and noVNC ports for GUI visualization on macOS
       - "5901:5901"
       - "6080:6080"
+
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1

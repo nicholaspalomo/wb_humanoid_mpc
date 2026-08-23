@@ -11,16 +11,21 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 
 # LINT.IfChange(ros_distro)
-# Source base ROS2 installation
+# Source base ROS2 installation (temporarily disable strict mode during ROS2 vendor script sourcing)
+_SAVED_OPTS="$-"
+set +u
+set +e
 if [ -f "/opt/ros/jazzy/setup.bash" ]; then
-    set +u
     source /opt/ros/jazzy/setup.bash
-    set -u
-elif [ -f /opt/ros/humble/setup.bash ]; then
+elif [ -f "/opt/ros/humble/setup.bash" ]; then
     source /opt/ros/humble/setup.bash
 elif [ -f /bin/ros_setup.sh ]; then
     source /bin/ros_setup.sh
 fi
+# Restore previous shell options
+[[ "$_SAVED_OPTS" =~ e ]] && set -e
+[[ "$_SAVED_OPTS" =~ u ]] && set -u
+unset _SAVED_OPTS
 # LINT.ThenChange(//docker/Dockerfile:ros_distro, //tools/ci_local.sh:ros_distro, //bazel/ros2.bzl:ros_distro, //bazel/system_libs.bzl:ros_distro)
 
 # ==============================================================================
