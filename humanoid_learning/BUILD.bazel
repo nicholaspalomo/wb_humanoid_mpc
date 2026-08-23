@@ -1,0 +1,15 @@
+# ==============================================================================
+# Humanoid Learning - MuJoCo Playground & Brax RL Pipeline
+# ==============================================================================
+
+load("@rules_python//python:pip.bzl", "compile_pip_requirements")
+
+package(default_visibility = ["//visibility:public"])
+
+# Target to compile and lock dependencies:
+# Run: bazel run //humanoid_learning:requirements.update
+compile_pip_requirements(
+    name = "requirements",
+    src = "requirements.txt",
+    requirements_txt = "requirements_lock.txt",
+)

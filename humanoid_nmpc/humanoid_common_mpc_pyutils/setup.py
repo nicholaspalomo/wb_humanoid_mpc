@@ -23,6 +23,7 @@ setup(
     entry_points={
         "console_scripts": [
             "mpc_observation_logger = humanoid_common_mpc_pyutils.mpc_observation_logger:main",
+            "export_rollouts = humanoid_common_mpc_pyutils.export_rollouts:main",
         ],
     },
 )

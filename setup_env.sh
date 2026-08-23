@@ -173,8 +173,8 @@ done
 
 export AMENT_PREFIX_PATH="${_BAZEL_PREFIXES}:${AMENT_PREFIX_PATH}"
 
-# Add Python packages to PYTHONPATH (for launch file imports)
-export PYTHONPATH="${SCRIPT_DIR}/humanoid_nmpc/humanoid_common_mpc_ros2:${SCRIPT_DIR}/humanoid_nmpc/humanoid_common_mpc_pyutils:${SCRIPT_DIR}/humanoid_nmpc/remote_control:${PYTHONPATH}"
+# Add Python packages to PYTHONPATH (for launch file imports and RL modules)
+export PYTHONPATH="${SCRIPT_DIR}/humanoid_learning:${SCRIPT_DIR}/humanoid_nmpc/humanoid_common_mpc_ros2:${SCRIPT_DIR}/humanoid_nmpc/humanoid_common_mpc_pyutils:${SCRIPT_DIR}/humanoid_nmpc/remote_control:${PYTHONPATH}"
 
 # Add colcon-generated Python message bindings (until migrated to Bazel)
 for pypath in /wb_humanoid_mpc_ws/install/*/lib/python3.*/site-packages; do

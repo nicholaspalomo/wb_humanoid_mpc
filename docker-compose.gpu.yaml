@@ -1,0 +1,18 @@
+# ==============================================================================
+# GPU Override for docker-compose.yaml
+# Usage:
+#   docker compose -f docker-compose.yaml -f docker-compose.gpu.yaml up
+# ==============================================================================
+
+services:
+  app:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      NVIDIA_VISIBLE_DEVICES: "all"
+      NVIDIA_DRIVER_CAPABILITIES: "all"

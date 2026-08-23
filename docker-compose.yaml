@@ -48,6 +48,9 @@ services:
       ROS_DOMAIN_ID: "0"
       GIT_USER_NAME: ${GIT_USER_NAME}
       GIT_USER_EMAIL: ${GIT_USER_EMAIL}
+      # NVIDIA GPU environment for JAX / MJX acceleration
+      NVIDIA_VISIBLE_DEVICES: "all"
+      NVIDIA_DRIVER_CAPABILITIES: "all"
       # Tell bash to source our shell init on interactive shells
       BASH_ENV: /etc/profile.d/wb_humanoid_mpc.sh
 

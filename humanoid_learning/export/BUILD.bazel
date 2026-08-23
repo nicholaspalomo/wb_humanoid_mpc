@@ -1,0 +1,30 @@
+# ==============================================================================
+# Humanoid Learning - Policy Export
+# ==============================================================================
+
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+
+package(default_visibility = ["//visibility:public"])
+
+py_library(
+    name = "export_lib",
+    srcs = [
+        "__init__.py",
+        "export_onnx.py",
+    ],
+    deps = [
+        "//humanoid_learning/training:training_lib",
+        "@rl_deps//:jax",
+        "@rl_deps//:jaxlib",
+        "@rl_deps//:numpy",
+        "@rl_deps//:onnx",
+    ],
+)
+
+py_binary(
+    name = "export_onnx",
+    srcs = ["export_onnx.py"],
+    deps = [
+        ":export_lib",
+    ],
+)

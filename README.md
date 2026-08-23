@@ -152,6 +152,95 @@ Command a desired base velocity and root link height via the **Robot Base Contro
 
 ![robot_remote_control](https://github.com/user-attachments/assets/779be1da-97a1-4d0c-8f9b-b9d2df88384f)
 
+## Reinforcement Learning with MuJoCo Playground (`humanoid_learning`)
+
+The repository includes a GPU-accelerated Reinforcement Learning pipeline built on **Google DeepMind's [MuJoCo Playground](https://github.com/google-deepmind/mujoco_playground)**, **MuJoCo MJX**, **JAX**, and **Brax**.
+
+<details>
+<summary><b>GPU Training Setup & Hardware Prerequisites</b></summary>
+
+### 1. Host Machine GPU Prerequisites
+To train RL policies on an **NVIDIA GPU** inside the container, ensure your host has:
+1. An **NVIDIA GPU Driver** installed (`nvidia-smi` works on host).
+2. The **[NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)** installed.
+
+**Verify Host GPU Docker Passthrough:**
+Run this verification command on your **host terminal**:
+```bash
+docker run --rm --gpus all ubuntu nvidia-smi
+```
+If this prints your GPU details, Docker has full access to your GPU.
+
+### 2. Starting the Container with GPU Acceleration
+Start the container using the GPU compose override:
+```bash
+docker compose -f docker-compose.yaml -f docker-compose.gpu.yaml up -d
+docker compose exec app bash
+```
+
+> **CPU Fallback:** Users without an NVIDIA GPU (e.g. macOS Apple Silicon or CPU Linux) can still run the default container (`docker compose up -d`). JAX will automatically fall back to CPU execution.
+
+</details>
+
+<details>
+<summary><b>Running RL Training & Imitation Learning</b></summary>
+
+Once inside the container (or Dev Container), use the following commands:
+
+### Run RL Unit & Smoke Tests
+Validates JAX JIT compilation, MuJoCo MJX simulation stepping, and device backend discovery:
+```bash
+make test-rl
+```
+
+### Launch PPO Policy Training (MJX / Playground)
+Trains a velocity-tracking policy using parallelized MJX physics simulation:
+```bash
+# Default quick start
+make train-rl
+
+# Or configure environment batch size and total training steps:
+bazel run //humanoid_learning/training:train_ppo -- --num_envs=4096 --total_timesteps=10000000
+```
+
+### Export MPC Trajectories to RL Demos
+Convert recorded observations from `mpc_observation_logger` into HDF5 demonstration datasets:
+```bash
+make export-rollouts
+# Or specify custom input/output paths:
+python3 humanoid_nmpc/humanoid_common_mpc_pyutils/humanoid_common_mpc_pyutils/export_rollouts.py \
+    --input_path=. \
+    --output_path=data/r1_mpc_demos.h5
+```
+
+### Behavioral Cloning (BC) Warmstart
+Pretrain an actor policy using supervised imitation learning on MPC demonstration rollouts before fine-tuning with PPO:
+```bash
+make train-bc
+# Or with specific demo dataset:
+bazel run //humanoid_learning/training:bc_warmstart -- --demos_path=data/r1_mpc_demos.h5 --epochs=20
+```
+
+### Export Trained Policy to ONNX
+Serialize trained JAX/Flax actor weights to ONNX for C++ runtime deployment:
+```bash
+bazel run //humanoid_learning/export:export_onnx -- --output_path=models/humanoid_policy.onnx
+```
+
+</details>
+
+<details>
+<summary><b>Managing Python Dependencies (rules_python)</b></summary>
+
+The RL pipeline uses **Bazel `rules_python`** with an isolated, hermetic Python 3.11 toolchain:
+- Edit dependencies in [`humanoid_learning/requirements.txt`](humanoid_learning/requirements.txt).
+- Recompile and lock dependencies reproducibly across platforms:
+  ```bash
+  make lock-rl-deps
+  ```
+
+</details>
+
 ## Citing Whole-Body Humanoid MPC
 To cite Whole-Body Humanoid MPC in your academic research, please use the following BibTeX entry:
 
