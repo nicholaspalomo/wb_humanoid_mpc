@@ -9,28 +9,22 @@ This guide explains how to see RViz and other GUI apps running inside the dev co
 make launch-drc-atlas-dummy-sim-vnc
 ```
 
-Then open **http://localhost:6080/vnc.html** in your browser.
+Then open the URL printed in the terminal banner:
+- **Direct LAN IP**: `http://<host-lan-ip>:6080/vnc.html` (e.g. `http://192.168.0.3:6080/vnc.html`)
+- **Localhost** (with IDE port forwarding): `http://localhost:6080/vnc.html`
 
-All GUI applications will render in the browser window automatically.
+All GUI applications (RViz, controllers, teleop) will render directly in your browser.
 
 ## Remote SSH Development
 
 If your dev container is running on a **remote Linux machine** (e.g. over Remote SSH in Antigravity, Cursor, or VS Code):
 
-1. **Forward Port 6080**:
+1. **Option A (Direct LAN IP - Recommended)**:
+   - Connect directly from your browser to `http://<host-ip>:6080/vnc.html` without needing SSH tunnel proxies.
+2. **Option B (Forward Port 6080)**:
    - In your IDE: Check the **Ports** panel tab and ensure port `6080` is forwarded.
-   - Or from your local terminal, set up SSH port forwarding:
-     ```bash
-     ssh -L 6080:localhost:6080 user@remote-host
-     ```
-
-2. **Launch Target**:
-   ```bash
-   make launch-drc-atlas-dummy-sim-vnc
-   ```
-
-3. **View in Local Browser**:
-   Navigate to **http://localhost:6080/vnc.html** on your local machine and click **Connect**.
+   - Or from your local terminal: `ssh -L 6080:localhost:6080 user@remote-host`
+   - Navigate to `http://localhost:6080/vnc.html` on your local machine and click **Connect**.
 
 ## Launch Targets
 
@@ -46,6 +40,9 @@ Use the `-vnc` suffixed Make targets to automatically build Bazel targets, start
 | `make launch-drc-atlas-dummy-sim-vnc` | DRC Atlas centroidal MPC — dummy sim |
 | `make launch-drc-atlas-sim-vnc` | DRC Atlas centroidal MPC — MuJoCo sim (gantry attached) |
 | `make launch-drc-atlas-sandbox-vnc` | DRC Atlas URDF viewer |
+| `make launch-r1-dummy-sim-vnc` | Unitree R1 centroidal MPC — dummy sim |
+| `make launch-r1-sim-vnc` | Unitree R1 centroidal MPC — MuJoCo sim |
+| `make launch-r1-sandbox-vnc` | Unitree R1 URDF viewer |
 <!-- LINT.ThenChange(//Makefile:launch_targets, //setup_env.sh:registered_packages) -->
 
 Each `-vnc` target calls `start-vnc` automatically, so you do **not** need to run `make start-vnc` first.

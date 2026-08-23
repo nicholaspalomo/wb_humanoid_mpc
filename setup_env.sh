@@ -32,7 +32,13 @@ unset _SAVED_OPTS
 # Create ament_index-compatible directory structure pointing to source tree
 # ==============================================================================
 BAZEL_INSTALL="${TMPDIR:-/tmp}/.bazel_ros_install"
-BAZEL_BIN="${SCRIPT_DIR}/bazel-bin"
+if [ -e "${SCRIPT_DIR}/.bazel/bin" ]; then
+    BAZEL_BIN="${SCRIPT_DIR}/.bazel/bin"
+elif [ -e "${SCRIPT_DIR}/bazel-bin" ]; then
+    BAZEL_BIN="${SCRIPT_DIR}/bazel-bin"
+else
+    BAZEL_BIN="${SCRIPT_DIR}/.bazel/bin"
+fi
 
 _setup_package() {
     local pkg_name="$1"
@@ -87,6 +93,13 @@ _setup_package "drc_atlas_description" \
 
 _setup_package "drc_atlas_centroidal_mpc" \
     "${SCRIPT_DIR}/robot_models/drc_atlas/drc_atlas_centroidal_mpc"
+
+# --- Unitree R1 robot model packages ---
+_setup_package "unitree_r1_description" \
+    "${SCRIPT_DIR}/robot_models/unitree_r1/unitree_r1_description"
+
+_setup_package "unitree_r1_centroidal_mpc" \
+    "${SCRIPT_DIR}/robot_models/unitree_r1/unitree_r1_centroidal_mpc"
 
 # --- Humanoid MPC packages ---
 _setup_package "humanoid_common_mpc" \
@@ -173,13 +186,28 @@ done
 
 export AMENT_PREFIX_PATH="${_BAZEL_PREFIXES}:${AMENT_PREFIX_PATH}"
 
-# Add Python packages to PYTHONPATH (for launch file imports and RL modules)
-export PYTHONPATH="${SCRIPT_DIR}/humanoid_learning:${SCRIPT_DIR}/humanoid_nmpc/humanoid_common_mpc_ros2:${SCRIPT_DIR}/humanoid_nmpc/humanoid_common_mpc_pyutils:${SCRIPT_DIR}/humanoid_nmpc/remote_control:${PYTHONPATH}"
+# Add Bazel-generated Python message bindings and shared libraries (humanoid_mpc_msgs, ocs2_ros2_msgs)
+_OUTPUT_BASE=$(bazel info output_base 2>/dev/null | tail -n 1)
+if [ -z "$_OUTPUT_BASE" ] || [ ! -d "$_OUTPUT_BASE" ]; then
+    _OUTPUT_BASE=$(find "${HOME}/.cache/bazel" -maxdepth 3 -type d -name "external" 2>/dev/null | head -n 1 | sed 's|/external$||')
+fi
 
-# Add colcon-generated Python message bindings (until migrated to Bazel)
-for pypath in /wb_humanoid_mpc_ws/install/*/lib/python3.*/site-packages; do
-    [ -d "$pypath" ] && export PYTHONPATH="${pypath}:${PYTHONPATH}"
-done
+if [ -n "$_OUTPUT_BASE" ] && [ -d "$_OUTPUT_BASE" ]; then
+    for pypath in "${_OUTPUT_BASE}"/external/*msgs_repo/install/*/lib/python3.*/site-packages; do
+        [ -d "$pypath" ] && export PYTHONPATH="${pypath}:${PYTHONPATH}"
+    done
+    for libpath in "${_OUTPUT_BASE}"/external/*msgs_repo/install/*/lib; do
+        [ -d "$libpath" ] && export LD_LIBRARY_PATH="${libpath}:${LD_LIBRARY_PATH}"
+    done
+    for amentpath in "${_OUTPUT_BASE}"/external/*msgs_repo/install/*; do
+        [ -d "$amentpath/share" ] && export AMENT_PREFIX_PATH="${amentpath}:${AMENT_PREFIX_PATH}"
+    done
+fi
+unset _OUTPUT_BASE
+
+# Add Python packages to PYTHONPATH (for launch file imports and RL modules)
+# Ensure active workspace source directories take precedence at the front of PYTHONPATH
+export PYTHONPATH="${SCRIPT_DIR}/humanoid_learning:${SCRIPT_DIR}/humanoid_nmpc/humanoid_common_mpc_ros2:${SCRIPT_DIR}/humanoid_nmpc/humanoid_common_mpc_pyutils:${SCRIPT_DIR}/humanoid_nmpc/remote_control:${PYTHONPATH}"
 
 # Add Bazel-built binaries to PATH
 if [ -d "${BAZEL_BIN}" ]; then
@@ -193,6 +221,9 @@ export LD_LIBRARY_PATH="/opt/ros/jazzy/lib:/opt/ros/jazzy/lib/x86_64-linux-gnu:$
 for msg_lib_dir in /wb_humanoid_mpc_ws/install/*/lib; do
     [ -d "$msg_lib_dir" ] && export LD_LIBRARY_PATH="${msg_lib_dir}:${LD_LIBRARY_PATH}"
 done
+
+# Host IP for browser visualizer connections
+export HOST_IP="${HOST_IP:-192.168.0.3}"
 
 unset _BAZEL_PREFIXES
 unset -f _setup_package
