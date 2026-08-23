@@ -94,6 +94,7 @@ sleep 0.5
 echo "Starting openbox window manager ..."
 openbox &
 sleep 0.5
+xsetroot -solid "#1e222d" 2>/dev/null || true
 
 # Launch noVNC (websockify proxy)
 echo "Starting noVNC websockify on port ${NOVNC_PORT} ..."

@@ -94,10 +94,10 @@ class CartpoleMJXEnv:
         return 1
 
     def reset(self, rng: jax.Array) -> CartpoleEnvState:
-        """Resets the cartpole state with small initial perturbation."""
+        """Resets the cartpole state with initial tilt perturbation."""
         rng_pos, rng_pole = jax.random.split(rng)
-        init_x = jax.random.uniform(rng_pos, (), minval=-0.1, maxval=0.1)
-        init_theta = jax.random.uniform(rng_pole, (), minval=-0.15, maxval=0.15)
+        init_x = jax.random.uniform(rng_pos, (), minval=-0.2, maxval=0.2)
+        init_theta = jax.random.uniform(rng_pole, (), minval=-0.4, maxval=0.4)
 
         data = mjx.make_data(self.mjx_model)
         qpos = data.qpos.at[0].set(init_x).at[1].set(init_theta)
@@ -120,8 +120,8 @@ class CartpoleMJXEnv:
         data = mjx.step(self.mjx_model, data)
 
         obs = self._get_obs(data)
-        reward = self._compute_reward(data, ctrl)
         done = self._is_done(data)
+        reward = self._compute_reward(data, ctrl, done)
 
         return CartpoleEnvState(data=data, obs=obs, reward=reward, done=done)
 
@@ -134,24 +134,32 @@ class CartpoleMJXEnv:
             [cart_x, jnp.sin(theta), jnp.cos(theta), cart_x_dot, theta_dot]
         )
 
-    def _compute_reward(self, data: mjx.Data, ctrl: jax.Array) -> jax.Array:
+    def _compute_reward(
+        self, data: mjx.Data, ctrl: jax.Array, done: jax.Array
+    ) -> jax.Array:
         cart_x = data.qpos[0]
         theta = data.qpos[1]
         theta_dot = data.qvel[1]
 
-        # Upright reward (+1.0 when perfectly vertical)
-        upright_reward = jnp.cos(theta)
+        # Upright reward (+1.0 when perfectly vertical, 0 when falling)
+        upright_reward = jnp.clip(jnp.cos(theta), 0.0, 1.0)
         # Penalties for drifting away from center, angular velocity, and control effort
-        center_penalty = 0.1 * jnp.square(cart_x)
-        spin_penalty = 0.01 * jnp.square(theta_dot)
-        ctrl_penalty = 0.01 * jnp.sum(jnp.square(ctrl))
+        center_penalty = 0.05 * jnp.square(cart_x)
+        spin_penalty = 0.005 * jnp.square(theta_dot)
+        ctrl_penalty = 0.005 * jnp.sum(jnp.square(ctrl))
+        fall_penalty = jnp.where(done, -1.0, 0.0)
 
-        return upright_reward - center_penalty - spin_penalty - ctrl_penalty
+        return (
+            upright_reward - center_penalty - spin_penalty - ctrl_penalty + fall_penalty
+        )
 
     def _is_done(self, data: mjx.Data) -> jax.Array:
         cart_x = data.qpos[0]
-        # Terminate if cart runs off the rail
-        return jnp.abs(cart_x) > 2.2
+        theta = data.qpos[1]
+        # Terminate if cart runs off rail or pole falls past recovery angle
+        out_of_bounds = jnp.abs(cart_x) > 2.2
+        fallen = jnp.cos(theta) < 0.2
+        return out_of_bounds | fallen
 
 
 # ==============================================================================
@@ -307,19 +315,21 @@ def plot_training_curves(metrics_history: Dict[str, list], output_plot_path: str
     """Saves updated reward and loss curves to a PNG image."""
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4))
 
-    # Reward Plot
+    # Evaluation Return / Score Plot
+    eval_updates = metrics_history.get("eval_updates", metrics_history["updates"])
+    eval_scores = metrics_history.get("eval_scores", metrics_history["rewards"])
     ax1.plot(
-        metrics_history["updates"],
-        metrics_history["rewards"],
+        eval_updates,
+        eval_scores,
         "o-",
         color="#2563eb",
         linewidth=2,
     )
     ax1.set_title(
-        "Mean Episode Reward", fontsize=12, fontweight="bold", color="#1e293b"
+        "Evaluation Episode Return", fontsize=12, fontweight="bold", color="#1e293b"
     )
     ax1.set_xlabel("Update Step")
-    ax1.set_ylabel("Reward")
+    ax1.set_ylabel("Cumulative Return")
     ax1.grid(True, linestyle="--", alpha=0.6)
 
     # Loss Plot
@@ -330,7 +340,9 @@ def plot_training_curves(metrics_history: Dict[str, list], output_plot_path: str
         color="#dc2626",
         linewidth=2,
     )
-    ax2.set_title("Total PPO Loss", fontsize=12, fontweight="bold", color="#1e293b")
+    ax2.set_title(
+        "Total PPO Loss (Convergence)", fontsize=12, fontweight="bold", color="#1e293b"
+    )
     ax2.set_xlabel("Update Step")
     ax2.set_ylabel("Loss")
     ax2.grid(True, linestyle="--", alpha=0.6)
@@ -344,6 +356,18 @@ def plot_training_curves(metrics_history: Dict[str, list], output_plot_path: str
 # ==============================================================================
 # 5. Main PPO Training Loop with Progress Visualization
 # ==============================================================================
+def gaussian_log_prob(
+    mean: jax.Array, log_std: jax.Array, action: jax.Array
+) -> jax.Array:
+    var = jnp.exp(2.0 * log_std)
+    return -0.5 * jnp.sum(
+        jnp.square(action - mean) / (var + 1e-8)
+        + 2.0 * log_std
+        + jnp.log(2.0 * jnp.pi),
+        axis=-1,
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Cartpole MJX PPO Training with Visualization"
@@ -357,6 +381,8 @@ def main():
     )
     parser.add_argument("--lr", type=float, default=3e-3, help="Learning rate")
     parser.add_argument("--gamma", type=float, default=0.99, help="Discount factor")
+    parser.add_argument("--gae_lambda", type=float, default=0.95, help="GAE lambda")
+    parser.add_argument("--clip_eps", type=float, default=0.2, help="PPO clip epsilon")
     parser.add_argument(
         "--vis_interval", type=int, default=2, help="Visualization interval (updates)"
     )
@@ -405,8 +431,14 @@ def main():
             if args.vnc and "DISPLAY" not in os.environ:
                 os.environ["DISPLAY"] = ":99"
             eval_data = mujoco.MjData(env.mj_model)
+            eval_data.qpos[0] = 0.0
+            eval_data.qpos[1] = 0.2
+            eval_data.qvel[:] = 0.0
+            mujoco.mj_forward(env.mj_model, eval_data)
             viewer = mujoco.viewer.launch_passive(env.mj_model, eval_data)
-            print("🖥️ Live 3D MuJoCo Viewer initialized on display!")
+            viewer.sync()
+
+            print("🖥️ Live 3D MuJoCo Viewer initialized on display :99!")
         except Exception as e:
             print(f"⚠️ Could not launch live 3D viewer: {e}")
             viewer = None
@@ -429,13 +461,35 @@ def main():
     def collect_rollout(params, env_state, key):
         def _step_fn(carry, _):
             e_state, k = carry
-            k, act_key = jax.random.split(k)
+            k, act_key, res_key = jax.random.split(k, 3)
             mean, log_std, value = network.apply(params, e_state.obs)
             std = jnp.exp(log_std)
             action = mean + std * jax.random.normal(act_key, mean.shape)
 
             next_e_state = v_step(e_state, action)
-            transition = (e_state.obs, action, e_state.reward, value, mean, log_std)
+
+            # Auto-reset terminated environments
+            reset_keys = jax.random.split(res_key, args.num_envs)
+            fresh_state = v_reset(reset_keys)
+
+            # Select fresh state when done is True
+            next_e_state = jax.tree_util.tree_map(
+                lambda n, f: jnp.where(
+                    jnp.expand_dims(next_e_state.done, tuple(range(1, n.ndim))), f, n
+                ),
+                next_e_state,
+                fresh_state,
+            )
+
+            transition = (
+                e_state.obs,
+                action,
+                e_state.reward,
+                e_state.done,
+                value,
+                mean,
+                log_std,
+            )
             return (next_e_state, k), transition
 
         (final_env_state, next_key), traj = jax.lax.scan(
@@ -446,27 +500,66 @@ def main():
     # PPO loss & gradient update under JIT
     @jax.jit
     def ppo_update(params, opt_state, traj):
-        obs, actions, rewards, values, old_means, old_log_stds = traj
+        obs, actions, rewards, dones, values, old_means, old_log_stds = traj
 
         # Generalized Advantage Estimation (GAE)
-        returns = jnp.cumsum(rewards[::-1], axis=0)[::-1]
-        advantages = returns - values
+        gamma = args.gamma
+        gae_lambda = args.gae_lambda
+
+        def _gae_step(carry, step_data):
+            next_val, gae = carry
+            reward, done, val = step_data
+            delta = reward + gamma * next_val * (1.0 - done.astype(jnp.float32)) - val
+            gae = delta + gamma * gae_lambda * (1.0 - done.astype(jnp.float32)) * gae
+            return (val, gae), gae
+
+        # Scan backwards to compute GAE advantages
+        _, advantages = jax.lax.scan(
+            _gae_step,
+            (jnp.zeros_like(values[0]), jnp.zeros_like(values[0])),
+            (rewards, dones, values),
+            reverse=True,
+        )
+        returns = advantages + values
+
+        # Normalize advantages
+        norm_advantages = (advantages - jnp.mean(advantages)) / (
+            jnp.std(advantages) + 1e-8
+        )
+        old_log_probs = gaussian_log_prob(old_means, old_log_stds, actions)
 
         def loss_fn(p):
             new_means, new_log_stds, new_values = network.apply(p, obs)
-            # Policy loss (surrogate objective)
-            diff = jnp.square(new_means - actions) - jnp.square(old_means - actions)
-            policy_loss = jnp.mean(jnp.sum(diff, axis=-1) * advantages)
-            # Value function loss
+            new_log_probs = gaussian_log_prob(new_means, new_log_stds, actions)
+
+            # PPO Clipped Surrogate Loss
+            ratio = jnp.exp(new_log_probs - old_log_probs)
+            clip_ratio = jnp.clip(ratio, 1.0 - args.clip_eps, 1.0 + args.clip_eps)
+            surr1 = ratio * norm_advantages
+            surr2 = clip_ratio * norm_advantages
+            policy_loss = -jnp.mean(jnp.minimum(surr1, surr2))
+
+            # Value Function Loss
             value_loss = 0.5 * jnp.mean(jnp.square(new_values - returns))
-            return policy_loss + value_loss
+
+            # Entropy Bonus
+            entropy = jnp.mean(new_log_stds + 0.5 * jnp.log(2.0 * jnp.pi * jnp.e))
+
+            total_loss = policy_loss + 0.5 * value_loss - 0.01 * entropy
+            return total_loss
 
         loss, grads = jax.value_and_grad(loss_fn)(params)
         updates, next_opt_state = optimizer.update(grads, opt_state, params)
         next_params = optax.apply_updates(params, updates)
         return next_params, next_opt_state, loss
 
-    metrics_history = {"updates": [], "rewards": [], "loss": []}
+    metrics_history = {
+        "updates": [],
+        "rewards": [],
+        "loss": [],
+        "eval_updates": [],
+        "eval_scores": [],
+    }
     os.makedirs(args.output_dir, exist_ok=True)
 
     print("\n🏁 Starting Training Loop...\n")
@@ -492,7 +585,7 @@ def main():
             else ("🟡 BALANCING" if mean_reward > 0.0 else "🔴 FALLEN")
         )
         print(
-            f"Update {update:02d}/{args.num_updates:02d} | Mean Reward: {mean_reward:+.3f} | Loss: {loss_val:.4f} | {pole_icon} | {dt*1000:.1f}ms"
+            f"Update {update:02d}/{args.num_updates:02d} | Step Reward: {mean_reward:+.3f} | Loss: {loss_val:.4f} | {pole_icon} | {dt*1000:.1f}ms"
         )
 
         # Visualization every other update
@@ -504,6 +597,9 @@ def main():
 
             # Render policy rollout GIF and save plots
             eval_score = render_policy_rollout(env.mj_model, network, params, gif_path)
+            metrics_history["eval_updates"].append(update)
+            metrics_history["eval_scores"].append(eval_score)
+
             # Copy to latest
             if os.path.exists(gif_path):
                 import shutil
@@ -513,17 +609,22 @@ def main():
             plot_training_curves(metrics_history, plot_path)
 
             print(
-                f"   🎬 [Visualization Saved] -> {gif_path} (Eval Score: {eval_score:.1f})"
+                f"   🎬 [Visualization Saved] -> {gif_path} (Eval Score: {eval_score:.1f} / 120.0)"
             )
             print(f"   📊 [Metrics Plot Saved] -> {plot_path}")
 
             # Live 3D viewer playback in VNC
             if viewer is not None and viewer.is_running() and eval_data is not None:
-                eval_data.qpos[0] = 0.0
-                eval_data.qpos[1] = 0.2
-                eval_data.qvel[:] = 0.0
-                mujoco.mj_forward(env.mj_model, eval_data)
+                with viewer.lock():
+                    eval_data.qpos[0] = 0.0
+                    eval_data.qpos[1] = 0.2
+                    eval_data.qvel[:] = 0.0
+                    mujoco.mj_forward(env.mj_model, eval_data)
+                viewer.sync()
+
                 for _ in range(80):
+                    if not viewer.is_running():
+                        break
                     cart_x = float(eval_data.qpos[0])
                     theta = float(eval_data.qpos[1])
                     obs_eval = np.array(
@@ -537,10 +638,14 @@ def main():
                         dtype=np.float32,
                     )
                     mean_eval, _, _ = network.apply(params, obs_eval)
-                    eval_data.ctrl[0] = np.clip(float(mean_eval[0]), -1.0, 1.0)
-                    mujoco.mj_step(env.mj_model, eval_data)
+                    with viewer.lock():
+                        eval_data.ctrl[0] = np.clip(float(mean_eval[0]), -1.0, 1.0)
+                        mujoco.mj_step(env.mj_model, eval_data)
                     viewer.sync()
-                    time.sleep(0.01)
+                    time.sleep(0.015)
+
+        elif viewer is not None and viewer.is_running():
+            viewer.sync()
 
     if viewer is not None and viewer.is_running():
         viewer.close()
