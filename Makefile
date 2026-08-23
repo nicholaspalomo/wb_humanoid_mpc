@@ -19,9 +19,11 @@ endef
         test-all test clean clean-all format ci-local \
         launch-g1-dummy-sim launch-g1-sim launch-wb-g1-dummy-sim launch-wb-g1-sim \
         launch-drc-atlas-dummy-sim launch-drc-atlas-sandbox test-pinocchio-model-atlas \
+        launch-r1-dummy-sim launch-r1-sim launch-r1-sandbox test-pinocchio-model-r1 \
         start-vnc stop-vnc \
         launch-g1-dummy-sim-vnc launch-g1-sim-vnc launch-wb-g1-dummy-sim-vnc launch-wb-g1-sim-vnc \
         launch-drc-atlas-dummy-sim-vnc launch-drc-atlas-sandbox-vnc \
+        launch-r1-dummy-sim-vnc launch-r1-sim-vnc launch-r1-sandbox-vnc \
         run-ocs2-tests run-mpc-tests test-rl train-rl train-bc export-rollouts lock-rl-deps echo-packages update-submodules git-lfs install-hooks
 
 ## Build everything
@@ -93,6 +95,11 @@ test-pinocchio-model-atlas:
 	@bazel build //... && \
 	$(source_env) && ros2 run drc_atlas_centroidal_mpc test_pinocchio_model
 
+## Run Pinocchio Model R1 test
+test-pinocchio-model-r1:
+	@bazel build //... && \
+	$(source_env) && ros2 run unitree_r1_centroidal_mpc test_pinocchio_model
+
 ############################################################
 # Utility targets
 ############################################################
@@ -162,6 +169,18 @@ launch-drc-atlas-sandbox:
 	@bazel build //... && \
 	$(source_env) && ros2 launch drc_atlas_description display.launch.py
 
+launch-r1-dummy-sim:
+	@bazel build //... && \
+	$(source_env) && ros2 launch unitree_r1_centroidal_mpc dummy_sim.launch.py
+
+launch-r1-sim:
+	@bazel build //... && \
+	$(source_env) && ros2 launch unitree_r1_centroidal_mpc mujoco_sim.launch.py
+
+launch-r1-sandbox:
+	@bazel build //... && \
+	$(source_env) && ros2 launch unitree_r1_description display.launch.py
+
 ############################################################
 # VNC visualization (for macOS host)
 ############################################################
@@ -215,4 +234,19 @@ launch-drc-atlas-sandbox-vnc: start-vnc
 	@echo "🚀 Building targets and launching DRC Atlas URDF Viewer..."
 	@bazel build //... && \
 	$(source_env) && $(VNC_GL_ENV) && ros2 launch drc_atlas_description display.launch.py
+
+launch-r1-dummy-sim-vnc: start-vnc
+	@echo "🚀 Building targets and launching Unitree R1 Centroidal MPC Dummy Simulation..."
+	@bazel build //... && \
+	$(source_env) && $(VNC_GL_ENV) && ros2 launch unitree_r1_centroidal_mpc dummy_sim.launch.py
+
+launch-r1-sim-vnc: start-vnc
+	@echo "🚀 Building targets and launching Unitree R1 Centroidal MPC MuJoCo Simulation..."
+	@bazel build //... && \
+	$(source_env) && $(VNC_GL_ENV) && ros2 launch unitree_r1_centroidal_mpc mujoco_sim.launch.py
+
+launch-r1-sandbox-vnc: start-vnc
+	@echo "🚀 Building targets and launching Unitree R1 URDF Viewer..."
+	@bazel build //... && \
+	$(source_env) && $(VNC_GL_ENV) && ros2 launch unitree_r1_description display.launch.py
 # LINT.ThenChange(//setup_env.sh:registered_packages, //.devcontainer/VISUALIZATION.md:launch_targets)
