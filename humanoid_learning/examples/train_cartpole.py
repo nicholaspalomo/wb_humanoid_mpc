@@ -1,17 +1,17 @@
 """
-Cartpole Reinforcement Learning Tutorial using MuJoCo MJX & JAX PPO.
+Cartpole Reinforcement Learning Tutorial using Google Brax PPO & MuJoCo MJX.
 Demonstrates:
   1. Defining an MJCF model in MuJoCo.
-  2. Compiling dynamics into JAX MJX for GPU/CPU parallelization.
-  3. Training a continuous PPO actor-critic policy.
-  4. Visualizing training progress every other update with animated GIFs and metric plots.
+  2. Subclassing brax.envs.base.PipelineEnv for GPU-accelerated MJX physics.
+  3. Training a continuous PPO actor-critic policy via brax.training.agents.ppo.
+  4. Visualizing training progress with high-contrast animated GIFs and live 3D VNC playback.
 """
 
 import argparse
 import os
 import sys
 import time
-from typing import Dict, NamedTuple, Tuple
+from typing import Dict, Optional
 
 # Configure OpenGL backend: GLX for interactive VNC/GUI window, OSMesa for headless background rendering
 if "--vnc" in sys.argv or "--gui" in sys.argv:
@@ -19,8 +19,8 @@ if "--vnc" in sys.argv or "--gui" in sys.argv:
 elif "MUJOCO_GL" not in os.environ:
     os.environ["MUJOCO_GL"] = "osmesa"
 
-from flax import struct
-import flax.linen as nn
+from brax.envs.base import PipelineEnv, State
+from brax.training.agents.ppo import train as ppo
 import jax
 import jax.numpy as jnp
 import matplotlib
@@ -30,8 +30,9 @@ import matplotlib.pyplot as plt
 import mujoco
 from mujoco import mjx
 import numpy as np
-import optax
 from PIL import Image
+
+import humanoid_learning.examples
 
 # ==============================================================================
 # 1. Cartpole MJCF XML Model Definition
@@ -67,137 +68,112 @@ CARTPOLE_XML = """
 
 
 # ==============================================================================
-# 2. Vectorized MJX Environment
+# 2. Brax Pipeline Environment for Cartpole
 # ==============================================================================
-@struct.dataclass
-class CartpoleEnvState:
-    data: mjx.Data
-    obs: jax.Array
-    reward: jax.Array
-    done: jax.Array
+class CartpoleBraxEnv(PipelineEnv):
+    """Cartpole Environment inheriting from Brax PipelineEnv for GPU-accelerated MJX."""
 
-
-class CartpoleMJXEnv:
-    """Vectorized Cartpole Environment compiled to JAX MJX."""
-
-    def __init__(self):
+    def __init__(self, **kwargs):
         self.mj_model = mujoco.MjModel.from_xml_string(CARTPOLE_XML)
-        self.mjx_model = mjx.put_model(self.mj_model)
+        mjx_model = mjx.put_model(self.mj_model)
+        super().__init__(sys=mjx_model, n_frames=1, **kwargs)
 
     @property
-    def obs_dim(self) -> int:
-        # [cart_x, sin(theta), cos(theta), cart_x_dot, theta_dot]
+    def action_size(self) -> int:
+        return self.sys.nu
+
+    @property
+    def observation_size(self) -> int:
         return 5
 
-    @property
-    def act_dim(self) -> int:
-        return 1
-
-    def reset(self, rng: jax.Array) -> CartpoleEnvState:
+    def reset(self, rng: jax.Array) -> State:
         """Resets the cartpole state with initial tilt perturbation."""
         rng_pos, rng_pole = jax.random.split(rng)
         init_x = jax.random.uniform(rng_pos, (), minval=-0.2, maxval=0.2)
         init_theta = jax.random.uniform(rng_pole, (), minval=-0.4, maxval=0.4)
 
-        data = mjx.make_data(self.mjx_model)
-        qpos = data.qpos.at[0].set(init_x).at[1].set(init_theta)
-        qvel = jnp.zeros_like(data.qvel)
-        data = data.replace(qpos=qpos, qvel=qvel)
-        data = mjx.forward(self.mjx_model, data)
+        qpos = jnp.array([init_x, init_theta])
+        qvel = jnp.zeros(2)
+        pipeline_state = self.pipeline_init(qpos, qvel)
 
-        obs = self._get_obs(data)
-        return CartpoleEnvState(
-            data=data,
+        obs = self._get_obs(pipeline_state)
+        reward = jnp.zeros(())
+        done = jnp.zeros(())
+        metrics = {
+            "reward": reward,
+            "upright": jnp.clip(jnp.cos(init_theta), 0.0, 1.0),
+            "cart_x": init_x,
+        }
+        return State(pipeline_state, obs, reward, done, metrics)
+
+    def step(self, state: State, action: jax.Array) -> State:
+        """Applies action and integrates physics forward using MJX."""
+        ctrl = jnp.clip(action, -1.0, 1.0)
+        pipeline_state = self.pipeline_step(state.pipeline_state, ctrl)
+
+        obs = self._get_obs(pipeline_state)
+        done = self._is_done(pipeline_state)
+        reward = self._compute_reward(pipeline_state, ctrl, done)
+
+        metrics = {
+            "reward": reward,
+            "upright": jnp.clip(jnp.cos(pipeline_state.qpos[1]), 0.0, 1.0),
+            "cart_x": pipeline_state.qpos[0],
+        }
+        return state.replace(
+            pipeline_state=pipeline_state,
             obs=obs,
-            reward=jnp.zeros(()),
-            done=jnp.zeros((), dtype=jnp.bool_),
+            reward=reward,
+            done=done,
+            metrics=metrics,
         )
 
-    def step(self, state: CartpoleEnvState, action: jax.Array) -> CartpoleEnvState:
-        """Applies action and integrates physics forward."""
-        ctrl = jnp.clip(action, -1.0, 1.0)
-        data = state.data.replace(ctrl=ctrl)
-        data = mjx.step(self.mjx_model, data)
-
-        obs = self._get_obs(data)
-        done = self._is_done(data)
-        reward = self._compute_reward(data, ctrl, done)
-
-        return CartpoleEnvState(data=data, obs=obs, reward=reward, done=done)
-
-    def _get_obs(self, data: mjx.Data) -> jax.Array:
-        cart_x = data.qpos[0]
-        theta = data.qpos[1]
-        cart_x_dot = data.qvel[0]
-        theta_dot = data.qvel[1]
+    def _get_obs(self, pipeline_state: mjx.Data) -> jax.Array:
+        cart_x = pipeline_state.qpos[0]
+        theta = pipeline_state.qpos[1]
+        cart_x_dot = pipeline_state.qvel[0]
+        theta_dot = pipeline_state.qvel[1]
         return jnp.array(
             [cart_x, jnp.sin(theta), jnp.cos(theta), cart_x_dot, theta_dot]
         )
 
     def _compute_reward(
-        self, data: mjx.Data, ctrl: jax.Array, done: jax.Array
+        self, pipeline_state: mjx.Data, ctrl: jax.Array, done: jax.Array
     ) -> jax.Array:
-        cart_x = data.qpos[0]
-        theta = data.qpos[1]
-        theta_dot = data.qvel[1]
+        cart_x = pipeline_state.qpos[0]
+        theta = pipeline_state.qpos[1]
+        theta_dot = pipeline_state.qvel[1]
 
-        # Upright reward (+1.0 when perfectly vertical, 0 when falling)
         upright_reward = jnp.clip(jnp.cos(theta), 0.0, 1.0)
-        # Penalties for drifting away from center, angular velocity, and control effort
         center_penalty = 0.05 * jnp.square(cart_x)
         spin_penalty = 0.005 * jnp.square(theta_dot)
         ctrl_penalty = 0.005 * jnp.sum(jnp.square(ctrl))
-        fall_penalty = jnp.where(done, -1.0, 0.0)
+        fall_penalty = jnp.where(done > 0.5, -1.0, 0.0)
 
         return (
             upright_reward - center_penalty - spin_penalty - ctrl_penalty + fall_penalty
         )
 
-    def _is_done(self, data: mjx.Data) -> jax.Array:
-        cart_x = data.qpos[0]
-        theta = data.qpos[1]
-        # Terminate if cart runs off rail or pole falls past recovery angle
+    def _is_done(self, pipeline_state: mjx.Data) -> jax.Array:
+        cart_x = pipeline_state.qpos[0]
+        theta = pipeline_state.qpos[1]
         out_of_bounds = jnp.abs(cart_x) > 2.2
         fallen = jnp.cos(theta) < 0.2
-        return out_of_bounds | fallen
+        return jnp.where(out_of_bounds | fallen, 1.0, 0.0)
 
 
 # ==============================================================================
-# 3. Actor-Critic Policy Network (Flax)
-# ==============================================================================
-class ActorCritic(nn.Module):
-    action_dim: int
-
-    @nn.compact
-    def __call__(self, x: jax.Array) -> Tuple[jax.Array, jax.Array, jax.Array]:
-        # Shared feature torso
-        h = nn.Dense(64)(x)
-        h = nn.tanh(h)
-        h = nn.Dense(64)(h)
-        h = nn.tanh(h)
-
-        # Actor head
-        actor_mean = nn.Dense(self.action_dim)(h)
-        actor_mean = nn.tanh(actor_mean)
-        log_std = self.param("log_std", nn.initializers.zeros, (self.action_dim,))
-
-        # Critic head
-        value = nn.Dense(1)(h)
-        return actor_mean, log_std, jnp.squeeze(value, axis=-1)
-
-
-# ==============================================================================
-# 4. Rendering & Visualization Helper
+# 3. Rendering & Visualization Helper
 # ==============================================================================
 def render_policy_rollout(
-    mj_model: mujoco.MjModel, network: ActorCritic, params: dict, output_gif_path: str
-):
-    """Rolls out the current policy in MuJoCo dynamics and renders an animated GIF using MuJoCo 3D Renderer."""
+    mj_model: mujoco.MjModel, inference_fn, output_gif_path: str
+) -> float:
+    """Rolls out the trained policy in MuJoCo dynamics and renders an animated GIF."""
     data = mujoco.MjData(mj_model)
 
-    # Initial state with slight tilt
+    # Initial state with perturbation tilt
     data.qpos[0] = 0.0
-    data.qpos[1] = 0.2
+    data.qpos[1] = 0.35
     data.qvel[:] = 0.0
     mujoco.mj_forward(mj_model, data)
 
@@ -214,6 +190,7 @@ def render_policy_rollout(
 
     cart_xs = []
     thetas = []
+    rng = jax.random.PRNGKey(0)
 
     for step in range(num_frames):
         cart_x = float(data.qpos[0])
@@ -226,14 +203,14 @@ def render_policy_rollout(
             dtype=np.float32,
         )
 
-        # Predict action (deterministic mean)
-        mean, _, _ = network.apply(params, obs)
-        action = np.array(mean)
+        rng, act_rng = jax.random.split(rng)
+        action, _ = inference_fn(obs, act_rng)
+        act_scalar = float(np.array(action)[0])
 
-        data.ctrl[0] = np.clip(action[0], -1.0, 1.0)
+        data.ctrl[0] = np.clip(act_scalar, -1.0, 1.0)
         mujoco.mj_step(mj_model, data)
 
-        total_reward += np.cos(theta) - 0.1 * (cart_x**2)
+        total_reward += np.cos(theta) - 0.05 * (cart_x**2)
 
         # Render native MuJoCo 3D camera frame
         if step % 2 == 0 and renderer is not None:
@@ -258,14 +235,11 @@ def render_policy_rollout(
             ax.set_facecolor("#1e222d")
             fig.patch.set_facecolor("#12141a")
 
-            # Rail
             ax.plot([-2.4, 2.4], [0, 0], color="#475569", linewidth=4)
-            # Cart
             cart_patch = plt.Rectangle(
                 (cx - 0.2, -0.06), 0.4, 0.12, color="#38bdf8", zorder=3
             )
             ax.add_patch(cart_patch)
-            # Pole
             ax.plot(
                 [cx, px],
                 [0, py],
@@ -316,34 +290,36 @@ def plot_training_curves(metrics_history: Dict[str, list], output_plot_path: str
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4))
 
     # Evaluation Return / Score Plot
-    eval_updates = metrics_history.get("eval_updates", metrics_history["updates"])
-    eval_scores = metrics_history.get("eval_scores", metrics_history["rewards"])
-    ax1.plot(
-        eval_updates,
-        eval_scores,
-        "o-",
-        color="#2563eb",
-        linewidth=2,
-    )
+    eval_steps = metrics_history.get("eval_steps", [])
+    eval_scores = metrics_history.get("eval_scores", [])
+    if eval_steps and eval_scores:
+        ax1.plot(
+            eval_steps,
+            eval_scores,
+            "o-",
+            color="#2563eb",
+            linewidth=2,
+        )
     ax1.set_title(
         "Evaluation Episode Return", fontsize=12, fontweight="bold", color="#1e293b"
     )
-    ax1.set_xlabel("Update Step")
+    ax1.set_xlabel("Environment Steps")
     ax1.set_ylabel("Cumulative Return")
     ax1.grid(True, linestyle="--", alpha=0.6)
 
     # Loss Plot
-    ax2.plot(
-        metrics_history["updates"],
-        metrics_history["loss"],
-        "s-",
-        color="#dc2626",
-        linewidth=2,
-    )
-    ax2.set_title(
-        "Total PPO Loss (Convergence)", fontsize=12, fontweight="bold", color="#1e293b"
-    )
-    ax2.set_xlabel("Update Step")
+    loss_steps = metrics_history.get("loss_steps", [])
+    loss_vals = metrics_history.get("loss", [])
+    if loss_steps and loss_vals:
+        ax2.plot(
+            loss_steps,
+            loss_vals,
+            "s-",
+            color="#dc2626",
+            linewidth=2,
+        )
+    ax2.set_title("PPO Total Loss", fontsize=12, fontweight="bold", color="#1e293b")
+    ax2.set_xlabel("Environment Steps")
     ax2.set_ylabel("Loss")
     ax2.grid(True, linestyle="--", alpha=0.6)
 
@@ -354,38 +330,26 @@ def plot_training_curves(metrics_history: Dict[str, list], output_plot_path: str
 
 
 # ==============================================================================
-# 5. Main PPO Training Loop with Progress Visualization
+# 4. Main Brax PPO Training Loop with Visualization Callback
 # ==============================================================================
-def gaussian_log_prob(
-    mean: jax.Array, log_std: jax.Array, action: jax.Array
-) -> jax.Array:
-    var = jnp.exp(2.0 * log_std)
-    return -0.5 * jnp.sum(
-        jnp.square(action - mean) / (var + 1e-8)
-        + 2.0 * log_std
-        + jnp.log(2.0 * jnp.pi),
-        axis=-1,
-    )
-
-
 def main():
     parser = argparse.ArgumentParser(
-        description="Cartpole MJX PPO Training with Visualization"
+        description="Cartpole Brax MJX PPO Training with Visualization"
     )
     parser.add_argument(
         "--num_envs", type=int, default=64, help="Number of parallel environments"
     )
-    parser.add_argument("--num_updates", type=int, default=20, help="Total PPO updates")
     parser.add_argument(
-        "--rollout_len", type=int, default=64, help="Rollout steps per update"
+        "--total_timesteps", type=int, default=50_000, help="Total environment steps"
     )
-    parser.add_argument("--lr", type=float, default=3e-3, help="Learning rate")
+    parser.add_argument(
+        "--num_evals", type=int, default=10, help="Number of evaluation checkpoints"
+    )
+    parser.add_argument(
+        "--episode_length", type=int, default=200, help="Episode length"
+    )
+    parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate")
     parser.add_argument("--gamma", type=float, default=0.99, help="Discount factor")
-    parser.add_argument("--gae_lambda", type=float, default=0.95, help="GAE lambda")
-    parser.add_argument("--clip_eps", type=float, default=0.2, help="PPO clip epsilon")
-    parser.add_argument(
-        "--vis_interval", type=int, default=2, help="Visualization interval (updates)"
-    )
     parser.add_argument(
         "--output_dir", type=str, default="cartpole_renders", help="Output directory"
     )
@@ -407,19 +371,18 @@ def main():
         args.output_dir = os.path.join(workspace_dir, args.output_dir)
 
     print("=" * 70)
-    print("🚀 MuJoCo Playground & MJX Cartpole Reinforcement Learning Tutorial")
+    print("🚀 Google Brax & MuJoCo MJX Cartpole PPO Training")
     print(f"   Parallel Envs:       {args.num_envs}")
-    print(f"   Total Updates:       {args.num_updates}")
-    print(f"   Rollout Length:      {args.rollout_len}")
-    print(f"   Vis Update Interval: Every {args.vis_interval} update(s)")
+    print(f"   Total Timesteps:     {args.total_timesteps:,}")
+    print(f"   Evaluation Epochs:   {args.num_evals}")
+    print(f"   Episode Length:      {args.episode_length}")
     print(f"   Output Directory:    {os.path.abspath(args.output_dir)}")
     if args.vnc or args.gui:
         print("   Live 3D Viewer:      ENABLED (Opening in VNC / GUI Display)")
     print("=" * 70)
 
-    env = CartpoleMJXEnv()
-    v_reset = jax.vmap(env.reset)
-    v_step = jax.vmap(env.step)
+    env = CartpoleBraxEnv()
+    os.makedirs(args.output_dir, exist_ok=True)
 
     # Initialize live passive 3D MuJoCo viewer if requested
     viewer = None
@@ -432,226 +395,131 @@ def main():
                 os.environ["DISPLAY"] = ":99"
             eval_data = mujoco.MjData(env.mj_model)
             eval_data.qpos[0] = 0.0
-            eval_data.qpos[1] = 0.2
+            eval_data.qpos[1] = 0.35
             eval_data.qvel[:] = 0.0
             mujoco.mj_forward(env.mj_model, eval_data)
             viewer = mujoco.viewer.launch_passive(env.mj_model, eval_data)
             viewer.sync()
-
             print("🖥️ Live 3D MuJoCo Viewer initialized on display :99!")
         except Exception as e:
             print(f"⚠️ Could not launch live 3D viewer: {e}")
             viewer = None
 
-    network = ActorCritic(action_dim=env.act_dim)
-    optimizer = optax.chain(
-        optax.clip_by_global_norm(0.5), optax.adam(learning_rate=args.lr)
-    )
-
-    rng = jax.random.PRNGKey(42)
-    rng, init_rng = jax.random.split(rng)
-    params = network.init(init_rng, jnp.zeros((args.num_envs, env.obs_dim)))
-    opt_state = optimizer.init(params)
-
-    reset_keys = jax.random.split(rng, args.num_envs)
-    env_state = v_reset(reset_keys)
-
-    # Rollout collection step function under JIT
-    @jax.jit
-    def collect_rollout(params, env_state, key):
-        def _step_fn(carry, _):
-            e_state, k = carry
-            k, act_key, res_key = jax.random.split(k, 3)
-            mean, log_std, value = network.apply(params, e_state.obs)
-            std = jnp.exp(log_std)
-            action = mean + std * jax.random.normal(act_key, mean.shape)
-
-            next_e_state = v_step(e_state, action)
-
-            # Auto-reset terminated environments
-            reset_keys = jax.random.split(res_key, args.num_envs)
-            fresh_state = v_reset(reset_keys)
-
-            # Select fresh state when done is True
-            next_e_state = jax.tree_util.tree_map(
-                lambda n, f: jnp.where(
-                    jnp.expand_dims(next_e_state.done, tuple(range(1, n.ndim))), f, n
-                ),
-                next_e_state,
-                fresh_state,
-            )
-
-            transition = (
-                e_state.obs,
-                action,
-                e_state.reward,
-                e_state.done,
-                value,
-                mean,
-                log_std,
-            )
-            return (next_e_state, k), transition
-
-        (final_env_state, next_key), traj = jax.lax.scan(
-            _step_fn, (env_state, key), None, length=args.rollout_len
-        )
-        return final_env_state, traj, next_key
-
-    # PPO loss & gradient update under JIT
-    @jax.jit
-    def ppo_update(params, opt_state, traj):
-        obs, actions, rewards, dones, values, old_means, old_log_stds = traj
-
-        # Generalized Advantage Estimation (GAE)
-        gamma = args.gamma
-        gae_lambda = args.gae_lambda
-
-        def _gae_step(carry, step_data):
-            next_val, gae = carry
-            reward, done, val = step_data
-            delta = reward + gamma * next_val * (1.0 - done.astype(jnp.float32)) - val
-            gae = delta + gamma * gae_lambda * (1.0 - done.astype(jnp.float32)) * gae
-            return (val, gae), gae
-
-        # Scan backwards to compute GAE advantages
-        _, advantages = jax.lax.scan(
-            _gae_step,
-            (jnp.zeros_like(values[0]), jnp.zeros_like(values[0])),
-            (rewards, dones, values),
-            reverse=True,
-        )
-        returns = advantages + values
-
-        # Normalize advantages
-        norm_advantages = (advantages - jnp.mean(advantages)) / (
-            jnp.std(advantages) + 1e-8
-        )
-        old_log_probs = gaussian_log_prob(old_means, old_log_stds, actions)
-
-        def loss_fn(p):
-            new_means, new_log_stds, new_values = network.apply(p, obs)
-            new_log_probs = gaussian_log_prob(new_means, new_log_stds, actions)
-
-            # PPO Clipped Surrogate Loss
-            ratio = jnp.exp(new_log_probs - old_log_probs)
-            clip_ratio = jnp.clip(ratio, 1.0 - args.clip_eps, 1.0 + args.clip_eps)
-            surr1 = ratio * norm_advantages
-            surr2 = clip_ratio * norm_advantages
-            policy_loss = -jnp.mean(jnp.minimum(surr1, surr2))
-
-            # Value Function Loss
-            value_loss = 0.5 * jnp.mean(jnp.square(new_values - returns))
-
-            # Entropy Bonus
-            entropy = jnp.mean(new_log_stds + 0.5 * jnp.log(2.0 * jnp.pi * jnp.e))
-
-            total_loss = policy_loss + 0.5 * value_loss - 0.01 * entropy
-            return total_loss
-
-        loss, grads = jax.value_and_grad(loss_fn)(params)
-        updates, next_opt_state = optimizer.update(grads, opt_state, params)
-        next_params = optax.apply_updates(params, updates)
-        return next_params, next_opt_state, loss
-
     metrics_history = {
-        "updates": [],
-        "rewards": [],
-        "loss": [],
-        "eval_updates": [],
+        "eval_steps": [],
         "eval_scores": [],
+        "loss_steps": [],
+        "loss": [],
     }
-    os.makedirs(args.output_dir, exist_ok=True)
 
-    print("\n🏁 Starting Training Loop...\n")
+    step_count = 0
+    t_last = time.time()
 
-    for update in range(1, args.num_updates + 1):
-        t_start = time.time()
-        rng, rollout_key = jax.random.split(rng)
-        env_state, traj, rng = collect_rollout(params, env_state, rollout_key)
-        params, opt_state, loss = ppo_update(params, opt_state, traj)
+    def progress_callback(num_steps: int, metrics: Dict[str, float]):
+        nonlocal step_count, t_last
+        step_count += 1
+        dt = time.time() - t_last
+        t_last = time.time()
 
-        mean_reward = float(jnp.mean(traj[2]))
-        loss_val = float(loss)
-        dt = time.time() - t_start
+        eval_reward = float(
+            metrics.get("eval/episode_reward", metrics.get("eval/reward", 0.0))
+        )
+        loss_val = float(metrics.get("training/total_loss", 0.0))
 
-        metrics_history["updates"].append(update)
-        metrics_history["rewards"].append(mean_reward)
-        metrics_history["loss"].append(loss_val)
+        metrics_history["eval_steps"].append(num_steps)
+        metrics_history["eval_scores"].append(eval_reward)
+        if loss_val != 0.0:
+            metrics_history["loss_steps"].append(num_steps)
+            metrics_history["loss"].append(loss_val)
 
-        # Terminal status indicator
         pole_icon = (
             "🟢 UP"
-            if mean_reward > 0.7
-            else ("🟡 BALANCING" if mean_reward > 0.0 else "🔴 FALLEN")
+            if eval_reward > 100.0
+            else ("🟡 BALANCING" if eval_reward > 20.0 else "🔴 FALLEN")
         )
         print(
-            f"Update {update:02d}/{args.num_updates:02d} | Step Reward: {mean_reward:+.3f} | Loss: {loss_val:.4f} | {pole_icon} | {dt*1000:.1f}ms"
+            f"Step {num_steps:>6d} | Eval Reward: {eval_reward:>+7.2f} | Loss: {loss_val:.4f} | {pole_icon} | {dt*1000:.1f}ms"
         )
 
-        # Visualization every other update
-        if update % args.vis_interval == 0 or update == args.num_updates:
-            gif_filename = f"cartpole_update_{update:03d}.gif"
-            gif_path = os.path.join(args.output_dir, gif_filename)
-            latest_gif_path = os.path.join(args.output_dir, "cartpole_latest.gif")
-            plot_path = os.path.join(args.output_dir, "training_curves.png")
+        plot_path = os.path.join(args.output_dir, "training_curves.png")
+        plot_training_curves(metrics_history, plot_path)
 
-            # Render policy rollout GIF and save plots
-            eval_score = render_policy_rollout(env.mj_model, network, params, gif_path)
-            metrics_history["eval_updates"].append(update)
-            metrics_history["eval_scores"].append(eval_score)
+    print("\n🏁 Launching Brax PPO Training Loop...\n")
 
-            # Copy to latest
-            if os.path.exists(gif_path):
-                import shutil
+    # Run Brax PPO training
+    make_inference_fn, params, final_metrics = ppo.train(
+        environment=env,
+        num_timesteps=args.total_timesteps,
+        num_evals=args.num_evals,
+        reward_scaling=1.0,
+        episode_length=args.episode_length,
+        normalize_observations=True,
+        action_repeat=1,
+        unroll_length=20,
+        num_minibatches=16,
+        num_updates_per_batch=4,
+        discounting=args.gamma,
+        learning_rate=args.lr,
+        entropy_cost=1e-2,
+        num_envs=args.num_envs,
+        batch_size=32,
+        seed=42,
+        progress_fn=progress_callback,
+    )
 
-                shutil.copyfile(gif_path, latest_gif_path)
+    inference_fn = make_inference_fn(params)
 
-            plot_training_curves(metrics_history, plot_path)
+    # Render final policy rollout
+    final_gif_path = os.path.join(args.output_dir, "cartpole_latest.gif")
+    eval_score = render_policy_rollout(env.mj_model, inference_fn, final_gif_path)
+    print(
+        f"\n🎬 [Final Visualization Saved] -> {final_gif_path} (Score: {eval_score:.1f})"
+    )
 
-            print(
-                f"   🎬 [Visualization Saved] -> {gif_path} (Eval Score: {eval_score:.1f} / 120.0)"
+    # Live 3D playback in VNC if viewer is active
+    if viewer is not None and viewer.is_running() and eval_data is not None:
+        print("🖥️ Running live playback in 3D MuJoCo viewer...")
+        with viewer.lock():
+            eval_data.qpos[0] = 0.0
+            eval_data.qpos[1] = 0.35
+            eval_data.qvel[:] = 0.0
+            mujoco.mj_forward(env.mj_model, eval_data)
+        viewer.sync()
+
+        rng_eval = jax.random.PRNGKey(123)
+        for _ in range(150):
+            if not viewer.is_running():
+                break
+            cart_x = float(eval_data.qpos[0])
+            theta = float(eval_data.qpos[1])
+            obs_eval = np.array(
+                [
+                    cart_x,
+                    np.sin(theta),
+                    np.cos(theta),
+                    eval_data.qvel[0],
+                    eval_data.qvel[1],
+                ],
+                dtype=np.float32,
             )
-            print(f"   📊 [Metrics Plot Saved] -> {plot_path}")
-
-            # Live 3D viewer playback in VNC
-            if viewer is not None and viewer.is_running() and eval_data is not None:
-                with viewer.lock():
-                    eval_data.qpos[0] = 0.0
-                    eval_data.qpos[1] = 0.2
-                    eval_data.qvel[:] = 0.0
-                    mujoco.mj_forward(env.mj_model, eval_data)
-                viewer.sync()
-
-                for _ in range(80):
-                    if not viewer.is_running():
-                        break
-                    cart_x = float(eval_data.qpos[0])
-                    theta = float(eval_data.qpos[1])
-                    obs_eval = np.array(
-                        [
-                            cart_x,
-                            np.sin(theta),
-                            np.cos(theta),
-                            eval_data.qvel[0],
-                            eval_data.qvel[1],
-                        ],
-                        dtype=np.float32,
-                    )
-                    mean_eval, _, _ = network.apply(params, obs_eval)
-                    with viewer.lock():
-                        eval_data.ctrl[0] = np.clip(float(mean_eval[0]), -1.0, 1.0)
-                        mujoco.mj_step(env.mj_model, eval_data)
-                    viewer.sync()
-                    time.sleep(0.015)
-
-        elif viewer is not None and viewer.is_running():
+            rng_eval, act_rng = jax.random.split(rng_eval)
+            action, _ = inference_fn(obs_eval, act_rng)
+            with viewer.lock():
+                eval_data.ctrl[0] = np.clip(float(np.array(action)[0]), -1.0, 1.0)
+                mujoco.mj_step(env.mj_model, eval_data)
             viewer.sync()
+            time.sleep(0.015)
 
-    if viewer is not None and viewer.is_running():
-        viewer.close()
+    if viewer is not None:
+        try:
+            if viewer.is_running():
+                viewer.close()
+        except Exception:
+            pass
+        viewer = None
 
     print("\n" + "=" * 70)
-    print("🎉 Training Completed Successfully!")
+    print("🎉 Brax PPO Training Completed Successfully!")
     print(
         f"📁 All animated GIFs and metric plots saved in: {os.path.abspath(args.output_dir)}/"
     )
@@ -662,6 +530,11 @@ def main():
         f"   - Training Curves:  {os.path.join(args.output_dir, 'training_curves.png')}"
     )
     print("=" * 70)
+
+    # Clean exit for VNC/GUI to prevent GLFW/Mesa background thread teardown crash
+    if args.vnc or args.gui:
+        sys.stdout.flush()
+        os._exit(0)
 
 
 if __name__ == "__main__":

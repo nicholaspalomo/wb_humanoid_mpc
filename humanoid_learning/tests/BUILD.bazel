@@ -32,6 +32,7 @@ py_test(
     srcs = ["test_cartpole.py"],
     deps = [
         "//humanoid_learning/examples:examples_lib",
+        requirement("brax"),
         requirement("flax"),
         requirement("jax"),
         requirement("jaxlib"),

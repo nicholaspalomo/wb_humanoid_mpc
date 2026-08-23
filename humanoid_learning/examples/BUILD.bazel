@@ -14,6 +14,7 @@ py_library(
         "train_cartpole.py",
     ],
     deps = [
+        requirement("brax"),
         requirement("flax"),
         requirement("jax"),
         requirement("jaxlib"),
