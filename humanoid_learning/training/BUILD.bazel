@@ -2,6 +2,7 @@
 # Humanoid Learning - Training Pipelines
 # ==============================================================================
 
+load("@rl_deps//:requirements.bzl", "requirement")
 load("@rules_python//python:defs.bzl", "py_binary", "py_library")
 
 package(default_visibility = ["//visibility:public"])
@@ -15,18 +16,18 @@ py_library(
     ],
     deps = [
         "//humanoid_learning/envs",
-        "@rl_deps//:absl_py",
-        "@rl_deps//:brax",
-        "@rl_deps//:flax",
-        "@rl_deps//:h5py",
-        "@rl_deps//:jax",
-        "@rl_deps//:jaxlib",
-        "@rl_deps//:mujoco",
-        "@rl_deps//:mujoco_mjx",
-        "@rl_deps//:numpy",
-        "@rl_deps//:optax",
-        "@rl_deps//:orbax_checkpoint",
-        "@rl_deps//:playground",
+        requirement("absl-py"),
+        requirement("brax"),
+        requirement("flax"),
+        requirement("h5py"),
+        requirement("jax"),
+        requirement("jaxlib"),
+        requirement("mujoco"),
+        requirement("mujoco-mjx"),
+        requirement("numpy"),
+        requirement("optax"),
+        requirement("orbax-checkpoint"),
+        requirement("playground"),
     ],
 )
 

@@ -2,6 +2,7 @@
 # Humanoid Learning - Policy Export
 # ==============================================================================
 
+load("@rl_deps//:requirements.bzl", "requirement")
 load("@rules_python//python:defs.bzl", "py_binary", "py_library")
 
 package(default_visibility = ["//visibility:public"])
@@ -14,10 +15,10 @@ py_library(
     ],
     deps = [
         "//humanoid_learning/training:training_lib",
-        "@rl_deps//:jax",
-        "@rl_deps//:jaxlib",
-        "@rl_deps//:numpy",
-        "@rl_deps//:onnx",
+        requirement("jax"),
+        requirement("jaxlib"),
+        requirement("numpy"),
+        requirement("onnx"),
     ],
 )
 

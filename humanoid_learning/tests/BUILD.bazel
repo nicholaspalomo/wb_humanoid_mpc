@@ -2,6 +2,7 @@
 # Humanoid Learning - Tests
 # ==============================================================================
 
+load("@rl_deps//:requirements.bzl", "requirement")
 load("@rules_python//python:defs.bzl", "py_test")
 
 package(default_visibility = ["//visibility:public"])
@@ -12,16 +13,16 @@ py_test(
     deps = [
         "//humanoid_learning/envs",
         "//humanoid_learning/training:training_lib",
-        "@rl_deps//:absl_py",
-        "@rl_deps//:brax",
-        "@rl_deps//:flax",
-        "@rl_deps//:jax",
-        "@rl_deps//:jaxlib",
-        "@rl_deps//:mujoco",
-        "@rl_deps//:mujoco_mjx",
-        "@rl_deps//:numpy",
-        "@rl_deps//:onnx",
-        "@rl_deps//:optax",
-        "@rl_deps//:playground",
+        requirement("absl-py"),
+        requirement("brax"),
+        requirement("flax"),
+        requirement("jax"),
+        requirement("jaxlib"),
+        requirement("mujoco"),
+        requirement("mujoco-mjx"),
+        requirement("numpy"),
+        requirement("onnx"),
+        requirement("optax"),
+        requirement("playground"),
     ],
 )
