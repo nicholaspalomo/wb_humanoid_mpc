@@ -1,0 +1,35 @@
+# ==============================================================================
+# Humanoid Learning - Examples and Tutorials
+# ==============================================================================
+
+load("@rl_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+
+package(default_visibility = ["//visibility:public"])
+
+py_library(
+    name = "examples_lib",
+    srcs = [
+        "__init__.py",
+        "train_cartpole.py",
+    ],
+    deps = [
+        requirement("flax"),
+        requirement("jax"),
+        requirement("jaxlib"),
+        requirement("matplotlib"),
+        requirement("mujoco"),
+        requirement("mujoco-mjx"),
+        requirement("numpy"),
+        requirement("optax"),
+        requirement("pillow"),
+    ],
+)
+
+py_binary(
+    name = "train_cartpole",
+    srcs = ["train_cartpole.py"],
+    deps = [
+        ":examples_lib",
+    ],
+)

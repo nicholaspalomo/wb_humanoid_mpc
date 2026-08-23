@@ -24,7 +24,7 @@ endef
         launch-g1-dummy-sim-vnc launch-g1-sim-vnc launch-wb-g1-dummy-sim-vnc launch-wb-g1-sim-vnc \
         launch-drc-atlas-dummy-sim-vnc launch-drc-atlas-sandbox-vnc \
         launch-r1-dummy-sim-vnc launch-r1-sim-vnc launch-r1-sandbox-vnc \
-        run-ocs2-tests run-mpc-tests test-rl train-rl train-bc export-rollouts lock-rl-deps echo-packages update-submodules git-lfs install-hooks
+        run-ocs2-tests run-mpc-tests test-rl train-rl train-cartpole train-cartpole-vnc train-bc export-rollouts lock-rl-deps echo-packages update-submodules git-lfs install-hooks
 
 ## Build everything
 build-all:
@@ -77,6 +77,14 @@ test-rl:
 ## Run MuJoCo Playground RL PPO Training
 train-rl:
 	bazel run //humanoid_learning/training:train_ppo
+
+## Train Cartpole RL example with visual progress rendering
+train-cartpole:
+	bazel run //humanoid_learning/examples:train_cartpole
+
+## Train Cartpole RL with interactive 3D MuJoCo Viewer in VNC
+train-cartpole-vnc: start-vnc
+	$(VNC_GL_ENV) && bazel run //humanoid_learning/examples:train_cartpole -- --vnc
 
 ## Behavioral Cloning pretraining on MPC demos
 train-bc:
