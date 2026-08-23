@@ -1,0 +1,48 @@
+# ==============================================================================
+# Humanoid Learning - Training Pipelines
+# ==============================================================================
+
+load("@rl_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+
+package(default_visibility = ["//visibility:public"])
+
+py_library(
+    name = "training_lib",
+    srcs = [
+        "__init__.py",
+        "bc_warmstart.py",
+        "train_ppo.py",
+    ],
+    deps = [
+        "//humanoid_learning/envs",
+        requirement("absl-py"),
+        requirement("brax"),
+        requirement("flax"),
+        requirement("h5py"),
+        requirement("jax"),
+        requirement("jaxlib"),
+        requirement("mujoco"),
+        requirement("mujoco-mjx"),
+        requirement("numpy"),
+        requirement("optax"),
+        requirement("orbax-checkpoint"),
+        requirement("playground"),
+    ],
+)
+
+py_binary(
+    name = "train_ppo",
+    srcs = ["train_ppo.py"],
+    deps = [
+        ":training_lib",
+    ],
+)
+
+py_binary(
+    name = "bc_warmstart",
+    srcs = ["bc_warmstart.py"],
+    deps = [
+        ":training_lib",
+    ],
+)

@@ -22,7 +22,7 @@ endef
         start-vnc stop-vnc \
         launch-g1-dummy-sim-vnc launch-g1-sim-vnc launch-wb-g1-dummy-sim-vnc launch-wb-g1-sim-vnc \
         launch-drc-atlas-dummy-sim-vnc launch-drc-atlas-sandbox-vnc \
-        run-ocs2-tests run-mpc-tests echo-packages update-submodules git-lfs install-hooks
+        run-ocs2-tests run-mpc-tests test-rl train-rl train-bc export-rollouts lock-rl-deps echo-packages update-submodules git-lfs install-hooks
 
 ## Build everything
 build-all:
@@ -67,6 +67,26 @@ run-ocs2-tests:
 ## Run MPC tests
 run-mpc-tests:
 	bazel test //humanoid_nmpc/...
+
+## Run MuJoCo Playground RL tests
+test-rl:
+	bazel test //humanoid_learning/...
+
+## Run MuJoCo Playground RL PPO Training
+train-rl:
+	bazel run //humanoid_learning/training:train_ppo
+
+## Behavioral Cloning pretraining on MPC demos
+train-bc:
+	bazel run //humanoid_learning/training:bc_warmstart
+
+## Export recorded MPC trajectories to HDF5 demos
+export-rollouts:
+	python3 humanoid_nmpc/humanoid_common_mpc_pyutils/humanoid_common_mpc_pyutils/export_rollouts.py
+
+## Lock / Update RL pip dependencies
+lock-rl-deps:
+	bazel run //humanoid_learning:requirements.update
 
 ## Run Pinocchio Model Atlas test
 test-pinocchio-model-atlas:

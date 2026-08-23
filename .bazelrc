@@ -30,7 +30,7 @@ build --linkopt=-ldl
 build --sandbox_writable_path=/tmp
 
 # --- Environment Variables ---
-# Propagate ROS2 environment to build actions
+# Propagate ROS2 & CUDA GPU environment to build actions
 build --action_env=ROS_DISTRO
 build --action_env=AMENT_PREFIX_PATH
 build --action_env=CMAKE_PREFIX_PATH
@@ -38,6 +38,8 @@ build --action_env=PYTHONPATH
 build --action_env=LD_LIBRARY_PATH
 build --action_env=PATH
 build --action_env=HOME
+build --action_env=CUDA_VISIBLE_DEVICES
+build --action_env=NVIDIA_VISIBLE_DEVICES
 
 # --- Bazel 9.x compatibility ---
 # Auto-load removed built-in rules (cc_library, cc_binary, etc.) for external
@@ -64,3 +66,4 @@ test --test_verbose_timeout_warnings
 test --test_env=LD_LIBRARY_PATH
 test --test_env=AMENT_PREFIX_PATH
 test --test_env=ROS_DISTRO
+test --test_env=CUDA_VISIBLE_DEVICES

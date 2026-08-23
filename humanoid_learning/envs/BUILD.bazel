@@ -1,0 +1,26 @@
+# ==============================================================================
+# Humanoid Learning - Environments
+# ==============================================================================
+
+load("@rl_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_library")
+
+package(default_visibility = ["//visibility:public"])
+
+py_library(
+    name = "envs",
+    srcs = [
+        "__init__.py",
+        "base_env.py",
+    ],
+    deps = [
+        requirement("absl-py"),
+        requirement("brax"),
+        requirement("jax"),
+        requirement("jaxlib"),
+        requirement("mujoco"),
+        requirement("mujoco-mjx"),
+        requirement("numpy"),
+        requirement("playground"),
+    ],
+)
