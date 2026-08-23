@@ -27,6 +27,11 @@ if [ ! -d "$NOVNC_DIR" ]; then
     NOVNC_DIR="/usr/share/noVNC"
 fi
 
+# Ensure index.html points to vnc.html in noVNC directory
+if [ -d "$NOVNC_DIR" ]; then
+    sudo -n ln -sf "${NOVNC_DIR}/vnc.html" "${NOVNC_DIR}/index.html" 2>/dev/null || ln -sf "${NOVNC_DIR}/vnc.html" "${NOVNC_DIR}/index.html" 2>/dev/null || true
+fi
+
 cleanup() {
     echo "Stopping VNC services..."
     pkill -9 -f "Xvfb" 2>/dev/null || true
@@ -95,12 +100,20 @@ echo "Starting noVNC websockify on port ${NOVNC_PORT} ..."
 websockify --web="${NOVNC_DIR}" ${NOVNC_PORT} localhost:${VNC_PORT} >/dev/null 2>&1 &
 sleep 1
 
+# Discover host/LAN IPs for easy browser access from remote laptops
+LAN_IPS=$(ip -4 addr show 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -vE '^(127\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)' || true)
+
 echo ""
 echo "============================================="
 echo "  VNC is ready!"
 echo ""
 echo "  Open in your browser:"
-echo "    http://localhost:${NOVNC_PORT}/vnc.html"
+if [ -n "${LAN_IPS}" ]; then
+    for ip in ${LAN_IPS}; do
+        echo "    🔗 http://${ip}:${NOVNC_PORT}/vnc.html"
+    done
+fi
+echo "    🔗 http://localhost:${NOVNC_PORT}/vnc.html"
 echo ""
 echo "  Any GUI app launched with DISPLAY=${VNC_DISPLAY}"
 echo "  will appear in the browser window."

@@ -222,6 +222,9 @@ for msg_lib_dir in /wb_humanoid_mpc_ws/install/*/lib; do
     [ -d "$msg_lib_dir" ] && export LD_LIBRARY_PATH="${msg_lib_dir}:${LD_LIBRARY_PATH}"
 done
 
+# Host IP for browser visualizer connections
+export HOST_IP="${HOST_IP:-192.168.0.3}"
+
 unset _BAZEL_PREFIXES
 unset -f _setup_package
 unset -f _link_node

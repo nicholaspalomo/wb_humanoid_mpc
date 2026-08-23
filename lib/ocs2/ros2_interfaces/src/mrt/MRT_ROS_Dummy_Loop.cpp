@@ -67,6 +67,14 @@ void MRT_ROS_Dummy_Loop::run(const SystemObservation& initObservation, const Tar
 
   RCLCPP_INFO_STREAM(LOGGER, "Initial policy has been received.");
 
+  const char* hostIpEnv = std::getenv("HOST_IP");
+  std::string hostIp = (hostIpEnv != nullptr && std::strlen(hostIpEnv) > 0) ? std::string(hostIpEnv) : "192.168.0.3";
+  RCLCPP_INFO_STREAM(LOGGER, "\n============================================================\n"
+                                 << "  🚀 Visualizer is ready! Open in your browser:\n"
+                                 << "     🔗 http://" << hostIp << ":6080/vnc.html\n"
+                                 << "     🔗 http://localhost:6080/vnc.html\n"
+                                 << "============================================================");
+
   // Pick simulation loop mode
   if (mpcDesiredFrequency_ > 0.0) {
     synchronizedDummyLoop(initObservation, initTargetTrajectories);
