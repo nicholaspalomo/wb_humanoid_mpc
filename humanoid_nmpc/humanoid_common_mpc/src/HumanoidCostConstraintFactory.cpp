@@ -1,4 +1,5 @@
 /******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
 Copyright (c) 2024, 1X Technologies. All rights reserved.
 
@@ -47,6 +48,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <humanoid_common_mpc/cost/StateInputQuadraticCost.h>
 #include <humanoid_common_mpc/pinocchio_model/pinocchioUtils.h>
 #include "humanoid_common_mpc/constraint/ContactMomentXYConstraintCppAd.h"
+#include "humanoid_common_mpc/constraint/ContactWrenchConeConstraint.h"
 #include "humanoid_common_mpc/constraint/FootCollisionConstraint.h"
 #include "humanoid_common_mpc/constraint/JointLimitsSoftConstraint.h"
 #include "humanoid_common_mpc/cost/ExternalTorqueQuadraticCostAD.h"
@@ -170,6 +172,36 @@ std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getContactMomentX
   std::unique_ptr<PenaltyBase> penalty(new RelaxedBarrierPenalty(barrierPenaltyConfig));
 
   return std::unique_ptr<StateInputCost>(new StateInputSoftConstraint(std::move(contactMomentXYConstraintPtr), std::move(penalty)));
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getContactWrenchConeConstraint(size_t contactPointIndex,
+                                                                                              size_t numBasisVectors) const {
+  boost::property_tree::ptree pt;
+  loadData::readPropertyTree(taskFile_, pt);
+  const std::string prefix = "contacts.contactWrenchConeSoftConstraint.";
+
+  RelaxedBarrierPenalty::Config barrierPenaltyConfig;
+  loadData::loadPtreeValue(pt, barrierPenaltyConfig.mu, prefix + "mu", verbose_);
+  loadData::loadPtreeValue(pt, barrierPenaltyConfig.delta, prefix + "delta", verbose_);
+
+  ContactWrenchConeConstraint::Config config;
+  config.numBasisVectors = numBasisVectors;
+  loadData::loadPtreeValue(pt, config.frictionCoefficient, prefix + "frictionCoefficient", verbose_);
+  loadData::loadPtreeValue(pt, config.torsionalFrictionCoefficient, prefix + "torsionalFrictionCoefficient", verbose_);
+  loadData::loadPtreeValue(pt, config.minNormalForce, prefix + "minNormalForce", verbose_);
+  loadData::loadPtreeValue(pt, config.gripperForce, prefix + "gripperForce", verbose_);
+
+  std::unique_ptr<ContactWrenchConeConstraint> contactWrenchConeConstraintPtr(new ContactWrenchConeConstraint(
+      *referenceManagerPtr_, ContactRectangle::loadContactRectangle(taskFile_, mpcRobotModelPtr_->modelSettings, contactPointIndex),
+      contactPointIndex, *pinocchioInterfacePtr_, *mpcRobotModelPtr_, config));
+
+  std::unique_ptr<PenaltyBase> penalty(new RelaxedBarrierPenalty(barrierPenaltyConfig));
+
+  return std::unique_ptr<StateInputCost>(new StateInputSoftConstraint(std::move(contactWrenchConeConstraintPtr), std::move(penalty)));
 }
 
 /******************************************************************************************************/

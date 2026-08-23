@@ -53,6 +53,14 @@ cc_test(
     deps = _TEST_DEPS,
 )
 
+cc_test(
+    name = "test_contact_wrench_cone_constraint",
+    srcs = ["src/testContactWrenchConeConstraint.cpp"],
+    copts = _TEST_COPTS,
+    data = _TEST_DATA,
+    deps = _TEST_DEPS,
+)
+
 cc_library(
     name = "humanoid_centroidal_mpc_test_headers",
     hdrs = glob(["include/**"], allow_empty = True),
