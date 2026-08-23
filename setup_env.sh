@@ -32,7 +32,13 @@ unset _SAVED_OPTS
 # Create ament_index-compatible directory structure pointing to source tree
 # ==============================================================================
 BAZEL_INSTALL="${TMPDIR:-/tmp}/.bazel_ros_install"
-BAZEL_BIN="${SCRIPT_DIR}/bazel-bin"
+if [ -e "${SCRIPT_DIR}/.bazel/bin" ]; then
+    BAZEL_BIN="${SCRIPT_DIR}/.bazel/bin"
+elif [ -e "${SCRIPT_DIR}/bazel-bin" ]; then
+    BAZEL_BIN="${SCRIPT_DIR}/bazel-bin"
+else
+    BAZEL_BIN="${SCRIPT_DIR}/.bazel/bin"
+fi
 
 _setup_package() {
     local pkg_name="$1"

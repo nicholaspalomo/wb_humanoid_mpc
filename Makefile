@@ -142,19 +142,19 @@ git-lfs:
 
 # LINT.IfChange(launch_targets)
 launch-g1-dummy-sim:
-	@bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:all //humanoid_nmpc/humanoid_common_mpc_ros2:all && \
+	@bazel build //... && \
 	$(source_env) && ros2 launch g1_centroidal_mpc dummy_sim.launch.py
 
 launch-g1-sim:
-	@bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:all //humanoid_nmpc/humanoid_common_mpc_ros2:all && \
+	@bazel build //... && \
 	$(source_env) && ros2 launch g1_centroidal_mpc mujoco_sim.launch.py
 
 launch-wb-g1-dummy-sim:
-	@bazel build //humanoid_nmpc/humanoid_wb_mpc_ros2:all //humanoid_nmpc/humanoid_common_mpc_ros2:all && \
+	@bazel build //... && \
 	$(source_env) && ros2 launch g1_wb_mpc dummy_sim.launch.py
 
 launch-wb-g1-sim:
-	@bazel build //humanoid_nmpc/humanoid_wb_mpc_ros2:all //humanoid_nmpc/humanoid_common_mpc_ros2:all && \
+	@bazel build //... && \
 	$(source_env) && ros2 launch g1_wb_mpc mujoco_sim.launch.py
 
 launch-drc-atlas-dummy-sim:
@@ -202,22 +202,22 @@ VNC_GL_ENV := export DISPLAY=:99 && \
 
 launch-g1-dummy-sim-vnc: start-vnc
 	@echo "🚀 Building targets and launching G1 Centroidal MPC Dummy Simulation..."
-	@bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:all //humanoid_nmpc/humanoid_common_mpc_ros2:all && \
+	@bazel build //... && \
 	$(source_env) && $(VNC_GL_ENV) && ros2 launch g1_centroidal_mpc dummy_sim.launch.py
 
 launch-g1-sim-vnc: start-vnc
 	@echo "🚀 Building targets and launching G1 Centroidal MPC MuJoCo Simulation..."
-	@bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:all //humanoid_nmpc/humanoid_common_mpc_ros2:all && \
+	@bazel build //... && \
 	$(source_env) && $(VNC_GL_ENV) && ros2 launch g1_centroidal_mpc mujoco_sim.launch.py
 
 launch-wb-g1-dummy-sim-vnc: start-vnc
 	@echo "🚀 Building targets and launching G1 Whole-Body MPC Dummy Simulation..."
-	@bazel build //humanoid_nmpc/humanoid_wb_mpc_ros2:all //humanoid_nmpc/humanoid_common_mpc_ros2:all && \
+	@bazel build //... && \
 	$(source_env) && $(VNC_GL_ENV) && ros2 launch g1_wb_mpc dummy_sim.launch.py
 
 launch-wb-g1-sim-vnc: start-vnc
 	@echo "🚀 Building targets and launching G1 Whole-Body MPC MuJoCo Simulation..."
-	@bazel build //humanoid_nmpc/humanoid_wb_mpc_ros2:all //humanoid_nmpc/humanoid_common_mpc_ros2:all && \
+	@bazel build //... && \
 	$(source_env) && $(VNC_GL_ENV) && ros2 launch g1_wb_mpc mujoco_sim.launch.py
 
 launch-drc-atlas-dummy-sim-vnc: start-vnc

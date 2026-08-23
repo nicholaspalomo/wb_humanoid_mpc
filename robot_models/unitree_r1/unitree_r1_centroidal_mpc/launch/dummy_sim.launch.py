@@ -11,6 +11,7 @@ def generate_launch_description():
         mpc_config_pkg="unitree_r1_centroidal_mpc",
         mpc_model_pkg="unitree_r1_description",
         urdf_rel_path="/urdf/R1.urdf",
+        xml_rel_path="",
         robot_name="r1",
         solver="sqp",
         enable_debug=False,
