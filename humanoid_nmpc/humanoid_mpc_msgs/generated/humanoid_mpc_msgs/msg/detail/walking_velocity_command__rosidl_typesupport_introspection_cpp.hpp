@@ -1,1 +1,0 @@
-/wb_humanoid_mpc_ws/build/humanoid_mpc_msgs/rosidl_typesupport_introspection_cpp/humanoid_mpc_msgs/msg/detail/walking_velocity_command__rosidl_typesupport_introspection_cpp.hpp

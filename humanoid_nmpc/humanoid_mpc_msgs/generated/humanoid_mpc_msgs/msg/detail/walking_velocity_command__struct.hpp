@@ -1,1 +1,0 @@
-/wb_humanoid_mpc_ws/build/humanoid_mpc_msgs/rosidl_generator_cpp/humanoid_mpc_msgs/msg/detail/walking_velocity_command__struct.hpp

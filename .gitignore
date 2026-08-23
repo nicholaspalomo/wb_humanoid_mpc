@@ -62,6 +62,7 @@ install/
 .git-completion.bash
 # Bazel
 bazel-*
+.bazel/
 .bazel-cache/
 .bazel_ros_install/
 MODULE.bazel.lock

@@ -8,27 +8,31 @@
 #   ros2 launch g1_centroidal_mpc dummy_sim.launch.py
 # ==============================================================================
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 
-# Source base ROS2 installation
-if [ -f /opt/ros/jazzy/setup.bash ]; then
+# LINT.IfChange(ros_distro)
+# Source base ROS2 installation (temporarily disable strict mode during ROS2 vendor script sourcing)
+_SAVED_OPTS="$-"
+set +u
+set +e
+if [ -f "/opt/ros/jazzy/setup.bash" ]; then
     source /opt/ros/jazzy/setup.bash
-elif [ -f /opt/ros/humble/setup.bash ]; then
+elif [ -f "/opt/ros/humble/setup.bash" ]; then
     source /opt/ros/humble/setup.bash
 elif [ -f /bin/ros_setup.sh ]; then
     source /bin/ros_setup.sh
 fi
+# Restore previous shell options
+[[ "$_SAVED_OPTS" =~ e ]] && set -e
+[[ "$_SAVED_OPTS" =~ u ]] && set -u
+unset _SAVED_OPTS
+# LINT.ThenChange(//docker/Dockerfile:ros_distro, //tools/ci_local.sh:ros_distro, //bazel/ros2.bzl:ros_distro, //bazel/system_libs.bzl:ros_distro)
 
 # ==============================================================================
 # Create ament_index-compatible directory structure pointing to source tree
 # ==============================================================================
-BAZEL_INSTALL="${SCRIPT_DIR}/.bazel_ros_install"
-# Resolve actual bazel-bin path
-if [ -L "${SCRIPT_DIR}/bazel-bin" ] || [ -d "${SCRIPT_DIR}/bazel-bin" ]; then
-    BAZEL_BIN="${SCRIPT_DIR}/bazel-bin"
-else
-    BAZEL_BIN="$(cd "${SCRIPT_DIR}" && bazel info bazel-bin 2>/dev/null || echo "${SCRIPT_DIR}/bazel-bin")"
-fi
+BAZEL_INSTALL="${TMPDIR:-/tmp}/.bazel_ros_install"
+BAZEL_BIN="${SCRIPT_DIR}/bazel-bin"
 
 _setup_package() {
     local pkg_name="$1"
@@ -38,9 +42,17 @@ _setup_package() {
     mkdir -p "${prefix}/share/ament_index/resource_index/packages"
     touch "${prefix}/share/ament_index/resource_index/packages/${pkg_name}"
 
-    # Symlink the source directory as the share directory
-    rm -f "${prefix}/share/${pkg_name}" 2>/dev/null
-    ln -sf "${source_dir}" "${prefix}/share/${pkg_name}"
+    # Copy share assets (config, urdf, launch, package.xml, etc.) excluding Bazel BUILD files and source code
+    rm -rf "${prefix}/share/${pkg_name}" 2>/dev/null
+    mkdir -p "${prefix}/share/${pkg_name}"
+    for item in "${source_dir}"/*; do
+        if [ -e "$item" ]; then
+            local base="$(basename "$item")"
+            if [ "$base" != "BUILD.bazel" ] && [ "$base" != "BUILD" ] && [ "$base" != "src" ] && [ "$base" != "test" ] && [ "$base" != "include" ]; then
+                cp -rL "$item" "${prefix}/share/${pkg_name}/${base}"
+            fi
+        fi
+    done
 
     # Create lib directory for executables (required by ros2 launch)
     mkdir -p "${prefix}/lib/${pkg_name}"
@@ -168,8 +180,8 @@ done
 
 export AMENT_PREFIX_PATH="${_BAZEL_PREFIXES}:${AMENT_PREFIX_PATH}"
 
-# Add Python packages to PYTHONPATH (for launch file imports)
-export PYTHONPATH="${SCRIPT_DIR}/humanoid_nmpc/humanoid_common_mpc_ros2:${SCRIPT_DIR}/humanoid_nmpc/humanoid_common_mpc_pyutils:${SCRIPT_DIR}/humanoid_nmpc/remote_control:${PYTHONPATH}"
+# Add Python packages to PYTHONPATH (for launch file imports and RL modules)
+export PYTHONPATH="${SCRIPT_DIR}/humanoid_learning:${SCRIPT_DIR}/humanoid_nmpc/humanoid_common_mpc_ros2:${SCRIPT_DIR}/humanoid_nmpc/humanoid_common_mpc_pyutils:${SCRIPT_DIR}/humanoid_nmpc/remote_control:${PYTHONPATH}"
 
 # Add colcon-generated Python message bindings (until migrated to Bazel)
 for pypath in /wb_humanoid_mpc_ws/install/*/lib/python3.*/site-packages; do

@@ -1,4 +1,6 @@
+# LINT.IfChange(ros_distro)
 ARG ROS_DISTRO=jazzy
+# LINT.ThenChange(//setup_env.sh:ros_distro, //tools/ci_local.sh:ros_distro, //bazel/ros2.bzl:ros_distro, //bazel/system_libs.bzl:ros_distro)
 ARG BASE_IMAGE=ros:${ROS_DISTRO}-ros-base
 FROM ${BASE_IMAGE} AS base
 
@@ -101,7 +103,7 @@ COPY dependencies.txt /tmp/dependencies.txt
 
 # Install dependencies from dependencies.txt
 RUN apt-get update && \
-    envsubst < /tmp/dependencies.txt | xargs apt-get install -y --no-install-recommends && \
+    grep -v '^\s*#' /tmp/dependencies.txt | envsubst | xargs apt-get install -y --no-install-recommends && \
     rm -rf /var/lib/apt/lists/*
 
 # Set default shell to bash

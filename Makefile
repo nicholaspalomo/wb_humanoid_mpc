@@ -16,17 +16,17 @@ endef
 # Build targets
 ############################################################
 .PHONY: build-all build-debug build-release build-relwithdebinfo build \
-        test-all test clean clean-all format \
+        test-all test clean clean-all format ci-local \
         launch-g1-dummy-sim launch-g1-sim launch-wb-g1-dummy-sim launch-wb-g1-sim \
         launch-drc-atlas-dummy-sim launch-drc-atlas-sandbox test-pinocchio-model-atlas \
         start-vnc stop-vnc \
         launch-g1-dummy-sim-vnc launch-g1-sim-vnc launch-wb-g1-dummy-sim-vnc launch-wb-g1-sim-vnc \
         launch-drc-atlas-dummy-sim-vnc launch-drc-atlas-sandbox-vnc \
-        run-ocs2-tests run-mpc-tests echo-packages update-submodules git-lfs install-hooks
+        run-ocs2-tests run-mpc-tests test-rl train-rl train-bc export-rollouts lock-rl-deps echo-packages update-submodules git-lfs install-hooks
 
 ## Build everything
 build-all:
-	bazel build //...
+	$(source_env) && bazel build //...
 
 ## Build a single target: make build PKG=//humanoid_nmpc/humanoid_common_mpc
 build:
@@ -50,7 +50,11 @@ build-relwithdebinfo:
 
 ## Run all tests
 test-all:
-	bazel test //...
+	$(source_env) && bazel test //...
+
+## Run local CI emulator (matches GitHub Actions clean container setup)
+ci-local:
+	@tools/ci_local.sh
 
 ## Run a single test: make test PKG=//humanoid_nmpc/humanoid_centroidal_mpc_test:test_pinocchio_frame_conversions
 test:
@@ -63,6 +67,26 @@ run-ocs2-tests:
 ## Run MPC tests
 run-mpc-tests:
 	bazel test //humanoid_nmpc/...
+
+## Run MuJoCo Playground RL tests
+test-rl:
+	bazel test //humanoid_learning/...
+
+## Run MuJoCo Playground RL PPO Training
+train-rl:
+	bazel run //humanoid_learning/training:train_ppo
+
+## Behavioral Cloning pretraining on MPC demos
+train-bc:
+	bazel run //humanoid_learning/training:bc_warmstart
+
+## Export recorded MPC trajectories to HDF5 demos
+export-rollouts:
+	python3 humanoid_nmpc/humanoid_common_mpc_pyutils/humanoid_common_mpc_pyutils/export_rollouts.py
+
+## Lock / Update RL pip dependencies
+lock-rl-deps:
+	bazel run //humanoid_learning:requirements.update
 
 ## Run Pinocchio Model Atlas test
 test-pinocchio-model-atlas:
@@ -86,10 +110,9 @@ clean-all:
 	bazel clean --expunge
 	rm -rf $(current_path)/.bazel_ros_install
 
-## Format source code
+## Format source code (C++, Python, trailing newlines, and whitespace)
 format:
-	find . \( -name "lib" -o -name "build" -o -name "install" -o -name "bazel-*" -o -name ".bazel*" -o -name ".git" \) -prune -o \( -name "*.cpp" -o -name "*.h" -o -name "*.hpp" \) -type f -print | xargs clang-format -i && \
-	black . --exclude="lib/|build/|install/|bazel"
+	@python3 tools/hooks/format_code.py
 
 ## Install git pre-commit hook
 install-hooks:

@@ -7,24 +7,7 @@ load("@rules_cc//cc:cc_library.bzl", "cc_library")
 
 package(default_visibility = ["//visibility:public"])
 
-cc_library(
+alias(
     name = "humanoid_mpc_msgs",
-    hdrs = glob(
-        ["generated/**/*.hpp", "generated/**/*.h"],
-        allow_empty = True,
-    ),
-    includes = ["generated"],
-    linkopts = [
-        "-L/wb_humanoid_mpc_ws/install/humanoid_mpc_msgs/lib",
-        "-lhumanoid_mpc_msgs__rosidl_typesupport_cpp",
-        "-lhumanoid_mpc_msgs__rosidl_generator_c",
-    ],
-    deps = [
-        "@ros2_rcl_interfaces",
-        "@ros2_builtin_interfaces",
-        "@ros2_geometry_msgs",
-        "@ros2_std_msgs",
-        "@ros2_unique_identifier_msgs",
-        "@ros2_rosidl",
-    ],
+    actual = "@humanoid_mpc_msgs_repo//:humanoid_mpc_msgs",
 )

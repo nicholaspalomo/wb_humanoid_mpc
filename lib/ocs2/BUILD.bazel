@@ -28,8 +28,12 @@ package(default_visibility = ["//visibility:public"])
 _OCS2_COPTS = [
     "-std=c++20",
     "-pthread",
-    "-Wfatal-errors",
     "-DBOOST_ALL_DYN_LINK",
+    "-DBOOST_SPIRIT_THREADSAFE",
+    "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+    "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+    "-DBOOST_VARIANT_LIMIT_TYPES=50",
+    "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     "-fopenmp",
     "-Wno-ignored-attributes",
     "-fPIC",
@@ -214,6 +218,26 @@ cc_library(
 # 8-9. blasfeo + hpipm: provided as @blasfeo and @hpipm system repos
 # ==============================================================================
 
+cc_library(
+    name = "ocs2_hpipm_catkin",
+    srcs = glob(
+        ["sqp/hpipm_catkin/src/**/*.cpp"],
+        exclude = ["sqp/hpipm_catkin/src/**/test/**"],
+        allow_empty = True,
+    ),
+    hdrs = glob(["sqp/hpipm_catkin/include/**"], allow_empty = True),
+    copts = _OCS2_COPTS,
+    includes = ["sqp/hpipm_catkin/include"],
+    linkopts = _OCS2_LINKOPTS,
+    deps = [
+        ":ocs2_core",
+        ":ocs2_oc",
+        "@blasfeo",
+        "@hpipm",
+        "@eigen",
+    ],
+)
+
 # ==============================================================================
 # 10. ocs2_sqp
 # ==============================================================================
@@ -234,6 +258,7 @@ cc_library(
         ":ocs2_oc",
         ":ocs2_mpc",
         ":ocs2_qp_solver",
+        ":ocs2_hpipm_catkin",
         "@blasfeo",
         "@hpipm",
         "@eigen",
@@ -304,23 +329,9 @@ cc_library(
 # 14. ocs2_ros2_msgs (pre-generated headers + type support from colcon install)
 # ==============================================================================
 
-cc_library(
+alias(
     name = "ocs2_ros2_msgs",
-    hdrs = glob(
-        ["ros2_msgs/generated/**/*.hpp", "ros2_msgs/generated/**/*.h"],
-        allow_empty = True,
-    ),
-    includes = ["ros2_msgs/generated"],
-    linkopts = [
-        "-L/wb_humanoid_mpc_ws/install/ocs2_ros2_msgs/lib",
-        "-locs2_ros2_msgs__rosidl_typesupport_cpp",
-        "-locs2_ros2_msgs__rosidl_generator_c",
-    ],
-    deps = [
-        "@ros2_std_msgs",
-        "@ros2_geometry_msgs",
-        "@ros2_rosidl",
-    ],
+    actual = "@ocs2_ros2_msgs_repo//:ocs2_ros2_msgs",
 )
 
 # ==============================================================================

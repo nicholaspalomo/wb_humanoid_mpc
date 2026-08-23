@@ -1,0 +1,28 @@
+# ==============================================================================
+# Humanoid Learning - Tests
+# ==============================================================================
+
+load("@rl_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_test")
+
+package(default_visibility = ["//visibility:public"])
+
+py_test(
+    name = "test_rl_imports",
+    srcs = ["test_rl_imports.py"],
+    deps = [
+        "//humanoid_learning/envs",
+        "//humanoid_learning/training:training_lib",
+        requirement("absl-py"),
+        requirement("brax"),
+        requirement("flax"),
+        requirement("jax"),
+        requirement("jaxlib"),
+        requirement("mujoco"),
+        requirement("mujoco-mjx"),
+        requirement("numpy"),
+        requirement("onnx"),
+        requirement("optax"),
+        requirement("playground"),
+    ],
+)

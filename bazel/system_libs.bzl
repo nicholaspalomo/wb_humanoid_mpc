@@ -123,7 +123,9 @@ boost_repository = repository_rule(
 # ==============================================================================
 def _pinocchio_repository(repo_ctx):
     """Wraps system-installed Pinocchio (from ROS2 package)."""
+    # LINT.IfChange(ros_distro)
     ros_distro = repo_ctx.os.environ.get("ROS_DISTRO", "jazzy")
+    # LINT.ThenChange(//docker/Dockerfile:ros_distro, //setup_env.sh:ros_distro, //tools/ci_local.sh:ros_distro, //bazel/ros2.bzl:ros_distro)
     ros_prefix = "/opt/ros/" + ros_distro
 
     # Symlink pinocchio headers (doubly-nested in ROS2 Jazzy)
@@ -172,7 +174,10 @@ cc_library(
     hdrs = glob(["include/**"], allow_empty = True),
     includes = ["include", "include/pinocchio_deprecated"],
     linkopts = [
+        "-L{ros_prefix}/lib",
         "-L{ros_prefix}/lib/x86_64-linux-gnu",
+        "-Wl,-rpath,{ros_prefix}/lib",
+        "-Wl,-rpath,{ros_prefix}/lib/x86_64-linux-gnu",
         "-lpinocchio_parsers",
         "-lpinocchio_default",
     ],
@@ -289,10 +294,14 @@ cc_library(
     includes = ["include"],
     linkopts = [
         "-L{ros_prefix}/lib",
+        "-L{ros_prefix}/lib/x86_64-linux-gnu",
+        "-Wl,-rpath,{ros_prefix}/lib",
+        "-Wl,-rpath,{ros_prefix}/lib/x86_64-linux-gnu",
         "-L/usr/lib/x86_64-linux-gnu",
         "-lurdf",
         "-lurdfdom_model",
         "-lurdfdom_world",
+        "-lclass_loader",
     ],
     visibility = ["//visibility:public"],
 )
@@ -333,23 +342,48 @@ urdfdom_repository = repository_rule(
 )
 
 # ==============================================================================
-# blasfeo (pre-built from colcon install)
+# blasfeo (pre-built from colcon install, or built from source)
 # ==============================================================================
+_BLASFEO_GIT_REPO = "https://github.com/giaf/blasfeo"
+_BLASFEO_GIT_COMMIT = "ae6e2d1dea015862a09990b95905038a756ffc7d"
+
 def _blasfeo_repository(repo_ctx):
-    """Wraps pre-built blasfeo from colcon install."""
+    """Wraps pre-built blasfeo from colcon install, or builds from source."""
     install_prefix = "/wb_humanoid_mpc_ws/install/blasfeo_catkin"
-    _symlink_if_exists(repo_ctx, install_prefix + "/include", "include")
-    _symlink_if_exists(repo_ctx, install_prefix + "/lib", "lib")
-    repo_ctx.file("BUILD.bazel", content = """
+    have_prebuilt = repo_ctx.path(install_prefix + "/include").exists
+
+    if have_prebuilt:
+        repo_ctx.symlink(install_prefix + "/include", "include")
+        repo_ctx.symlink(install_prefix + "/lib", "lib")
+    else:
+        # Build from source
+        repo_ctx.execute(["git", "clone", _BLASFEO_GIT_REPO, "src"], quiet = False)
+        repo_ctx.execute(["git", "-C", "src", "checkout", _BLASFEO_GIT_COMMIT], quiet = False)
+        repo_ctx.execute(["mkdir", "-p", "build"])
+        repo_ctx.execute([
+            "cmake", "-S", "src", "-B", "build",
+            "-DCMAKE_BUILD_TYPE=Release",
+            "-DCMAKE_INSTALL_PREFIX=" + str(repo_ctx.path("install")),
+            "-DTARGET=GENERIC",
+            "-DBUILD_SHARED_LIBS=ON",
+        ], quiet = False)
+        repo_ctx.execute(["cmake", "--build", "build", "-j4"], quiet = False, timeout = 300)
+        repo_ctx.execute(["cmake", "--install", "build"], quiet = False)
+        # Symlink installed artifacts into the repo root
+        repo_ctx.symlink("install/include", "include")
+        repo_ctx.symlink("install/lib", "lib")
+
+    lib_dir = str(repo_ctx.path("lib"))
+    repo_ctx.file("BUILD.bazel", content = """\
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 cc_library(
     name = "blasfeo",
     hdrs = glob(["include/**"], allow_empty = True),
     includes = ["include"],
-    linkopts = ["-L{prefix}/lib", "-lblasfeo"],
+    linkopts = ["-L{lib_dir}", "-Wl,-rpath,{lib_dir}", "-lblasfeo"],
     visibility = ["//visibility:public"],
 )
-""".format(prefix = install_prefix))
+""".format(lib_dir = lib_dir))
 
 blasfeo_repository = repository_rule(
     implementation = _blasfeo_repository,
@@ -357,30 +391,65 @@ blasfeo_repository = repository_rule(
 )
 
 # ==============================================================================
-# hpipm (pre-built from colcon install)
+# hpipm (pre-built from colcon install, or built from source)
 # ==============================================================================
+_HPIPM_GIT_REPO = "https://github.com/giaf/hpipm"
+_HPIPM_GIT_COMMIT = "255ffdf38d3a5e2c3285b29568ce65ae286e5faf"
+
 def _hpipm_repository(repo_ctx):
-    """Wraps pre-built hpipm from colcon install."""
+    """Wraps pre-built hpipm from colcon install, or builds from source."""
     install_prefix = "/wb_humanoid_mpc_ws/install/hpipm_catkin"
-    _symlink_if_exists(repo_ctx, install_prefix + "/include", "include")
-    _symlink_if_exists(repo_ctx, install_prefix + "/lib", "lib")
-    repo_ctx.file("BUILD.bazel", content = """
+    have_prebuilt = repo_ctx.path(install_prefix + "/include").exists
+
+    if have_prebuilt:
+        repo_ctx.symlink(install_prefix + "/include", "include")
+        repo_ctx.symlink(install_prefix + "/lib", "lib")
+        lib_dir = install_prefix + "/lib"
+        linkopts = '["-L{lib_dir}", "-Wl,-rpath,{lib_dir}", "-lhpipm"]'.format(lib_dir = lib_dir)
+    else:
+        # Need blasfeo install location for hpipm's cmake
+        blasfeo_prefix = "/wb_humanoid_mpc_ws/install/blasfeo_catkin"
+        if not repo_ctx.path(blasfeo_prefix + "/include").exists:
+            # blasfeo was built from source by its repository rule
+            blasfeo_prefix = str(repo_ctx.path(Label("@blasfeo//:BUILD.bazel")).dirname) + "/install"
+
+        repo_ctx.execute(["git", "clone", _HPIPM_GIT_REPO, "src"], quiet = False)
+        repo_ctx.execute(["git", "-C", "src", "checkout", _HPIPM_GIT_COMMIT], quiet = False)
+        repo_ctx.execute(["mkdir", "-p", "build"])
+        repo_ctx.execute([
+            "cmake", "-S", "src", "-B", "build",
+            "-DCMAKE_BUILD_TYPE=Release",
+            "-DCMAKE_INSTALL_PREFIX=" + str(repo_ctx.path("install")),
+            "-DTARGET=GENERIC",
+            "-DBUILD_SHARED_LIBS=ON",
+            "-DBLASFEO_PATH=" + blasfeo_prefix,
+            "-DBLASFEO_INCLUDE_DIR=" + blasfeo_prefix + "/include",
+        ], quiet = False)
+        repo_ctx.execute(["cmake", "--build", "build", "-j4"], quiet = False, timeout = 300)
+        repo_ctx.execute(["cmake", "--install", "build"], quiet = False)
+        repo_ctx.symlink("install/include", "include")
+        repo_ctx.symlink("install/lib", "lib")
+        lib_dir = str(repo_ctx.path("lib"))
+        linkopts = '["-L{lib_dir}", "-Wl,-rpath,{lib_dir}", "-lhpipm"]'.format(lib_dir = lib_dir)
+
+    repo_ctx.file("BUILD.bazel", content = """\
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 cc_library(
     name = "hpipm",
     hdrs = glob(["include/**"], allow_empty = True),
     includes = ["include"],
-    linkopts = ["-L{prefix}/lib", "-lhpipm", "-lhpipm_catkin"],
+    linkopts = {linkopts},
     deps = ["@blasfeo"],
     visibility = ["//visibility:public"],
 )
-""".format(prefix = install_prefix))
+""".format(linkopts = linkopts))
 
 hpipm_repository = repository_rule(
     implementation = _hpipm_repository,
     local = True,
 )
 
+# ==============================================================================
 # ==============================================================================
 # yaml-cpp
 # ==============================================================================
@@ -427,6 +496,60 @@ yaml_cpp_repository = repository_rule(
 )
 
 # ==============================================================================
+# ROS 2 Messages Builder (runs colcon build to generate headers & libraries)
+# ==============================================================================
+def _ros2_msgs_repository(repo_ctx):
+    """Builds a ROS 2 message package from source using colcon."""
+    pkg_name = repo_ctx.attr.pkg_name
+
+    workspace_root = str(repo_ctx.path(Label("//:MODULE.bazel")).dirname)
+    src_dir_path = workspace_root + "/" + repo_ctx.attr.src_dir
+
+    # We need to copy the source directory into our external repo so colcon can build it
+    repo_ctx.execute(["cp", "-r", src_dir_path, "src"], quiet = False)
+
+    ros_distro = repo_ctx.os.environ.get("ROS_DISTRO", "jazzy")
+    setup_bash = "/opt/ros/" + ros_distro + "/setup.bash"
+
+    # Build the package using colcon
+    # We must source the ROS 2 setup.bash before building
+    build_cmd = "source " + setup_bash + " && colcon build --packages-select " + pkg_name + " --event-handlers console_direct+ --cmake-args -DCMAKE_BUILD_TYPE=Release"
+    repo_ctx.execute(["bash", "-c", build_cmd], quiet = False, timeout = 300)
+
+    # Symlink the generated headers and libraries
+    repo_ctx.symlink(str(repo_ctx.path("install/" + pkg_name + "/include/" + pkg_name)), "include")
+    repo_ctx.symlink(str(repo_ctx.path("install/" + pkg_name + "/lib")), "lib")
+
+    lib_dir = str(repo_ctx.path("lib"))
+
+    # Identify the typesupport shared libraries generated
+    # (Typically <pkg_name>__rosidl_typesupport_cpp and <pkg_name>__rosidl_generator_c)
+    linkopts = '["-L{lib_dir}", "-Wl,-rpath,{lib_dir}", "-l{pkg_name}__rosidl_typesupport_cpp", "-l{pkg_name}__rosidl_generator_c"]'.format(
+        lib_dir = lib_dir,
+        pkg_name = pkg_name,
+    )
+
+    repo_ctx.file("BUILD.bazel", content = """\
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+cc_library(
+    name = "{pkg_name}",
+    hdrs = glob(["include/**"], allow_empty = True),
+    includes = ["include"],
+    linkopts = {linkopts},
+    visibility = ["//visibility:public"],
+)
+""".format(pkg_name = pkg_name, linkopts = linkopts))
+
+ros2_msgs_repository = repository_rule(
+    implementation = _ros2_msgs_repository,
+    local = True,
+    attrs = {
+        "pkg_name": attr.string(mandatory = True),
+        "src_dir": attr.string(mandatory = True),
+    },
+)
+
+# ==============================================================================
 # Public function to register all system library repositories
 # ==============================================================================
 
@@ -443,4 +566,15 @@ def register_system_libs():
     blasfeo_repository(name = "blasfeo")
     hpipm_repository(name = "hpipm")
     yaml_cpp_repository(name = "yaml_cpp")
+
+    ros2_msgs_repository(
+        name = "ocs2_ros2_msgs_repo",
+        pkg_name = "ocs2_ros2_msgs",
+        src_dir = "lib/ocs2/ros2_msgs",
+    )
+    ros2_msgs_repository(
+        name = "humanoid_mpc_msgs_repo",
+        pkg_name = "humanoid_mpc_msgs",
+        src_dir = "humanoid_nmpc/humanoid_mpc_msgs",
+    )
 # LINT.ThenChange(//MODULE.bazel:system_repositories)

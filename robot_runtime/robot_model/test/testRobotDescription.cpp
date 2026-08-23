@@ -30,28 +30,28 @@ class RobotDescriptionTest : public ::testing::Test {
             <link name="elbow_link"/>
             <link name="wrist_link"/>
             <link name="hand_link"/>
-            
+
             <joint name="shoulder_joint" type="revolute">
                 <parent link="base_link"/>
                 <child link="shoulder_link"/>
                 <axis xyz="0 0 1"/>
                 <limit lower="-1.57" upper="1.57" effort="100" velocity="2.0"/>
             </joint>
-            
+
             <joint name="elbow_joint" type="revolute">
                 <parent link="shoulder_link"/>
                 <child link="elbow_link"/>
                 <axis xyz="0 1 0"/>
                 <limit lower="-2.0" upper="2.0" effort="80" velocity="1.5"/>
             </joint>
-            
+
             <joint name="wrist_joint" type="revolute">
                 <parent link="elbow_link"/>
                 <child link="wrist_link"/>
                 <axis xyz="1 0 0"/>
                 <limit lower="-1.0" upper="1.0" effort="50" velocity="3.0"/>
             </joint>
-            
+
             <joint name="fixed_joint" type="fixed">
                 <parent link="base_link"/>
                 <child link="hand_link"/>
@@ -60,7 +60,10 @@ class RobotDescriptionTest : public ::testing::Test {
     urdfFile.close();
   }
 
-  void TearDown() override { std::filesystem::remove_all(tempDir_); }
+  void TearDown() override {
+    std::error_code ec;
+    std::filesystem::remove_all(tempDir_, ec);
+  }
 
   std::filesystem::path tempDir_;
   std::filesystem::path urdf_path_;
