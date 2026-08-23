@@ -23,7 +23,7 @@ find_package(unique_identifier_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/WalkingVelocityCommand.idl"
-    
+
   DEPENDENCIES rcl_interfaces builtin_interfaces geometry_msgs std_msgs unique_identifier_msgs
   ADD_LINTER_TESTS
 )

@@ -110,10 +110,9 @@ clean-all:
 	bazel clean --expunge
 	rm -rf $(current_path)/.bazel_ros_install
 
-## Format source code
+## Format source code (C++, Python, trailing newlines, and whitespace)
 format:
-	find . \( -name "lib" -o -name "build" -o -name "install" -o -name "bazel-*" -o -name ".bazel*" -o -name ".git" \) -prune -o \( -name "*.cpp" -o -name "*.h" -o -name "*.hpp" \) -type f -print | xargs clang-format -i && \
-	black . --exclude="lib/|build/|install/|bazel"
+	@python3 tools/hooks/format_code.py
 
 ## Install git pre-commit hook
 install-hooks:

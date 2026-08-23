@@ -1,5 +1,12 @@
 # pre-commit configuration for wb_humanoid_mpc
 repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: end-of-file-fixer
+        exclude: ^(lib/|build/|install/|bazel-)
+      - id: trailing-whitespace
+        exclude: ^(lib/|build/|install/|bazel-)
   - repo: https://github.com/simonepri/ifttt-lint
     rev: v0.11.0
     hooks:

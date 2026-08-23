@@ -6,8 +6,8 @@ To set up MuJoCo build and install it from source according to the following [in
 
 ## Add to your bashrc
 
-Add the mujoc installation path with the correct version to your bashrc. 
-This could for example look like this: 
+Add the mujoc installation path with the correct version to your bashrc.
+This could for example look like this:
 ```
 export MUJOCO_PATH=/opt/mujoco-3.1.3/
 ```
@@ -17,24 +17,24 @@ export MUJOCO_PATH=/opt/mujoco-3.1.3/
 
 In a local downloaded release of mujoco run the simulation by copying over the urdf and modifying it as follows:
 
-To the urdf add inside the robot tag: 
+To the urdf add inside the robot tag:
 
 ```
 <mujoco>
-    <compiler 
-    meshdir="../meshes/" 
+    <compiler
+    meshdir="../meshes/"
     discardvisual="true"
     convexhull="true" />
 
 </mujoco>
 
 <link name="world_link">
-<!-- The world link typically does not have visual or collision properties 
+<!-- The world link typically does not have visual or collision properties
     as it's an abstract reference frame. -->
 </link>
 ```
 
-and 
+and
 
 ```
 <!-- Define a free-floating joint -->
@@ -47,14 +47,14 @@ and
 </joint>
 ```
 
-Then launch the sim in the bin folder using: 
+Then launch the sim in the bin folder using:
 
 ```
 ./simulate ../neo_alpha1_5_description/urdf/neo_alpha1_5.urdf
 ```
 
-or similar. 
+or similar.
 
-Then in the window that opens klick export xml. 
+Then in the window that opens klick export xml.
 
-Then modify the xml by adding the extra actuator and collision entries as required. Here take a look at the MuJoCo files that were already created. 
+Then modify the xml by adding the extra actuator and collision entries as required. Here take a look at the MuJoCo files that were already created.

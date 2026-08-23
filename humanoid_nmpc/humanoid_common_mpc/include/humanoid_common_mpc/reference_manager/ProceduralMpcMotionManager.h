@@ -108,13 +108,13 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
  protected:
   // clang-format off
   const std::vector<GaitModeStateConfig> gaitModeStates_ {
-    { "stance",       -0.1,  0.1, -0.1,  0.1,  10.0,   10.0 }, // Large threshold allows switching aw3ay from stance purely command based. 
+    { "stance",       -0.1,  0.1, -0.1,  0.1,  10.0,   10.0 }, // Large threshold allows switching aw3ay from stance purely command based.
     { "slow_walk",     0.05,  0.3,  0.05,  0.2,    0.05,  0.05},
     { "walk",          0.25,  0.5, 0.15,  0.35,    0.05,  0.05},
     { "slower_trot",   0.45, 0.7, 0.3,  0.55,      0.1,  0.1},
     { "slow_trot",     0.65, 0.9,  0.5,  0.7,      0.2,  0.2},
     { "trot",          0.8,  1.3,  0.65,  10.0,    0.2,  0.2},
-    { "run",           1.2,  10.0,  0.65,  10.0,   0.2,  0.2}  
+    { "run",           1.2,  10.0,  0.65,  10.0,   0.2,  0.2}
   };  // clang-format on
 
   size_t currentGaitMode_{0};

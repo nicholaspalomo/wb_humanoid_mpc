@@ -6,7 +6,7 @@ on:
       - main
       - user/**
   pull_request:
-    branches: 
+    branches:
       - '**'
     types: [opened, synchronize, reopened]
   merge_group:
