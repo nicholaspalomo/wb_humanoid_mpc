@@ -186,13 +186,28 @@ done
 
 export AMENT_PREFIX_PATH="${_BAZEL_PREFIXES}:${AMENT_PREFIX_PATH}"
 
-# Add Python packages to PYTHONPATH (for launch file imports and RL modules)
-export PYTHONPATH="${SCRIPT_DIR}/humanoid_learning:${SCRIPT_DIR}/humanoid_nmpc/humanoid_common_mpc_ros2:${SCRIPT_DIR}/humanoid_nmpc/humanoid_common_mpc_pyutils:${SCRIPT_DIR}/humanoid_nmpc/remote_control:${PYTHONPATH}"
+# Add Bazel-generated Python message bindings and shared libraries (humanoid_mpc_msgs, ocs2_ros2_msgs)
+_OUTPUT_BASE=$(bazel info output_base 2>/dev/null | tail -n 1)
+if [ -z "$_OUTPUT_BASE" ] || [ ! -d "$_OUTPUT_BASE" ]; then
+    _OUTPUT_BASE=$(find "${HOME}/.cache/bazel" -maxdepth 3 -type d -name "external" 2>/dev/null | head -n 1 | sed 's|/external$||')
+fi
 
-# Add colcon-generated Python message bindings (until migrated to Bazel)
-for pypath in /wb_humanoid_mpc_ws/install/*/lib/python3.*/site-packages; do
-    [ -d "$pypath" ] && export PYTHONPATH="${pypath}:${PYTHONPATH}"
-done
+if [ -n "$_OUTPUT_BASE" ] && [ -d "$_OUTPUT_BASE" ]; then
+    for pypath in "${_OUTPUT_BASE}"/external/*msgs_repo/install/*/lib/python3.*/site-packages; do
+        [ -d "$pypath" ] && export PYTHONPATH="${pypath}:${PYTHONPATH}"
+    done
+    for libpath in "${_OUTPUT_BASE}"/external/*msgs_repo/install/*/lib; do
+        [ -d "$libpath" ] && export LD_LIBRARY_PATH="${libpath}:${LD_LIBRARY_PATH}"
+    done
+    for amentpath in "${_OUTPUT_BASE}"/external/*msgs_repo/install/*; do
+        [ -d "$amentpath/share" ] && export AMENT_PREFIX_PATH="${amentpath}:${AMENT_PREFIX_PATH}"
+    done
+fi
+unset _OUTPUT_BASE
+
+# Add Python packages to PYTHONPATH (for launch file imports and RL modules)
+# Ensure active workspace source directories take precedence at the front of PYTHONPATH
+export PYTHONPATH="${SCRIPT_DIR}/humanoid_learning:${SCRIPT_DIR}/humanoid_nmpc/humanoid_common_mpc_ros2:${SCRIPT_DIR}/humanoid_nmpc/humanoid_common_mpc_pyutils:${SCRIPT_DIR}/humanoid_nmpc/remote_control:${PYTHONPATH}"
 
 # Add Bazel-built binaries to PATH
 if [ -d "${BAZEL_BIN}" ]; then
