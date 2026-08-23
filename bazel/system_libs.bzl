@@ -501,7 +501,7 @@ yaml_cpp_repository = repository_rule(
 def _ros2_msgs_repository(repo_ctx):
     """Builds a ROS 2 message package from source using colcon."""
     pkg_name = repo_ctx.attr.pkg_name
-    
+
     workspace_root = str(repo_ctx.path(Label("//:MODULE.bazel")).dirname)
     src_dir_path = workspace_root + "/" + repo_ctx.attr.src_dir
 
@@ -566,7 +566,7 @@ def register_system_libs():
     blasfeo_repository(name = "blasfeo")
     hpipm_repository(name = "hpipm")
     yaml_cpp_repository(name = "yaml_cpp")
-    
+
     ros2_msgs_repository(
         name = "ocs2_ros2_msgs_repo",
         pkg_name = "ocs2_ros2_msgs",
