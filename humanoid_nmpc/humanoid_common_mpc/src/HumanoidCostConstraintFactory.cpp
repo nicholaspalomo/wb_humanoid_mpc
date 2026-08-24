@@ -33,8 +33,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_core/misc/LoadData.h>
 #include <ocs2_core/penalties/Penalties.h>
-#include <boost/property_tree/info_parser.hpp>
-#include <boost/property_tree/ptree.hpp>
 
 #include <ocs2_core/constraint/StateInputConstraint.h>
 #include <ocs2_core/cost/QuadraticStateCost.h>
@@ -99,7 +97,7 @@ std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getStateInputQuad
 /******************************************************************************************************/
 
 std::unique_ptr<StateCost> HumanoidCostConstraintFactory::getFootCollisionConstraint() const {
-  boost::property_tree::ptree pt;
+  loadData::PropertyTree pt;
   loadData::readPropertyTree(taskFile_, pt);
   const std::string prefix = "collision_constraint.";
 
@@ -123,7 +121,7 @@ std::unique_ptr<StateCost> HumanoidCostConstraintFactory::getFootCollisionConstr
 /******************************************************************************************************/
 
 std::unique_ptr<StateCost> HumanoidCostConstraintFactory::getJointLimitsConstraint() const {
-  boost::property_tree::ptree pt;
+  loadData::PropertyTree pt;
   loadData::readPropertyTree(taskFile_, pt);
   const std::string prefix = "jointLimits.";
 
@@ -157,7 +155,7 @@ std::unique_ptr<StateCost> HumanoidCostConstraintFactory::getJointLimitsConstrai
 
 std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getContactMomentXYConstraint(size_t contactPointIndex,
                                                                                             const std::string& name) const {
-  boost::property_tree::ptree pt;
+  loadData::PropertyTree pt;
   loadData::readPropertyTree(taskFile_, pt);
   const std::string prefix = "contacts.contactMomentXYSoftConstraint.";
 
@@ -180,7 +178,7 @@ std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getContactMomentX
 
 std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getContactWrenchConeConstraint(size_t contactPointIndex,
                                                                                               size_t numBasisVectors) const {
-  boost::property_tree::ptree pt;
+  loadData::PropertyTree pt;
   loadData::readPropertyTree(taskFile_, pt);
   const std::string prefix = "contacts.contactWrenchConeSoftConstraint.";
 
@@ -217,7 +215,7 @@ std::unique_ptr<StateInputConstraint> HumanoidCostConstraintFactory::getZeroWren
 /******************************************************************************************************/
 
 std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getFrictionForceConeConstraint(size_t contactPointIndex) const {
-  boost::property_tree::ptree pt;
+  loadData::PropertyTree pt;
   loadData::readPropertyTree(taskFile_, pt);
   const std::string prefix = "contacts.frictionForceConeSoftConstraint.";
 

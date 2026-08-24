@@ -30,14 +30,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 
-#include <boost/property_tree/info_parser.hpp>
-#include <boost/property_tree/ptree.hpp>
-
+#include <cassert>
 #include <stdexcept>
 
 #include <ocs2_core/misc/LoadData.h>
-#include <cassert>
-#include <stdexcept>
 
 #ifndef CHECK
 #define CHECK(cond)                                     \
@@ -112,7 +108,7 @@ std::vector<std::string> concatenateStringVectors(const std::vector<std::string>
 }  // namespace
 
 ModelSettings::ModelSettings(const std::string& configFile, const std::string& urdfFile, const std::string& mpcName, bool verbose) {
-  boost::property_tree::ptree pt;
+  loadData::PropertyTree pt;
   loadData::readPropertyTree(configFile, pt);
 
   std::string prefix{"model_settings."};

@@ -33,8 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <iostream>
 #include <numeric>
 #include <fstream>
-
-#include <boost/filesystem.hpp>
+#include <filesystem>
 
 #include <ocs2_oc/multiple_shooting/Helpers.h>
 #include <ocs2_oc/multiple_shooting/Initialization.h>
@@ -90,7 +89,7 @@ SqpSolver::~SqpSolver() {
 
   if (settings_.enableLogging) {
     // Create the folder
-    boost::filesystem::create_directories(settings_.logFilePath);
+    std::filesystem::create_directories(settings_.logFilePath);
 
     // Get current time
     const auto t = std::chrono::high_resolution_clock::to_time_t(std::chrono::high_resolution_clock::now());

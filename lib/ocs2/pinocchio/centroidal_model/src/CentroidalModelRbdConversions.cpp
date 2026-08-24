@@ -234,7 +234,7 @@ void CentroidalModelRbdConversions::loadSettings(const std::string& fileName, co
     std::cerr << "#### =============================================================================" << std::endl;
   }
 
-  boost::property_tree::ptree pt;
+  loadData::PropertyTree pt;
   loadData::readPropertyTree(fileName, pt);
   const std::string centroidalModelRbdConversionsFieldName = fieldName + ".centroidal_model_rbd_conversions";
 

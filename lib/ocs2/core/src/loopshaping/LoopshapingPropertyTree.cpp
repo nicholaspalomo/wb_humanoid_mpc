@@ -28,13 +28,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include "ocs2_core/loopshaping/LoopshapingPropertyTree.h"
-
-#include <boost/property_tree/info_parser.hpp>
 #include "ocs2_core/misc/LoadData.h"
 
 namespace ocs2 {
 namespace loopshaping_property_tree {
-Filter readSISOFilter(const boost::property_tree::ptree& pt, std::string filterName, bool invert) {
+Filter readSISOFilter(const loadData::PropertyTree& pt, std::string filterName, bool invert) {
   // Get Sizes
   const auto numRepeats = pt.get<size_t>(filterName + ".numRepeats", 1);
   const auto numPoles = pt.get<size_t>(filterName + ".numPoles", 0);
@@ -102,7 +100,7 @@ Filter readSISOFilter(const boost::property_tree::ptree& pt, std::string filterN
   return Filter(A, B, C, D);
 }
 
-Filter readMIMOFilter(const boost::property_tree::ptree& pt, std::string filterName, bool invert) {
+Filter readMIMOFilter(const loadData::PropertyTree& pt, std::string filterName, bool invert) {
   const auto numFilters = pt.get<size_t>(filterName + ".numFilters", 0);
   if (numFilters > 0) {
     // Read the sisoFilters
@@ -142,8 +140,8 @@ Filter readMIMOFilter(const boost::property_tree::ptree& pt, std::string filterN
 
 std::shared_ptr<LoopshapingDefinition> load(const std::string& settingsFile) {
   // Read from settings File
-  boost::property_tree::ptree pt;
-  boost::property_tree::read_info(settingsFile, pt);
+  loadData::PropertyTree pt;
+  loadData::readPropertyTree(settingsFile, pt);
   Filter r_filter = loopshaping_property_tree::readMIMOFilter(pt, "r_filter");
   Filter s_filter = loopshaping_property_tree::readMIMOFilter(pt, "s_inv_filter", /*invert=*/true);
 

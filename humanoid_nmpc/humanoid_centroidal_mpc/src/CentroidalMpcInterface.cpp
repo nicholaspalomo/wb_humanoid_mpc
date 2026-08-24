@@ -66,9 +66,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/cost/ICPCost.h"
 #include "humanoid_centroidal_mpc/dynamics/CentroidalDynamicsAD.h"
 
-// Boost
-#include <boost/filesystem/operations.hpp>
-#include <boost/filesystem/path.hpp>
+#include <filesystem>
 
 namespace ocs2::humanoid {
 
@@ -85,22 +83,22 @@ CentroidalMpcInterface::CentroidalMpcInterface(const std::string& taskFile,
       referenceFile_(referenceFile),
       modelSettings_(taskFile, urdfFile, "centroidal_mpc_", "true") {
   // check that task file exists
-  boost::filesystem::path taskFilePath(taskFile);
-  if (boost::filesystem::exists(taskFilePath)) {
+  std::filesystem::path taskFilePath(taskFile);
+  if (std::filesystem::exists(taskFilePath)) {
     std::cerr << "[CentroidalMpcInterface] Loading task file: " << taskFilePath << std::endl;
   } else {
     throw std::invalid_argument(absl::StrCat("[CentroidalMpcInterface] Task file not found: ", taskFilePath.string()));
   }
   // check that urdf file exists
-  boost::filesystem::path urdfFilePath(urdfFile);
-  if (boost::filesystem::exists(urdfFilePath)) {
+  std::filesystem::path urdfFilePath(urdfFile);
+  if (std::filesystem::exists(urdfFilePath)) {
     std::cerr << "[CentroidalMpcInterface] Loading Pinocchio model from: " << urdfFilePath << std::endl;
   } else {
     throw std::invalid_argument(absl::StrCat("[CentroidalMpcInterface] URDF file not found: ", urdfFilePath.string()));
   }
   // check that targetCommand file exists
-  boost::filesystem::path referenceFilePath(referenceFile);
-  if (boost::filesystem::exists(referenceFilePath)) {
+  std::filesystem::path referenceFilePath(referenceFile);
+  if (std::filesystem::exists(referenceFilePath)) {
     std::cerr << "[CentroidalMpcInterface] Loading target command settings from: " << referenceFilePath << std::endl;
   } else {
     throw std::invalid_argument(absl::StrCat("[CentroidalMpcInterface] targetCommand file not found: ", referenceFilePath.string()));
@@ -301,7 +299,7 @@ std::unique_ptr<StateInputConstraint> CentroidalMpcInterface::getNormalVelocityC
 /******************************************************************************************************/
 /******************************************************************************************************/
 std::unique_ptr<StateInputConstraint> CentroidalMpcInterface::getJointMimicConstraint(size_t mimicIndex) {
-  boost::property_tree::ptree pt;
+  loadData::PropertyTree pt;
   loadData::readPropertyTree(taskFile_, pt);
   absl::string_view prefix;
   if (mimicIndex == 0) {
@@ -344,10 +342,10 @@ std::unique_ptr<StateInputConstraint> CentroidalMpcInterface::getJointMimicConst
 void CentroidalMpcInterface::addTaskSpaceKinematicsCosts(
     const CentroidalModelPinocchioMappingCppAd& pinocchioMappingCppAd,
     const PinocchioEndEffectorKinematicsCppAd::update_pinocchio_interface_callback& velocityUpdateCallback) {
-  boost::property_tree::ptree pt;
+  loadData::PropertyTree pt;
   loadData::readPropertyTree(taskFile_, pt);
 
-  boost::property_tree::ptree task_space_costs_pt = pt.get_child("task_space_costs");
+  loadData::PropertyTree task_space_costs_pt = pt.get_child("task_space_costs");
 
   for (auto& task_space_cost : task_space_costs_pt) {
     const absl::string_view costName = task_space_cost.first;

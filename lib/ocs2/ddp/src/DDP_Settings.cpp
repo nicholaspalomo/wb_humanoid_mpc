@@ -33,9 +33,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <iostream>
 #include <unordered_map>
 
-#include <boost/property_tree/info_parser.hpp>
-#include <boost/property_tree/ptree.hpp>
-
 #include <ocs2_core/misc/LoadData.h>
 
 namespace ocs2 {
@@ -53,7 +50,7 @@ Algorithm fromAlgorithmName(std::string name) {
 }
 
 Settings loadSettings(const std::string& filename, const std::string& fieldName, bool verbose) {
-  boost::property_tree::ptree pt;
+  loadData::PropertyTree pt;
   loadData::readPropertyTree(filename, pt);
 
   Settings settings;

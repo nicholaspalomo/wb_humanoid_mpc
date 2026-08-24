@@ -30,7 +30,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/gait/GaitOptimizationSettings.h"
 
 #include <ocs2_core/misc/LoadData.h>
-#include <boost/property_tree/ptree.hpp>
 #include <iostream>
 #include "absl/status/status.h"
 
@@ -39,7 +38,7 @@ namespace ocs2::humanoid {
 absl::StatusOr<GaitOptimizationSettings> loadGaitOptimizationSettings(const std::string& filename,
                                                                       const std::string& fieldName,
                                                                       bool verbose) {
-  boost::property_tree::ptree pt;
+  loadData::PropertyTree pt;
   try {
     loadData::readPropertyTree(filename, pt);
   } catch (const std::exception& e) {

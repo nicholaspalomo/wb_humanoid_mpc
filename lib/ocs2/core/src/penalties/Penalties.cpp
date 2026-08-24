@@ -31,9 +31,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_core/misc/LoadData.h>
 
-#include <boost/property_tree/info_parser.hpp>
-#include <boost/property_tree/ptree.hpp>
-
 namespace ocs2 {
 namespace loadData {
 
@@ -43,7 +40,7 @@ namespace loadData {
 template <>
 void loadPenaltyConfig<augmented::SmoothAbsolutePenalty::Config>(const std::string& fileName, const std::string& fieldName,
                                                                  augmented::SmoothAbsolutePenalty::Config& config, bool verbose) {
-  boost::property_tree::ptree pt;
+  PropertyTree pt;
   loadData::readPropertyTree(fileName, pt);
 
   if (verbose) {
@@ -66,7 +63,7 @@ void loadPenaltyConfig<augmented::SmoothAbsolutePenalty::Config>(const std::stri
 template <>
 void loadPenaltyConfig<augmented::QuadraticPenalty::Config>(const std::string& fileName, const std::string& fieldName,
                                                             augmented::QuadraticPenalty::Config& config, bool verbose) {
-  boost::property_tree::ptree pt;
+  PropertyTree pt;
   loadData::readPropertyTree(fileName, pt);
 
   if (verbose) {
@@ -89,7 +86,7 @@ template <>
 void loadPenaltyConfig<augmented::ModifiedRelaxedBarrierPenalty::Config>(const std::string& fileName, const std::string& fieldName,
                                                                          augmented::ModifiedRelaxedBarrierPenalty::Config& config,
                                                                          bool verbose) {
-  boost::property_tree::ptree pt;
+  PropertyTree pt;
   loadData::readPropertyTree(fileName, pt);
 
   if (verbose) {
@@ -113,7 +110,7 @@ template <>
 void loadPenaltyConfig<augmented::SlacknessSquaredHingePenalty::Config>(const std::string& fileName, const std::string& fieldName,
                                                                         augmented::SlacknessSquaredHingePenalty::Config& config,
                                                                         bool verbose) {
-  boost::property_tree::ptree pt;
+  PropertyTree pt;
   loadData::readPropertyTree(fileName, pt);
 
   if (verbose) {

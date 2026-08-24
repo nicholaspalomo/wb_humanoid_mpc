@@ -6,10 +6,10 @@
 
 #include <ocs2_core/misc/LoadStdVectorOfPair.h>
 
-#include <boost/filesystem.hpp>
+#include <filesystem>
 
 namespace {
-const std::string dataFolder = boost::filesystem::path(__FILE__).parent_path().generic_string() + "/data/";
+const std::string dataFolder = std::filesystem::path(__FILE__).parent_path().generic_string() + "/data/";
 }
 
 TEST(testLoadPair, loadStringPair) {

@@ -33,7 +33,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
-#include <boost/tokenizer.hpp>
+#include "absl/strings/str_split.h"
+#include "absl/strings/string_view.h"
 
 #include <ocs2_core/Types.h>
 #include <ocs2_core/misc/LoadData.h>
@@ -90,19 +91,14 @@ struct ExtendedPair {
 
   // Constructor from string
   explicit ExtendedPair(const std::string& str) : first(), second() {
-    using separator = boost::char_separator<char>;
-
-    std::vector<std::string> container;
-    container.reserve(2);
-
-    boost::tokenizer<separator> tokens(str, separator(", "));
-    std::copy(tokens.begin(), tokens.end(), std::back_inserter(container));
-    if (container.size() != 2) {
+    const std::vector<absl::string_view> tokens =
+        absl::StrSplit(str, absl::ByAnyChar(", "), absl::SkipEmpty());
+    if (tokens.size() != 2) {
       const std::string msg = "Failed parsing pair: \"" + str + R"(". Expected: x,x (no spaces) or "x, x")";
       throw std::runtime_error(msg);
     } else {
-      first = fromString<T1>(container[0]);
-      second = fromString<T2>(container[1]);
+      first = fromString<T1>(std::string(tokens[0]));
+      second = fromString<T2>(std::string(tokens[1]));
     }
   }
 
@@ -115,36 +111,17 @@ struct ExtendedPair {
     return stream;
   }
 
-  // conversion to string, relies on the type being compatible with the stream operator.
-  std::string toString() const {
-    std::ostringstream stream;
-    stream << *this;
-    return stream.str();
+  friend std::istream& operator>>(std::istream& is, ExtendedPair& pair) {
+    std::string s;
+    std::getline(is, s);
+    pair = ExtendedPair(s);
+    return is;
   }
-};
-
-template <typename T1, typename T2>
-struct translator_between_impl {
-  using internal_type = std::string;
-  using external_type = ExtendedPair<T1, T2>;
-  boost::optional<external_type> get_value(const internal_type& str) { return boost::optional<external_type>(external_type(str)); }
-  boost::optional<internal_type> put_value(const external_type& obj) { return boost::optional<internal_type>(obj.toString()); }
 };
 
 }  // namespace detail
 }  // namespace loadData
 }  // namespace ocs2
-
-namespace boost {
-namespace property_tree {
-
-template <typename T1, typename T2>
-struct translator_between<std::string, ocs2::loadData::detail::ExtendedPair<T1, T2>> {
-  using type = ocs2::loadData::detail::translator_between_impl<T1, T2>;
-};
-
-}  // namespace property_tree
-}  // namespace boost
 
 namespace ocs2 {
 namespace loadData {

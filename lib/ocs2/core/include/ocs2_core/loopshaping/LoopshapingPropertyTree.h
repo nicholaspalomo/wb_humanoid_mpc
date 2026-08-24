@@ -27,20 +27,18 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#pragma once
-
 #include <ocs2_core/Types.h>
+#include <ocs2_core/misc/LoadData.h>
 
-#include <boost/property_tree/ptree.hpp>
 #include "LoopshapingDefinition.h"
 #include "LoopshapingFilter.h"
 
 namespace ocs2 {
 namespace loopshaping_property_tree {
 
-Filter readSISOFilter(const boost::property_tree::ptree& pt, std::string filterName, bool invert = false);
+Filter readSISOFilter(const loadData::PropertyTree& pt, std::string filterName, bool invert = false);
 
-Filter readMIMOFilter(const boost::property_tree::ptree& pt, std::string filterName, bool invert = false);
+Filter readMIMOFilter(const loadData::PropertyTree& pt, std::string filterName, bool invert = false);
 
 std::shared_ptr<LoopshapingDefinition> load(const std::string& settingsFile);
 
