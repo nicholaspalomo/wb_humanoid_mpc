@@ -1,6 +1,9 @@
 """Unit and integration tests for Cartpole Brax MJX environment and training pipeline."""
 
 import os
+
+os.environ.setdefault("JAX_PLATFORMS", "cpu")
+
 import shutil
 import tempfile
 import unittest

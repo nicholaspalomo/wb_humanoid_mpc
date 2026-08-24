@@ -1,5 +1,9 @@
 """Smoke tests to verify MuJoCo Playground, MJX, JAX, and RL stack imports and basic execution."""
 
+import os
+
+os.environ.setdefault("JAX_PLATFORMS", "cpu")
+
 import unittest
 
 import brax

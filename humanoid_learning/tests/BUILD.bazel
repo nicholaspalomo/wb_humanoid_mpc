@@ -9,7 +9,7 @@ package(default_visibility = ["//visibility:public"])
 
 py_test(
     name = "test_rl_imports",
-    size = "small",
+    size = "medium",
     srcs = ["test_rl_imports.py"],
     deps = [
         "//humanoid_learning/envs",
