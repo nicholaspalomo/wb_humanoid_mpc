@@ -74,8 +74,7 @@ class HumanoidCostConstraintFactory {
 
   std::unique_ptr<StateInputCost> getContactMomentXYConstraint(size_t contactPointIndex, const std::string& name) const;
 
-  std::unique_ptr<StateInputCost> getContactWrenchConeConstraint(size_t contactPointIndex,
-                                                                size_t numBasisVectors = 4) const;
+  std::unique_ptr<StateInputCost> getContactWrenchConeConstraint(size_t contactPointIndex, size_t numBasisVectors = 4) const;
 
   std::unique_ptr<StateInputConstraint> getZeroWrenchConstraint(size_t contactPointIndex) const;
 

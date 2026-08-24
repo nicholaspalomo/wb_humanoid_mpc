@@ -16,7 +16,7 @@ endef
 # Build targets
 ############################################################
 .PHONY: build-all build-debug build-release build-relwithdebinfo build \
-        test-all test clean clean-all format ci-local \
+        test-all test clean clean-all format lint ci-local \
         launch-g1-dummy-sim launch-g1-sim launch-wb-g1-dummy-sim launch-wb-g1-sim \
         launch-drc-atlas-dummy-sim launch-drc-atlas-sandbox test-pinocchio-model-atlas \
         launch-r1-dummy-sim launch-r1-sim launch-r1-sandbox test-pinocchio-model-r1 \
@@ -128,6 +128,10 @@ clean-all:
 ## Format source code (C++, Python, trailing newlines, and whitespace)
 format:
 	@python3 tools/hooks/format_code.py
+
+## Lint repository (IFTTT directives, formatting checks, whitespace, and EOF newlines)
+lint:
+	@python3 tools/hooks/lint_code.py
 
 ## Install git pre-commit hook
 install-hooks:
