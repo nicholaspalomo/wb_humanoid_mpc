@@ -50,6 +50,12 @@ if [ "${1:-}" = "stop" ]; then
     exit 0
 fi
 
+# If VNC is already running healthy, keep it active
+if pgrep -f "Xvfb.*:99" >/dev/null 2>&1 && pgrep -f "x11vnc.*${VNC_PORT}" >/dev/null 2>&1 && pgrep -f "websockify.*${NOVNC_PORT}" >/dev/null 2>&1; then
+    echo "✅ VNC server is already running on ${VNC_DISPLAY} (noVNC port ${NOVNC_PORT})"
+    exit 0
+fi
+
 # Clean up any stale state
 cleanup 2>/dev/null || true
 sleep 0.5
@@ -94,6 +100,7 @@ sleep 0.5
 echo "Starting openbox window manager ..."
 openbox &
 sleep 0.5
+xsetroot -solid "#1e222d" 2>/dev/null || true
 
 # Launch noVNC (websockify proxy)
 echo "Starting noVNC websockify on port ${NOVNC_PORT} ..."

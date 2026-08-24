@@ -70,3 +70,4 @@ MODULE.bazel.lock
 # CppAD generated code (runtime)
 cppad_code_gen/
 .env
+cartpole_renders/

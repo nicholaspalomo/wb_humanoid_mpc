@@ -26,3 +26,21 @@ py_test(
         requirement("playground"),
     ],
 )
+
+py_test(
+    name = "test_cartpole",
+    srcs = ["test_cartpole.py"],
+    deps = [
+        "//humanoid_learning/examples:examples_lib",
+        requirement("brax"),
+        requirement("flax"),
+        requirement("jax"),
+        requirement("jaxlib"),
+        requirement("matplotlib"),
+        requirement("mujoco"),
+        requirement("mujoco-mjx"),
+        requirement("numpy"),
+        requirement("optax"),
+        requirement("pillow"),
+    ],
+)

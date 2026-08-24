@@ -1,4 +1,4 @@
-"""Reinforcement learning training pipelines and behavioral cloning warmstart."""
+"""MuJoCo Playground and MJX training examples and tutorials."""
 
 import jax
 import jax.numpy as jnp
