@@ -51,7 +51,7 @@ SwitchedModelReferenceManager::SwitchedModelReferenceManager(std::shared_ptr<Gai
                                                              const PinocchioInterface& pinocchioInterface,
                                                              const MpcRobotModelBase<scalar_t>& mpcRobotModel,
                                                              GaitOptimizationSettings gaitOptimizationSettings)
-    : ReferenceManager(TargetTrajectories(), ModeSchedule()),
+    : ReferenceManager(TargetTrajectories(), gaitSchedulePtr ? gaitSchedulePtr->getCurrentModeSchedule() : ModeSchedule()),
       gaitSchedulePtr_(std::move(gaitSchedulePtr)),
       swingTrajectoryPtr_(std::move(swingTrajectoryPtr)),
       pinocchioInterface_(pinocchioInterface),
@@ -169,7 +169,9 @@ void SwitchedModelReferenceManager::modifyReferences(scalar_t initTime,
 
   const scalar_t terrainHeight = adaptToCurrentGroundHeight(targetTrajectories, initState, initMode);
 
-  swingTrajectoryPtr_->update(modeSchedule, terrainHeight);
+  if (swingTrajectoryPtr_) {
+    swingTrajectoryPtr_->update(modeSchedule, terrainHeight);
+  }
 
   modeSchedule_ = modeSchedule;
 }

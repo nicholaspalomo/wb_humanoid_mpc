@@ -70,6 +70,8 @@ class HumanoidCostConstraintFactory {
 
   std::unique_ptr<StateCost> getFootCollisionConstraint() const;
 
+  std::unique_ptr<StateInputCost> getFootCollisionCbfConstraint() const;
+
   std::unique_ptr<StateCost> getJointLimitsConstraint() const;
 
   std::unique_ptr<StateInputCost> getContactMomentXYConstraint(size_t contactPointIndex, const std::string& name) const;

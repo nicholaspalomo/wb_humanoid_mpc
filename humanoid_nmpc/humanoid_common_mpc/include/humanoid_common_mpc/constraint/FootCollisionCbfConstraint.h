@@ -1,6 +1,5 @@
 /******************************************************************************
-Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
-Copyright (c) 2024, 1X Technologies. All rights reserved.
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -32,10 +31,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <pinocchio/fwd.hpp>
 
-#include <ocs2_core/constraint/StateConstraintCppAd.h>
-#include <ocs2_core/cost/StateCost.h>
+#include <string>
+#include <vector>
+
+#include <ocs2_core/constraint/StateInputConstraintCppAd.h>
 #include <ocs2_pinocchio_interface/PinocchioInterface.h>
-#include <pinocchio/algorithm/frames.hpp>
+#include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
@@ -45,10 +46,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Implements the constraint h(t,x,u) >= 0 to prevent collisions of the feet.
+ * Implements a Zeroing Control Barrier Function (ZCBF) constraint:
+ *   c(x, u) = \dot{h}(q, v) + \gamma h(q) >= 0
+ * to enforce safe foot-to-foot and knee-to-knee separation during swing phases.
  */
-
-class FootCollisionConstraint final : public StateConstraintCppAd {
+class FootCollisionCbfConstraint final : public StateInputConstraintCppAd {
  public:
   struct Config {
     // Ankle joint frames
@@ -74,58 +76,71 @@ class FootCollisionConstraint final : public StateConstraintCppAd {
     std::string rightFootFrame2{"foot_r_contact_collision_p_2"};
 
     /// Radius of the collision spheres centered at ankle, foot center, foot1 (front/toe), and foot2 (rear/heel)
-    scalar_t footCollisionSphereRadius;
+    scalar_t footCollisionSphereRadius = 0.065;
 
-    // Knee joint frames
+    // Knee joint collision frames
     std::string leftKneeFrame;
     std::string rightKneeFrame;
-    scalar_t kneeCollisionSphereRadius;
+    scalar_t kneeCollisionSphereRadius = 0.07;
+
+    // CBF decay parameter \gamma > 0
+    scalar_t gamma = 10.0;
   };
 
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-  FootCollisionConstraint(const SwitchedModelReferenceManager& referenceManager,
-                          const PinocchioInterface& pinocchioInterface,
-                          const MpcRobotModelBase<ad_scalar_t>& mpcRobotModel,
-                          const Config& config,
-                          std::string costName,
-                          const ModelSettings& modelSettings);
+  FootCollisionCbfConstraint(const SwitchedModelReferenceManager& referenceManager,
+                             const PinocchioInterface& pinocchioInterface,
+                             const MpcRobotModelBase<ad_scalar_t>& mpcRobotModel,
+                             const Config& config,
+                             std::string costName,
+                             const ModelSettings& modelSettings);
 
-  ~FootCollisionConstraint() override = default;
-  FootCollisionConstraint* clone() const override { return new FootCollisionConstraint(*this); }
+  ~FootCollisionCbfConstraint() override = default;
+  FootCollisionCbfConstraint* clone() const override { return new FootCollisionCbfConstraint(*this); }
 
   bool isActive(scalar_t time) const override;
   bool getActive() const { return isActive_; }
   void setActive(bool active) { isActive_ = active; }
 
-  size_t getNumConstraints(scalar_t time) const override { return numConstraints_; };
+  size_t getNumConstraints(scalar_t time) const override { return numConstraints_; }
 
   vector_t getParameters(scalar_t time, const PreComputation& preComputation) const override {
-    vector_t parameters(2);
-    parameters << cfg_.footCollisionSphereRadius, cfg_.kneeCollisionSphereRadius;
+    vector_t parameters(3);
+    parameters << cfg_.footCollisionSphereRadius, cfg_.kneeCollisionSphereRadius, cfg_.gamma;
     return parameters;
-  };
-
-  void setSphereRadii(scalar_t footCollisionSphereRadius, scalar_t kneeCollisionSphereRadius) {
-    cfg_.footCollisionSphereRadius = footCollisionSphereRadius;
-    cfg_.kneeCollisionSphereRadius = kneeCollisionSphereRadius;
   }
 
-  void getSphereRadii(scalar_t& footCollisionSphereRadius, scalar_t& kneeCollisionSphereRadius) const {
-    footCollisionSphereRadius = cfg_.footCollisionSphereRadius;
-    kneeCollisionSphereRadius = cfg_.kneeCollisionSphereRadius;
-  }
+  void setFootCollisionSphereRadius(scalar_t footCollisionSphereRadius) { cfg_.footCollisionSphereRadius = footCollisionSphereRadius; }
+  void setKneeCollisionSphereRadius(scalar_t kneeCollisionSphereRadius) { cfg_.kneeCollisionSphereRadius = kneeCollisionSphereRadius; }
 
-  static Config loadFootCollisionConstraintConfig(const std::string taskFile, bool verbose = false);
+  void setGamma(scalar_t gamma) { cfg_.gamma = gamma; }
+  scalar_t getGamma() const { return cfg_.gamma; }
+
+  static Config loadFootCollisionCbfConstraintConfig(absl::string_view taskFile, bool verbose = false);
 
  private:
-  ad_vector_t constraintFunction(ad_scalar_t time, const ad_vector_t& state, const ad_vector_t& parameters) const override;
+  ad_vector_t constraintFunction(ad_scalar_t time,
+                                 const ad_vector_t& state,
+                                 const ad_vector_t& input,
+                                 const ad_vector_t& parameters) const override;
 
-  FootCollisionConstraint(const FootCollisionConstraint& other);
+  FootCollisionCbfConstraint(const FootCollisionCbfConstraint& other);
 
   const SwitchedModelReferenceManager* referenceManagerPtr_;
   PinocchioInterfaceCppAd pinocchioInterfaceCppAd_;
   const MpcRobotModelBase<ad_scalar_t>* const mpcRobotModelPtr_;
   Config cfg_;
+
+  size_t leftAnkleId_ = 0;
+  size_t rightAnkleId_ = 0;
+  size_t leftFootCenterId_ = 0;
+  size_t rightFootCenterId_ = 0;
+  size_t leftFoot1Id_ = 0;   // Anterior / toe collision frame (collision_p_1)
+  size_t rightFoot1Id_ = 0;  // Anterior / toe collision frame (collision_p_1)
+  size_t leftFoot2Id_ = 0;   // Posterior / heel collision frame (collision_p_2)
+  size_t rightFoot2Id_ = 0;  // Posterior / heel collision frame (collision_p_2)
+  size_t leftKneeId_ = 0;
+  size_t rightKneeId_ = 0;
 
   const size_t numConstraints_ = 16;
   bool isActive_ = true;

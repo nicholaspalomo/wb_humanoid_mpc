@@ -68,6 +68,7 @@ cc_test(
 
 cc_test(
     name = "test_gait_switching_time_optimization",
+    size = "small",
     srcs = ["src/testGaitSwitchingTimeOptimization.cpp"],
     copts = _TEST_COPTS,
     data = _TEST_DATA,
@@ -76,7 +77,17 @@ cc_test(
 
 cc_test(
     name = "test_mpc_problem_builder",
+    size = "small",
     srcs = ["src/testMpcProblemBuilder.cpp"],
+    copts = _TEST_COPTS,
+    data = _TEST_DATA,
+    deps = _TEST_DEPS,
+)
+
+cc_test(
+    name = "test_foot_collision_cbf_constraint",
+    size = "small",
+    srcs = ["src/testFootCollisionCbfConstraint.cpp"],
     copts = _TEST_COPTS,
     data = _TEST_DATA,
     deps = _TEST_DEPS,

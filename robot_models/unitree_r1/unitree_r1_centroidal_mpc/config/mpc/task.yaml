@@ -55,6 +55,11 @@ problem_definition:
       penalty: RelaxedBarrierPenalty
       per_contact: true
       enabled: true
+    foot_collision_cbf:
+      type: FootCollisionCbfConstraint
+      config_path: collision_cbf_constraint
+      penalty: RelaxedBarrierPenalty
+      enabled: true
 
   equality_constraints:
     zero_wrench:
@@ -465,3 +470,20 @@ collision_constraint:
   # relaxed log barrier parameters
   mu: 30000
   delta: 0.05
+
+collision_cbf_constraint:
+  gamma: 10.0
+  foot:
+    leftAnkleFrame: left_ankle_roll_joint
+    rightAnkleFrame: right_ankle_roll_joint
+
+    footCollisionSphereRadius: 0.065
+  knee:
+    leftKneeFrame: left_knee_joint
+    rightKneeFrame: right_knee_joint
+
+    kneeCollisionSphereRadius: 0.07
+  # relaxed log barrier parameters
+  mu: 5000.0
+  delta: 0.05
+

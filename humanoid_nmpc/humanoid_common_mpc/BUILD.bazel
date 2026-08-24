@@ -16,6 +16,7 @@ cc_library(
         "src/common/ModelSettings.cpp",
         "src/constraint/JointLimitsSoftConstraint.cpp",
         "src/constraint/FootCollisionConstraint.cpp",
+        "src/constraint/FootCollisionCbfConstraint.cpp",
         "src/constraint/ZeroWrenchConstraint.cpp",
         "src/constraint/EndEffectorKinematicsTwistConstraint.cpp",
         "src/constraint/FrictionForceConeConstraint.cpp",
