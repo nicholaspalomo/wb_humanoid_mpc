@@ -131,8 +131,16 @@ class ContactWrenchConeConstraint final : public StateInputConstraint {
   size_t numConstraints_;
   bool isActive_ = true;
 
+  /// Matrix of linear constraint coefficients multiplying the local 3D contact force vector (f_local in R^3).
+  /// Enforces friction cone pyramid facets, normal force lower bounds, and CoP/torsional force couplings.
   matrix_t A_f_local_;
+
+  /// Matrix of linear constraint coefficients multiplying the local 3D contact moment vector (tau_local in R^3).
+  /// Enforces roll (tau_x) and pitch (tau_y) Center of Pressure (CoP) boundaries as well as yaw (tau_z) torsional friction limits.
   matrix_t A_tau_local_;
+
+  /// Constant offset/bias vector for the linear inequality constraint: A_f_local * f_local + A_tau_local * tau_local + b_local >= 0.
+  /// Encodes constant terms such as minimum normal force (-minNormalForce) and gripper adhesion forces (mu * F_grip).
   vector_t b_local_;
 };
 
