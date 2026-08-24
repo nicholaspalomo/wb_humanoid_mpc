@@ -166,7 +166,10 @@ class CartpoleBraxEnv(PipelineEnv):
 # 3. Rendering & Visualization Helper
 # ==============================================================================
 def render_policy_rollout(
-    mj_model: mujoco.MjModel, inference_fn, output_gif_path: str
+    mj_model: mujoco.MjModel,
+    inference_fn,
+    output_gif_path: str,
+    num_frames: int = 120,
 ) -> float:
     """Rolls out the trained policy in MuJoCo dynamics and renders an animated GIF."""
     data = mujoco.MjData(mj_model)
@@ -179,7 +182,6 @@ def render_policy_rollout(
 
     frames = []
     total_reward = 0.0
-    num_frames = 120
 
     # Try native MuJoCo 3D renderer
     renderer = None

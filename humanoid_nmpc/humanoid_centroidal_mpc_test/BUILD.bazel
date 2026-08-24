@@ -31,6 +31,7 @@ _TEST_COPTS = [
 
 cc_test(
     name = "test_centroidal_mpc_robot_model",
+    size = "small",
     srcs = ["src/testCentroidalMpcRobotModel.cpp"],
     copts = _TEST_COPTS,
     data = _TEST_DATA,
@@ -39,6 +40,7 @@ cc_test(
 
 cc_test(
     name = "test_pinocchio_frame_conversions",
+    size = "small",
     srcs = ["src/testPinocchioFrameConversions.cpp"],
     copts = _TEST_COPTS,
     data = _TEST_DATA,
@@ -47,6 +49,7 @@ cc_test(
 
 cc_test(
     name = "test_dynamics_helper_functions",
+    size = "small",
     srcs = ["src/testDynamicsHelperFunctions.cpp"],
     copts = _TEST_COPTS,
     data = _TEST_DATA,
@@ -55,6 +58,7 @@ cc_test(
 
 cc_test(
     name = "test_contact_wrench_cone_constraint",
+    size = "small",
     srcs = ["src/testContactWrenchConeConstraint.cpp"],
     copts = _TEST_COPTS,
     data = _TEST_DATA,

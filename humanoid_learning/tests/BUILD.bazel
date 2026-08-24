@@ -9,6 +9,7 @@ package(default_visibility = ["//visibility:public"])
 
 py_test(
     name = "test_rl_imports",
+    size = "small",
     srcs = ["test_rl_imports.py"],
     deps = [
         "//humanoid_learning/envs",
@@ -29,6 +30,7 @@ py_test(
 
 py_test(
     name = "test_cartpole",
+    size = "medium",
     srcs = ["test_cartpole.py"],
     deps = [
         "//humanoid_learning/examples:examples_lib",
