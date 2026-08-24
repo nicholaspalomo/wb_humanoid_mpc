@@ -79,7 +79,11 @@ class HumanoidMpxEnv(PipelineEnv):
             jnp.zeros(self.sys.nv),
         )
         cmd = jnp.array(
-            [self.config.target_vx, self.config.target_vy, self.config.target_wz]
+            [
+                self.config.target_vx,
+                self.config.target_vy,
+                self.config.target_wz,
+            ]
         )
         obs = self._get_obs(pipeline_state, cmd)
         reward = jnp.zeros(())
@@ -98,7 +102,11 @@ class HumanoidMpxEnv(PipelineEnv):
         pipeline_state = self.pipeline_step(state.pipeline_state, ctrl)
 
         cmd = jnp.array(
-            [self.config.target_vx, self.config.target_vy, self.config.target_wz]
+            [
+                self.config.target_vx,
+                self.config.target_vy,
+                self.config.target_wz,
+            ]
         )
         obs = self._get_obs(pipeline_state, cmd)
         reward, metrics = self._compute_reward(pipeline_state, cmd, ctrl)

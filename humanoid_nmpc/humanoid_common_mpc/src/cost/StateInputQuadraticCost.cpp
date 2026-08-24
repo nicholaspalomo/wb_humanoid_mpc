@@ -40,11 +40,12 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-StateInputQuadraticCost::StateInputQuadraticCost(matrix_t Q,
-                                                 matrix_t R,
-                                                 const SwitchedModelReferenceManager& referenceManager,
-                                                 const PinocchioInterface& pinocchioInterface,
-                                                 const MpcRobotModelBase<scalar_t>& mpcRobotModel)
+StateInputQuadraticCost::StateInputQuadraticCost(
+    matrix_t Q,
+    matrix_t R,
+    const SwitchedModelReferenceManager& referenceManager,
+    const PinocchioInterface& pinocchioInterface,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel)
     : QuadraticStateInputCost(std::move(Q), std::move(R)),
       referenceManagerPtr_(&referenceManager),
       pinInterface_(pinocchioInterface),
@@ -54,7 +55,8 @@ StateInputQuadraticCost::StateInputQuadraticCost(matrix_t Q,
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-StateInputQuadraticCost::StateInputQuadraticCost(const StateInputQuadraticCost& rhs)
+StateInputQuadraticCost::StateInputQuadraticCost(
+    const StateInputQuadraticCost& rhs)
     : QuadraticStateInputCost(rhs),
       referenceManagerPtr_(rhs.referenceManagerPtr_),
       pinInterface_(rhs.pinInterface_),
@@ -64,15 +66,18 @@ StateInputQuadraticCost::StateInputQuadraticCost(const StateInputQuadraticCost& 
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-std::pair<vector_t, vector_t> StateInputQuadraticCost::getStateInputDeviation(scalar_t time,
-                                                                              const vector_t& state,
-                                                                              const vector_t& input,
-                                                                              const TargetTrajectories& targetTrajectories) const {
+std::pair<vector_t, vector_t> StateInputQuadraticCost::getStateInputDeviation(
+    scalar_t time,
+    const vector_t& state,
+    const vector_t& input,
+    const TargetTrajectories& targetTrajectories) const {
   const auto contactFlags = referenceManagerPtr_->getContactFlags(time);
-  vector_t xNominal = referenceManagerPtr_->getDesiredState(targetTrajectories, state, time);
+  vector_t xNominal =
+      referenceManagerPtr_->getDesiredState(targetTrajectories, state, time);
 
   // All reference stuff should eventually be moved out of here.
-  const vector_t uNominal = weightCompensatingInput(pinInterface_, contactFlags, *mpcRobotModelPtr_);
+  const vector_t uNominal =
+      weightCompensatingInput(pinInterface_, contactFlags, *mpcRobotModelPtr_);
 
   return {state - xNominal, input - uNominal};
 }

@@ -41,15 +41,20 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-void checkPinocchioJointNaming(const PinocchioInterface& pinocchioInterface, const ModelSettings& modelSettings, bool verbose) {
+void checkPinocchioJointNaming(const PinocchioInterface& pinocchioInterface,
+                               const ModelSettings& modelSettings,
+                               bool verbose) {
   const pinocchio::Model& model = pinocchioInterface.getModel();
   for (size_t i = 0; i < modelSettings.mpcModelJointNames.size(); i++) {
     if (verbose) {
-      std::cout << "URDF Joint Name " << i << ": " << model.names[i + 2] << std::endl;
-      std::cout << "Model Settings Joint Name " << i << ": " << modelSettings.mpcModelJointNames[i] << std::endl;
+      std::cout << "URDF Joint Name " << i << ": " << model.names[i + 2]
+                << std::endl;
+      std::cout << "Model Settings Joint Name " << i << ": "
+                << modelSettings.mpcModelJointNames[i] << std::endl;
     }
     // Offset of 2 required to skip universe and root joint
-    assert(modelSettings.mpcModelJointNames[i] == model.names[i + 2] && "Joint name of PinocchioModel and Model Settings do not match!");
+    assert(modelSettings.mpcModelJointNames[i] == model.names[i + 2] &&
+           "Joint name of PinocchioModel and Model Settings do not match!");
   }
   if (verbose) {
     std::cout << "Joint naming check of pinocchio model passed. " << std::endl;
@@ -60,19 +65,24 @@ void checkPinocchioJointNaming(const PinocchioInterface& pinocchioInterface, con
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-std::pair<vector_t, vector_t> readPinocchioJointLimits(const PinocchioInterface& pinocchioInterface,
-                                                       const ModelSettings& modelSettings,
-                                                       bool verbose) {
-  // check that Pinocchio Model joint naming and order is identical to model setting.
+std::pair<vector_t, vector_t> readPinocchioJointLimits(
+    const PinocchioInterface& pinocchioInterface,
+    const ModelSettings& modelSettings,
+    bool verbose) {
+  // check that Pinocchio Model joint naming and order is identical to model
+  // setting.
   checkPinocchioJointNaming(pinocchioInterface, modelSettings);
   const pinocchio::Model& model = pinocchioInterface.getModel();
   // Take the tail to avoid limits of universe and root joints
-  vector_t upper_limits = model.upperPositionLimit.tail(modelSettings.mpcModelJointNames.size());
-  vector_t lower_limits = model.lowerPositionLimit.tail(modelSettings.mpcModelJointNames.size());
+  vector_t upper_limits =
+      model.upperPositionLimit.tail(modelSettings.mpcModelJointNames.size());
+  vector_t lower_limits =
+      model.lowerPositionLimit.tail(modelSettings.mpcModelJointNames.size());
   if (verbose) {
     std::cout << "Joint Name , min, max" << std::endl;
     for (size_t i = 0; i < modelSettings.mpcModelJointNames.size(); i++) {
-      std::cout << modelSettings.mpcModelJointNames[i] << ": " << lower_limits[i] << ", " << upper_limits[i] << std::endl;
+      std::cout << modelSettings.mpcModelJointNames[i] << ": "
+                << lower_limits[i] << ", " << upper_limits[i] << std::endl;
     }
   }
   return {lower_limits, upper_limits};
@@ -82,13 +92,16 @@ std::pair<vector_t, vector_t> readPinocchioJointLimits(const PinocchioInterface&
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-void scalePinocchioModelInertia(pinocchio::ModelTpl<scalar_t>& model, scalar_t targetRobotMass, bool verbose) {
+void scalePinocchioModelInertia(pinocchio::ModelTpl<scalar_t>& model,
+                                scalar_t targetRobotMass,
+                                bool verbose) {
   scalar_t robotMass = pinocchio::computeTotalMass(model);
   scalar_t inertiaScaleFactor = targetRobotMass / robotMass;
   if (verbose) {
     std::cout << "Current robot mass: " << robotMass << std::endl;
     std::cout << "Target robot mass: " << targetRobotMass << std::endl;
-    std::cout << "Adapting robot mass by a factor of " << inertiaScaleFactor << "." << std::endl;
+    std::cout << "Adapting robot mass by a factor of " << inertiaScaleFactor
+              << "." << std::endl;
   }
   for (size_t i = 0; i < model.inertias.size(); i++) {
     const auto inertia = model.inertias[i];
@@ -96,10 +109,12 @@ void scalePinocchioModelInertia(pinocchio::ModelTpl<scalar_t>& model, scalar_t t
     matrix3_t inertiaMatrix = inertia.inertia().matrix();
     inertiaMatrix = inertiaMatrix * inertiaScaleFactor;
     auto scaledInertia = pinocchio::Symmetric3(inertiaMatrix);
-    model.inertias[i] = pinocchio::ModelTpl<scalar_t>::Inertia(scaledMass, inertia.lever(), scaledInertia);
+    model.inertias[i] = pinocchio::ModelTpl<scalar_t>::Inertia(
+        scaledMass, inertia.lever(), scaledInertia);
   }
   if (verbose) {
-    std::cout << "Robot mass scaled to " << pinocchio::computeTotalMass(model) << "." << std::endl;
+    std::cout << "Robot mass scaled to " << pinocchio::computeTotalMass(model)
+              << "." << std::endl;
   }
 }
 

@@ -49,12 +49,15 @@ class FootCollisionCbfConstraintTest : public ::testing::Test {
   static void SetUpTestSuite() {
     testingModelPtr_ = std::make_unique<CentroidalTestingModelInterface>();
 
-    // Mode schedule: time < 0.5 single stance (RF: mode 1), time >= 0.5 double stance (STANCE: mode 3)
+    // Mode schedule: time < 0.5 single stance (RF: mode 1), time >= 0.5 double
+    // stance (STANCE: mode 3)
     ModeSchedule initModeSchedule({0.5}, {1, 3});
     ModeSequenceTemplate initModeSequenceTemplate({0.5, 0.5}, {1, 3});
-    auto gaitSchedule = std::make_shared<GaitSchedule>(initModeSchedule, initModeSequenceTemplate, 0.0);
-    referenceManagerPtr_ = std::make_shared<SwitchedModelReferenceManager>(gaitSchedule, nullptr, testingModelPtr_->getPinocchioInterface(),
-                                                                           testingModelPtr_->getMpcRobotModel());
+    auto gaitSchedule = std::make_shared<GaitSchedule>(
+        initModeSchedule, initModeSequenceTemplate, 0.0);
+    referenceManagerPtr_ = std::make_shared<SwitchedModelReferenceManager>(
+        gaitSchedule, nullptr, testingModelPtr_->getPinocchioInterface(),
+        testingModelPtr_->getMpcRobotModel());
     referenceManagerPtr_->setModeSchedule(initModeSchedule);
 
     FootCollisionCbfConstraint::Config config;
@@ -69,9 +72,10 @@ class FootCollisionCbfConstraintTest : public ::testing::Test {
     testingModelPtr_->modelSettingsPtr->modelFolderCppAd = "/tmp/ocs2";
     testingModelPtr_->modelSettingsPtr->verboseCppAd = false;
 
-    cbfConstraint_ = std::make_unique<FootCollisionCbfConstraint>(*referenceManagerPtr_, testingModelPtr_->getPinocchioInterface(),
-                                                                  testingModelPtr_->getMpcRobotModelAD(), config,
-                                                                  "FootCollisionCbfConstraint", *testingModelPtr_->modelSettingsPtr);
+    cbfConstraint_ = std::make_unique<FootCollisionCbfConstraint>(
+        *referenceManagerPtr_, testingModelPtr_->getPinocchioInterface(),
+        testingModelPtr_->getMpcRobotModelAD(), config,
+        "FootCollisionCbfConstraint", *testingModelPtr_->modelSettingsPtr);
   }
 
   static void TearDownTestSuite() {
@@ -85,15 +89,19 @@ class FootCollisionCbfConstraintTest : public ::testing::Test {
   static std::unique_ptr<FootCollisionCbfConstraint> cbfConstraint_;
 };
 
-std::unique_ptr<CentroidalTestingModelInterface> FootCollisionCbfConstraintTest::testingModelPtr_;
-std::shared_ptr<SwitchedModelReferenceManager> FootCollisionCbfConstraintTest::referenceManagerPtr_;
-std::unique_ptr<FootCollisionCbfConstraint> FootCollisionCbfConstraintTest::cbfConstraint_;
+std::unique_ptr<CentroidalTestingModelInterface>
+    FootCollisionCbfConstraintTest::testingModelPtr_;
+std::shared_ptr<SwitchedModelReferenceManager>
+    FootCollisionCbfConstraintTest::referenceManagerPtr_;
+std::unique_ptr<FootCollisionCbfConstraint>
+    FootCollisionCbfConstraintTest::cbfConstraint_;
 
 TEST_F(FootCollisionCbfConstraintTest, ActivityDuringStanceAndSwing) {
   // During single stance (t = 0.25), constraint is active
   EXPECT_TRUE(cbfConstraint_->isActive(0.25));
 
-  // During double stance (t = 0.75), constraint is inactive to avoid overconstraining
+  // During double stance (t = 0.75), constraint is inactive to avoid
+  // overconstraining
   EXPECT_FALSE(cbfConstraint_->isActive(0.75));
 }
 
@@ -117,7 +125,8 @@ TEST_F(FootCollisionCbfConstraintTest, ConstraintEvaluationAndVelocityEffect) {
   }
 
   // Linear approximation check
-  const auto approx = cbfConstraint_->getLinearApproximation(0.25, state, inputZero, preComp);
+  const auto approx =
+      cbfConstraint_->getLinearApproximation(0.25, state, inputZero, preComp);
   EXPECT_EQ(static_cast<size_t>(approx.f.size()), static_cast<size_t>(16));
   EXPECT_EQ(static_cast<size_t>(approx.dfdx.rows()), static_cast<size_t>(16));
   EXPECT_EQ(static_cast<size_t>(approx.dfdx.cols()), stateDim);
@@ -135,9 +144,12 @@ TEST_F(FootCollisionCbfConstraintTest, ConstraintEvaluationAndVelocityEffect) {
 }
 
 TEST_F(FootCollisionCbfConstraintTest, FactoryAndProblemBuilderIntegration) {
-  const HumanoidCostConstraintFactory factory(testingModelPtr_->taskFile, testingModelPtr_->referenceFile, *referenceManagerPtr_,
-                                              testingModelPtr_->getPinocchioInterface(), testingModelPtr_->getMpcRobotModel(),
-                                              testingModelPtr_->getMpcRobotModelAD(), testingModelPtr_->getModelSettings(), false);
+  const HumanoidCostConstraintFactory factory(
+      testingModelPtr_->taskFile, testingModelPtr_->referenceFile,
+      *referenceManagerPtr_, testingModelPtr_->getPinocchioInterface(),
+      testingModelPtr_->getMpcRobotModel(),
+      testingModelPtr_->getMpcRobotModelAD(),
+      testingModelPtr_->getModelSettings(), false);
 
   MpcProblemDefinition problemDef;
   ProblemTermConfig cbfTerm;
@@ -149,7 +161,9 @@ TEST_F(FootCollisionCbfConstraintTest, FactoryAndProblemBuilderIntegration) {
 
   OptimalControlProblem problem;
   MpcProblemBuilder::CustomBuilders customBuilders;
-  const MpcProblemBuilder builder(problemDef, factory, testingModelPtr_->getModelSettings(), std::move(customBuilders));
+  const MpcProblemBuilder builder(problemDef, factory,
+                                  testingModelPtr_->getModelSettings(),
+                                  std::move(customBuilders));
   const absl::Status status = builder.buildProblem(problem);
 
   ASSERT_TRUE(status.ok()) << status.ToString();

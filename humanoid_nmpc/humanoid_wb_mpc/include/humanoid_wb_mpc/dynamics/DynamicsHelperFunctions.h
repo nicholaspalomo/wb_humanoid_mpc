@@ -39,27 +39,31 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 template <typename SCALAR_T>
-VECTOR6_T<SCALAR_T> computeBaseAcceleration(const VECTOR_T<SCALAR_T>& state,
-                                            const VECTOR_T<SCALAR_T>& input,
-                                            const PinocchioInterfaceTpl<SCALAR_T>& pinInterface,
-                                            WBAccelMpcRobotModel<SCALAR_T>& mpcRobotModel);
+VECTOR6_T<SCALAR_T> computeBaseAcceleration(
+    const VECTOR_T<SCALAR_T>& state,
+    const VECTOR_T<SCALAR_T>& input,
+    const PinocchioInterfaceTpl<SCALAR_T>& pinInterface,
+    WBAccelMpcRobotModel<SCALAR_T>& mpcRobotModel);
 
 template <typename SCALAR_T>
-VECTOR_T<SCALAR_T> computeGeneralizedAccelerations(const VECTOR_T<SCALAR_T>& state,
-                                                   const VECTOR_T<SCALAR_T>& input,
-                                                   const PinocchioInterfaceTpl<SCALAR_T>& pinInterface,
-                                                   WBAccelMpcRobotModel<SCALAR_T>& mpcRobotModel);
+VECTOR_T<SCALAR_T> computeGeneralizedAccelerations(
+    const VECTOR_T<SCALAR_T>& state,
+    const VECTOR_T<SCALAR_T>& input,
+    const PinocchioInterfaceTpl<SCALAR_T>& pinInterface,
+    WBAccelMpcRobotModel<SCALAR_T>& mpcRobotModel);
 
 template <typename SCALAR_T>
-VECTOR_T<SCALAR_T> computeStateDerivative(const VECTOR_T<SCALAR_T>& state,
-                                          const VECTOR_T<SCALAR_T>& input,
-                                          const PinocchioInterfaceTpl<SCALAR_T>& pinInterface,
-                                          WBAccelMpcRobotModel<SCALAR_T>& mpcRobotModel);
+VECTOR_T<SCALAR_T> computeStateDerivative(
+    const VECTOR_T<SCALAR_T>& state,
+    const VECTOR_T<SCALAR_T>& input,
+    const PinocchioInterfaceTpl<SCALAR_T>& pinInterface,
+    WBAccelMpcRobotModel<SCALAR_T>& mpcRobotModel);
 
 template <typename SCALAR_T>
-VECTOR_T<SCALAR_T> computeJointTorques(const VECTOR_T<SCALAR_T>& state,
-                                       const VECTOR_T<SCALAR_T>& input,
-                                       PinocchioInterfaceTpl<SCALAR_T>& pinInterface,
-                                       WBAccelMpcRobotModel<SCALAR_T>& mpcRobotModel);
+VECTOR_T<SCALAR_T> computeJointTorques(
+    const VECTOR_T<SCALAR_T>& state,
+    const VECTOR_T<SCALAR_T>& input,
+    PinocchioInterfaceTpl<SCALAR_T>& pinInterface,
+    WBAccelMpcRobotModel<SCALAR_T>& mpcRobotModel);
 
 }  // namespace ocs2::humanoid

@@ -10,24 +10,32 @@ int main(int argc, char* argv[]) {
   if (argc > 1) {
     model_folder = argv[1];
   } else {
-    std::cerr << "Warning: No model folder specified. Using default: " << model_folder << std::endl;
+    std::cerr << "Warning: No model folder specified. Using default: "
+              << model_folder << std::endl;
   }
 
   std::string urdfFile;
   try {
-    urdfFile = ament_index_cpp::get_package_share_directory(model_folder) + "/urdf/g1_29dof.urdf";
+    urdfFile = ament_index_cpp::get_package_share_directory(model_folder) +
+               "/urdf/g1_29dof.urdf";
   } catch (const std::exception& e) {
-    throw std::runtime_error("Failed to get package share directory: g1_description. Error: " + std::string(e.what()));
+    throw std::runtime_error(
+        "Failed to get package share directory: g1_description. Error: " +
+        std::string(e.what()));
   }
 
   std::string mjxFile;
   try {
-    mjxFile = ament_index_cpp::get_package_share_directory(model_folder) + "/urdf/g1_29dof.xml";
+    mjxFile = ament_index_cpp::get_package_share_directory(model_folder) +
+              "/urdf/g1_29dof.xml";
   } catch (const std::exception& e) {
-    throw std::runtime_error("Failed to get package share directory: g1_description. Error: " + std::string(e.what()));
+    throw std::runtime_error(
+        "Failed to get package share directory: g1_description. Error: " +
+        std::string(e.what()));
   }
 
-  robot::model::RobotState initState(robot::model::RobotDescription(urdfFile), 2);
+  robot::model::RobotState initState(robot::model::RobotDescription(urdfFile),
+                                     2);
   initState.setConfigurationToZero();
   initState.setRootPositionInWorldFrame(robot::vector3_t(0.0, 0.0, 0.85));
 
@@ -37,7 +45,8 @@ int main(int argc, char* argv[]) {
   config.scenePath = mjxFile;
   config.verbose = true;
 
-  robot::mujoco_sim_interface::MujocoSimInterface robotInterface(config, urdfFile);
+  robot::mujoco_sim_interface::MujocoSimInterface robotInterface(config,
+                                                                 urdfFile);
   robotInterface.startSim();
 
   // Simulated controller loop;

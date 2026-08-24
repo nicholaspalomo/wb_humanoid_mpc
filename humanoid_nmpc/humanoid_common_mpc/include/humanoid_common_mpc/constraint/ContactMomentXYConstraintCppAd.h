@@ -42,27 +42,33 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Implements the constraint h(t,x,u) >= 0 to constrain the contact moment in the x-y plane.
+ * Implements the constraint h(t,x,u) >= 0 to constrain the contact moment in
+ * the x-y plane.
  */
 
 class ContactMomentXYConstraintCppAd final : public StateInputConstraintCppAd {
  public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-  ContactMomentXYConstraintCppAd(const SwitchedModelReferenceManager& referenceManager,
-                                 const ContactRectangle& contactRectangle,
-                                 size_t contactPointIndex,
-                                 const PinocchioInterface& pinocchioInterface,
-                                 const MpcRobotModelBase<ad_scalar_t>& mpcRobotModel,
-                                 std::string costName,
-                                 const ModelSettings& modelSettings);
+  ContactMomentXYConstraintCppAd(
+      const SwitchedModelReferenceManager& referenceManager,
+      const ContactRectangle& contactRectangle,
+      size_t contactPointIndex,
+      const PinocchioInterface& pinocchioInterface,
+      const MpcRobotModelBase<ad_scalar_t>& mpcRobotModel,
+      std::string costName,
+      const ModelSettings& modelSettings);
 
   ~ContactMomentXYConstraintCppAd() override = default;
-  ContactMomentXYConstraintCppAd* clone() const override { return new ContactMomentXYConstraintCppAd(*this); }
+  ContactMomentXYConstraintCppAd* clone() const override {
+    return new ContactMomentXYConstraintCppAd(*this);
+  }
 
   bool isActive(scalar_t time) const override;
   void setActive(bool isActive) override { isActive_ = isActive; }
   bool getActive() const override { return isActive_; }
-  size_t getNumConstraints(scalar_t time) const override { return numConstraints_; };
+  size_t getNumConstraints(scalar_t time) const override {
+    return numConstraints_;
+  };
 
  private:
   ContactMomentXYConstraintCppAd(const ContactMomentXYConstraintCppAd& other);

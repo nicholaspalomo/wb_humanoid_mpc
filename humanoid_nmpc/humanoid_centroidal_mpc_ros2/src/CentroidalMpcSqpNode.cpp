@@ -46,7 +46,9 @@ int main(int argc, char** argv) {
   std::vector<std::string> programArgs;
   programArgs = rclcpp::remove_ros_arguments(argc, argv);
   if (programArgs.size() < 5) {
-    throw std::runtime_error("No robot name, config folder, target command file, or description name specified. Aborting.");
+    throw std::runtime_error(
+        "No robot name, config folder, target command file, or description "
+        "name specified. Aborting.");
   }
 
   const std::string robotName(argv[1]);
@@ -61,25 +63,35 @@ int main(int argc, char** argv) {
   CentroidalMpcInterface interface(taskFile, urdfFile, referenceFile, true);
 
   // MPC
-  SqpMpc mpc(interface.mpcSettings(), interface.sqpSettings(), interface.getOptimalControlProblem(), interface.getInitializer());
+  SqpMpc mpc(interface.mpcSettings(), interface.sqpSettings(),
+             interface.getOptimalControlProblem(), interface.getInitializer());
 
   // Launch MPC ROS node
-  rclcpp::Node::SharedPtr nodeHandle = std::make_shared<rclcpp::Node>(robotName + "_mpc");
+  rclcpp::Node::SharedPtr nodeHandle =
+      std::make_shared<rclcpp::Node>(robotName + "_mpc");
 
   auto qos = rclcpp::QoS(1);
   qos.best_effort();
 
   // Reference and motion management for Procedural MPC
   CentroidalMpcTargetTrajectoriesCalculator mpcTargetTrajectoriesCalculator(
-      referenceFile, interface.getMpcRobotModel(), interface.getPinocchioInterface(), interface.getCentroidalModelInfo(),
+      referenceFile, interface.getMpcRobotModel(),
+      interface.getPinocchioInterface(), interface.getCentroidalModelInfo(),
       interface.mpcSettings().timeHorizon_);
-  ProceduralMpcMotionManager::VelocityTargetToTargetTrajectories targetTrajectoriesFunc =
-      [&mpcTargetTrajectoriesCalculator](const vector4_t& velocityTarget, scalar_t initTime, scalar_t finalTime,
-                                         const vector_t& initState) mutable {
-        return mpcTargetTrajectoriesCalculator.commandedVelocityToTargetTrajectories(velocityTarget, initTime, initState);
+  ProceduralMpcMotionManager::VelocityTargetToTargetTrajectories
+      targetTrajectoriesFunc = [&mpcTargetTrajectoriesCalculator](
+                                   const vector4_t& velocityTarget,
+                                   scalar_t initTime, scalar_t finalTime,
+                                   const vector_t& initState) mutable {
+        return mpcTargetTrajectoriesCalculator
+            .commandedVelocityToTargetTrajectories(velocityTarget, initTime,
+                                                   initState);
       };
-  auto ros2ProceduralMpcMotionManager = std::make_shared<Ros2ProceduralMpcMotionManager>(
-      gaitFile, referenceFile, interface.getSwitchedModelReferenceManagerPtr(), interface.getMpcRobotModel(), targetTrajectoriesFunc);
+  auto ros2ProceduralMpcMotionManager =
+      std::make_shared<Ros2ProceduralMpcMotionManager>(
+          gaitFile, referenceFile,
+          interface.getSwitchedModelReferenceManagerPtr(),
+          interface.getMpcRobotModel(), targetTrajectoriesFunc);
 
   ros2ProceduralMpcMotionManager->subscribe(nodeHandle, qos);
 

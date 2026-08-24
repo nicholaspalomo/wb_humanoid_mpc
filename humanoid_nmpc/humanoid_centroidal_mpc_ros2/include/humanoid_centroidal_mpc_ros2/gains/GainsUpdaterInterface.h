@@ -43,10 +43,12 @@ class GainsUpdaterInterface {
   GainsUpdaterInterface(std::shared_ptr<GenericGuiInterface> gui) : gui_(gui) {}
   virtual ~GainsUpdaterInterface() = default;
 
-  virtual bool initialize(ocs2::OptimalControlProblem& optimalControlProblem, const std::string& description) = 0;
+  virtual bool initialize(ocs2::OptimalControlProblem& optimalControlProblem,
+                          const std::string& description) = 0;
   virtual bool drawGui() = 0;
   virtual void addToMessage(ocs2_ros2_msgs::msg::Gains& gains) = 0;
-  virtual void setFromMessage(const ocs2_ros2_msgs::msg::IndividualGains& gains) = 0;
+  virtual void setFromMessage(
+      const ocs2_ros2_msgs::msg::IndividualGains& gains) = 0;
 
  protected:
   std::shared_ptr<GenericGuiInterface> gui_;

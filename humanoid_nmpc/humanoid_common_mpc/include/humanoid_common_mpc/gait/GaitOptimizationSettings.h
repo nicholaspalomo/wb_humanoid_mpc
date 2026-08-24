@@ -49,8 +49,9 @@ struct GaitOptimizationSettings {
   size_t maxIterations = 2;
 };
 
-absl::StatusOr<GaitOptimizationSettings> loadGaitOptimizationSettings(const std::string& filename,
-                                                                      const std::string& fieldName = "gait_optimization",
-                                                                      bool verbose = true);
+absl::StatusOr<GaitOptimizationSettings> loadGaitOptimizationSettings(
+    const std::string& filename,
+    const std::string& fieldName = "gait_optimization",
+    bool verbose = true);
 
 }  // namespace ocs2::humanoid

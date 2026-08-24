@@ -55,16 +55,19 @@ namespace ocs2::humanoid {
 class HumanoidVisualizer : public DummyObserver {
  public:
   /** Visualization settings (publicly available) */
-  std::string frameId_ = "odom";              // Frame name all messages are published in
-  scalar_t footMarkerDiameter_ = 0.03;        // Size of the spheres at the feet
-  scalar_t footAlphaWhenLifted_ = 0.3;        // Alpha value when a foot is lifted.
-  scalar_t forceScale_ = 200.0;               // Vector scale in N/m
-  scalar_t velScale_ = 5.0;                   // Vector scale in m/s
-  scalar_t copMarkerDiameter_ = 0.03;         // Size of the sphere at the center of pressure
-  scalar_t supportPolygonLineWidth_ = 0.005;  // LineThickness for the support polygon
-  scalar_t trajectoryLineWidth_ = 0.01;       // LineThickness for trajectories
-  std::vector<Color> contactColorMap_ = {Color::purple, Color::orange, Color::blue, Color::green,
-                                         Color::yellow};  // Colors for the contact points
+  std::string frameId_ = "odom";  // Frame name all messages are published in
+  scalar_t footMarkerDiameter_ = 0.03;  // Size of the spheres at the feet
+  scalar_t footAlphaWhenLifted_ = 0.3;  // Alpha value when a foot is lifted.
+  scalar_t forceScale_ = 200.0;         // Vector scale in N/m
+  scalar_t velScale_ = 5.0;             // Vector scale in m/s
+  scalar_t copMarkerDiameter_ =
+      0.03;  // Size of the sphere at the center of pressure
+  scalar_t supportPolygonLineWidth_ =
+      0.005;  // LineThickness for the support polygon
+  scalar_t trajectoryLineWidth_ = 0.01;  // LineThickness for trajectories
+  std::vector<Color> contactColorMap_ = {
+      Color::purple, Color::orange, Color::blue, Color::green,
+      Color::yellow};  // Colors for the contact points
 
   /**
    *
@@ -82,37 +85,48 @@ class HumanoidVisualizer : public DummyObserver {
 
   virtual ~HumanoidVisualizer() override = default;
 
-  void update(const SystemObservation& observation, const PrimalSolution& policy, const CommandData& command) override;
+  void update(const SystemObservation& observation,
+              const PrimalSolution& policy,
+              const CommandData& command) override;
 
   virtual void launchSubscribers();
 
  protected:
   rclcpp::Node::SharedPtr node_handle_;
-  rclcpp::Subscription<ocs2_ros2_msgs::msg::MpcObservation>::SharedPtr observationSubscriberPtr_{};
+  rclcpp::Subscription<ocs2_ros2_msgs::msg::MpcObservation>::SharedPtr
+      observationSubscriberPtr_{};
 
  private:
   void createVisualizationPublishers();
 
-  virtual void mpcObservationCallback(const ocs2_ros2_msgs::msg::MpcObservation::SharedPtr msg);
+  virtual void mpcObservationCallback(
+      const ocs2_ros2_msgs::msg::MpcObservation::SharedPtr msg);
 
   void publishObservation(const SystemObservation& observation) const;
 
-  void publishBaseTransform(const vector6_t& basePose, const std::string prefix = "") const;
+  void publishBaseTransform(const vector6_t& basePose,
+                            const std::string prefix = "") const;
 
-  void publishJointTransforms(const vector_t& jointAngles,
-                              rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr jointPublisherPtr) const;
+  void publishJointTransforms(
+      const vector_t& jointAngles,
+      rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr
+          jointPublisherPtr) const;
 
-  void publishOptimizedStateTrajectory(const scalar_array_t& mpcTimeTrajectory,
-                                       const vector_array_t& mpcStateTrajectory,
-                                       const ModeSchedule& modeSchedule,
-                                       const TargetTrajectories& targetTrajectories,
-                                       scalar_t observationGroundHeight) const;
+  void publishOptimizedStateTrajectory(
+      const scalar_array_t& mpcTimeTrajectory,
+      const vector_array_t& mpcStateTrajectory,
+      const ModeSchedule& modeSchedule,
+      const TargetTrajectories& targetTrajectories,
+      scalar_t observationGroundHeight) const;
 
   void updatePinocchioFrames(const vector_t& state);
 
-  void publishCartesianMarkers(const contact_flag_t& contactFlags, const vector_t& state, const vector_t& input) const;
+  void publishCartesianMarkers(const contact_flag_t& contactFlags,
+                               const vector_t& state,
+                               const vector_t& input) const;
 
-  void publishSelfCollisionMarkers(const contact_flag_t& contactFlags, const vector_t& state) const;
+  void publishSelfCollisionMarkers(const contact_flag_t& contactFlags,
+                                   const vector_t& state) const;
 
   scalar_t lastTime_ = 0.0;
   scalar_t minPublishTimeDifference_;
@@ -121,13 +135,19 @@ class HumanoidVisualizer : public DummyObserver {
   const EquivalentContactCornerForcesVisualizer contactVisualizer_;
   const MpcRobotModelBase<scalar_t>* mpcRobotModelPtr_;
 
-  rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr jointPublisherPtr_{};
-  rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr terminalJointPublisherPtr_{};
-  rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr terminalJointTargetPublisherPtr_{};
+  rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr
+      jointPublisherPtr_{};
+  rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr
+      terminalJointPublisherPtr_{};
+  rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr
+      terminalJointTargetPublisherPtr_{};
   std::unique_ptr<tf2_ros::TransformBroadcaster> tfBroadcasterPtr_{};
-  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr markerPublisherPtr_{};
-  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr collsisionMarkerPublisherPtr_{};
-  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr stateOptimizedPublisherPtr_{};
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr
+      markerPublisherPtr_{};
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr
+      collsisionMarkerPublisherPtr_{};
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr
+      stateOptimizedPublisherPtr_{};
 
   scalar_t prevPolicyTime = 0.0;
   vector_t prevPolicyState;

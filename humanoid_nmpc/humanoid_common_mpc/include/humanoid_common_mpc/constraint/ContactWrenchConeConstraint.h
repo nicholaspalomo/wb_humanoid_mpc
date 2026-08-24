@@ -41,20 +41,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Analytical linear StateInputConstraint enforcing the contact wrench cone on a contact point.
+ * Analytical linear StateInputConstraint enforcing the contact wrench cone on a
+ * contact point.
  *
  * Implements N + 7 linear inequality constraints:
  *  1. Friction cone approximation with numBasisVectors basis vectors:
- *     mu * (Fz_local + F_grip) - (cos(theta_k) * Fx_local + sin(theta_k) * Fy_local) >= 0, theta_k = 2*pi*k/N
+ *     mu * (Fz_local + F_grip) - (cos(theta_k) * Fx_local + sin(theta_k) *
+ * Fy_local) >= 0, theta_k = 2*pi*k/N
  *  2. Normal force lower bound:
  *     Fz_local - minNormalForce >= 0
- *  3. Center of pressure (CoP) / Contact moments within rectangular footprint [x_min, x_max] x [y_min, y_max]:
- *     tau_x_local - y_min * Fz_local >= 0
+ *  3. Center of pressure (CoP) / Contact moments within rectangular footprint
+ * [x_min, x_max] x [y_min, y_max]: tau_x_local - y_min * Fz_local >= 0
  *     -tau_x_local + y_max * Fz_local >= 0
  *     -tau_y_local - x_min * Fz_local >= 0
  *     tau_y_local + x_max * Fz_local >= 0
  *  4. Torsional yaw friction moment about the contact patch center:
- *     mu_torsion * (Fz_local + F_grip) +/- (tau_z_local - (x_offset * Fy_local - y_offset * Fx_local)) >= 0
+ *     mu_torsion * (Fz_local + F_grip) +/- (tau_z_local - (x_offset * Fy_local
+ * - y_offset * Fx_local)) >= 0
  */
 class ContactWrenchConeConstraint final : public StateInputConstraint {
  public:
@@ -88,35 +91,45 @@ class ContactWrenchConeConstraint final : public StateInputConstraint {
     vector3_t patchOffset;
   };
 
-  ContactWrenchConeConstraint(const SwitchedModelReferenceManager& referenceManager,
-                              const ContactRectangle& contactRectangle,
-                              size_t contactPointIndex,
-                              const PinocchioInterface& pinocchioInterface,
-                              const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                              Config config = Config());
+  ContactWrenchConeConstraint(
+      const SwitchedModelReferenceManager& referenceManager,
+      const ContactRectangle& contactRectangle,
+      size_t contactPointIndex,
+      const PinocchioInterface& pinocchioInterface,
+      const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+      Config config = Config());
 
   ~ContactWrenchConeConstraint() override = default;
   ContactWrenchConeConstraint(const ContactWrenchConeConstraint& other);
-  ContactWrenchConeConstraint* clone() const override { return new ContactWrenchConeConstraint(*this); }
+  ContactWrenchConeConstraint* clone() const override {
+    return new ContactWrenchConeConstraint(*this);
+  }
 
   bool isActive(scalar_t time) const override;
   void setActive(bool isActive) override { isActive_ = isActive; }
   bool getActive() const override { return isActive_; }
-  size_t getNumConstraints(scalar_t time) const override { return numConstraints_; }
+  size_t getNumConstraints(scalar_t time) const override {
+    return numConstraints_;
+  }
 
   const Config& getConfig() const { return config_; }
 
-  vector_t getValue(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) const override;
+  vector_t getValue(scalar_t time,
+                    const vector_t& state,
+                    const vector_t& input,
+                    const PreComputation& preComp) const override;
 
-  VectorFunctionLinearApproximation getLinearApproximation(scalar_t time,
-                                                           const vector_t& state,
-                                                           const vector_t& input,
-                                                           const PreComputation& preComp) const override;
+  VectorFunctionLinearApproximation getLinearApproximation(
+      scalar_t time,
+      const vector_t& state,
+      const vector_t& input,
+      const PreComputation& preComp) const override;
 
-  VectorFunctionQuadraticApproximation getQuadraticApproximation(scalar_t time,
-                                                                 const vector_t& state,
-                                                                 const vector_t& input,
-                                                                 const PreComputation& preComp) const override;
+  VectorFunctionQuadraticApproximation getQuadraticApproximation(
+      scalar_t time,
+      const vector_t& state,
+      const vector_t& input,
+      const PreComputation& preComp) const override;
 
  private:
   void initializeLocalConstraintMatrix();

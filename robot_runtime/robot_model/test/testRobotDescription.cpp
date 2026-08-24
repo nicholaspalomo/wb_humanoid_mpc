@@ -82,7 +82,8 @@ TEST_F(RobotDescriptionTest, Constructor) {
 // Test constructor with non-existent URDF
 TEST_F(RobotDescriptionTest, ConstructorWithNonexistentFile) {
   std::string nonexistentPath = tempDir_ / "nonexistent.urdf";
-  EXPECT_THROW({ RobotDescription robotDesc(nonexistentPath); }, std::runtime_error);
+  EXPECT_THROW(
+      { RobotDescription robotDesc(nonexistentPath); }, std::runtime_error);
 }
 
 // Test constructor with invalid URDF content
@@ -92,7 +93,9 @@ TEST_F(RobotDescriptionTest, ConstructorWithInvalidURDF) {
   invalidFile << "This is not a valid URDF file";
   invalidFile.close();
 
-  EXPECT_THROW({ RobotDescription robotDesc(invalidPath.string()); }, std::runtime_error);
+  EXPECT_THROW(
+      { RobotDescription robotDesc(invalidPath.string()); },
+      std::runtime_error);
 }
 
 // Test getURDFName method
@@ -108,7 +111,8 @@ TEST_F(RobotDescriptionTest, ContainsJoint) {
   EXPECT_TRUE(robotDesc.containsJoint("shoulder_joint"));
   EXPECT_TRUE(robotDesc.containsJoint("elbow_joint"));
   EXPECT_TRUE(robotDesc.containsJoint("wrist_joint"));
-  EXPECT_FALSE(robotDesc.containsJoint("fixed_joint"));  // Fixed joints should be excluded
+  EXPECT_FALSE(robotDesc.containsJoint(
+      "fixed_joint"));  // Fixed joints should be excluded
   EXPECT_FALSE(robotDesc.containsJoint("nonexistent_joint"));
 }
 
@@ -117,21 +121,25 @@ TEST_F(RobotDescriptionTest, GetJointDescription) {
   RobotDescription robotDesc(urdf_path_.string());
 
   // Test valid joint
-  const JointDescription& shoulderDesc = robotDesc.getJointDescription("shoulder_joint");
+  const JointDescription& shoulderDesc =
+      robotDesc.getJointDescription("shoulder_joint");
   EXPECT_EQ(shoulderDesc.min_angle, -1.57);
   EXPECT_EQ(shoulderDesc.max_angle, 1.57);
   EXPECT_EQ(shoulderDesc.max_effort, 100.0);
   EXPECT_EQ(shoulderDesc.max_velocity, 2.0);
 
   // Test another valid joint
-  const JointDescription& elbowDesc = robotDesc.getJointDescription("elbow_joint");
+  const JointDescription& elbowDesc =
+      robotDesc.getJointDescription("elbow_joint");
   EXPECT_EQ(elbowDesc.min_angle, -2.0);
   EXPECT_EQ(elbowDesc.max_angle, 2.0);
   EXPECT_EQ(elbowDesc.max_effort, 80.0);
   EXPECT_EQ(elbowDesc.max_velocity, 1.5);
 
   // Test nonexistent joint should throw
-  EXPECT_THROW({ robotDesc.getJointDescription("nonexistent_joint"); }, std::out_of_range);
+  EXPECT_THROW(
+      { robotDesc.getJointDescription("nonexistent_joint"); },
+      std::out_of_range);
 }
 
 // Test getJointIndex method
@@ -152,7 +160,8 @@ TEST_F(RobotDescriptionTest, GetJointIndex) {
   EXPECT_LT(shoulderIndex, 3);
 
   // Test nonexistent joint should throw
-  EXPECT_THROW({ robotDesc.getJointIndex("nonexistent_joint"); }, std::out_of_range);
+  EXPECT_THROW(
+      { robotDesc.getJointIndex("nonexistent_joint"); }, std::out_of_range);
 }
 
 // Test getJointName method

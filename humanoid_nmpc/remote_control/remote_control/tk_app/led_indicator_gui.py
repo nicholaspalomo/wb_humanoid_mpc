@@ -32,7 +32,12 @@ import tkinter as tk
 
 class LEDIndicatorGui(tk.Frame):
     def __init__(
-        self, parent, label_text="LED", size=20, color_on="#4a90e2", color_off="#363636"
+        self,
+        parent,
+        label_text="LED",
+        size=20,
+        color_on="#4a90e2",
+        color_off="#363636",
     ):
         super().__init__(parent)
         self.configure(bg="#2c2c2c")  # Match dark background
@@ -76,4 +81,6 @@ class LEDIndicatorGui(tk.Frame):
             )  # Lighter blue for depth
         else:
             # When off, use the darker gray with standard border
-            self.canvas.itemconfig(self.led, fill=self.color_off, outline="#4a90e2")
+            self.canvas.itemconfig(
+                self.led, fill=self.color_off, outline="#4a90e2"
+            )

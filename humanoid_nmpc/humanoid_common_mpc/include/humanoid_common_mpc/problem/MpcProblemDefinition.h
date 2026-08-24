@@ -38,7 +38,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Configuration for a single cost or constraint term in the Optimal Control Problem.
+ * Configuration for a single cost or constraint term in the Optimal Control
+ * Problem.
  */
 struct ProblemTermConfig {
   std::string name;
@@ -50,7 +51,8 @@ struct ProblemTermConfig {
 };
 
 /**
- * Full declarative definition of an MPC Optimal Control Problem loaded from YAML.
+ * Full declarative definition of an MPC Optimal Control Problem loaded from
+ * YAML.
  */
 struct MpcProblemDefinition {
   std::vector<ProblemTermConfig> costs;
@@ -64,12 +66,15 @@ struct MpcProblemDefinition {
  * Loads and validates an MpcProblemDefinition from a task YAML file.
  *
  * @param [in] filename: Path to the task YAML file.
- * @param [in] fieldName: Top-level YAML block name (default: "problem_definition").
+ * @param [in] fieldName: Top-level YAML block name (default:
+ * "problem_definition").
  * @param [in] verbose: Whether to print loaded configuration.
- * @return absl::StatusOr containing the parsed MpcProblemDefinition or an error status.
+ * @return absl::StatusOr containing the parsed MpcProblemDefinition or an error
+ * status.
  */
-absl::StatusOr<MpcProblemDefinition> loadMpcProblemDefinition(absl::string_view filename,
-                                                              absl::string_view fieldName = "problem_definition",
-                                                              bool verbose = true);
+absl::StatusOr<MpcProblemDefinition> loadMpcProblemDefinition(
+    absl::string_view filename,
+    absl::string_view fieldName = "problem_definition",
+    bool verbose = true);
 
 }  // namespace ocs2::humanoid

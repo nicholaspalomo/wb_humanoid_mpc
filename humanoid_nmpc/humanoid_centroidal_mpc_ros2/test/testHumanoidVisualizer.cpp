@@ -44,7 +44,9 @@ int main(int argc, char** argv) {
   std::vector<std::string> programArgs;
   programArgs = rclcpp::remove_ros_arguments(argc, argv);
   if (programArgs.size() < 5) {
-    throw std::runtime_error("No robot name, config folder, target command file, or description name specified. Aborting.");
+    throw std::runtime_error(
+        "No robot name, config folder, target command file, or description "
+        "name specified. Aborting.");
   }
 
   const std::string robotName(argv[1]);
@@ -58,13 +60,16 @@ int main(int argc, char** argv) {
 
   CentroidalMpcInterface interface(taskFile, urdfFile, referenceFile);
 
-  HumanoidVisualizer visualization(taskFile, interface.getPinocchioInterface(), interface.getMpcRobotModel(), node);
+  HumanoidVisualizer visualization(taskFile, interface.getPinocchioInterface(),
+                                   interface.getMpcRobotModel(), node);
 
   SystemObservation observation;
 
-  observation.state = vector_t::Zero(interface.getMpcRobotModel().getStateDim());
+  observation.state =
+      vector_t::Zero(interface.getMpcRobotModel().getStateDim());
   observation.state[8] = 0.9;
-  observation.input = vector_t::Zero(interface.getMpcRobotModel().getInputDim());
+  observation.input =
+      vector_t::Zero(interface.getMpcRobotModel().getInputDim());
 
   PrimalSolution dummySolution;
   CommandData commandData;

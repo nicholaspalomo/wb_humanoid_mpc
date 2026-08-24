@@ -37,16 +37,19 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-EndEffectorKinematicsTwistConstraint::EndEffectorKinematicsTwistConstraint(const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
-                                                                           size_t numConstraints,
-                                                                           Config config)
+EndEffectorKinematicsTwistConstraint::EndEffectorKinematicsTwistConstraint(
+    const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
+    size_t numConstraints,
+    Config config)
     : StateInputConstraint(ConstraintOrder::Linear),
       endEffectorKinematicsPtr_(endEffectorKinematics.clone()),
       numConstraints_(numConstraints),
       ground_plane_normal_(0.0, 0.0, 1.0),
       config_(std::move(config)) {
   if (endEffectorKinematicsPtr_->getIds().size() != 1) {
-    throw std::runtime_error("[EndEffectorKinematicsTwistConstraint] this class only accepts a single end-effector!");
+    throw std::runtime_error(
+        "[EndEffectorKinematicsTwistConstraint] this class only accepts a "
+        "single end-effector!");
   }
 }
 
@@ -54,7 +57,8 @@ EndEffectorKinematicsTwistConstraint::EndEffectorKinematicsTwistConstraint(const
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-EndEffectorKinematicsTwistConstraint::EndEffectorKinematicsTwistConstraint(const EndEffectorKinematicsTwistConstraint& rhs)
+EndEffectorKinematicsTwistConstraint::EndEffectorKinematicsTwistConstraint(
+    const EndEffectorKinematicsTwistConstraint& rhs)
     : StateInputConstraint(rhs),
       endEffectorKinematicsPtr_(rhs.endEffectorKinematicsPtr_->clone()),
       numConstraints_(rhs.numConstraints_),
@@ -68,10 +72,14 @@ EndEffectorKinematicsTwistConstraint::EndEffectorKinematicsTwistConstraint(const
 void EndEffectorKinematicsTwistConstraint::configure(Config&& config) {
   assert(config.b.rows() == numConstraints_);
   assert(config.Ax.size() > 0 || config.Av.size() > 0);
-  assert((config.Ax.size() > 0 && config.Ax.rows() == numConstraints_) || config.Ax.size() == 0);
-  assert((config.Ax.size() > 0 && config.Ax.cols() == 6) || config.Ax.size() == 0);
-  assert((config.Av.size() > 0 && config.Av.rows() == numConstraints_) || config.Av.size() == 0);
-  assert((config.Av.size() > 0 && config.Av.cols() == 6) || config.Av.size() == 0);
+  assert((config.Ax.size() > 0 && config.Ax.rows() == numConstraints_) ||
+         config.Ax.size() == 0);
+  assert((config.Ax.size() > 0 && config.Ax.cols() == 6) ||
+         config.Ax.size() == 0);
+  assert((config.Av.size() > 0 && config.Av.rows() == numConstraints_) ||
+         config.Av.size() == 0);
+  assert((config.Av.size() > 0 && config.Av.cols() == 6) ||
+         config.Av.size() == 0);
   config_ = std::move(config);
 }
 
@@ -79,20 +87,25 @@ void EndEffectorKinematicsTwistConstraint::configure(Config&& config) {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-vector_t EndEffectorKinematicsTwistConstraint::getValue(scalar_t time,
-                                                        const vector_t& state,
-                                                        const vector_t& input,
-                                                        const PreComputation& preComp) const {
+vector_t EndEffectorKinematicsTwistConstraint::getValue(
+    scalar_t time,
+    const vector_t& state,
+    const vector_t& input,
+    const PreComputation& preComp) const {
   vector_t f = config_.b;
   if (config_.Ax.size() > 0) {
-    // foot pose is a 6D vector containing the foot position and orientation error wrt. to the ground normal
+    // foot pose is a 6D vector containing the foot position and orientation
+    // error wrt. to the ground normal
     vector6_t footPose;
     footPose << endEffectorKinematicsPtr_->getPosition(state).front(),
-        endEffectorKinematicsPtr_->getOrientationErrorWrtPlane(state, {ground_plane_normal_}).front();
+        endEffectorKinematicsPtr_
+            ->getOrientationErrorWrtPlane(state, {ground_plane_normal_})
+            .front();
     f.noalias() += config_.Ax * footPose;
   }
   if (config_.Av.size() > 0) {
-    f.noalias() += config_.Av * endEffectorKinematicsPtr_->getTwist(state, input).front();
+    f.noalias() +=
+        config_.Av * endEffectorKinematicsPtr_->getTwist(state, input).front();
   }
   return f;
 }
@@ -101,30 +114,44 @@ vector_t EndEffectorKinematicsTwistConstraint::getValue(scalar_t time,
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-VectorFunctionLinearApproximation EndEffectorKinematicsTwistConstraint::getLinearApproximation(scalar_t time,
-                                                                                               const vector_t& state,
-                                                                                               const vector_t& input,
-                                                                                               const PreComputation& preComp) const {
+VectorFunctionLinearApproximation
+EndEffectorKinematicsTwistConstraint::getLinearApproximation(
+    scalar_t time,
+    const vector_t& state,
+    const vector_t& input,
+    const PreComputation& preComp) const {
   VectorFunctionLinearApproximation linearApproximation =
-      VectorFunctionLinearApproximation::Zero(getNumConstraints(time), state.size(), input.size());
+      VectorFunctionLinearApproximation::Zero(getNumConstraints(time),
+                                              state.size(), input.size());
 
   linearApproximation.f = config_.b;
 
   // Orientation error gains are ignored for now
   // This is equal with assuming that the bottom 3 rows of Ax are zero.
   if (config_.Ax.size() > 0) {
-    const auto positionApprox = endEffectorKinematicsPtr_->getPositionLinearApproximation(state).front();
+    const auto positionApprox =
+        endEffectorKinematicsPtr_->getPositionLinearApproximation(state)
+            .front();
     const auto orientationApprox =
-        endEffectorKinematicsPtr_->getOrientationErrorWrtPlaneLinearApproximation(state, {ground_plane_normal_}).front();
+        endEffectorKinematicsPtr_
+            ->getOrientationErrorWrtPlaneLinearApproximation(
+                state, {ground_plane_normal_})
+            .front();
 
-    linearApproximation.f.head(3).noalias() += config_.Ax.topLeftCorner(3, 3) * positionApprox.f;
-    linearApproximation.f.tail(3).noalias() += config_.Ax.bottomRightCorner(3, 3) * orientationApprox.f;
-    linearApproximation.dfdx.topRows(3).noalias() += config_.Ax.topLeftCorner(3, 3) * positionApprox.dfdx;
-    linearApproximation.dfdx.bottomRows(3).noalias() += config_.Ax.bottomRightCorner(3, 3) * orientationApprox.dfdx;
+    linearApproximation.f.head(3).noalias() +=
+        config_.Ax.topLeftCorner(3, 3) * positionApprox.f;
+    linearApproximation.f.tail(3).noalias() +=
+        config_.Ax.bottomRightCorner(3, 3) * orientationApprox.f;
+    linearApproximation.dfdx.topRows(3).noalias() +=
+        config_.Ax.topLeftCorner(3, 3) * positionApprox.dfdx;
+    linearApproximation.dfdx.bottomRows(3).noalias() +=
+        config_.Ax.bottomRightCorner(3, 3) * orientationApprox.dfdx;
   }
 
   if (config_.Av.size() > 0) {
-    const auto velocityApprox = endEffectorKinematicsPtr_->getTwistLinearApproximation(state, input).front();
+    const auto velocityApprox =
+        endEffectorKinematicsPtr_->getTwistLinearApproximation(state, input)
+            .front();
     linearApproximation.f.noalias() += config_.Av * velocityApprox.f;
     linearApproximation.dfdx.noalias() += config_.Av * velocityApprox.dfdx;
     linearApproximation.dfdu.noalias() += config_.Av * velocityApprox.dfdu;

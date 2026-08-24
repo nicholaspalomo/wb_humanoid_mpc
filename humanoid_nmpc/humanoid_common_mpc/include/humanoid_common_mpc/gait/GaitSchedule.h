@@ -41,36 +41,50 @@ namespace ocs2::humanoid {
 
 class GaitSchedule {
  public:
-  GaitSchedule(ModeSchedule initModeSchedule, ModeSequenceTemplate initModeSequenceTemplate, scalar_t phaseTransitionStanceTime);
+  GaitSchedule(ModeSchedule initModeSchedule,
+               ModeSequenceTemplate initModeSequenceTemplate,
+               scalar_t phaseTransitionStanceTime);
 
   /**
-   * @param [in] lowerBoundTime: The smallest time for which the ModeSchedule should be defined.
-   * @param [in] upperBoundTime: The greatest time for which the ModeSchedule should be defined.
+   * @param [in] lowerBoundTime: The smallest time for which the ModeSchedule
+   * should be defined.
+   * @param [in] upperBoundTime: The greatest time for which the ModeSchedule
+   * should be defined.
    */
-  ModeSchedule getModeSchedule(scalar_t lowerBoundTime, scalar_t upperBoundTime);
+  ModeSchedule getModeSchedule(scalar_t lowerBoundTime,
+                               scalar_t upperBoundTime);
 
   ModeSchedule getCurrentModeSchedule() const { return modeSchedule_; };
 
   /**
    * Used to insert a new user defined logic in the given time period.
    *
-   * @param [in] startTime: The initial time from which the new mode sequence template should start.
-   * @param [in] finalTime: The final time until when the new mode sequence needs to be defined.
+   * @param [in] startTime: The initial time from which the new mode sequence
+   * template should start.
+   * @param [in] finalTime: The final time until when the new mode sequence
+   * needs to be defined.
    */
-  void insertModeSequenceTemplate(const ModeSequenceTemplate& modeSequenceTemplate, scalar_t startTime, scalar_t finalTime);
+  void insertModeSequenceTemplate(
+      const ModeSequenceTemplate& modeSequenceTemplate,
+      scalar_t startTime,
+      scalar_t finalTime);
 
-  static std::shared_ptr<GaitSchedule> loadGaitSchedule(const std::string& referenceFile,
-                                                        const ModelSettings& modelSettings,
-                                                        bool verbose = false);
+  static std::shared_ptr<GaitSchedule> loadGaitSchedule(
+      const std::string& referenceFile,
+      const ModelSettings& modelSettings,
+      bool verbose = false);
 
   void updateModeSchedule(const ModeSchedule& modeSchedule);
 
  private:
   /**
-   * Extends the switch information from lowerBoundTime to upperBoundTime based on the template mode sequence.
+   * Extends the switch information from lowerBoundTime to upperBoundTime based
+   * on the template mode sequence.
    *
-   * @param [in] startTime: The initial time from which the mode schedule should be appended with the template.
-   * @param [in] finalTime: The final time to which the mode schedule should be appended with the template.
+   * @param [in] startTime: The initial time from which the mode schedule should
+   * be appended with the template.
+   * @param [in] finalTime: The final time to which the mode schedule should be
+   * appended with the template.
    */
   void tileModeSequenceTemplate(scalar_t startTime, scalar_t finalTime);
 

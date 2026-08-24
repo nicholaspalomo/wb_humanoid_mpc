@@ -46,15 +46,18 @@ class StateInputQuadraticCost final : public QuadraticStateInputCost {
                           const MpcRobotModelBase<scalar_t>& mpcRobotModel);
 
   ~StateInputQuadraticCost() override = default;
-  StateInputQuadraticCost* clone() const override { return new StateInputQuadraticCost(*this); };
+  StateInputQuadraticCost* clone() const override {
+    return new StateInputQuadraticCost(*this);
+  };
 
  private:
   StateInputQuadraticCost(const StateInputQuadraticCost& rhs);
 
-  std::pair<vector_t, vector_t> getStateInputDeviation(scalar_t time,
-                                                       const vector_t& state,
-                                                       const vector_t& input,
-                                                       const TargetTrajectories& targetTrajectories) const override;
+  std::pair<vector_t, vector_t> getStateInputDeviation(
+      scalar_t time,
+      const vector_t& state,
+      const vector_t& input,
+      const TargetTrajectories& targetTrajectories) const override;
 
   const SwitchedModelReferenceManager* referenceManagerPtr_;
   const PinocchioInterface& pinInterface_;

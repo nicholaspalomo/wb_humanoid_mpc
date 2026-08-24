@@ -46,37 +46,47 @@ static constexpr scalar_t kArmSwingAmplitude = -0.15;
 
 }  // namespace
 
-SwitchedModelReferenceManager::SwitchedModelReferenceManager(std::shared_ptr<GaitSchedule> gaitSchedulePtr,
-                                                             std::shared_ptr<SwingTrajectoryPlanner> swingTrajectoryPtr,
-                                                             const PinocchioInterface& pinocchioInterface,
-                                                             const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                                                             GaitOptimizationSettings gaitOptimizationSettings)
-    : ReferenceManager(TargetTrajectories(), gaitSchedulePtr ? gaitSchedulePtr->getCurrentModeSchedule() : ModeSchedule()),
+SwitchedModelReferenceManager::SwitchedModelReferenceManager(
+    std::shared_ptr<GaitSchedule> gaitSchedulePtr,
+    std::shared_ptr<SwingTrajectoryPlanner> swingTrajectoryPtr,
+    const PinocchioInterface& pinocchioInterface,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+    GaitOptimizationSettings gaitOptimizationSettings)
+    : ReferenceManager(TargetTrajectories(),
+                       gaitSchedulePtr
+                           ? gaitSchedulePtr->getCurrentModeSchedule()
+                           : ModeSchedule()),
       gaitSchedulePtr_(std::move(gaitSchedulePtr)),
       swingTrajectoryPtr_(std::move(swingTrajectoryPtr)),
       pinocchioInterface_(pinocchioInterface),
       mpcRobotModelPtr_(&mpcRobotModel),
       gaitOptimizationSettings_(std::move(gaitOptimizationSettings)),
-      gaitSwitchingTimeOptimizerPtr_(std::make_unique<GaitSwitchingTimeOptimizer>(gaitOptimizationSettings_)) {}
+      gaitSwitchingTimeOptimizerPtr_(
+          std::make_unique<GaitSwitchingTimeOptimizer>(
+              gaitOptimizationSettings_)) {}
 
-void SwitchedModelReferenceManager::setGaitOptimizationSettings(GaitOptimizationSettings settings) {
+void SwitchedModelReferenceManager::setGaitOptimizationSettings(
+    GaitOptimizationSettings settings) {
   gaitOptimizationSettings_ = std::move(settings);
   gaitSwitchingTimeOptimizerPtr_->setSettings(gaitOptimizationSettings_);
 }
 
-contact_flag_t SwitchedModelReferenceManager::getContactFlags(scalar_t time) const {
+contact_flag_t SwitchedModelReferenceManager::getContactFlags(
+    scalar_t time) const {
   return modeNumber2StanceLeg(this->getModeSchedule().modeAtTime(time));
 }
 
 scalar_t SwitchedModelReferenceManager::getPhaseVariable(scalar_t time) const {
-  const std::vector<scalar_t>::const_iterator it = std::upper_bound(modeSchedule_.eventTimes.begin(), modeSchedule_.eventTimes.end(), time);
+  const std::vector<scalar_t>::const_iterator it = std::upper_bound(
+      modeSchedule_.eventTimes.begin(), modeSchedule_.eventTimes.end(), time);
   const scalar_t nextEventTime = *it;
   const scalar_t prevEventTime = *(it - 1);
 
   if (modeSchedule_.modeAtTime(time) == LF) {
     return (kHalf * (time - prevEventTime) / (nextEventTime - prevEventTime));
   } else if (modeSchedule_.modeAtTime(time) == RF) {
-    return (kHalf + kHalf * (time - prevEventTime) / (nextEventTime - prevEventTime));
+    return (kHalf +
+            kHalf * (time - prevEventTime) / (nextEventTime - prevEventTime));
   } else {
     if (modeSchedule_.modeAtTime(prevEventTime - kPhaseTimeOffset) == LF) {
       return kHalf;
@@ -86,57 +96,72 @@ scalar_t SwitchedModelReferenceManager::getPhaseVariable(scalar_t time) const {
   }
 }
 
-scalar_t SwitchedModelReferenceManager::adaptToCurrentGroundHeight(TargetTrajectories& targetTrajectories,
-                                                                   const vector_t& initState,
-                                                                   size_t initMode) {
-  scalar_t terrainHeight = computeGroundHeightEstimate(pinocchioInterface_, *mpcRobotModelPtr_,
-                                                       mpcRobotModelPtr_->getGeneralizedCoordinates(initState), initMode);
+scalar_t SwitchedModelReferenceManager::adaptToCurrentGroundHeight(
+    TargetTrajectories& targetTrajectories,
+    const vector_t& initState,
+    size_t initMode) {
+  scalar_t terrainHeight = computeGroundHeightEstimate(
+      pinocchioInterface_, *mpcRobotModelPtr_,
+      mpcRobotModelPtr_->getGeneralizedCoordinates(initState), initMode);
 
   terrainHeight = 0.0;
 
   for (size_t i = 0; i < targetTrajectories.stateTrajectory.size(); i++) {
     vector_t& targetState = targetTrajectories.stateTrajectory[i];
-    const scalar_t heightDifference = terrainHeight - previousGroundHeightEstimate_;
+    const scalar_t heightDifference =
+        terrainHeight - previousGroundHeightEstimate_;
     mpcRobotModelPtr_->adaptBasePoseHeight(targetState, heightDifference);
   }
   previousGroundHeightEstimate_ = terrainHeight;
   return terrainHeight;
 }
 
-vector_t SwitchedModelReferenceManager::getDesiredState(const TargetTrajectories& targetTrajectories,
-                                                        const vector_t& state,
-                                                        scalar_t time) const {
+vector_t SwitchedModelReferenceManager::getDesiredState(
+    const TargetTrajectories& targetTrajectories,
+    const vector_t& state,
+    scalar_t time) const {
   vector_t xNominal = targetTrajectories.getDesiredState(time);
 
   if (armSwingReferenceActive_) {
     const scalar_t phaseVariable = this->getPhaseVariable(time);
     vector_t desiredJointAngles = mpcRobotModelPtr_->getJointAngles(xNominal);
 
-    const vector3_t linVelCommand = mpcRobotModelPtr_->getBaseComLinearVelocity(xNominal);
+    const vector3_t linVelCommand =
+        mpcRobotModelPtr_->getBaseComLinearVelocity(xNominal);
     const scalar_t currentEulerZ = mpcRobotModelPtr_->getBasePose(state)[3];
 
-    const scalar_t localVelXCommand = (std::cos(currentEulerZ) * linVelCommand[0] + std::sin(currentEulerZ) * linVelCommand[1]);
+    const scalar_t localVelXCommand =
+        (std::cos(currentEulerZ) * linVelCommand[0] +
+         std::sin(currentEulerZ) * linVelCommand[1]);
 
     const ModelSettings& modelSettings = mpcRobotModelPtr_->modelSettings;
 
-    const scalar_t gaitCycleFactor = std::sin(2.0 * M_PI * (phaseVariable - kArmSwingLead)) * localVelXCommand;
-    desiredJointAngles[modelSettings.j_l_shoulder_y_index] += kArmSwingAmplitude * gaitCycleFactor;
-    desiredJointAngles[modelSettings.j_r_shoulder_y_index] += -kArmSwingAmplitude * gaitCycleFactor;
-    desiredJointAngles[modelSettings.j_l_elbow_y_index] += kArmSwingAmplitude * gaitCycleFactor;
-    desiredJointAngles[modelSettings.j_r_elbow_y_index] += -kArmSwingAmplitude * gaitCycleFactor;
+    const scalar_t gaitCycleFactor =
+        std::sin(2.0 * M_PI * (phaseVariable - kArmSwingLead)) *
+        localVelXCommand;
+    desiredJointAngles[modelSettings.j_l_shoulder_y_index] +=
+        kArmSwingAmplitude * gaitCycleFactor;
+    desiredJointAngles[modelSettings.j_r_shoulder_y_index] +=
+        -kArmSwingAmplitude * gaitCycleFactor;
+    desiredJointAngles[modelSettings.j_l_elbow_y_index] +=
+        kArmSwingAmplitude * gaitCycleFactor;
+    desiredJointAngles[modelSettings.j_r_elbow_y_index] +=
+        -kArmSwingAmplitude * gaitCycleFactor;
 
     mpcRobotModelPtr_->setJointAngles(xNominal, desiredJointAngles);
   }
   return xNominal;
 }
 
-bool SwitchedModelReferenceManager::optimizeSwitchingTimes(const PrimalSolution& primalSolution) {
+bool SwitchedModelReferenceManager::optimizeSwitchingTimes(
+    const PrimalSolution& primalSolution) {
   if (!gaitOptimizationSettings_.enabled || !gaitSwitchingTimeOptimizerPtr_) {
     return false;
   }
 
   ModeSchedule schedule = gaitSchedulePtr_->getCurrentModeSchedule();
-  const bool modified = gaitSwitchingTimeOptimizerPtr_->optimizeEventTimes(primalSolution, schedule);
+  const bool modified = gaitSwitchingTimeOptimizerPtr_->optimizeEventTimes(
+      primalSolution, schedule);
   if (modified) {
     gaitSchedulePtr_->updateModeSchedule(schedule);
     modeSchedule_ = schedule;
@@ -144,13 +169,16 @@ bool SwitchedModelReferenceManager::optimizeSwitchingTimes(const PrimalSolution&
   return modified;
 }
 
-bool SwitchedModelReferenceManager::adaptFromContactFeedback(const contact_flag_t& measuredContactFlags, scalar_t currentTime) {
+bool SwitchedModelReferenceManager::adaptFromContactFeedback(
+    const contact_flag_t& measuredContactFlags, scalar_t currentTime) {
   if (!gaitOptimizationSettings_.enabled || !gaitSwitchingTimeOptimizerPtr_) {
     return false;
   }
 
   ModeSchedule schedule = gaitSchedulePtr_->getCurrentModeSchedule();
-  const bool modified = gaitSwitchingTimeOptimizerPtr_->adaptFromContactFeedback(measuredContactFlags, currentTime, schedule);
+  const bool modified =
+      gaitSwitchingTimeOptimizerPtr_->adaptFromContactFeedback(
+          measuredContactFlags, currentTime, schedule);
   if (modified) {
     gaitSchedulePtr_->updateModeSchedule(schedule);
     modeSchedule_ = schedule;
@@ -158,16 +186,19 @@ bool SwitchedModelReferenceManager::adaptFromContactFeedback(const contact_flag_
   return modified;
 }
 
-void SwitchedModelReferenceManager::modifyReferences(scalar_t initTime,
-                                                     scalar_t finalTime,
-                                                     const vector_t& initState,
-                                                     size_t initMode,
-                                                     TargetTrajectories& targetTrajectories,
-                                                     ModeSchedule& modeSchedule) {
+void SwitchedModelReferenceManager::modifyReferences(
+    scalar_t initTime,
+    scalar_t finalTime,
+    const vector_t& initState,
+    size_t initMode,
+    TargetTrajectories& targetTrajectories,
+    ModeSchedule& modeSchedule) {
   const scalar_t timeHorizon = finalTime - initTime;
-  modeSchedule = gaitSchedulePtr_->getModeSchedule(initTime - timeHorizon, finalTime + timeHorizon);
+  modeSchedule = gaitSchedulePtr_->getModeSchedule(initTime - timeHorizon,
+                                                   finalTime + timeHorizon);
 
-  const scalar_t terrainHeight = adaptToCurrentGroundHeight(targetTrajectories, initState, initMode);
+  const scalar_t terrainHeight =
+      adaptToCurrentGroundHeight(targetTrajectories, initState, initMode);
 
   if (swingTrajectoryPtr_) {
     swingTrajectoryPtr_->update(modeSchedule, terrainHeight);

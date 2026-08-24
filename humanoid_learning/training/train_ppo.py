@@ -17,22 +17,36 @@ def parse_args():
         description="Train Humanoid PPO Policy with Brax and MJX"
     )
     parser.add_argument(
-        "--num_envs", type=int, default=64, help="Number of parallel MJX environments"
+        "--num_envs",
+        type=int,
+        default=64,
+        help="Number of parallel MJX environments",
     )
     parser.add_argument(
-        "--total_timesteps", type=int, default=100_000, help="Total environment steps"
+        "--total_timesteps",
+        type=int,
+        default=100_000,
+        help="Total environment steps",
     )
     parser.add_argument(
-        "--num_evals", type=int, default=10, help="Number of evaluation checkpoints"
+        "--num_evals",
+        type=int,
+        default=10,
+        help="Number of evaluation checkpoints",
     )
     parser.add_argument(
         "--episode_length", type=int, default=1000, help="Episode step length"
     )
     parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate")
-    parser.add_argument("--gamma", type=float, default=0.99, help="Discount factor")
+    parser.add_argument(
+        "--gamma", type=float, default=0.99, help="Discount factor"
+    )
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument(
-        "--output_dir", type=str, default="./checkpoints", help="Output directory"
+        "--output_dir",
+        type=str,
+        default="./checkpoints",
+        help="Output directory",
     )
     return parser.parse_args()
 
@@ -41,7 +55,9 @@ def main():
     args = parse_args()
 
     # Resolve output directory relative to workspace root if invoked via Bazel
-    workspace_dir = os.environ.get("BUILD_WORKSPACE_DIRECTORY", os.path.abspath("."))
+    workspace_dir = os.environ.get(
+        "BUILD_WORKSPACE_DIRECTORY", os.path.abspath(".")
+    )
     if not os.path.isabs(args.output_dir):
         args.output_dir = os.path.join(workspace_dir, args.output_dir)
 

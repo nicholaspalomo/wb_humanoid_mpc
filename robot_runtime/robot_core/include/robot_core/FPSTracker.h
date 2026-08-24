@@ -40,7 +40,11 @@ namespace robot {
 class FPSTracker {
  public:
   explicit FPSTracker(const std::string& name, double alpha = 0.1)
-      : initialized_(false), sampleCount_(0), alpha_(alpha), fps_(0.0), name_(name) {
+      : initialized_(false),
+        sampleCount_(0),
+        alpha_(alpha),
+        fps_(0.0),
+        name_(name) {
     assert(alpha > 0 && alpha <= 1);
     lastTimePoint_ = std::chrono::steady_clock::now();
   }
@@ -49,7 +53,8 @@ class FPSTracker {
 
   void tick() {
     auto now = std::chrono::steady_clock::now();
-    double deltaTime = std::chrono::duration<double>(now - lastTimePoint_).count();
+    double deltaTime =
+        std::chrono::duration<double>(now - lastTimePoint_).count();
     lastTimePoint_ = now;
 
     ++sampleCount_;
@@ -65,7 +70,10 @@ class FPSTracker {
 
   void reset() { initialized_ = false; }
 
-  void print() const { std::cerr << "FPS [" << name_ << "]: " << static_cast<int>(fps_) << std::endl; }
+  void print() const {
+    std::cerr << "FPS [" << name_ << "]: " << static_cast<int>(fps_)
+              << std::endl;
+  }
 
   double alpha() const { return alpha_; }
 

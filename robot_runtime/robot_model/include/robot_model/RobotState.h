@@ -19,19 +19,33 @@ class RobotState {
 
   // orientation of the root joint wrt world frame, corresponds to the passive
   // rotation from local to world R_l_to_w
-  quaternion_t getRootRotationLocalToWorldFrame() const { return rootOrientation_; }
+  quaternion_t getRootRotationLocalToWorldFrame() const {
+    return rootOrientation_;
+  }
   vector3_t getRootPositionInWorldFrame() const { return rootPosition_; }
 
-  vector3_t getRootLinearVelocityInLocalFrame() const { return rootLinearVelocity_; }
-  vector3_t getRootAngularVelocityInLocalFrame() const { return rootAngularVelocity_; }
+  vector3_t getRootLinearVelocityInLocalFrame() const {
+    return rootLinearVelocity_;
+  }
+  vector3_t getRootAngularVelocityInLocalFrame() const {
+    return rootAngularVelocity_;
+  }
 
   // orientation of the root joint wrt world frame, corresponds to the passive
   // rotation from local to world R_l_to_w
-  void setRootRotationLocalToWorldFrame(const quaternion_t& orientation) { rootOrientation_ = orientation; }
-  void setRootPositionInWorldFrame(const vector3_t& position) { rootPosition_ = position; }
+  void setRootRotationLocalToWorldFrame(const quaternion_t& orientation) {
+    rootOrientation_ = orientation;
+  }
+  void setRootPositionInWorldFrame(const vector3_t& position) {
+    rootPosition_ = position;
+  }
 
-  void setRootLinearVelocityInLocalFrame(const vector3_t& linearVelocity) { rootLinearVelocity_ = linearVelocity; }
-  void setRootAngularVelocityInLocalFrame(const vector3_t& angularVelocity) { rootAngularVelocity_ = angularVelocity; }
+  void setRootLinearVelocityInLocalFrame(const vector3_t& linearVelocity) {
+    rootLinearVelocity_ = linearVelocity;
+  }
+  void setRootAngularVelocityInLocalFrame(const vector3_t& angularVelocity) {
+    rootAngularVelocity_ = angularVelocity;
+  }
 
   void setJointPosition(size_t jointId, scalar_t jointPosition);
   scalar_t getJointPosition(size_t jointId) const;
@@ -40,19 +54,31 @@ class RobotState {
 
   //  Get a vector_t of joint positions given a vector of joint IDs
   template <typename E>
-  vector_t getJointPositions(std::vector<E> jointIds, scalar_t defaultValue = std::numeric_limits<scalar_t>::quiet_NaN()) const {
-    return jointStateMap_.toVector(jointIds, [](const JointState& js) { return js.position; }, defaultValue);
+  vector_t getJointPositions(
+      std::vector<E> jointIds,
+      scalar_t defaultValue =
+          std::numeric_limits<scalar_t>::quiet_NaN()) const {
+    return jointStateMap_.toVector(
+        jointIds, [](const JointState& js) { return js.position; },
+        defaultValue);
   }
 
   //  Get a vector_t of joint velocities given a vector of joint IDs
   template <typename E>
-  vector_t getJointVelocities(std::vector<E> jointIds, scalar_t defaultValue = std::numeric_limits<scalar_t>::quiet_NaN()) const {
-    return jointStateMap_.toVector(jointIds, [](const JointState& js) { return js.velocity; }, defaultValue);
+  vector_t getJointVelocities(
+      std::vector<E> jointIds,
+      scalar_t defaultValue =
+          std::numeric_limits<scalar_t>::quiet_NaN()) const {
+    return jointStateMap_.toVector(
+        jointIds, [](const JointState& js) { return js.velocity; },
+        defaultValue);
   }
 
   bool getContactFlag(size_t index) const { return contactFlags_.at(index); }
 
-  void setContactFlag(size_t index, bool contactFlag) { contactFlags_.at(index) = contactFlag; }
+  void setContactFlag(size_t index, bool contactFlag) {
+    contactFlags_.at(index) = contactFlag;
+  }
 
   std::vector<bool> getContactFlags() const { return contactFlags_; }
 

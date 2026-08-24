@@ -50,38 +50,57 @@ namespace ocs2::humanoid {
  */
 class SwitchedModelReferenceManager : public ReferenceManager {
  public:
-  SwitchedModelReferenceManager(std::shared_ptr<GaitSchedule> gaitSchedulePtr,
-                                std::shared_ptr<SwingTrajectoryPlanner> swingTrajectoryPtr,
-                                const PinocchioInterface& pinocchioInterface,
-                                const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                                GaitOptimizationSettings gaitOptimizationSettings = GaitOptimizationSettings());
+  SwitchedModelReferenceManager(
+      std::shared_ptr<GaitSchedule> gaitSchedulePtr,
+      std::shared_ptr<SwingTrajectoryPlanner> swingTrajectoryPtr,
+      const PinocchioInterface& pinocchioInterface,
+      const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+      GaitOptimizationSettings gaitOptimizationSettings =
+          GaitOptimizationSettings());
 
   ~SwitchedModelReferenceManager() override = default;
 
   /** Disable copy / move */
-  SwitchedModelReferenceManager& operator=(const SwitchedModelReferenceManager&) = delete;
+  SwitchedModelReferenceManager& operator=(
+      const SwitchedModelReferenceManager&) = delete;
   SwitchedModelReferenceManager(const SwitchedModelReferenceManager&) = delete;
-  SwitchedModelReferenceManager& operator=(SwitchedModelReferenceManager&&) = delete;
+  SwitchedModelReferenceManager& operator=(SwitchedModelReferenceManager&&) =
+      delete;
   SwitchedModelReferenceManager(SwitchedModelReferenceManager&&) = delete;
 
   contact_flag_t getContactFlags(scalar_t time) const;
 
-  bool isInStancePhase(scalar_t time) const { return (getContactFlags(time)[0] && getContactFlags(time)[1]); }
+  bool isInStancePhase(scalar_t time) const {
+    return (getContactFlags(time)[0] && getContactFlags(time)[1]);
+  }
 
-  bool isInContact(scalar_t time, size_t contactIndex) const { return getContactFlags(time)[contactIndex]; };
+  bool isInContact(scalar_t time, size_t contactIndex) const {
+    return getContactFlags(time)[contactIndex];
+  };
 
-  void setArmSwingReferenceActive(bool armSwingReferenceActive) { armSwingReferenceActive_ = armSwingReferenceActive; }
+  void setArmSwingReferenceActive(bool armSwingReferenceActive) {
+    armSwingReferenceActive_ = armSwingReferenceActive;
+  }
 
-  const std::shared_ptr<GaitSchedule>& getGaitSchedule() const { return gaitSchedulePtr_; }
+  const std::shared_ptr<GaitSchedule>& getGaitSchedule() const {
+    return gaitSchedulePtr_;
+  }
 
-  const std::shared_ptr<SwingTrajectoryPlanner>& getSwingTrajectoryPlanner() const { return swingTrajectoryPtr_; }
+  const std::shared_ptr<SwingTrajectoryPlanner>& getSwingTrajectoryPlanner()
+      const {
+    return swingTrajectoryPtr_;
+  }
 
-  const GaitOptimizationSettings& getGaitOptimizationSettings() const { return gaitOptimizationSettings_; }
+  const GaitOptimizationSettings& getGaitOptimizationSettings() const {
+    return gaitOptimizationSettings_;
+  }
   void setGaitOptimizationSettings(GaitOptimizationSettings settings);
 
   scalar_t getPhaseVariable(scalar_t time) const;
 
-  vector_t getDesiredState(const TargetTrajectories& targetTrajectories, const vector_t& state, scalar_t time) const;
+  vector_t getDesiredState(const TargetTrajectories& targetTrajectories,
+                           const vector_t& state,
+                           scalar_t time) const;
 
   /**
    * Optimize gait switching times based on the primal solution trajectory.
@@ -89,9 +108,11 @@ class SwitchedModelReferenceManager : public ReferenceManager {
   bool optimizeSwitchingTimes(const PrimalSolution& primalSolution);
 
   /**
-   * Adapt gait switching times based on instantaneous measured contact sensor feedback.
+   * Adapt gait switching times based on instantaneous measured contact sensor
+   * feedback.
    */
-  bool adaptFromContactFeedback(const contact_flag_t& measuredContactFlags, scalar_t currentTime);
+  bool adaptFromContactFeedback(const contact_flag_t& measuredContactFlags,
+                                scalar_t currentTime);
 
  protected:
   virtual void modifyReferences(scalar_t initTime,
@@ -101,8 +122,11 @@ class SwitchedModelReferenceManager : public ReferenceManager {
                                 TargetTrajectories& targetTrajectories,
                                 ModeSchedule& modeSchedule) override;
 
-  // Adjusts the height of the target trajectories to current terrain height and returns that height.
-  scalar_t adaptToCurrentGroundHeight(TargetTrajectories& targetTrajectories, const vector_t& initState, size_t initMode);
+  // Adjusts the height of the target trajectories to current terrain height and
+  // returns that height.
+  scalar_t adaptToCurrentGroundHeight(TargetTrajectories& targetTrajectories,
+                                      const vector_t& initState,
+                                      size_t initMode);
   scalar_t previousGroundHeightEstimate_{0.0};
 
   std::shared_ptr<GaitSchedule> gaitSchedulePtr_;

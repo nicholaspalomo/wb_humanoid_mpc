@@ -48,7 +48,8 @@ class GaitKeyboardPublisher {
                         const std::string& robotName,
                         bool verbose = false);
 
-  /** Prints the command line interface and responds to user input. Function returns after one user input. */
+  /** Prints the command line interface and responds to user input. Function
+   * returns after one user input. */
   void getKeyboardCommand();
 
  private:
@@ -58,7 +59,8 @@ class GaitKeyboardPublisher {
   std::vector<std::string> gaitList_;
   std::map<std::string, ModeSequenceTemplate> gaitMap_;
 
-  rclcpp::Publisher<ocs2_ros2_msgs::msg::ModeSchedule>::SharedPtr modeSequenceTemplatePublisher_;
+  rclcpp::Publisher<ocs2_ros2_msgs::msg::ModeSchedule>::SharedPtr
+      modeSequenceTemplatePublisher_;
 };
 
 }  // namespace ocs2::humanoid

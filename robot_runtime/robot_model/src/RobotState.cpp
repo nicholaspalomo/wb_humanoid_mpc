@@ -2,7 +2,8 @@
 
 namespace robot::model {
 
-RobotState::RobotState(const RobotDescription& robotDescription, size_t contactSize)
+RobotState::RobotState(const RobotDescription& robotDescription,
+                       size_t contactSize)
     : jointStateMap_(robotDescription),
       rootPosition_(vector3_t::Zero()),
       rootLinearVelocity_(vector3_t::Zero()),
@@ -15,7 +16,8 @@ RobotState::RobotState(const RobotDescription& robotDescription, size_t contactS
 
   setConfigurationToZero();
 
-  std::fill(contactFlags_.begin(), contactFlags_.end(), true);  // Assume robot is in contact
+  std::fill(contactFlags_.begin(), contactFlags_.end(),
+            true);  // Assume robot is in contact
 }
 
 void RobotState::setJointPosition(size_t jointId, double jointPosition) {
@@ -66,7 +68,8 @@ void RobotState::setConfigurationToZero() {
     joint.measuredEffort = 0.0;
   }
 
-  std::fill(contactFlags_.begin(), contactFlags_.end(), true);  // Assume robot is in contact
+  std::fill(contactFlags_.begin(), contactFlags_.end(),
+            true);  // Assume robot is in contact
 }
 
 }  // namespace robot::model

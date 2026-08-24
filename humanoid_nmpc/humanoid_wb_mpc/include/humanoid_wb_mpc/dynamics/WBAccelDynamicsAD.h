@@ -50,7 +50,9 @@ class WBAccelDynamicsAD final : public SystemDynamicsBaseAD {
 
   WBAccelDynamicsAD(const WBAccelDynamicsAD& rhs) = default;
 
-  WBAccelDynamicsAD* clone() const override { return new WBAccelDynamicsAD(*this); }
+  WBAccelDynamicsAD* clone() const override {
+    return new WBAccelDynamicsAD(*this);
+  }
 
   ad_vector_t systemFlowMap(ad_scalar_t time,
                             const ad_vector_t& state,

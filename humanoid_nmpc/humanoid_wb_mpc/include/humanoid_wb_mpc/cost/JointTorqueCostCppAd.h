@@ -48,9 +48,13 @@ class JointTorqueCostCppAd final : public StateInputCostGaussNewtonAd {
                        const ModelSettings& modelSettings);
 
   ~JointTorqueCostCppAd() override = default;
-  JointTorqueCostCppAd* clone() const override { return new JointTorqueCostCppAd(*this); }
+  JointTorqueCostCppAd* clone() const override {
+    return new JointTorqueCostCppAd(*this);
+  }
 
-  vector_t getParameters(scalar_t time, const TargetTrajectories& targetTrajectories, const PreComputation& preComputation) const override {
+  vector_t getParameters(scalar_t time,
+                         const TargetTrajectories& targetTrajectories,
+                         const PreComputation& preComputation) const override {
     return sqrtWeights_;
   }
 

@@ -79,10 +79,14 @@ def export_csv_to_h5(csv_files, output_path, obs_cols=None, act_cols=None):
 
             if act_cols is None:
                 act_candidates = [
-                    col for col in df.columns if col.startswith(("qd_j_", "F_", "M_"))
+                    col
+                    for col in df.columns
+                    if col.startswith(("qd_j_", "F_", "M_"))
                 ]
                 act_cols_used = (
-                    act_candidates if act_candidates else list(df.columns[25:37])
+                    act_candidates
+                    if act_candidates
+                    else list(df.columns[25:37])
                 )
             else:
                 act_cols_used = act_cols
@@ -116,7 +120,9 @@ def export_csv_to_h5(csv_files, output_path, obs_cols=None, act_cols=None):
         import h5py
 
         with h5py.File(output_path, "w") as f:
-            f.create_dataset("observations", data=merged_obs, compression="gzip")
+            f.create_dataset(
+                "observations", data=merged_obs, compression="gzip"
+            )
             f.create_dataset("actions", data=merged_acts, compression="gzip")
             if all_times:
                 merged_times = np.concatenate(all_times, axis=0)
@@ -125,7 +131,9 @@ def export_csv_to_h5(csv_files, output_path, obs_cols=None, act_cols=None):
             f.attrs["obs_dim"] = merged_obs.shape[1]
             f.attrs["act_dim"] = merged_acts.shape[1]
     else:
-        np.savez_compressed(output_path, observations=merged_obs, actions=merged_acts)
+        np.savez_compressed(
+            output_path, observations=merged_obs, actions=merged_acts
+        )
 
     print("=" * 60)
     print(f"✅ Successfully exported MPC demonstrations to: {output_path}")
@@ -148,16 +156,24 @@ def main():
 
     if not csv_files:
         print(f"ℹ️ No CSV log files found at {args.input_path}.")
-        print("Generating synthetic demonstration dataset for imitation pretraining...")
+        print(
+            "Generating synthetic demonstration dataset for imitation pretraining..."
+        )
         synthetic_obs = np.random.randn(500, 25).astype(np.float32)
         synthetic_act = np.random.randn(500, 12).astype(np.float32)
-        os.makedirs(os.path.dirname(os.path.abspath(args.output_path)), exist_ok=True)
+        os.makedirs(
+            os.path.dirname(os.path.abspath(args.output_path)), exist_ok=True
+        )
         try:
             import h5py
 
             with h5py.File(args.output_path, "w") as f:
-                f.create_dataset("observations", data=synthetic_obs, compression="gzip")
-                f.create_dataset("actions", data=synthetic_act, compression="gzip")
+                f.create_dataset(
+                    "observations", data=synthetic_obs, compression="gzip"
+                )
+                f.create_dataset(
+                    "actions", data=synthetic_act, compression="gzip"
+                )
                 f.attrs["num_samples"] = 500
                 f.attrs["obs_dim"] = 25
                 f.attrs["act_dim"] = 12

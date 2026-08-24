@@ -39,13 +39,15 @@ Copyright (c) 2022, Halodi Robotics AS. All rights reserved.
 using namespace ocs2;
 using namespace ocs2::humanoid;
 
-void benchmarkInverseDynamics(PinocchioInterfaceTpl<scalar_t>& pinocchioInterface) {
+void benchmarkInverseDynamics(
+    PinocchioInterfaceTpl<scalar_t>& pinocchioInterface) {
   const int NUM_ITERATIONS = 10000;
 
   // Get dimensions from pinocchio interface
   const int nq = pinocchioInterface.getModel().nq;
   const int nv = pinocchioInterface.getModel().nv;
-  const int njoints = nv - 6;  // Assuming floating base (6 DOF base + joint DOFs)
+  const int njoints =
+      nv - 6;  // Assuming floating base (6 DOF base + joint DOFs)
 
   // Random number generator
   std::random_device rd;
@@ -95,24 +97,28 @@ void benchmarkInverseDynamics(PinocchioInterfaceTpl<scalar_t>& pinocchioInterfac
   for (int i = 0; i < NUM_ITERATIONS; i = i + 10) {
     auto start = std::chrono::high_resolution_clock::now();
     for (int j = 0; j < 10; j++) {
-      auto result =
-          computeJointTorques(q_states[i + j], qd_states[i + j], qdd_joints_states[i + j], footWrenches_states[i + j], pinocchioInterface);
+      auto result = computeJointTorques(
+          q_states[i + j], qd_states[i + j], qdd_joints_states[i + j],
+          footWrenches_states[i + j], pinocchioInterface);
     }
 
     auto end = std::chrono::high_resolution_clock::now();
-    auto customDuration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+    auto customDuration =
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start);
     customAvg += static_cast<double>(customDuration.count());
 
     // Benchmark RNEA inverse dynamics
     start = std::chrono::high_resolution_clock::now();
 
     for (int j = 0; j < 10; j++) {
-      auto result = computeJointTorquesRNEA(q_states[i + j], qd_states[i + j], qdd_joints_states[i + j], footWrenches_states[i + j],
-                                            pinocchioInterface);
+      auto result = computeJointTorquesRNEA(
+          q_states[i + j], qd_states[i + j], qdd_joints_states[i + j],
+          footWrenches_states[i + j], pinocchioInterface);
     }
 
     end = std::chrono::high_resolution_clock::now();
-    auto rneaDuration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+    auto rneaDuration =
+        std::chrono::duration_cast<std::chrono::microseconds>(end - start);
     rneaAvg += static_cast<double>(rneaDuration.count());
   }
 
@@ -121,26 +127,31 @@ void benchmarkInverseDynamics(PinocchioInterfaceTpl<scalar_t>& pinocchioInterfac
 
   // Print results
   std::cout << std::fixed << std::setprecision(2);
-  std::cout << "Inverse Dynamics Benchmark Results (" << NUM_ITERATIONS << " iterations):\n";
+  std::cout << "Inverse Dynamics Benchmark Results (" << NUM_ITERATIONS
+            << " iterations):\n";
   std::cout << "================================================\n";
   std::cout << "Custom Implementation:  " << customAvg << " μs average\n";
   std::cout << "RNEA Implementation:    " << rneaAvg << " μs average\n";
   std::cout << "Speed ratio (Custom/RNEA): " << customAvg / rneaAvg << "x\n";
 
   if (customAvg < rneaAvg) {
-    std::cout << "Custom implementation is " << (rneaAvg / customAvg) << "x faster\n";
+    std::cout << "Custom implementation is " << (rneaAvg / customAvg)
+              << "x faster\n";
   } else {
-    std::cout << "RNEA implementation is " << (customAvg / rneaAvg) << "x faster\n";
+    std::cout << "RNEA implementation is " << (customAvg / rneaAvg)
+              << "x faster\n";
   }
 }
 
-void compareInverseDynamics(PinocchioInterfaceTpl<scalar_t>& pinocchioInterface) {
+void compareInverseDynamics(
+    PinocchioInterfaceTpl<scalar_t>& pinocchioInterface) {
   const int NUM_ITERATIONS = 10;
 
   // Get dimensions from pinocchio interface
   const int nq = pinocchioInterface.getModel().nq;
   const int nv = pinocchioInterface.getModel().nv;
-  const int njoints = nv - 6;  // Assuming floating base (6 DOF base + joint DOFs)
+  const int njoints =
+      nv - 6;  // Assuming floating base (6 DOF base + joint DOFs)
 
   // Random number generator
   std::random_device rd;
@@ -184,9 +195,13 @@ void compareInverseDynamics(PinocchioInterfaceTpl<scalar_t>& pinocchioInterface)
   }
 
   for (int i = 0; i < NUM_ITERATIONS; i++) {
-    auto resultCustom = computeJointTorques(q_states[i], qd_states[i], qdd_joints_states[i], footWrenches_states[i], pinocchioInterface);
+    auto resultCustom =
+        computeJointTorques(q_states[i], qd_states[i], qdd_joints_states[i],
+                            footWrenches_states[i], pinocchioInterface);
 
-    auto resultRNEA = computeJointTorquesRNEA(q_states[i], qd_states[i], qdd_joints_states[i], footWrenches_states[i], pinocchioInterface);
+    auto resultRNEA =
+        computeJointTorquesRNEA(q_states[i], qd_states[i], qdd_joints_states[i],
+                                footWrenches_states[i], pinocchioInterface);
 
     std::cout << "Result custom:" << resultCustom.transpose() << std::endl;
     std::cout << "Result rnea  :" << resultRNEA.transpose() << std::endl;
@@ -197,8 +212,10 @@ void compareInverseDynamics(PinocchioInterfaceTpl<scalar_t>& pinocchioInterface)
  * @brief This file contains Manu's personal pinocchio playground.
  */
 
-void testOrientationErrorWrtPlane(const PinocchioInterface* pinocchioInterfacePtr, Eigen::VectorXd q) {
-  const pinocchio::ReferenceFrame rf = pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED;
+void testOrientationErrorWrtPlane(
+    const PinocchioInterface* pinocchioInterfacePtr, Eigen::VectorXd q) {
+  const pinocchio::ReferenceFrame rf =
+      pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED;
 
   pinocchio::Model model = pinocchioInterfacePtr->getModel();
   pinocchio::Data data = pinocchioInterfacePtr->getData();
@@ -216,11 +233,14 @@ void testOrientationErrorWrtPlane(const PinocchioInterface* pinocchioInterfacePt
   // Rotation matrix local end effector frame to world frame
   matrix3_t R_w_l = data.oMf[frameId].rotation();
 
-  // Passive rotation projecting from end effector frame to the closest frame in plane.
-  // Computed through the shortest arc rotation  from the end effector z axis to the plane normal (both expressed in world frame).
-  quaternion_t quaternion_correction = getQuaternionFromUnitVectors<scalar_t>(R_w_l * z_axis, planeNormal);
+  // Passive rotation projecting from end effector frame to the closest frame in
+  // plane. Computed through the shortest arc rotation  from the end effector z
+  // axis to the plane normal (both expressed in world frame).
+  quaternion_t quaternion_correction =
+      getQuaternionFromUnitVectors<scalar_t>(R_w_l * z_axis, planeNormal);
 
-  std::cout << "quaternion_correction: " << quaternion_correction.coeffs() << std::endl;
+  std::cout << "quaternion_correction: " << quaternion_correction.coeffs()
+            << std::endl;
 
   error = quaternionDistance(quaternion_correction, quaternion_t::Identity());
   std::cout << "error: " << error << std::endl;
@@ -237,8 +257,10 @@ void printModelDimensionality(PinocchioInterface pin_interface) {
 
 void printJointNames(PinocchioInterface pin_interface) {
   pinocchio::Model model = pin_interface.getModel();
-  for (pinocchio::JointIndex joint_id = 0; joint_id < (pinocchio::JointIndex)model.njoints; ++joint_id)
-    std::cout << std::setw(24) << std::left << model.names[joint_id] << std::endl;
+  for (pinocchio::JointIndex joint_id = 0;
+       joint_id < (pinocchio::JointIndex)model.njoints; ++joint_id)
+    std::cout << std::setw(24) << std::left << model.names[joint_id]
+              << std::endl;
 }
 
 std::ostream& operator<<(std::ostream& os, const Eigen::Quaternion<double>& q) {
@@ -246,7 +268,9 @@ std::ostream& operator<<(std::ostream& os, const Eigen::Quaternion<double>& q) {
   return os;
 }
 
-void printFrameRotation(PinocchioInterface pin_interface, Eigen::VectorXd q, std::string& frameName) {
+void printFrameRotation(PinocchioInterface pin_interface,
+                        Eigen::VectorXd q,
+                        std::string& frameName) {
   pinocchio::Model model = pin_interface.getModel();
   pinocchio::Data data = pin_interface.getData();
 
@@ -254,19 +278,25 @@ void printFrameRotation(PinocchioInterface pin_interface, Eigen::VectorXd q, std
   pinocchio::forwardKinematics(model, data, q);
   pinocchio::updateFramePlacements(model, data);
 
-  pinocchio::FrameIndex frameID = pin_interface.getModel().getFrameId(frameName);
+  pinocchio::FrameIndex frameID =
+      pin_interface.getModel().getFrameId(frameName);
   // Print out the placement of each joint of the kinematic tree
   matrix3_t R_w_l = data.oMf[frameID].rotation();
   auto q_w_l = matrixToQuaternion(R_w_l);
-  auto translation = data.oMf[frameID].toHomogeneousMatrix_impl();  // translation from local into world frame
-  std::cout << "Orientation of frame: R local to world " << frameName << ": " << std::endl;
+  auto translation =
+      data.oMf[frameID].toHomogeneousMatrix_impl();  // translation from local
+                                                     // into world frame
+  std::cout << "Orientation of frame: R local to world " << frameName << ": "
+            << std::endl;
   std::cout << q_w_l << std::endl;
   std::cout << R_w_l << std::endl;
-  std::cout << "Translation from local to world frame " << frameName << ": " << std::endl;
+  std::cout << "Translation from local to world frame " << frameName << ": "
+            << std::endl;
   std::cout << translation << std::endl;
 }
 
-void computeForwardKinematics(PinocchioInterface pin_interface, Eigen::VectorXd q) {
+void computeForwardKinematics(PinocchioInterface pin_interface,
+                              Eigen::VectorXd q) {
   pinocchio::Model model = pin_interface.getModel();
   pinocchio::Data data = pin_interface.getData();
 
@@ -277,18 +307,27 @@ void computeForwardKinematics(PinocchioInterface pin_interface, Eigen::VectorXd 
   std::cout << "###########################################" << std::endl;
   std::cout << "############### Model Joints ##############" << std::endl;
   std::cout << "###########################################" << std::endl;
-  for (pinocchio::JointIndex joint_id = 0; joint_id < (pinocchio::JointIndex)model.njoints; ++joint_id)
-    std::cout << std::setw(5) << std::left << "ID: " << joint_id << ", " << model.names[joint_id] << ": " << std::fixed
-              << std::setprecision(5) << data.oMi[joint_id].translation().transpose() << std::endl;
+  for (pinocchio::JointIndex joint_id = 0;
+       joint_id < (pinocchio::JointIndex)model.njoints; ++joint_id)
+    std::cout << std::setw(5) << std::left << "ID: " << joint_id << ", "
+              << model.names[joint_id] << ": " << std::fixed
+              << std::setprecision(5)
+              << data.oMi[joint_id].translation().transpose() << std::endl;
   std::cout << "###########################################" << std::endl;
   std::cout << "############### Model Frames ##############" << std::endl;
   std::cout << "###########################################" << std::endl;
-  for (pinocchio::FrameIndex frame_id = 0; frame_id < (pinocchio::FrameIndex)model.nframes; ++frame_id)
-    std::cout << std::setw(10) << std::left << "ID: " << frame_id << ", name: " << model.frames[frame_id].name
-              << " : Pos: " << std::setprecision(5) << data.oMf[frame_id].translation().transpose() << std::endl;
+  for (pinocchio::FrameIndex frame_id = 0;
+       frame_id < (pinocchio::FrameIndex)model.nframes; ++frame_id)
+    std::cout << std::setw(10) << std::left << "ID: " << frame_id
+              << ", name: " << model.frames[frame_id].name
+              << " : Pos: " << std::setprecision(5)
+              << data.oMf[frame_id].translation().transpose() << std::endl;
 }
 
-void computeInverseDyanmics(PinocchioInterface pin_interface, Eigen::VectorXd q, Eigen::VectorXd dq, Eigen::VectorXd ddq) {
+void computeInverseDyanmics(PinocchioInterface pin_interface,
+                            Eigen::VectorXd q,
+                            Eigen::VectorXd dq,
+                            Eigen::VectorXd ddq) {
   pinocchio::Model model = pin_interface.getModel();
   pinocchio::Data data = pin_interface.getData();
 
@@ -302,9 +341,12 @@ int main(int argc, char** argv) {
 
   std::string urdfFile;
   try {
-    urdfFile = ament_index_cpp::get_package_share_directory("g1_description") + "/urdf/g1_29dof.urdf";
+    urdfFile = ament_index_cpp::get_package_share_directory("g1_description") +
+               "/urdf/g1_29dof.urdf";
   } catch (const std::exception& e) {
-    throw std::runtime_error("Failed to get package share directory: g1_description. Error: " + std::string(e.what()));
+    throw std::runtime_error(
+        "Failed to get package share directory: g1_description. Error: " +
+        std::string(e.what()));
   }
 
   const std::string taskFile = dir + "/../config/mpc/task.yaml";
@@ -332,7 +374,8 @@ int main(int argc, char** argv) {
   /// Test custom model
   ModelSettings modelSettings(taskFile, urdfFile, "test_pinocchio", "true");
 
-  pin_interface = createCustomPinocchioInterface(taskFile, urdfFile, modelSettings);
+  pin_interface =
+      createCustomPinocchioInterface(taskFile, urdfFile, modelSettings);
 
   std::cout << "Custom PinocchioInterface initialized " << std::endl;
 
@@ -352,7 +395,8 @@ int main(int argc, char** argv) {
 
   /// Test custom model with mass scaling
 
-  pin_interface = createCustomPinocchioInterface(taskFile, urdfFile, modelSettings, true, 44.44);
+  pin_interface = createCustomPinocchioInterface(taskFile, urdfFile,
+                                                 modelSettings, true, 44.44);
 
   benchmarkInverseDynamics(pin_interface);
 

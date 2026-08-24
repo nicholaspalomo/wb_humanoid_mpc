@@ -58,7 +58,8 @@ namespace ocs2::humanoid {
 ///
 
 template <typename SCALAR_T>
-void updateFramePlacements(const VECTOR_T<SCALAR_T>& q, PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface);
+void updateFramePlacements(const VECTOR_T<SCALAR_T>& q,
+                           PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface);
 
 ///
 /// @brief Computes and returns all the contact positions in the inertial frame.
@@ -70,7 +71,9 @@ void updateFramePlacements(const VECTOR_T<SCALAR_T>& q, PinocchioInterfaceTpl<SC
 /// @return Vector of contact positions in the inertial frame.
 
 template <typename SCALAR_T>
-void updateFramePlacements(const VECTOR_T<SCALAR_T>& q, const pinocchio::ModelTpl<SCALAR_T>& model, pinocchio::DataTpl<SCALAR_T>& data);
+void updateFramePlacements(const VECTOR_T<SCALAR_T>& q,
+                           const pinocchio::ModelTpl<SCALAR_T>& model,
+                           pinocchio::DataTpl<SCALAR_T>& data);
 
 ///
 /// @brief Computes and returns all the contact positions in the inertial frame.
@@ -82,13 +85,15 @@ void updateFramePlacements(const VECTOR_T<SCALAR_T>& q, const pinocchio::ModelTp
 /// @return Vector of contact positions in the inertial frame.
 
 template <typename SCALAR_T>
-std::vector<VECTOR3_T<SCALAR_T>> computeContactPositions(const VECTOR_T<SCALAR_T>& q,
-                                                         PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface,
-                                                         const MpcRobotModelBase<SCALAR_T>& mpcRobotModel);
+std::vector<VECTOR3_T<SCALAR_T>> computeContactPositions(
+    const VECTOR_T<SCALAR_T>& q,
+    PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface,
+    const MpcRobotModelBase<SCALAR_T>& mpcRobotModel);
 
 ///
 /// @brief Returns all the contact positions in the inertial frame.
-/// Assumes that the frame placements are up to date (e.g. updateFramePlacements has been called).
+/// Assumes that the frame placements are up to date (e.g. updateFramePlacements
+/// has been called).
 ///
 /// @tparam SCALAR_T Scalar type [scalar_t/ad_scalar_t].
 /// @param pinocchioInterface Pinocchio interface.
@@ -96,8 +101,9 @@ std::vector<VECTOR3_T<SCALAR_T>> computeContactPositions(const VECTOR_T<SCALAR_T
 /// @return Vector of contact positions in the inertial frame.
 
 template <typename SCALAR_T>
-std::vector<VECTOR3_T<SCALAR_T>> getContactPositions(const PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface,
-                                                     const MpcRobotModelBase<SCALAR_T>& mpcRobotModel);
+std::vector<VECTOR3_T<SCALAR_T>> getContactPositions(
+    const PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface,
+    const MpcRobotModelBase<SCALAR_T>& mpcRobotModel);
 
 ///
 /// @brief Computes and returns all the frame positions in the inertial frame.
@@ -105,31 +111,37 @@ std::vector<VECTOR3_T<SCALAR_T>> getContactPositions(const PinocchioInterfaceTpl
 /// @tparam SCALAR_T Scalar type [scalar_t/ad_scalar_t].
 /// @param q Current generalized coordinates.
 /// @param pinocchioInterface Pinocchio interface.
-/// @param frameNames Names of the frames for which the positions should be computed.
+/// @param frameNames Names of the frames for which the positions should be
+/// computed.
 ///
 /// @return Vector of contact positions in the inertial frame.
 
 template <typename SCALAR_T>
-std::vector<VECTOR3_T<SCALAR_T>> computeFramePositions(const VECTOR_T<SCALAR_T>& q,
-                                                       PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface,
-                                                       std::vector<std::string> frameNames);
+std::vector<VECTOR3_T<SCALAR_T>> computeFramePositions(
+    const VECTOR_T<SCALAR_T>& q,
+    PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface,
+    std::vector<std::string> frameNames);
 
 ///
 /// @brief Returns all the frame positions in the inertial frame.
-/// Assumes that the frame placements are up to date (e.g. updateFramePlacements has been called).
+/// Assumes that the frame placements are up to date (e.g. updateFramePlacements
+/// has been called).
 ///
 /// @tparam SCALAR_T Scalar type [scalar_t/ad_scalar_t].
 /// @param pinocchioInterface Pinocchio interface.
-/// @param frameNames Names of the frames for which the positions should be returned.
+/// @param frameNames Names of the frames for which the positions should be
+/// returned.
 ///
 /// @return Vector of contact positions in the inertial frame.
 
 template <typename SCALAR_T>
-std::vector<VECTOR3_T<SCALAR_T>> getFramePositions(const PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface,
-                                                   std::vector<std::string> frameNames);
+std::vector<VECTOR3_T<SCALAR_T>> getFramePositions(
+    const PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface,
+    std::vector<std::string> frameNames);
 
 ///
-/// @brief Gets the estimated ground height using the feet in contact for a pinocchio model with updated frame placements.
+/// @brief Gets the estimated ground height using the feet in contact for a
+/// pinocchio model with updated frame placements.
 ///
 /// @tparam SCALAR_T Scalar type [scalar_t/ad_scalar_t].
 /// @param pinocchioInterface Pinocchio interface.
@@ -137,9 +149,10 @@ std::vector<VECTOR3_T<SCALAR_T>> getFramePositions(const PinocchioInterfaceTpl<S
 ///
 /// @return the estimated ground height.
 
-scalar_t getGroundHeightEstimate(PinocchioInterfaceTpl<scalar_t>& pinocchioInterface,
-                                 const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                                 size_t measuredMode);
+scalar_t getGroundHeightEstimate(
+    PinocchioInterfaceTpl<scalar_t>& pinocchioInterface,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+    size_t measuredMode);
 
 ///
 /// @brief Computes the estimated ground height using the feet in contact.
@@ -151,10 +164,11 @@ scalar_t getGroundHeightEstimate(PinocchioInterfaceTpl<scalar_t>& pinocchioInter
 ///
 /// @return the estimated ground height.
 
-scalar_t computeGroundHeightEstimate(PinocchioInterfaceTpl<scalar_t>& pinocchioInterface,
-                                     const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                                     const vector_t& q,
-                                     size_t measuredMode);
+scalar_t computeGroundHeightEstimate(
+    PinocchioInterfaceTpl<scalar_t>& pinocchioInterface,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+    const vector_t& q,
+    size_t measuredMode);
 
 ///
 /// @brief Return amount of legs in contact
@@ -175,14 +189,17 @@ inline size_t numberOfLegsInContacts(const contact_flag_t& contactFlags) {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-inline vector_t weightCompensatingInput(const PinocchioInterface& pinocchioInterface,
-                                        const contact_flag_t& contactFlags,
-                                        const MpcRobotModelBase<scalar_t>& mpcRobotModel) {
-  const static scalar_t totalGravitationalForce = computeTotalMass(pinocchioInterface.getModel()) * 9.81;
+inline vector_t weightCompensatingInput(
+    const PinocchioInterface& pinocchioInterface,
+    const contact_flag_t& contactFlags,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel) {
+  const static scalar_t totalGravitationalForce =
+      computeTotalMass(pinocchioInterface.getModel()) * 9.81;
   const auto numStanceLegs = numberOfLegsInContacts(contactFlags);
   vector_t input = vector_t::Zero(mpcRobotModel.getInputDim());
   if (numStanceLegs > 0) {
-    const vector3_t forceInInertialFrame(0.0, 0.0, totalGravitationalForce / numStanceLegs);
+    const vector3_t forceInInertialFrame(
+        0.0, 0.0, totalGravitationalForce / numStanceLegs);
     for (size_t i = 0; i < contactFlags.size(); i++) {
       if (contactFlags[i]) {
         mpcRobotModel.setContactForce(input, forceInInertialFrame, i);
@@ -197,10 +214,12 @@ inline vector_t weightCompensatingInput(const PinocchioInterface& pinocchioInter
 /******************************************************************************************************/
 
 template <typename SCALAR_T>
-inline pinocchio::FrameIndex getContactFrameIndex(const PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface,
-                                                  const MpcRobotModelBase<SCALAR_T>& mpcRobotModel,
-                                                  size_t contactIndex) {
-  return pinocchioInterface.getModel().getFrameId(mpcRobotModel.modelSettings.contactNames[contactIndex]);
+inline pinocchio::FrameIndex getContactFrameIndex(
+    const PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface,
+    const MpcRobotModelBase<SCALAR_T>& mpcRobotModel,
+    size_t contactIndex) {
+  return pinocchioInterface.getModel().getFrameId(
+      mpcRobotModel.modelSettings.contactNames[contactIndex]);
 }
 
 /******************************************************************************************************/
@@ -208,12 +227,14 @@ inline pinocchio::FrameIndex getContactFrameIndex(const PinocchioInterfaceTpl<SC
 /******************************************************************************************************/
 
 template <typename SCALAR_T>
-inline std::vector<pinocchio::FrameIndex> getContactFrameIndices(const PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface,
-                                                                 const MpcRobotModelBase<SCALAR_T>& mpcRobotModel) {
+inline std::vector<pinocchio::FrameIndex> getContactFrameIndices(
+    const PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface,
+    const MpcRobotModelBase<SCALAR_T>& mpcRobotModel) {
   std::vector<pinocchio::FrameIndex> contactFrameIndices;
   contactFrameIndices.reserve(N_CONTACTS);
   for (size_t i = 0; i < N_CONTACTS; i++) {
-    contactFrameIndices[i] = getContactFrameIndex<SCALAR_T>(pinocchioInterface, mpcRobotModel, i);
+    contactFrameIndices[i] =
+        getContactFrameIndex<SCALAR_T>(pinocchioInterface, mpcRobotModel, i);
   }
   return contactFrameIndices;
 }
@@ -225,7 +246,8 @@ inline std::vector<pinocchio::FrameIndex> getContactFrameIndices(const Pinocchio
 ///
 /// @brief Computes the center of pressure (CoP) in the inertial frame.
 ///
-/// @warning Assumes that the frame placements are up to date. Does not work when frame is not in contact -> f_z = 0 results in NaN.
+/// @warning Assumes that the frame placements are up to date. Does not work
+/// when frame is not in contact -> f_z = 0 results in NaN.
 ///
 /// @tparam SCALAR_T Scalar type [scalar_t/ad_scalar_t].
 /// @param input Current input.
@@ -234,18 +256,21 @@ inline std::vector<pinocchio::FrameIndex> getContactFrameIndices(const Pinocchio
 /// @return Location of center of pressure in the inertial frame.
 
 template <typename SCALAR_T>
-inline VECTOR3_T<SCALAR_T> computeContactCoP(const VECTOR_T<SCALAR_T> input,
-                                             const PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface,
-                                             size_t contactIndex,
-                                             const MpcRobotModelBase<scalar_t>& mpcRobotModel) {
-  const auto localContactWrench =
-      rotateVectorWorldToLocal<SCALAR_T>(mpcRobotModel.getContactWrench(input, contactIndex), pinocchioInterface.getData(),
-                                         getContactFrameIndex(pinocchioInterface, mpcRobotModel, contactIndex));
+inline VECTOR3_T<SCALAR_T> computeContactCoP(
+    const VECTOR_T<SCALAR_T> input,
+    const PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface,
+    size_t contactIndex,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel) {
+  const auto localContactWrench = rotateVectorWorldToLocal<SCALAR_T>(
+      mpcRobotModel.getContactWrench(input, contactIndex),
+      pinocchioInterface.getData(),
+      getContactFrameIndex(pinocchioInterface, mpcRobotModel, contactIndex));
   SCALAR_T copX = -localContactWrench[4] / localContactWrench[2];
   SCALAR_T copY = localContactWrench[3] / localContactWrench[2];
   VECTOR3_T<SCALAR_T> copInLocalFrame(copX, copY, 0.0);
-  return transformPointLocalToWorld(copInLocalFrame, pinocchioInterface.getData(),
-                                    getContactFrameIndex(pinocchioInterface, mpcRobotModel, contactIndex));
+  return transformPointLocalToWorld(
+      copInLocalFrame, pinocchioInterface.getData(),
+      getContactFrameIndex(pinocchioInterface, mpcRobotModel, contactIndex));
 }
 
 /******************************************************************************************************/
@@ -253,26 +278,30 @@ inline VECTOR3_T<SCALAR_T> computeContactCoP(const VECTOR_T<SCALAR_T> input,
 /******************************************************************************************************/
 
 ///
-/// @brief Computes the center of pressure (CoP) for all contacts in the inertial frame.
+/// @brief Computes the center of pressure (CoP) for all contacts in the
+/// inertial frame.
 ///
 /// @warning Assumes that the frame placements are up to date.
 ///
 /// @tparam SCALAR_T Scalar type [scalar_t/ad_scalar_t].
 /// @param input Current input.
 /// @param pinocchioInterface Pinocchio interface.
-/// @param contactFlags Flags indicating which contacts are in contact. Returns 0 vector if not in contact.
+/// @param contactFlags Flags indicating which contacts are in contact. Returns
+/// 0 vector if not in contact.
 ///
 /// @return Locations of center of pressure in the inertial frame.
 
-inline std::vector<vector3_t> computeContactsCoP(const vector_t input,
-                                                 const PinocchioInterfaceTpl<scalar_t>& pinocchioInterface,
-                                                 const contact_flag_t& contactFlags,
-                                                 const MpcRobotModelBase<scalar_t>& mpcRobotModel) {
+inline std::vector<vector3_t> computeContactsCoP(
+    const vector_t input,
+    const PinocchioInterfaceTpl<scalar_t>& pinocchioInterface,
+    const contact_flag_t& contactFlags,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel) {
   std::vector<vector3_t> contactCoPs;
   contactCoPs.reserve(N_CONTACTS);
   for (size_t contactIndex = 0; contactIndex < N_CONTACTS; contactIndex++) {
     if (contactFlags[contactIndex]) {
-      contactCoPs.emplace_back(computeContactCoP<scalar_t>(input, pinocchioInterface, contactIndex, mpcRobotModel));
+      contactCoPs.emplace_back(computeContactCoP<scalar_t>(
+          input, pinocchioInterface, contactIndex, mpcRobotModel));
     } else {
       contactCoPs.emplace_back(vector3_t::Zero());
     }
@@ -298,7 +327,8 @@ static inline vector3_t quaternionToEulerZYX(const quaternion_t& quat) {
   // Pitch (Y axis rotation)
   scalar_t pitch = std::asin(2.0 * (w * y - z * x));
   // Roll (X axis rotation)
-  scalar_t roll = std::atan2(2.0 * (w * x + y * z), 1.0 - 2.0 * (x * x + y * y));
+  scalar_t roll =
+      std::atan2(2.0 * (w * x + y * z), 1.0 - 2.0 * (x * x + y * y));
 
   return vector3_t(yaw, pitch, roll);
 }
@@ -307,17 +337,19 @@ static inline vector3_t quaternionToEulerZYX(const quaternion_t& quat) {
 /// @brief Computes the base acceleration
 ///
 /// @param M Given mass matrix
-/// @param nle nonlinear effects in joint space inlcuding gravity comp, centrifugal, corriolis
+/// @param nle nonlinear effects in joint space inlcuding gravity comp,
+/// centrifugal, corriolis
 /// @param qdd_joints Generalized accelerations
 /// @param externalForcesInJointSpace Sum of J^T F_ext
 ///
 /// @return linear and angular base acceleration.
 
 template <typename SCALAR_T>
-VECTOR6_T<SCALAR_T> computeBaseAcceleration(const MATRIX_T<SCALAR_T>& M,
-                                            const VECTOR_T<SCALAR_T>& nle,
-                                            const VECTOR_T<SCALAR_T>& qdd_joints,
-                                            const VECTOR_T<SCALAR_T>& externalForcesInJointSpace);
+VECTOR6_T<SCALAR_T> computeBaseAcceleration(
+    const MATRIX_T<SCALAR_T>& M,
+    const VECTOR_T<SCALAR_T>& nle,
+    const VECTOR_T<SCALAR_T>& qdd_joints,
+    const VECTOR_T<SCALAR_T>& externalForcesInJointSpace);
 
 ///
 ///
@@ -330,15 +362,17 @@ VECTOR6_T<SCALAR_T> computeBaseAcceleration(const MATRIX_T<SCALAR_T>& M,
 /// @return joint torques of same dimension as qdd_joints
 
 template <typename SCALAR_T>
-VECTOR_T<SCALAR_T> computeJointTorques(const VECTOR_T<SCALAR_T>& q,
-                                       const VECTOR_T<SCALAR_T>& qd,
-                                       const VECTOR_T<SCALAR_T>& qdd_joints,
-                                       const std::array<VECTOR6_T<SCALAR_T>, 2>& footWrenches,
-                                       PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface);
+VECTOR_T<SCALAR_T> computeJointTorques(
+    const VECTOR_T<SCALAR_T>& q,
+    const VECTOR_T<SCALAR_T>& qd,
+    const VECTOR_T<SCALAR_T>& qdd_joints,
+    const std::array<VECTOR6_T<SCALAR_T>, 2>& footWrenches,
+    PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface);
 
 ///
-/// @brief WARNING!!!!!! This formualtion currently does not work! Since pinocchio is not aware of the custom 6 dof base joint the results
-/// are wrong. Computes the joint torques via custom inverse dynamics
+/// @brief WARNING!!!!!! This formualtion currently does not work! Since
+/// pinocchio is not aware of the custom 6 dof base joint the results are wrong.
+/// Computes the joint torques via custom inverse dynamics
 ///
 /// @param q Generalized coordinates
 /// @param v Generalized velocities
@@ -349,10 +383,11 @@ VECTOR_T<SCALAR_T> computeJointTorques(const VECTOR_T<SCALAR_T>& q,
 /// @return joint torques of same dimension as qdd_joints
 
 template <typename SCALAR_T>
-VECTOR_T<SCALAR_T> computeJointTorquesRNEA(const VECTOR_T<SCALAR_T>& q,
-                                           const VECTOR_T<SCALAR_T>& qd,
-                                           const VECTOR_T<SCALAR_T>& qdd_joints,
-                                           const std::array<VECTOR6_T<SCALAR_T>, 2>& footWrenches,
-                                           PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface);
+VECTOR_T<SCALAR_T> computeJointTorquesRNEA(
+    const VECTOR_T<SCALAR_T>& q,
+    const VECTOR_T<SCALAR_T>& qd,
+    const VECTOR_T<SCALAR_T>& qdd_joints,
+    const std::array<VECTOR6_T<SCALAR_T>, 2>& footWrenches,
+    PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface);
 
 }  // namespace ocs2::humanoid

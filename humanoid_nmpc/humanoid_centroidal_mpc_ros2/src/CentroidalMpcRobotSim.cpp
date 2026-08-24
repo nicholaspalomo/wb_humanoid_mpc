@@ -46,7 +46,9 @@ int main(int argc, char** argv) {
   std::vector<std::string> programArgs;
   programArgs = rclcpp::remove_ros_arguments(argc, argv);
   if (programArgs.size() < 6) {
-    throw std::runtime_error("No robot name, config folder, target command file, or description name specified. Aborting.");
+    throw std::runtime_error(
+        "No robot name, config folder, target command file, or description "
+        "name specified. Aborting.");
   }
 
   const std::string robotName(argv[1]);
@@ -62,28 +64,39 @@ int main(int argc, char** argv) {
   CentroidalMpcInterface interface(taskFile, urdfFile, referenceFile);
 
   // MPC
-  SqpMpc mpc(interface.mpcSettings(), interface.sqpSettings(), interface.getOptimalControlProblem(), interface.getInitializer());
+  SqpMpc mpc(interface.mpcSettings(), interface.sqpSettings(),
+             interface.getOptimalControlProblem(), interface.getInitializer());
 
   // Launch MPC ROS node
-  rclcpp::Node::SharedPtr nodeHandle = std::make_shared<rclcpp::Node>(robotName + "_centroidal_mpc");
+  rclcpp::Node::SharedPtr nodeHandle =
+      std::make_shared<rclcpp::Node>(robotName + "_centroidal_mpc");
 
   auto qos = rclcpp::QoS(1);
   qos.best_effort();
 
   std::shared_ptr<HumanoidVisualizer> humanoidVisualizer(
-      new HumanoidVisualizer(taskFile, interface.getPinocchioInterface(), interface.getMpcRobotModel(), nodeHandle));
+      new HumanoidVisualizer(taskFile, interface.getPinocchioInterface(),
+                             interface.getMpcRobotModel(), nodeHandle));
 
   // Reference and motion management for Procedural MPC
   CentroidalMpcTargetTrajectoriesCalculator mpcTargetTrajectoriesCalculator(
-      referenceFile, interface.getMpcRobotModel(), interface.getPinocchioInterface(), interface.getCentroidalModelInfo(),
+      referenceFile, interface.getMpcRobotModel(),
+      interface.getPinocchioInterface(), interface.getCentroidalModelInfo(),
       interface.mpcSettings().timeHorizon_);
-  ProceduralMpcMotionManager::VelocityTargetToTargetTrajectories targetTrajectoriesFunc =
-      [&mpcTargetTrajectoriesCalculator](const vector4_t& velocityTarget, scalar_t initTime, scalar_t finalTime,
-                                         const vector_t& initState) mutable {
-        return mpcTargetTrajectoriesCalculator.commandedVelocityToTargetTrajectories(velocityTarget, initTime, initState);
+  ProceduralMpcMotionManager::VelocityTargetToTargetTrajectories
+      targetTrajectoriesFunc = [&mpcTargetTrajectoriesCalculator](
+                                   const vector4_t& velocityTarget,
+                                   scalar_t initTime, scalar_t finalTime,
+                                   const vector_t& initState) mutable {
+        return mpcTargetTrajectoriesCalculator
+            .commandedVelocityToTargetTrajectories(velocityTarget, initTime,
+                                                   initState);
       };
-  auto ros2ProceduralMpcMotionManager = std::make_shared<Ros2ProceduralMpcMotionManager>(
-      gaitFile, referenceFile, interface.getSwitchedModelReferenceManagerPtr(), interface.getMpcRobotModel(), targetTrajectoriesFunc);
+  auto ros2ProceduralMpcMotionManager =
+      std::make_shared<Ros2ProceduralMpcMotionManager>(
+          gaitFile, referenceFile,
+          interface.getSwitchedModelReferenceManagerPtr(),
+          interface.getMpcRobotModel(), targetTrajectoriesFunc);
 
   ros2ProceduralMpcMotionManager->subscribe(nodeHandle, qos);
 
@@ -101,28 +114,35 @@ int main(int argc, char** argv) {
 
   vector_t mpcJointAngles = mpcModel.getJointAngles(initMpcState);
   // Todo set non zero orientation;
-  std::vector<robot::joint_index_t> mpcJointIndices = robotDescription.getJointIndices(interface.modelSettings().mpcModelJointNames);
+  std::vector<robot::joint_index_t> mpcJointIndices =
+      robotDescription.getJointIndices(
+          interface.modelSettings().mpcModelJointNames);
   for (size_t i = 0; i < mpcJointIndices.size(); i++) {
     initState.setJointPosition(mpcJointIndices[i], mpcJointAngles[i]);
   }
 
-  std::cerr << "initState: " << initState.getRootPositionInWorldFrame().transpose() << std::endl;
+  std::cerr << "initState: "
+            << initState.getRootPositionInWorldFrame().transpose() << std::endl;
 
   robot::mujoco_sim_interface::MujocoSimConfig config;
 
   config.scenePath = mjxFile;
   config.verbose = true;
-  config.initStatePtr_ = std::make_shared<robot::model::RobotState>(std::move(initState));
+  config.initStatePtr_ =
+      std::make_shared<robot::model::RobotState>(std::move(initState));
 
-  robot::mujoco_sim_interface::MujocoSimInterface robotInterface(config, urdfFile);
+  robot::mujoco_sim_interface::MujocoSimInterface robotInterface(config,
+                                                                 urdfFile);
 
-  CentroidalMpcMrtJointController mpcJointController(robotInterface.getRobotDescription(), interface.modelSettings(),
-                                                     interface.getMpcRobotModel(), mpc, interface.getPinocchioInterface(),
-                                                     interface.mpcSettings().mpcDesiredFrequency_, humanoidVisualizer);
+  CentroidalMpcMrtJointController mpcJointController(
+      robotInterface.getRobotDescription(), interface.modelSettings(),
+      interface.getMpcRobotModel(), mpc, interface.getPinocchioInterface(),
+      interface.mpcSettings().mpcDesiredFrequency_, humanoidVisualizer);
 
   std::cout << "MPC MRT joint controller is set up. " << std::endl;
 
-  // size_t mrtDeltaTMicroSeconds_ = 1000000 / (interface.mpcSettings().mrtDesiredFrequency_);
+  // size_t mrtDeltaTMicroSeconds_ = 1000000 /
+  // (interface.mpcSettings().mrtDesiredFrequency_);
   size_t mrtDeltaTMicroSeconds_ = 1000000 / (500);
   robotInterface.initSim();
   robotInterface.updateInterfaceStateFromRobot();
@@ -140,19 +160,26 @@ int main(int argc, char** argv) {
   rclcpp::spin_some(nodeHandle);
 
   while (true) {
-    auto targetTimeForNextIteration = std::chrono::steady_clock::now() + std::chrono::microseconds(mrtDeltaTMicroSeconds_);
+    auto targetTimeForNextIteration =
+        std::chrono::steady_clock::now() +
+        std::chrono::microseconds(mrtDeltaTMicroSeconds_);
 
     robotInterface.updateInterfaceStateFromRobot();
-    mpcJointController.computeJointControlAction(0.0, robotInterface.getRobotState(), robotInterface.getRobotJointAction());
+    mpcJointController.computeJointControlAction(
+        0.0, robotInterface.getRobotState(),
+        robotInterface.getRobotJointAction());
     robotInterface.applyJointAction();
 
     rclcpp::spin_some(nodeHandle);
 
     auto currentTime = std::chrono::steady_clock::now();
     if (currentTime > targetTimeForNextIteration) {
-      auto delay = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - targetTimeForNextIteration).count();
+      auto delay = std::chrono::duration_cast<std::chrono::microseconds>(
+                       currentTime - targetTimeForNextIteration)
+                       .count();
 
-      std::cerr << "Warning: MRT loop running slow by " << delay << " microseconds." << std::endl;
+      std::cerr << "Warning: MRT loop running slow by " << delay
+                << " microseconds." << std::endl;
     } else {
       // Sleep in case sim loop is faster than specified
       std::this_thread::sleep_until(targetTimeForNextIteration);

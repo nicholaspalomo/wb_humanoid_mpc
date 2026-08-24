@@ -53,20 +53,27 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Builds and populates an OCS2 OptimalControlProblem based on an MpcProblemDefinition.
+ * Builds and populates an OCS2 OptimalControlProblem based on an
+ * MpcProblemDefinition.
  */
 class MpcProblemBuilder {
  public:
   using FootTrackingCostBuilder =
-      std::function<absl::StatusOr<std::unique_ptr<StateInputCost>>(size_t contactIndex, absl::string_view name)>;
+      std::function<absl::StatusOr<std::unique_ptr<StateInputCost>>(
+          size_t contactIndex, absl::string_view name)>;
   using StanceConstraintBuilder =
-      std::function<absl::StatusOr<std::unique_ptr<StateInputConstraint>>(size_t contactIndex, absl::string_view name)>;
+      std::function<absl::StatusOr<std::unique_ptr<StateInputConstraint>>(
+          size_t contactIndex, absl::string_view name)>;
   using NormalVelocityConstraintBuilder =
-      std::function<absl::StatusOr<std::unique_ptr<StateInputConstraint>>(size_t contactIndex, absl::string_view name)>;
+      std::function<absl::StatusOr<std::unique_ptr<StateInputConstraint>>(
+          size_t contactIndex, absl::string_view name)>;
   using JointMimicConstraintBuilder =
-      std::function<absl::StatusOr<std::unique_ptr<StateInputConstraint>>(size_t mimicIndex, absl::string_view name)>;
-  using TaskSpaceKinematicsCostBuilder = std::function<absl::Status(OptimalControlProblem& problem)>;
-  using IcpCostBuilder = std::function<absl::StatusOr<std::unique_ptr<StateInputCost>>()>;
+      std::function<absl::StatusOr<std::unique_ptr<StateInputConstraint>>(
+          size_t mimicIndex, absl::string_view name)>;
+  using TaskSpaceKinematicsCostBuilder =
+      std::function<absl::Status(OptimalControlProblem& problem)>;
+  using IcpCostBuilder =
+      std::function<absl::StatusOr<std::unique_ptr<StateInputCost>>()>;
 
   struct CustomBuilders {
     FootTrackingCostBuilder footTrackingCostBuilder;
@@ -85,11 +92,12 @@ class MpcProblemBuilder {
   ~MpcProblemBuilder() = default;
 
   /**
-   * Populates the given OptimalControlProblem with the configured costs, soft constraints,
-   * and equality constraints.
+   * Populates the given OptimalControlProblem with the configured costs, soft
+   * constraints, and equality constraints.
    *
    * @param [in,out] problem: Target OptimalControlProblem to populate.
-   * @return absl::Status::Ok() on success, or an error status if any term fails to build.
+   * @return absl::Status::Ok() on success, or an error status if any term fails
+   * to build.
    */
   absl::Status buildProblem(OptimalControlProblem& problem) const;
 

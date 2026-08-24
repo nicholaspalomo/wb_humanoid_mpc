@@ -42,13 +42,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-CentroidalMpcMrtJointController::CentroidalMpcMrtJointController(const ::robot::model::RobotDescription& robotDescription,
-                                                                 const ModelSettings& modelSettings,
-                                                                 const CentroidalMpcRobotModel<scalar_t>& mpcRobotModel,
-                                                                 MPC_BASE& mpc,
-                                                                 PinocchioInterface pinocchioInterface,
-                                                                 scalar_t mpcDesiredFrequency,
-                                                                 std::shared_ptr<DummyObserver> rVizVisualizerPtr)
+CentroidalMpcMrtJointController::CentroidalMpcMrtJointController(
+    const ::robot::model::RobotDescription& robotDescription,
+    const ModelSettings& modelSettings,
+    const CentroidalMpcRobotModel<scalar_t>& mpcRobotModel,
+    MPC_BASE& mpc,
+    PinocchioInterface pinocchioInterface,
+    scalar_t mpcDesiredFrequency,
+    std::shared_ptr<DummyObserver> rVizVisualizerPtr)
     : mcpMrtInterface_(mpc),
       pinocchioInterface_(pinocchioInterface),
       mpcRobotModelPtr_(mpcRobotModel.clone()),
@@ -57,12 +58,17 @@ CentroidalMpcMrtJointController::CentroidalMpcMrtJointController(const ::robot::
       visualizerPtr_(rVizVisualizerPtr),
       inverse_dynamics_kp_(mpcRobotModel.getJointDim()),
       inverse_dynamics_kd_(mpcRobotModel.getJointDim()) {
-  mpcJointIndices_ = robotDescription.getJointIndices(modelSettings.mpcModelJointNames);
-  otherJointIndices_ = robotDescription.getJointIndices(modelSettings.fixedJointNames);
-  currentMpcObservation_.state = vector_t::Zero(mpcRobotModelPtr_->getStateDim());
-  currentMpcObservation_.input = vector_t::Zero(mpcRobotModelPtr_->getInputDim());
+  mpcJointIndices_ =
+      robotDescription.getJointIndices(modelSettings.mpcModelJointNames);
+  otherJointIndices_ =
+      robotDescription.getJointIndices(modelSettings.fixedJointNames);
+  currentMpcObservation_.state =
+      vector_t::Zero(mpcRobotModelPtr_->getStateDim());
+  currentMpcObservation_.input =
+      vector_t::Zero(mpcRobotModelPtr_->getInputDim());
 
-  // Currently set to 0. There is still a bug in the momentum computation of the inverse dynamics.
+  // Currently set to 0. There is still a bug in the momentum computation of the
+  // inverse dynamics.
   inverse_dynamics_kp_.fill(0.0);
   inverse_dynamics_kd_.fill(0.0);
 }
@@ -85,37 +91,46 @@ CentroidalMpcMrtJointController::~CentroidalMpcMrtJointController() {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-void CentroidalMpcMrtJointController::startMpcThread(const ::robot::model::RobotState& initRobotState) {
+void CentroidalMpcMrtJointController::startMpcThread(
+    const ::robot::model::RobotState& initRobotState) {
   updateMpcObservation(currentMpcObservation_, initRobotState);
   // Set observation to MPC
   mcpMrtInterface_.setCurrentObservation(currentMpcObservation_);
-  solver_worker_ = std::jthread(&CentroidalMpcMrtJointController::solverWorker, this);
+  solver_worker_ =
+      std::jthread(&CentroidalMpcMrtJointController::solverWorker, this);
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-void CentroidalMpcMrtJointController::updateMpcState(vector_t& mpcState, const ::robot::model::RobotState& robotState) {
+void CentroidalMpcMrtJointController::updateMpcState(
+    vector_t& mpcState, const ::robot::model::RobotState& robotState) {
   const auto& info = mpcRobotModelPtr_->getCentroidalModelInfo();
 
-  const vector3_t euler_zyx = quaternionToEulerZYX(robotState.getRootRotationLocalToWorldFrame());
+  const vector3_t euler_zyx =
+      quaternionToEulerZYX(robotState.getRootRotationLocalToWorldFrame());
 
   vector_t qPinocchio(info.generalizedCoordinatesNum);
   qPinocchio.head<3>() = robotState.getRootPositionInWorldFrame();
   qPinocchio.segment<3>(3) = euler_zyx;
-  qPinocchio.tail(mpcRobotModelPtr_->getJointDim()) = robotState.getJointPositions(mpcJointIndices_);
+  qPinocchio.tail(mpcRobotModelPtr_->getJointDim()) =
+      robotState.getJointPositions(mpcJointIndices_);
 
   vector_t vPinocchio(info.generalizedCoordinatesNum);
-  vPinocchio.head<3>() = robotState.getRootRotationLocalToWorldFrame() * robotState.getRootLinearVelocityInLocalFrame();
+  vPinocchio.head<3>() = robotState.getRootRotationLocalToWorldFrame() *
+                         robotState.getRootLinearVelocityInLocalFrame();
   vPinocchio.segment<3>(3) =
-      getEulerAnglesZyxDerivativesFromLocalAngularVelocity<scalar_t>(euler_zyx, robotState.getRootAngularVelocityInLocalFrame());
-  vPinocchio.tail(mpcRobotModelPtr_->getJointDim()) = robotState.getJointVelocities(mpcJointIndices_);
+      getEulerAnglesZyxDerivativesFromLocalAngularVelocity<scalar_t>(
+          euler_zyx, robotState.getRootAngularVelocityInLocalFrame());
+  vPinocchio.tail(mpcRobotModelPtr_->getJointDim()) =
+      robotState.getJointVelocities(mpcJointIndices_);
 
   updateCentroidalDynamics(pinocchioInterface_, info, qPinocchio);
   const auto& A = getCentroidalMomentumMatrix(pinocchioInterface_);
 
-  centroidal_model::getNormalizedMomentum(mpcState, info).noalias() = A * vPinocchio / info.robotMass;
+  centroidal_model::getNormalizedMomentum(mpcState, info).noalias() =
+      A * vPinocchio / info.robotMass;
   centroidal_model::getGeneralizedCoordinates(mpcState, info) = qPinocchio;
 }
 
@@ -123,11 +138,13 @@ void CentroidalMpcMrtJointController::updateMpcState(vector_t& mpcState, const :
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-void CentroidalMpcMrtJointController::updateMpcObservation(ocs2::SystemObservation& mpcObservation,
-                                                           const ::robot::model::RobotState& robotState) {
+void CentroidalMpcMrtJointController::updateMpcObservation(
+    ocs2::SystemObservation& mpcObservation,
+    const ::robot::model::RobotState& robotState) {
   updateMpcState(mpcObservation.state, robotState);
   mpcObservation.time = robotState.getTime();
-  mpcObservation.input = vector_t::Zero(mpcRobotModelPtr_->getInputDim());  // Add contact forces later.
+  mpcObservation.input = vector_t::Zero(
+      mpcRobotModelPtr_->getInputDim());  // Add contact forces later.
   std::vector<bool> configContacts = robotState.getContactFlags();
   assert(configContacts.size() == 2);
   contact_flag_t contactFlags;
@@ -139,9 +156,10 @@ void CentroidalMpcMrtJointController::updateMpcObservation(ocs2::SystemObservati
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
-                                                                const ::robot::model::RobotState& robotState,
-                                                                ::robot::model::RobotJointAction& robotJointAction) {
+void CentroidalMpcMrtJointController::computeJointControlAction(
+    scalar_t time,
+    const ::robot::model::RobotState& robotState,
+    ::robot::model::RobotJointAction& robotJointAction) {
   updateMpcObservation(currentMpcObservation_, robotState);
   // Set observation to MPC
   mcpMrtInterface_.setCurrentObservation(currentMpcObservation_);
@@ -152,29 +170,40 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
 
   if (mcpMrtInterface_.initialPolicyReceived()) {
     // Evaluate policy with feedback if activated in config
-    mcpMrtInterface_.evaluatePolicy(currentMpcObservation_.time + 0.005, currentMpcObservation_.state, mpcPolicyState, mpcPolicyInput,
-                                    mpcPolicyMode);
+    mcpMrtInterface_.evaluatePolicy(
+        currentMpcObservation_.time + 0.005, currentMpcObservation_.state,
+        mpcPolicyState, mpcPolicyInput, mpcPolicyMode);
 
-    // TODO something seems wrong with the inverse dynamics. You should correct that.
+    // TODO something seems wrong with the inverse dynamics. You should correct
+    // that.
     vector_t mpc_q_j_des = mpcRobotModelPtr_->getJointAngles(mpcPolicyState);
-    vector_t mpc_qd_j_des = mpcRobotModelPtr_->getJointVelocities(mpcPolicyState, mpcPolicyInput);
-    vector_t q_j = mpcRobotModelPtr_->getJointAngles(currentMpcObservation_.state);
-    vector_t qd_j = mpcRobotModelPtr_->getJointVelocities(currentMpcObservation_.state, currentMpcObservation_.input);
-    vector_t qdd_j_des = inverse_dynamics_kp_ * (mpc_q_j_des - q_j) + inverse_dynamics_kd_ * (mpc_qd_j_des - qd_j);
+    vector_t mpc_qd_j_des =
+        mpcRobotModelPtr_->getJointVelocities(mpcPolicyState, mpcPolicyInput);
+    vector_t q_j =
+        mpcRobotModelPtr_->getJointAngles(currentMpcObservation_.state);
+    vector_t qd_j = mpcRobotModelPtr_->getJointVelocities(
+        currentMpcObservation_.state, currentMpcObservation_.input);
+    vector_t qdd_j_des = inverse_dynamics_kp_ * (mpc_q_j_des - q_j) +
+                         inverse_dynamics_kd_ * (mpc_qd_j_des - qd_j);
 
-    std::array<vector6_t, 2> footWrenches{mpcRobotModelPtr_->getContactWrench(mpcPolicyInput, 0),
-                                          mpcRobotModelPtr_->getContactWrench(mpcPolicyInput, 1)};
+    std::array<vector6_t, 2> footWrenches{
+        mpcRobotModelPtr_->getContactWrench(mpcPolicyInput, 0),
+        mpcRobotModelPtr_->getContactWrench(mpcPolicyInput, 1)};
 
-    vector_t q = mpcRobotModelPtr_->getGeneralizedCoordinates(currentMpcObservation_.state);
-    vector_t qd = mpcRobotModelPtr_->getGeneralizedVelocities(currentMpcObservation_.state, currentMpcObservation_.input);
+    vector_t q = mpcRobotModelPtr_->getGeneralizedCoordinates(
+        currentMpcObservation_.state);
+    vector_t qd = mpcRobotModelPtr_->getGeneralizedVelocities(
+        currentMpcObservation_.state, currentMpcObservation_.input);
     // std::cerr << qd.head(6).transpose() << std::endl;
 
     // This did not help.
     // qd.head(6) = vector6_t::Zero();
 
-    vector_t mpcJointTorques = computeJointTorques<scalar_t>(q, qd, qdd_j_des, footWrenches, pinocchioInterface_);
+    vector_t mpcJointTorques = computeJointTorques<scalar_t>(
+        q, qd, qdd_j_des, footWrenches, pinocchioInterface_);
 
-    // std::cout << "mpcJointTorques: " << mpcJointTorques.transpose() << std::endl;
+    // std::cout << "mpcJointTorques: " << mpcJointTorques.transpose() <<
+    // std::endl;
 
     for (size_t i = 0; i < mpcJointIndices_.size(); i++) {
       size_t index = mpcJointIndices_[i];
@@ -190,7 +219,9 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
     };
 
     if (visualizerPtr_ != nullptr) {
-      visualizerPtr_->update(currentMpcObservation_, mcpMrtInterface_.getPolicy(), mcpMrtInterface_.getCommand());
+      visualizerPtr_->update(currentMpcObservation_,
+                             mcpMrtInterface_.getPolicy(),
+                             mcpMrtInterface_.getCommand());
     }
   }
 
@@ -198,13 +229,17 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
     std::cerr << "Apply weight compensating torque..." << std::endl;
     //   Apply weight compensated input around current state
     vector_t qdd_j_des = vector_t::Zero(mpcRobotModelPtr_->getJointDim());
-    mpcPolicyInput = weightCompensatingInput(pinocchioInterface_, {true, true}, *mpcRobotModelPtr_);
-    std::array<vector6_t, 2> footWrenches{mpcRobotModelPtr_->getContactWrench(mpcPolicyInput, 0),
-                                          mpcRobotModelPtr_->getContactWrench(mpcPolicyInput, 1)};
+    mpcPolicyInput = weightCompensatingInput(pinocchioInterface_, {true, true},
+                                             *mpcRobotModelPtr_);
+    std::array<vector6_t, 2> footWrenches{
+        mpcRobotModelPtr_->getContactWrench(mpcPolicyInput, 0),
+        mpcRobotModelPtr_->getContactWrench(mpcPolicyInput, 1)};
     vector_t weightCompensatingTorques = computeJointTorques<scalar_t>(
-        mpcRobotModelPtr_->getGeneralizedCoordinates(currentMpcObservation_.state),
-        mpcRobotModelPtr_->getGeneralizedVelocities(currentMpcObservation_.state, currentMpcObservation_.input), qdd_j_des, footWrenches,
-        pinocchioInterface_);
+        mpcRobotModelPtr_->getGeneralizedCoordinates(
+            currentMpcObservation_.state),
+        mpcRobotModelPtr_->getGeneralizedVelocities(
+            currentMpcObservation_.state, currentMpcObservation_.input),
+        qdd_j_des, footWrenches, pinocchioInterface_);
 
     for (size_t i = 0; i < mpcJointIndices_.size(); i++) {
       size_t index = mpcJointIndices_[i];
@@ -238,11 +273,14 @@ void CentroidalMpcMrtJointController::solverWorker() {
   //   std::this_thread::sleep_for(std::chrono::milliseconds(100));
   // }
 
-  mcpMrtInterface_.resetMpcNode(currentObservationToResetTrajectory(mcpMrtInterface_.getCurrentObservation()));
+  mcpMrtInterface_.resetMpcNode(currentObservationToResetTrajectory(
+      mcpMrtInterface_.getCurrentObservation()));
   std::cerr << "MPC is reset. NMPC solver started!" << std::endl;
 
   while (true) {
-    auto targetTimeForNextIteration = std::chrono::steady_clock::now() + std::chrono::microseconds(mpcDeltaTMicroSeconds_);
+    auto targetTimeForNextIteration =
+        std::chrono::steady_clock::now() +
+        std::chrono::microseconds(mpcDeltaTMicroSeconds_);
 
     mcpMrtInterface_.advanceMpc();
 
@@ -257,9 +295,12 @@ void CentroidalMpcMrtJointController::solverWorker() {
     if (!realtime_) {
       auto currentTime = std::chrono::steady_clock::now();
       if (currentTime > targetTimeForNextIteration) {
-        auto delay = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - targetTimeForNextIteration).count();
+        auto delay = std::chrono::duration_cast<std::chrono::microseconds>(
+                         currentTime - targetTimeForNextIteration)
+                         .count();
 
-        std::cerr << "Warning: MPC loop running slow by " << delay << " microseconds." << std::endl;
+        std::cerr << "Warning: MPC loop running slow by " << delay
+                  << " microseconds." << std::endl;
       } else {
         // Sleep in case sim loop is faster than specified
         std::this_thread::sleep_until(targetTimeForNextIteration);
@@ -272,17 +313,21 @@ void CentroidalMpcMrtJointController::solverWorker() {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-TargetTrajectories CentroidalMpcMrtJointController::currentObservationToResetTrajectory(const SystemObservation& currentObservation) {
+TargetTrajectories
+CentroidalMpcMrtJointController::currentObservationToResetTrajectory(
+    const SystemObservation& currentObservation) {
   vector_t targetState = currentObservation.state;
 
   // zero out velocities
-  targetState.tail(mpcRobotModelPtr_->getGenCoordinatesDim()) = vector_t::Zero(mpcRobotModelPtr_->getGenCoordinatesDim());
+  targetState.tail(mpcRobotModelPtr_->getGenCoordinatesDim()) =
+      vector_t::Zero(mpcRobotModelPtr_->getGenCoordinatesDim());
 
   // zero out pitch + roll angles
   targetState.segment<2>(4) = vector_t::Zero(2);
 
-  const TargetTrajectories resetTargetTrajectories({currentObservation.time}, {targetState},
-                                                   {vector_t::Zero(currentObservation.input.size())});
+  const TargetTrajectories resetTargetTrajectories(
+      {currentObservation.time}, {targetState},
+      {vector_t::Zero(currentObservation.input.size())});
 
   std::cerr << "Resetting MPC to current state: \n" << targetState << std::endl;
   return resetTargetTrajectories;

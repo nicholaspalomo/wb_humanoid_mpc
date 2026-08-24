@@ -43,32 +43,41 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-class EndEffectorDynamicsQuadraticCost : public ocs2::StateInputCostGaussNewtonAd {
+class EndEffectorDynamicsQuadraticCost
+    : public ocs2::StateInputCostGaussNewtonAd {
  public:
-  EndEffectorDynamicsQuadraticCost(EndEffectorDynamicsWeights weights,
-                                   const PinocchioInterface& pinocchioInterface,
-                                   const EndEffectorDynamics<scalar_t>& endEffectorDynamics,
-                                   const WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel,
-                                   std::string endEffectorName,
-                                   std::string costName,
-                                   const ModelSettings& modelSettings,
-                                   size_t n_parameters = 19);
+  EndEffectorDynamicsQuadraticCost(
+      EndEffectorDynamicsWeights weights,
+      const PinocchioInterface& pinocchioInterface,
+      const EndEffectorDynamics<scalar_t>& endEffectorDynamics,
+      const WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel,
+      std::string endEffectorName,
+      std::string costName,
+      const ModelSettings& modelSettings,
+      size_t n_parameters = 19);
 
   ~EndEffectorDynamicsQuadraticCost() override = default;
-  EndEffectorDynamicsQuadraticCost* clone() const override { return new EndEffectorDynamicsQuadraticCost(*this); }
+  EndEffectorDynamicsQuadraticCost* clone() const override {
+    return new EndEffectorDynamicsQuadraticCost(*this);
+  }
 
-  virtual vector_t getParameters(scalar_t time,
-                                 const TargetTrajectories& targetTrajectories,
-                                 const PreComputation& preComputation) const override;
+  virtual vector_t getParameters(
+      scalar_t time,
+      const TargetTrajectories& targetTrajectories,
+      const PreComputation& preComputation) const override;
 
-  static EndEffectorDynamicsWeights getWeights(const std::string& taskFile, const std::string prefix, bool verbose = false);
+  static EndEffectorDynamicsWeights getWeights(const std::string& taskFile,
+                                               const std::string prefix,
+                                               bool verbose = false);
 
  protected:
-  EndEffectorDynamicsQuadraticCost(const EndEffectorDynamicsQuadraticCost& other);
+  EndEffectorDynamicsQuadraticCost(
+      const EndEffectorDynamicsQuadraticCost& other);
 
-  static EndEffectorDynamicsCostElement<scalar_t> getReferenceCostElement(const vector_t& state,
-                                                                          const vector_t& input,
-                                                                          const EndEffectorDynamics<scalar_t>& endEffectorDynamics);
+  static EndEffectorDynamicsCostElement<scalar_t> getReferenceCostElement(
+      const vector_t& state,
+      const vector_t& input,
+      const EndEffectorDynamics<scalar_t>& endEffectorDynamics);
 
   ad_vector_t costVectorFunction(ad_scalar_t time,
                                  const ad_vector_t& state,
@@ -84,6 +93,8 @@ class EndEffectorDynamicsQuadraticCost : public ocs2::StateInputCostGaussNewtonA
   WBAccelMpcRobotModel<ad_scalar_t>* mpcRobotModelPtr_;
 };
 
-EndEffectorDynamicsWeights loadWeightsFromFile(const std::string& filename, const std::string& fieldname, bool verbose = true);
+EndEffectorDynamicsWeights loadWeightsFromFile(const std::string& filename,
+                                               const std::string& fieldname,
+                                               bool verbose = true);
 
 }  // namespace ocs2::humanoid

@@ -39,25 +39,44 @@ namespace ocs2::humanoid {
 ContactRectangle::ContactRectangle(const PolygonBounds& polygonBounds,
                                    const ContactCenterPoint& contactCenterPoint,
                                    const scalar_t& scaleFactor)
-    : ContactPolygon({vector3_t(polygonBounds.x_min * scaleFactor, polygonBounds.y_min * scaleFactor, 0.0),
-                      vector3_t(polygonBounds.x_max * scaleFactor, polygonBounds.y_min * scaleFactor, 0.0),
-                      vector3_t(polygonBounds.x_max * scaleFactor, polygonBounds.y_max * scaleFactor, 0.0),
-                      vector3_t(polygonBounds.x_min * scaleFactor, polygonBounds.y_max * scaleFactor, 0.0)},
-                     PolygonBounds(polygonBounds.x_min, polygonBounds.x_max, polygonBounds.y_min, polygonBounds.y_max, scaleFactor),
+    : ContactPolygon({vector3_t(polygonBounds.x_min * scaleFactor,
+                                polygonBounds.y_min * scaleFactor,
+                                0.0),
+                      vector3_t(polygonBounds.x_max * scaleFactor,
+                                polygonBounds.y_min * scaleFactor,
+                                0.0),
+                      vector3_t(polygonBounds.x_max * scaleFactor,
+                                polygonBounds.y_max * scaleFactor,
+                                0.0),
+                      vector3_t(polygonBounds.x_min * scaleFactor,
+                                polygonBounds.y_max * scaleFactor,
+                                0.0)},
+                     PolygonBounds(polygonBounds.x_min,
+                                   polygonBounds.x_max,
+                                   polygonBounds.y_min,
+                                   polygonBounds.y_max,
+                                   scaleFactor),
                      contactCenterPoint) {}
 
-std::vector<vector3_t> ContactRectangle::pointsFromBounds(const PolygonBounds& polygonBounds, const scalar_t& scaleFactor) {
-  std::vector<vector3_t> polygonPoints = {vector3_t(polygonBounds.x_min * scaleFactor, polygonBounds.y_min * scaleFactor, 0.0),
-                                          vector3_t(polygonBounds.x_max * scaleFactor, polygonBounds.y_min * scaleFactor, 0.0),
-                                          vector3_t(polygonBounds.x_max * scaleFactor, polygonBounds.y_max * scaleFactor, 0.0),
-                                          vector3_t(polygonBounds.x_min * scaleFactor, polygonBounds.y_max * scaleFactor, 0.0)};
+std::vector<vector3_t> ContactRectangle::pointsFromBounds(
+    const PolygonBounds& polygonBounds, const scalar_t& scaleFactor) {
+  std::vector<vector3_t> polygonPoints = {
+      vector3_t(polygonBounds.x_min * scaleFactor,
+                polygonBounds.y_min * scaleFactor, 0.0),
+      vector3_t(polygonBounds.x_max * scaleFactor,
+                polygonBounds.y_min * scaleFactor, 0.0),
+      vector3_t(polygonBounds.x_max * scaleFactor,
+                polygonBounds.y_max * scaleFactor, 0.0),
+      vector3_t(polygonBounds.x_min * scaleFactor,
+                polygonBounds.y_max * scaleFactor, 0.0)};
   return polygonPoints;
 }
 
-ContactRectangle ContactRectangle::loadContactRectangle(const std::string& taskFile,
-                                                        const ModelSettings& modelSettings,
-                                                        int contactIndex,
-                                                        bool verbose) {
+ContactRectangle ContactRectangle::loadContactRectangle(
+    const std::string& taskFile,
+    const ModelSettings& modelSettings,
+    int contactIndex,
+    bool verbose) {
   loadData::PropertyTree pt;
   loadData::readPropertyTree(taskFile, pt);
   const std::string prefix = "contacts.";
@@ -69,20 +88,31 @@ ContactRectangle ContactRectangle::loadContactRectangle(const std::string& taskF
   scalar_t scaleFactor = 1.0;
   if (verbose) {
     std::cerr << "\n #### Contact Rectangle Settings: ";
-    std::cerr << "\n #### =============================================================================\n";
+    std::cerr << "\n #### "
+                 "============================================================="
+                 "================\n";
   }
-  loadData::loadPtreeValue(pt, x_min, prefix + "contact_rectangle.x_min", verbose);
-  loadData::loadPtreeValue(pt, x_max, prefix + "contact_rectangle.x_max", verbose);
-  loadData::loadPtreeValue(pt, y_min, prefix + "contact_rectangle.y_min", verbose);
-  loadData::loadPtreeValue(pt, y_max, prefix + "contact_rectangle.y_max", verbose);
-  loadData::loadPtreeValue(pt, scaleFactor, prefix + "contact_rectangle.scale_factor", verbose);
+  loadData::loadPtreeValue(pt, x_min, prefix + "contact_rectangle.x_min",
+                           verbose);
+  loadData::loadPtreeValue(pt, x_max, prefix + "contact_rectangle.x_max",
+                           verbose);
+  loadData::loadPtreeValue(pt, y_min, prefix + "contact_rectangle.y_min",
+                           verbose);
+  loadData::loadPtreeValue(pt, y_max, prefix + "contact_rectangle.y_max",
+                           verbose);
+  loadData::loadPtreeValue(pt, scaleFactor,
+                           prefix + "contact_rectangle.scale_factor", verbose);
 
   if (verbose) {
-    std::cerr << " #### =============================================================================\n";
+    std::cerr << " #### "
+                 "============================================================="
+                 "================\n";
   }
 
-  ContactCenterPoint ccp(ContactCenterPoint::loadContactCenterPoint(taskFile, modelSettings, contactIndex, verbose));
-  return ContactRectangle(PolygonBounds(x_min, x_max, y_min, y_max), ccp, scaleFactor);
+  ContactCenterPoint ccp(ContactCenterPoint::loadContactCenterPoint(
+      taskFile, modelSettings, contactIndex, verbose));
+  return ContactRectangle(PolygonBounds(x_min, x_max, y_min, y_max), ccp,
+                          scaleFactor);
 }
 
 }  // namespace ocs2::humanoid

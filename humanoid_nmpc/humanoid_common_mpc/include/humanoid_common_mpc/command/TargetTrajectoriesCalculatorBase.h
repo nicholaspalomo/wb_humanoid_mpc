@@ -43,45 +43,56 @@ namespace ocs2::humanoid {
 
 class TargetTrajectoriesCalculatorBase {
  public:
-  TargetTrajectoriesCalculatorBase(const std::string& referenceFile,
+  TargetTrajectoriesCalculatorBase(
+      const std::string& referenceFile,
 
-                                   const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                                   scalar_t mpcHorizon);
+      const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+      scalar_t mpcHorizon);
 
-  TargetTrajectoriesCalculatorBase(const TargetTrajectoriesCalculatorBase& rhs) = delete;
+  TargetTrajectoriesCalculatorBase(
+      const TargetTrajectoriesCalculatorBase& rhs) = delete;
 
-  void setTargetDisplacementVelocity(scalar_t targetDisplacementVelocity) { targetDisplacementVelocity_ = targetDisplacementVelocity; }
-  void setTargetRotationVelocity_(scalar_t targetRotationVelocity) { targetRotationVelocity = targetRotationVelocity; }
+  void setTargetDisplacementVelocity(scalar_t targetDisplacementVelocity) {
+    targetDisplacementVelocity_ = targetDisplacementVelocity;
+  }
+  void setTargetRotationVelocity_(scalar_t targetRotationVelocity) {
+    targetRotationVelocity = targetRotationVelocity;
+  }
   void setTargetJointState(const vector_t targetJointState);
 
   /**
    * Converts command line to TargetTrajectories.
-   * @param [in] commadLineTarget : [deltaX, deltaY, deltaZ, deltaYaw] defined in pelvis frame
+   * @param [in] commadLineTarget : [deltaX, deltaY, deltaZ, deltaYaw] defined
+   * in pelvis frame
    * @param [in] observation : the current observation
    */
-  virtual TargetTrajectories commandedPositionToTargetTrajectories(const vector4_t& commandedVelocities,
-                                                                   scalar_t initTime,
-                                                                   const vector_t& initState) = 0;
+  virtual TargetTrajectories commandedPositionToTargetTrajectories(
+      const vector4_t& commandedVelocities,
+      scalar_t initTime,
+      const vector_t& initState) = 0;
 
   /**
    * Converts desired velocities to TargetTrajectories.
    * @param [in] commandedVelocities : [v_x, v_y, v_yaw] defined in pelvis frame
    * @param [in] observation : the current observation
    */
-  virtual TargetTrajectories commandedVelocityToTargetTrajectories(const vector4_t& commandedVelocities,
-                                                                   scalar_t initTime,
-                                                                   const vector_t& initState) = 0;
+  virtual TargetTrajectories commandedVelocityToTargetTrajectories(
+      const vector4_t& commandedVelocities,
+      scalar_t initTime,
+      const vector_t& initState) = 0;
 
  protected:
   scalar_t estimateTimeToTarget(const vector_t& desiredBaseDisplacement) const;
 
   virtual vector6_t getCurrentBasePoseTarget(const vector_t& state) const;
 
-  vector6_t getDeltaBaseTarget(const vector4_t& commadLinePoseTarget, const vector6_t& currentPoseTarget) const;
+  vector6_t getDeltaBaseTarget(const vector4_t& commadLinePoseTarget,
+                               const vector6_t& currentPoseTarget) const;
 
-  vector4_t filterAndTransformVelCommandToLocal(const vector4_t& commandedVelLocal,
-                                                const scalar_t& currentEulerZ,
-                                                scalar_t filterAlpha) const;
+  vector4_t filterAndTransformVelCommandToLocal(
+      const vector4_t& commandedVelLocal,
+      const scalar_t& currentEulerZ,
+      scalar_t filterAlpha) const;
 
   vector6_t integrateTargetBasePose(const vector6_t& currentPose,
                                     const vector3_t& averageVel,

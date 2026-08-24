@@ -55,16 +55,26 @@ class HumanoidPreComputation : public PreComputation {
 
   virtual HumanoidPreComputation* clone() const override;
 
-  virtual void request(RequestSet request, scalar_t t, const vector_t& x, const vector_t& u) override;
-  const matrix3_t& getRWorldToContacts(size_t contactIndex) const { return R_world_to_contacts_[contactIndex]; }
+  virtual void request(RequestSet request,
+                       scalar_t t,
+                       const vector_t& x,
+                       const vector_t& u) override;
+  const matrix3_t& getRWorldToContacts(size_t contactIndex) const {
+    return R_world_to_contacts_[contactIndex];
+  }
 
-  const std::vector<EndEffectorKinematicsLinearVelConstraint::Config>& getEeNormalVelocityConstraintConfigs() const {
+  const std::vector<EndEffectorKinematicsLinearVelConstraint::Config>&
+  getEeNormalVelocityConstraintConfigs() const {
     return eeNormalVelConConfigs_;
   }
-  scalar_t getFootReferenceHeight(size_t contactIndex) const { return footHeightReferences_[contactIndex]; }
+  scalar_t getFootReferenceHeight(size_t contactIndex) const {
+    return footHeightReferences_[contactIndex];
+  }
 
   PinocchioInterface& getPinocchioInterface() { return pinocchioInterface_; }
-  const PinocchioInterface& getPinocchioInterface() const { return pinocchioInterface_; }
+  const PinocchioInterface& getPinocchioInterface() const {
+    return pinocchioInterface_;
+  }
 
  protected:
   HumanoidPreComputation(const HumanoidPreComputation& rhs);
@@ -77,7 +87,8 @@ class HumanoidPreComputation : public PreComputation {
 
   std::vector<matrix3_t> R_world_to_contacts_;
 
-  std::vector<EndEffectorKinematicsLinearVelConstraint::Config> eeNormalVelConConfigs_;
+  std::vector<EndEffectorKinematicsLinearVelConstraint::Config>
+      eeNormalVelConConfigs_;
   std::vector<scalar_t> footHeightReferences_;
 };
 

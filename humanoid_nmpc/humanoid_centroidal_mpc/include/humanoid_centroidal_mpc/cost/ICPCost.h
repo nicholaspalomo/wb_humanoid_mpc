@@ -56,21 +56,30 @@ class ICPCost final : public StateInputCostGaussNewtonAd {
   ~ICPCost() override = default;
   ICPCost* clone() const override { return new ICPCost(*this); }
 
-  vector_t getParameters(scalar_t time, const TargetTrajectories& targetTrajectories, const PreComputation& preComputation) const override;
+  vector_t getParameters(scalar_t time,
+                         const TargetTrajectories& targetTrajectories,
+                         const PreComputation& preComputation) const override;
 
   bool isActive(scalar_t time) const override {
     if (!isActive_) return false;
-    const contact_flag_t contactFlags = referenceManagerPtr_->getContactFlags(time);
+    const contact_flag_t contactFlags =
+        referenceManagerPtr_->getContactFlags(time);
     return (contactFlags[0] && contactFlags[1]);
   }
 
   void setActive(bool active) { isActive_ = active; }
   bool getActive() const { return isActive_; }
 
-  void setWeights(const vector2_t& weights) { sqrtWeights_ = weights.cwiseSqrt(); }
-  void getWeights(vector2_t& weights) const { weights = sqrtWeights_.cwiseProduct(sqrtWeights_); }
+  void setWeights(const vector2_t& weights) {
+    sqrtWeights_ = weights.cwiseSqrt();
+  }
+  void getWeights(vector2_t& weights) const {
+    weights = sqrtWeights_.cwiseProduct(sqrtWeights_);
+  }
 
-  static vector2_t getWeights(const std::string& taskFile, const std::string prefix, bool verbose);
+  static vector2_t getWeights(const std::string& taskFile,
+                              const std::string prefix,
+                              bool verbose);
 
  private:
   ICPCost(const ICPCost& other);

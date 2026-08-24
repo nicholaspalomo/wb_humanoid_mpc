@@ -50,31 +50,36 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-CentroidalMpcEndEffectorFootCost::CentroidalMpcEndEffectorFootCost(const SwitchedModelReferenceManager& referenceManager,
-                                                                   EndEffectorKinematicsWeights weights,
-                                                                   const PinocchioInterface& pinocchioInterface,
-                                                                   const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
-                                                                   size_t contactIndex,
-                                                                   std::string costName,
-                                                                   const ModelSettings& modelSettings)
+CentroidalMpcEndEffectorFootCost::CentroidalMpcEndEffectorFootCost(
+    const SwitchedModelReferenceManager& referenceManager,
+    EndEffectorKinematicsWeights weights,
+    const PinocchioInterface& pinocchioInterface,
+    const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
+    size_t contactIndex,
+    std::string costName,
+    const ModelSettings& modelSettings)
     : StateInputCostGaussNewtonAd(),
       referenceManagerPtr_(&referenceManager),
       sqrtWeights_(weights.toVector().cwiseSqrt()),
-      frameID_(pinocchioInterface.getModel().getFrameId(modelSettings.contactNames[contactIndex])),
+      frameID_(pinocchioInterface.getModel().getFrameId(
+          modelSettings.contactNames[contactIndex])),
       pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
       mpcRobotModelAdPtr_(mpcRobotModelAD.clone()),
       contactIndex_(contactIndex) {
-  initialize(mpcRobotModelAD.getStateDim(), mpcRobotModelAD.getInputDim(), 25, costName, modelSettings.modelFolderCppAd,
+  initialize(mpcRobotModelAD.getStateDim(), mpcRobotModelAD.getInputDim(), 25,
+             costName, modelSettings.modelFolderCppAd,
              modelSettings.recompileLibrariesCppAd);
   std::cout << "Frame ID: " << frameID_ << std::endl;
-  std::cout << "Initialized CentroidalMpcEndEffectorFootCost with weights: " << weights.toVector().transpose() << std::endl;
+  std::cout << "Initialized CentroidalMpcEndEffectorFootCost with weights: "
+            << weights.toVector().transpose() << std::endl;
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-CentroidalMpcEndEffectorFootCost::CentroidalMpcEndEffectorFootCost(const CentroidalMpcEndEffectorFootCost& other)
+CentroidalMpcEndEffectorFootCost::CentroidalMpcEndEffectorFootCost(
+    const CentroidalMpcEndEffectorFootCost& other)
     : StateInputCostGaussNewtonAd(other),
       referenceManagerPtr_(other.referenceManagerPtr_),
       sqrtWeights_(other.sqrtWeights_),
@@ -87,33 +92,43 @@ CentroidalMpcEndEffectorFootCost::CentroidalMpcEndEffectorFootCost(const Centroi
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-ad_vector_t CentroidalMpcEndEffectorFootCost::costVectorFunction(ad_scalar_t time,
-                                                                 const ad_vector_t& state,
-                                                                 const ad_vector_t& input,
-                                                                 const ad_vector_t& parameters) {
-  const pinocchio::ReferenceFrame rf = pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED;
+ad_vector_t CentroidalMpcEndEffectorFootCost::costVectorFunction(
+    ad_scalar_t time,
+    const ad_vector_t& state,
+    const ad_vector_t& input,
+    const ad_vector_t& parameters) {
+  const pinocchio::ReferenceFrame rf =
+      pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED;
 
-  const PlanarEndEffectorKinematicsPlanarReference<ad_scalar_t> reference(parameters.head(12));
-  const ad_vector_t sqrtWeightParams = parameters.segment(12, 12);  // EndEffectorKinematicsWeights vector element
+  const PlanarEndEffectorKinematicsPlanarReference<ad_scalar_t> reference(
+      parameters.head(12));
+  const ad_vector_t sqrtWeightParams = parameters.segment(
+      12, 12);  // EndEffectorKinematicsWeights vector element
   const ad_scalar_t impactProximityScaler = parameters[24];
 
   const auto& model = pinocchioInterfaceCppAd_.getModel();
   auto& data = pinocchioInterfaceCppAd_.getData();
 
   const ad_vector_t q = mpcRobotModelAdPtr_->getGeneralizedCoordinates(state);
-  const ad_vector_t v = mpcRobotModelAdPtr_->getGeneralizedVelocities(state, input);
+  const ad_vector_t v =
+      mpcRobotModelAdPtr_->getGeneralizedVelocities(state, input);
   pinocchio::forwardKinematics(model, data, q, v);
   auto frameData = pinocchio::updateFramePlacement(model, data, frameID_);
 
   // auto oMf = data.oMf;
   ad_vector_t position = frameData.translation();
-  ad_vector_t linearVelocity = pinocchio::getFrameVelocity(model, data, frameID_, rf).linear();
+  ad_vector_t linearVelocity =
+      pinocchio::getFrameVelocity(model, data, frameID_, rf).linear();
   ad_matrix3_t orientation = frameData.rotation();
-  ad_vector_t angularVelocity = pinocchio::getFrameVelocity(model, data, frameID_, rf).angular();
+  ad_vector_t angularVelocity =
+      pinocchio::getFrameVelocity(model, data, frameID_, rf).angular();
 
   ad_vector_t errors(12);
-  errors << (position - reference.getPosition()), rotationMatrixDistanceToPlane<ad_scalar_t>(orientation, reference.getPlaneNormal()),
-      (linearVelocity - reference.getLinearVelocity()) * impactProximityScaler, (angularVelocity - reference.getAngularVelocity());
+  errors << (position - reference.getPosition()),
+      rotationMatrixDistanceToPlane<ad_scalar_t>(orientation,
+                                                 reference.getPlaneNormal()),
+      (linearVelocity - reference.getLinearVelocity()) * impactProximityScaler,
+      (angularVelocity - reference.getAngularVelocity());
 
   return errors.cwiseProduct(sqrtWeightParams);
 }
@@ -122,22 +137,28 @@ ad_vector_t CentroidalMpcEndEffectorFootCost::costVectorFunction(ad_scalar_t tim
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-vector_t CentroidalMpcEndEffectorFootCost::getParameters(scalar_t time,
-                                                         const TargetTrajectories& targetTrajectories,
-                                                         const PreComputation& preComputation) const {
+vector_t CentroidalMpcEndEffectorFootCost::getParameters(
+    scalar_t time,
+    const TargetTrajectories& targetTrajectories,
+    const PreComputation& preComputation) const {
   // Interpolate reference
   const vector_t xRef = targetTrajectories.getDesiredState(time);
   const vector_t uRef = targetTrajectories.getDesiredInput(time);
 
-  const scalar_t impactProximityScaler = referenceManagerPtr_->getSwingTrajectoryPlanner()->getImpactProximityFactor(contactIndex_, time);
+  const scalar_t impactProximityScaler =
+      referenceManagerPtr_->getSwingTrajectoryPlanner()
+          ->getImpactProximityFactor(contactIndex_, time);
 
   // TODO Update this reference for non flat ground in the future
   vector_t parameters(25);
   parameters.head(3) = vector3_t(0.0, 0.0, 0.0);        // Reference position
   parameters.segment(3, 3) = vector3_t(0.0, 0.0, 1.0);  // Ground plane normal
-  parameters.segment(6, 3) = vector3_t(0.0, 0.0, 0.0);  // Reference linear velocity
-  parameters.segment(9, 3) = vector3_t(0.0, 0.0, 0.0);  // Reference angular velocity
-  parameters.segment(12, 12) = sqrtWeights_;            // EndEffectorKinematicsWeights vector element
+  parameters.segment(6, 3) =
+      vector3_t(0.0, 0.0, 0.0);  // Reference linear velocity
+  parameters.segment(9, 3) =
+      vector3_t(0.0, 0.0, 0.0);  // Reference angular velocity
+  parameters.segment(12, 12) =
+      sqrtWeights_;  // EndEffectorKinematicsWeights vector element
 
   parameters[24] = impactProximityScaler;
 

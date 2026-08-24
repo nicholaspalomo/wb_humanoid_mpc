@@ -1,5 +1,5 @@
   BasedOnStyle: Google
-  ColumnLimit: 140
+  ColumnLimit: 80
   IndentWidth: 2
   BreakBeforeBraces: Attach
   DerivePointerAlignment: false

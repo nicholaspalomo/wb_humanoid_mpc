@@ -40,7 +40,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2 {
 
-/** The Kinematics function which maps state-input pair to the end-effector (position, velocity, orientation error) */
+/** The Kinematics function which maps state-input pair to the end-effector
+ * (position, velocity, orientation error) */
 template <typename SCALAR_T>
 class EndEffectorDynamics : public EndEffectorKinematics<SCALAR_T> {
  public:
@@ -63,7 +64,8 @@ class EndEffectorDynamics : public EndEffectorKinematics<SCALAR_T> {
    * @param [in] input: input vector
    * @return array of velocity vectors
    */
-  virtual std::vector<vector3_t> getLinearAcceleration(const vector_t& state, const vector_t& input) const = 0;
+  virtual std::vector<vector3_t> getLinearAcceleration(
+      const vector_t& state, const vector_t& input) const = 0;
 
   /**
    * Get end-effector angular accelerations in world frame
@@ -72,7 +74,8 @@ class EndEffectorDynamics : public EndEffectorKinematics<SCALAR_T> {
    * @param [in] input: input vector
    * @return array of angular velocities
    */
-  virtual std::vector<vector3_t> getAngularAcceleration(const vector_t& state, const vector_t& input) const = 0;
+  virtual std::vector<vector3_t> getAngularAcceleration(
+      const vector_t& state, const vector_t& input) const = 0;
 
   /**
    * Get end-effector linear & angular accelerations in world frame
@@ -81,7 +84,8 @@ class EndEffectorDynamics : public EndEffectorKinematics<SCALAR_T> {
    * @param [in] input: input vector
    * @return array of twists
    */
-  virtual std::vector<vector6_t> getAccelerations(const vector_t& state, const vector_t& input) const = 0;
+  virtual std::vector<vector6_t> getAccelerations(
+      const vector_t& state, const vector_t& input) const = 0;
 
   /**
    * Get linear end-effector accelerations linear approximation in world frame
@@ -90,8 +94,9 @@ class EndEffectorDynamics : public EndEffectorKinematics<SCALAR_T> {
    * @param [in] input: input vector
    * @return array of velocity function linear approximations
    */
-  virtual std::vector<VectorFunctionLinearApproximation> getLinearAccelerationLinearApproximation(const vector_t& state,
-                                                                                                  const vector_t& input) const = 0;
+  virtual std::vector<VectorFunctionLinearApproximation>
+  getLinearAccelerationLinearApproximation(const vector_t& state,
+                                           const vector_t& input) const = 0;
 
   /**
    * GGet end-effector angular accelerations linear approximation in world frame
@@ -100,18 +105,21 @@ class EndEffectorDynamics : public EndEffectorKinematics<SCALAR_T> {
    * @param [in] input: input vector
    * @return array of velocity function linear approximations
    */
-  virtual std::vector<VectorFunctionLinearApproximation> getAngularAccelerationLinearApproximation(const vector_t& state,
-                                                                                                   const vector_t& input) const = 0;
+  virtual std::vector<VectorFunctionLinearApproximation>
+  getAngularAccelerationLinearApproximation(const vector_t& state,
+                                            const vector_t& input) const = 0;
 
   /**
-   * Get end-effector linear & angular accelerations linear approximation in world frame
+   * Get end-effector linear & angular accelerations linear approximation in
+   * world frame
    *
    * @param [in] state: state vector
    * @param [in] input: input vector
    * @return array of twist function linear approximations
    */
-  virtual std::vector<VectorFunctionLinearApproximation> getAccelerationsLinearApproximation(const vector_t& state,
-                                                                                             const vector_t& input) const = 0;
+  virtual std::vector<VectorFunctionLinearApproximation>
+  getAccelerationsLinearApproximation(const vector_t& state,
+                                      const vector_t& input) const = 0;
 };
 
 }  // namespace ocs2

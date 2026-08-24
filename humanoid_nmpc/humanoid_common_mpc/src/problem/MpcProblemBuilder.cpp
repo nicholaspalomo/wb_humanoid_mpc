@@ -48,16 +48,18 @@ inline constexpr size_t kNumLegs = 2;
 
 }  // namespace
 
-MpcProblemBuilder::MpcProblemBuilder(const MpcProblemDefinition& problemDefinition,
-                                     const HumanoidCostConstraintFactory& factory,
-                                     const ModelSettings& modelSettings,
-                                     CustomBuilders customBuilders)
+MpcProblemBuilder::MpcProblemBuilder(
+    const MpcProblemDefinition& problemDefinition,
+    const HumanoidCostConstraintFactory& factory,
+    const ModelSettings& modelSettings,
+    CustomBuilders customBuilders)
     : problemDefinition_(problemDefinition),
       factoryPtr_(&factory),
       modelSettingsPtr_(&modelSettings),
       customBuilders_(std::move(customBuilders)) {}
 
-absl::Status MpcProblemBuilder::buildProblem(OptimalControlProblem& problem) const {
+absl::Status MpcProblemBuilder::buildProblem(
+    OptimalControlProblem& problem) const {
   const absl::Status costsStatus = addCosts(problem);
   if (!costsStatus.ok()) {
     return costsStatus;
@@ -68,7 +70,8 @@ absl::Status MpcProblemBuilder::buildProblem(OptimalControlProblem& problem) con
     return terminalCostsStatus;
   }
 
-  const absl::Status stateSoftConstraintsStatus = addStateSoftConstraints(problem);
+  const absl::Status stateSoftConstraintsStatus =
+      addStateSoftConstraints(problem);
   if (!stateSoftConstraintsStatus.ok()) {
     return stateSoftConstraintsStatus;
   }
@@ -78,7 +81,8 @@ absl::Status MpcProblemBuilder::buildProblem(OptimalControlProblem& problem) con
     return softConstraintsStatus;
   }
 
-  const absl::Status equalityConstraintsStatus = addEqualityConstraints(problem);
+  const absl::Status equalityConstraintsStatus =
+      addEqualityConstraints(problem);
   if (!equalityConstraintsStatus.ok()) {
     return equalityConstraintsStatus;
   }
@@ -93,42 +97,53 @@ absl::Status MpcProblemBuilder::addCosts(OptimalControlProblem& problem) const {
     }
 
     if (term.type == "StateInputQuadraticCost") {
-      problem.costPtr->add(term.name, factoryPtr_->getStateInputQuadraticCost());
+      problem.costPtr->add(term.name,
+                           factoryPtr_->getStateInputQuadraticCost());
     } else if (term.type == "ICPCost") {
       if (!customBuilders_.icpCostBuilder) {
-        return absl::InvalidArgumentError("ICPCost requested but icpCostBuilder was not provided.");
+        return absl::InvalidArgumentError(
+            "ICPCost requested but icpCostBuilder was not provided.");
       }
-      absl::StatusOr<std::unique_ptr<StateInputCost>> icpCostStatus = customBuilders_.icpCostBuilder();
+      absl::StatusOr<std::unique_ptr<StateInputCost>> icpCostStatus =
+          customBuilders_.icpCostBuilder();
       if (!icpCostStatus.ok()) {
         return icpCostStatus.status();
       }
       problem.costPtr->add(term.name, std::move(*icpCostStatus));
     } else if (term.type == "TaskSpaceKinematicsCost") {
       if (!customBuilders_.taskSpaceKinematicsCostBuilder) {
-        return absl::InvalidArgumentError("TaskSpaceKinematicsCost requested but taskSpaceKinematicsCostBuilder was not provided.");
+        return absl::InvalidArgumentError(
+            "TaskSpaceKinematicsCost requested but "
+            "taskSpaceKinematicsCostBuilder was not provided.");
       }
-      const absl::Status status = customBuilders_.taskSpaceKinematicsCostBuilder(problem);
+      const absl::Status status =
+          customBuilders_.taskSpaceKinematicsCostBuilder(problem);
       if (!status.ok()) {
         return status;
       }
-    } else if (term.type == "FootTrackingCost" || term.type == "CentroidalMpcEndEffectorFootCost" ||
+    } else if (term.type == "FootTrackingCost" ||
+               term.type == "CentroidalMpcEndEffectorFootCost" ||
                term.type == "EndEffectorDynamicsFootCost") {
       if (!customBuilders_.footTrackingCostBuilder) {
         return absl::InvalidArgumentError(
-            absl::StrFormat("Foot tracking cost '%s' requested but footTrackingCostBuilder was not provided.", term.type));
+            absl::StrFormat("Foot tracking cost '%s' requested but "
+                            "footTrackingCostBuilder was not provided.",
+                            term.type));
       }
       if (term.perContact) {
         for (size_t i = 0; i < kNumLegs; ++i) {
           const absl::string_view footName = modelSettingsPtr_->contactNames[i];
           const std::string termName = absl::StrCat(footName, "_", term.name);
-          absl::StatusOr<std::unique_ptr<StateInputCost>> costStatus = customBuilders_.footTrackingCostBuilder(i, termName);
+          absl::StatusOr<std::unique_ptr<StateInputCost>> costStatus =
+              customBuilders_.footTrackingCostBuilder(i, termName);
           if (!costStatus.ok()) {
             return costStatus.status();
           }
           problem.costPtr->add(termName, std::move(*costStatus));
         }
       } else {
-        absl::StatusOr<std::unique_ptr<StateInputCost>> costStatus = customBuilders_.footTrackingCostBuilder(0, term.name);
+        absl::StatusOr<std::unique_ptr<StateInputCost>> costStatus =
+            customBuilders_.footTrackingCostBuilder(0, term.name);
         if (!costStatus.ok()) {
           return costStatus.status();
         }
@@ -139,20 +154,24 @@ absl::Status MpcProblemBuilder::addCosts(OptimalControlProblem& problem) const {
         for (size_t i = 0; i < kNumLegs; ++i) {
           const absl::string_view footName = modelSettingsPtr_->contactNames[i];
           const std::string termName = absl::StrCat(footName, "_", term.name);
-          problem.costPtr->add(termName, factoryPtr_->getExternalTorqueQuadraticCost(i));
+          problem.costPtr->add(termName,
+                               factoryPtr_->getExternalTorqueQuadraticCost(i));
         }
       } else {
-        problem.costPtr->add(term.name, factoryPtr_->getExternalTorqueQuadraticCost(0));
+        problem.costPtr->add(term.name,
+                             factoryPtr_->getExternalTorqueQuadraticCost(0));
       }
     } else {
-      return absl::InvalidArgumentError(absl::StrFormat("Unknown cost type: '%s'", term.type));
+      return absl::InvalidArgumentError(
+          absl::StrFormat("Unknown cost type: '%s'", term.type));
     }
   }
 
   return absl::OkStatus();
 }
 
-absl::Status MpcProblemBuilder::addTerminalCosts(OptimalControlProblem& problem) const {
+absl::Status MpcProblemBuilder::addTerminalCosts(
+    OptimalControlProblem& problem) const {
   for (const ProblemTermConfig& term : problemDefinition_.terminalCosts) {
     if (!term.enabled) {
       continue;
@@ -161,32 +180,41 @@ absl::Status MpcProblemBuilder::addTerminalCosts(OptimalControlProblem& problem)
     if (term.type == "TerminalCost" || term.type == "QuadraticStateCost") {
       problem.finalCostPtr->add(term.name, factoryPtr_->getTerminalCost());
     } else {
-      return absl::InvalidArgumentError(absl::StrFormat("Unknown terminal cost type: '%s'", term.type));
+      return absl::InvalidArgumentError(
+          absl::StrFormat("Unknown terminal cost type: '%s'", term.type));
     }
   }
 
   return absl::OkStatus();
 }
 
-absl::Status MpcProblemBuilder::addStateSoftConstraints(OptimalControlProblem& problem) const {
-  for (const ProblemTermConfig& term : problemDefinition_.stateSoftConstraints) {
+absl::Status MpcProblemBuilder::addStateSoftConstraints(
+    OptimalControlProblem& problem) const {
+  for (const ProblemTermConfig& term :
+       problemDefinition_.stateSoftConstraints) {
     if (!term.enabled) {
       continue;
     }
 
-    if (term.type == "JointLimitsConstraint" || term.type == "JointLimitsSoftConstraint") {
-      problem.stateSoftConstraintPtr->add(term.name, factoryPtr_->getJointLimitsConstraint());
-    } else if (term.type == "FootCollisionConstraint" || term.type == "FootCollisionSoftConstraint") {
-      problem.stateSoftConstraintPtr->add(term.name, factoryPtr_->getFootCollisionConstraint());
+    if (term.type == "JointLimitsConstraint" ||
+        term.type == "JointLimitsSoftConstraint") {
+      problem.stateSoftConstraintPtr->add(
+          term.name, factoryPtr_->getJointLimitsConstraint());
+    } else if (term.type == "FootCollisionConstraint" ||
+               term.type == "FootCollisionSoftConstraint") {
+      problem.stateSoftConstraintPtr->add(
+          term.name, factoryPtr_->getFootCollisionConstraint());
     } else {
-      return absl::InvalidArgumentError(absl::StrFormat("Unknown state soft constraint type: '%s'", term.type));
+      return absl::InvalidArgumentError(absl::StrFormat(
+          "Unknown state soft constraint type: '%s'", term.type));
     }
   }
 
   return absl::OkStatus();
 }
 
-absl::Status MpcProblemBuilder::addSoftConstraints(OptimalControlProblem& problem) const {
+absl::Status MpcProblemBuilder::addSoftConstraints(
+    OptimalControlProblem& problem) const {
   for (const ProblemTermConfig& term : problemDefinition_.softConstraints) {
     if (!term.enabled) {
       continue;
@@ -197,42 +225,51 @@ absl::Status MpcProblemBuilder::addSoftConstraints(OptimalControlProblem& proble
         for (size_t i = 0; i < kNumLegs; ++i) {
           const absl::string_view footName = modelSettingsPtr_->contactNames[i];
           const std::string termName = absl::StrCat(footName, "_", term.name);
-          problem.softConstraintPtr->add(termName, factoryPtr_->getContactWrenchConeConstraint(i));
+          problem.softConstraintPtr->add(
+              termName, factoryPtr_->getContactWrenchConeConstraint(i));
         }
       } else {
-        problem.softConstraintPtr->add(term.name, factoryPtr_->getContactWrenchConeConstraint(0));
+        problem.softConstraintPtr->add(
+            term.name, factoryPtr_->getContactWrenchConeConstraint(0));
       }
     } else if (term.type == "FrictionForceConeConstraint") {
       if (term.perContact) {
         for (size_t i = 0; i < kNumLegs; ++i) {
           const absl::string_view footName = modelSettingsPtr_->contactNames[i];
           const std::string termName = absl::StrCat(footName, "_", term.name);
-          problem.softConstraintPtr->add(termName, factoryPtr_->getFrictionForceConeConstraint(i));
+          problem.softConstraintPtr->add(
+              termName, factoryPtr_->getFrictionForceConeConstraint(i));
         }
       } else {
-        problem.softConstraintPtr->add(term.name, factoryPtr_->getFrictionForceConeConstraint(0));
+        problem.softConstraintPtr->add(
+            term.name, factoryPtr_->getFrictionForceConeConstraint(0));
       }
     } else if (term.type == "ContactMomentXYConstraint") {
       if (term.perContact) {
         for (size_t i = 0; i < kNumLegs; ++i) {
           const absl::string_view footName = modelSettingsPtr_->contactNames[i];
           const std::string termName = absl::StrCat(footName, "_", term.name);
-          problem.softConstraintPtr->add(termName, factoryPtr_->getContactMomentXYConstraint(i, termName));
+          problem.softConstraintPtr->add(
+              termName, factoryPtr_->getContactMomentXYConstraint(i, termName));
         }
       } else {
-        problem.softConstraintPtr->add(term.name, factoryPtr_->getContactMomentXYConstraint(0, term.name));
+        problem.softConstraintPtr->add(
+            term.name, factoryPtr_->getContactMomentXYConstraint(0, term.name));
       }
     } else if (term.type == "FootCollisionCbfConstraint") {
-      problem.softConstraintPtr->add(term.name, factoryPtr_->getFootCollisionCbfConstraint());
+      problem.softConstraintPtr->add(
+          term.name, factoryPtr_->getFootCollisionCbfConstraint());
     } else {
-      return absl::InvalidArgumentError(absl::StrFormat("Unknown soft constraint type: '%s'", term.type));
+      return absl::InvalidArgumentError(
+          absl::StrFormat("Unknown soft constraint type: '%s'", term.type));
     }
   }
 
   return absl::OkStatus();
 }
 
-absl::Status MpcProblemBuilder::addEqualityConstraints(OptimalControlProblem& problem) const {
+absl::Status MpcProblemBuilder::addEqualityConstraints(
+    OptimalControlProblem& problem) const {
   for (const ProblemTermConfig& term : problemDefinition_.equalityConstraints) {
     if (!term.enabled) {
       continue;
@@ -243,27 +280,34 @@ absl::Status MpcProblemBuilder::addEqualityConstraints(OptimalControlProblem& pr
         for (size_t i = 0; i < kNumLegs; ++i) {
           const absl::string_view footName = modelSettingsPtr_->contactNames[i];
           const std::string termName = absl::StrCat(footName, "_", term.name);
-          problem.equalityConstraintPtr->add(termName, factoryPtr_->getZeroWrenchConstraint(i));
+          problem.equalityConstraintPtr->add(
+              termName, factoryPtr_->getZeroWrenchConstraint(i));
         }
       } else {
-        problem.equalityConstraintPtr->add(term.name, factoryPtr_->getZeroWrenchConstraint(0));
+        problem.equalityConstraintPtr->add(
+            term.name, factoryPtr_->getZeroWrenchConstraint(0));
       }
-    } else if (term.type == "ZeroVelocityConstraint" || term.type == "StanceFootConstraint") {
+    } else if (term.type == "ZeroVelocityConstraint" ||
+               term.type == "StanceFootConstraint") {
       if (!customBuilders_.stanceFootConstraintBuilder) {
-        return absl::InvalidArgumentError("ZeroVelocityConstraint requested but stanceFootConstraintBuilder was not provided.");
+        return absl::InvalidArgumentError(
+            "ZeroVelocityConstraint requested but stanceFootConstraintBuilder "
+            "was not provided.");
       }
       if (term.perContact) {
         for (size_t i = 0; i < kNumLegs; ++i) {
           const absl::string_view footName = modelSettingsPtr_->contactNames[i];
           const std::string termName = absl::StrCat(footName, "_", term.name);
-          absl::StatusOr<std::unique_ptr<StateInputConstraint>> conStatus = customBuilders_.stanceFootConstraintBuilder(i, termName);
+          absl::StatusOr<std::unique_ptr<StateInputConstraint>> conStatus =
+              customBuilders_.stanceFootConstraintBuilder(i, termName);
           if (!conStatus.ok()) {
             return conStatus.status();
           }
           problem.equalityConstraintPtr->add(termName, std::move(*conStatus));
         }
       } else {
-        absl::StatusOr<std::unique_ptr<StateInputConstraint>> conStatus = customBuilders_.stanceFootConstraintBuilder(0, term.name);
+        absl::StatusOr<std::unique_ptr<StateInputConstraint>> conStatus =
+            customBuilders_.stanceFootConstraintBuilder(0, term.name);
         if (!conStatus.ok()) {
           return conStatus.status();
         }
@@ -271,48 +315,58 @@ absl::Status MpcProblemBuilder::addEqualityConstraints(OptimalControlProblem& pr
       }
     } else if (term.type == "NormalVelocityConstraint") {
       if (!customBuilders_.normalVelocityConstraintBuilder) {
-        return absl::InvalidArgumentError("NormalVelocityConstraint requested but normalVelocityConstraintBuilder was not provided.");
+        return absl::InvalidArgumentError(
+            "NormalVelocityConstraint requested but "
+            "normalVelocityConstraintBuilder was not provided.");
       }
       if (term.perContact) {
         for (size_t i = 0; i < kNumLegs; ++i) {
           const absl::string_view footName = modelSettingsPtr_->contactNames[i];
           const std::string termName = absl::StrCat(footName, "_", term.name);
-          absl::StatusOr<std::unique_ptr<StateInputConstraint>> conStatus = customBuilders_.normalVelocityConstraintBuilder(i, termName);
+          absl::StatusOr<std::unique_ptr<StateInputConstraint>> conStatus =
+              customBuilders_.normalVelocityConstraintBuilder(i, termName);
           if (!conStatus.ok()) {
             return conStatus.status();
           }
           problem.equalityConstraintPtr->add(termName, std::move(*conStatus));
         }
       } else {
-        absl::StatusOr<std::unique_ptr<StateInputConstraint>> conStatus = customBuilders_.normalVelocityConstraintBuilder(0, term.name);
+        absl::StatusOr<std::unique_ptr<StateInputConstraint>> conStatus =
+            customBuilders_.normalVelocityConstraintBuilder(0, term.name);
         if (!conStatus.ok()) {
           return conStatus.status();
         }
         problem.equalityConstraintPtr->add(term.name, std::move(*conStatus));
       }
-    } else if (term.type == "JointMimicConstraint" || term.type == "JointMimicKinematicConstraint") {
+    } else if (term.type == "JointMimicConstraint" ||
+               term.type == "JointMimicKinematicConstraint") {
       if (!customBuilders_.jointMimicConstraintBuilder) {
-        return absl::InvalidArgumentError("JointMimicConstraint requested but jointMimicConstraintBuilder was not provided.");
+        return absl::InvalidArgumentError(
+            "JointMimicConstraint requested but jointMimicConstraintBuilder "
+            "was not provided.");
       }
       if (term.perContact) {
         for (size_t i = 0; i < kNumLegs; ++i) {
           const absl::string_view footName = modelSettingsPtr_->contactNames[i];
           const std::string termName = absl::StrCat(footName, "_", term.name);
-          absl::StatusOr<std::unique_ptr<StateInputConstraint>> conStatus = customBuilders_.jointMimicConstraintBuilder(i, termName);
+          absl::StatusOr<std::unique_ptr<StateInputConstraint>> conStatus =
+              customBuilders_.jointMimicConstraintBuilder(i, termName);
           if (!conStatus.ok()) {
             return conStatus.status();
           }
           problem.equalityConstraintPtr->add(termName, std::move(*conStatus));
         }
       } else {
-        absl::StatusOr<std::unique_ptr<StateInputConstraint>> conStatus = customBuilders_.jointMimicConstraintBuilder(0, term.name);
+        absl::StatusOr<std::unique_ptr<StateInputConstraint>> conStatus =
+            customBuilders_.jointMimicConstraintBuilder(0, term.name);
         if (!conStatus.ok()) {
           return conStatus.status();
         }
         problem.equalityConstraintPtr->add(term.name, std::move(*conStatus));
       }
     } else {
-      return absl::InvalidArgumentError(absl::StrFormat("Unknown equality constraint type: '%s'", term.type));
+      return absl::InvalidArgumentError(
+          absl::StrFormat("Unknown equality constraint type: '%s'", term.type));
     }
   }
 

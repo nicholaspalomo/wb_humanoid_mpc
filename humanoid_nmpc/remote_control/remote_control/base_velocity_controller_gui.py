@@ -59,7 +59,10 @@ class App(tk.Tk):
         # Configure dark theme colors
         style.configure("TFrame", background="#2c2c2c")
         style.configure(
-            "TLabel", background="#2c2c2c", foreground="#ffffff", font=("Helvetica", 12)
+            "TLabel",
+            background="#2c2c2c",
+            foreground="#ffffff",
+            font=("Helvetica", 12),
         )
 
         # Regular button style
@@ -136,7 +139,9 @@ class App(tk.Tk):
         self.slider_frame = ttk.Frame(main_frame)
         self.slider_frame.grid(row=0, column=2, padx=15, pady=10, sticky="ns")
 
-        self.slider_label = ttk.Label(self.slider_frame, text="Root Height (LT + RT)")
+        self.slider_label = ttk.Label(
+            self.slider_frame, text="Root Height (LT + RT)"
+        )
         self.slider_label.pack(pady=(0, 5))
 
         self.slider = ttk.Scale(
@@ -206,7 +211,9 @@ class App(tk.Tk):
         self.slider.set(self.slider_default_value)
 
     def set_knob_positions(self, msg: WalkingVelocityCommand):
-        self.joystick_left.set_position(msg.linear_velocity_x, msg.linear_velocity_y)
+        self.joystick_left.set_position(
+            msg.linear_velocity_x, msg.linear_velocity_y
+        )
         self.joystick_right.set_position(0.0, msg.angular_velocity_z)
         self.slider.set((msg.desired_pelvis_height - 0.2) / 0.008)
 
@@ -226,14 +233,22 @@ class RosJoystickApp(Node):
         super().__init__("xbox_walking_command_publisher")
 
         self.publisher_rate = 25  # Hz
-        self.xbox_controller_interface = XBoxControllerInterface(self.publisher_rate)
+        self.xbox_controller_interface = XBoxControllerInterface(
+            self.publisher_rate
+        )
 
-        qos_profile = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, depth=25)
+        qos_profile = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT, depth=25
+        )
 
         self.publisher_ = self.create_publisher(
-            WalkingVelocityCommand, "/humanoid/walking_velocity_command", qos_profile
+            WalkingVelocityCommand,
+            "/humanoid/walking_velocity_command",
+            qos_profile,
         )
-        self.timer = self.create_timer(1 / self.publisher_rate, self.timer_callback)
+        self.timer = self.create_timer(
+            1 / self.publisher_rate, self.timer_callback
+        )
 
         self.app = App()
 
@@ -246,7 +261,9 @@ class RosJoystickApp(Node):
     def timer_callback(self):
 
         if self.xbox_controller_interface.joystick_connected:
-            success, msg = self.xbox_controller_interface.get_walking_command_msg()
+            success, msg = (
+                self.xbox_controller_interface.get_walking_command_msg()
+            )
             if success:
                 self.app.set_knob_positions(msg)
                 self.publisher_.publish(msg)

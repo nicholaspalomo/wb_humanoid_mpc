@@ -42,29 +42,38 @@ class SwingLegVerticalConstraintCppAd final : public StateInputConstraint {
   /**
    * Constructor
    * @param [in] referenceManager : Switched model ReferenceManager
-   * @param [in] endEffectorDynamics: The kinematic interface to the target end-effector.
+   * @param [in] endEffectorDynamics: The kinematic interface to the target
+   * end-effector.
    * @param [in] contactPointIndex : The 3 DoF contact index.
    */
-  SwingLegVerticalConstraintCppAd(const SwitchedModelReferenceManager& referenceManager,
-                                  const EndEffectorDynamics<scalar_t>& endEffectorDynamics,
-                                  size_t contactPointIndex);
+  SwingLegVerticalConstraintCppAd(
+      const SwitchedModelReferenceManager& referenceManager,
+      const EndEffectorDynamics<scalar_t>& endEffectorDynamics,
+      size_t contactPointIndex);
 
   ~SwingLegVerticalConstraintCppAd() override = default;
-  SwingLegVerticalConstraintCppAd* clone() const override { return new SwingLegVerticalConstraintCppAd(*this); }
+  SwingLegVerticalConstraintCppAd* clone() const override {
+    return new SwingLegVerticalConstraintCppAd(*this);
+  }
 
   bool isActive(scalar_t time) const override;
   size_t getNumConstraints(scalar_t time) const override { return 1; }
-  vector_t getValue(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) const override;
-  VectorFunctionLinearApproximation getLinearApproximation(scalar_t time,
-                                                           const vector_t& state,
-                                                           const vector_t& input,
-                                                           const PreComputation& preComp) const override;
+  vector_t getValue(scalar_t time,
+                    const vector_t& state,
+                    const vector_t& input,
+                    const PreComputation& preComp) const override;
+  VectorFunctionLinearApproximation getLinearApproximation(
+      scalar_t time,
+      const vector_t& state,
+      const vector_t& input,
+      const PreComputation& preComp) const override;
 
  private:
   SwingLegVerticalConstraintCppAd(const SwingLegVerticalConstraintCppAd& rhs);
 
   const SwitchedModelReferenceManager* referenceManagerPtr_;
-  std::unique_ptr<EndEffectorDynamicsLinearAccConstraint> eeLinearConstraintPtr_;
+  std::unique_ptr<EndEffectorDynamicsLinearAccConstraint>
+      eeLinearConstraintPtr_;
   const size_t contactPointIndex_;
 };
 

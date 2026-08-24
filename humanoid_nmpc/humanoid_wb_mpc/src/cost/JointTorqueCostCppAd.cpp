@@ -49,19 +49,23 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-JointTorqueCostCppAd::JointTorqueCostCppAd(const vector_t& weights,
-                                           const PinocchioInterface& pinocchioInterface,
-                                           const WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel,
-                                           std::string costName,
-                                           const ModelSettings& modelSettings)
+JointTorqueCostCppAd::JointTorqueCostCppAd(
+    const vector_t& weights,
+    const PinocchioInterface& pinocchioInterface,
+    const WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel,
+    std::string costName,
+    const ModelSettings& modelSettings)
     : StateInputCostGaussNewtonAd(),
       sqrtWeights_(weights.cwiseSqrt()),
       pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
       mpcRobotModelPtr_(mpcRobotModel.clone()) {
   assert(weights.size() == mpcRobotModel.getJointDim());
-  initialize(mpcRobotModel.getStateDim(), mpcRobotModel.getInputDim(), mpcRobotModel.getJointDim(), costName,
-             modelSettings.modelFolderCppAd, modelSettings.recompileLibrariesCppAd);
-  std::cout << "Initialized JointTorqueCostCppAd with weights: " << weights.transpose() << std::endl;
+  initialize(mpcRobotModel.getStateDim(), mpcRobotModel.getInputDim(),
+             mpcRobotModel.getJointDim(), costName,
+             modelSettings.modelFolderCppAd,
+             modelSettings.recompileLibrariesCppAd);
+  std::cout << "Initialized JointTorqueCostCppAd with weights: "
+            << weights.transpose() << std::endl;
 }
 
 /******************************************************************************************************/
@@ -78,11 +82,14 @@ JointTorqueCostCppAd::JointTorqueCostCppAd(const JointTorqueCostCppAd& other)
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-ad_vector_t JointTorqueCostCppAd::costVectorFunction(ad_scalar_t time,
-                                                     const ad_vector_t& state,
-                                                     const ad_vector_t& input,
-                                                     const ad_vector_t& parameters) {
-  return computeJointTorques<ad_scalar_t>(state, input, pinocchioInterfaceCppAd_, *mpcRobotModelPtr_).cwiseProduct(parameters);
+ad_vector_t JointTorqueCostCppAd::costVectorFunction(
+    ad_scalar_t time,
+    const ad_vector_t& state,
+    const ad_vector_t& input,
+    const ad_vector_t& parameters) {
+  return computeJointTorques<ad_scalar_t>(
+             state, input, pinocchioInterfaceCppAd_, *mpcRobotModelPtr_)
+      .cwiseProduct(parameters);
 }
 
 /******************************************************************************************************/

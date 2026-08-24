@@ -151,7 +151,11 @@ class CartpoleBraxEnv(PipelineEnv):
         fall_penalty = jnp.where(done > 0.5, -1.0, 0.0)
 
         return (
-            upright_reward - center_penalty - spin_penalty - ctrl_penalty + fall_penalty
+            upright_reward
+            - center_penalty
+            - spin_penalty
+            - ctrl_penalty
+            + fall_penalty
         )
 
     def _is_done(self, pipeline_state: mjx.Data) -> jax.Array:
@@ -273,7 +277,9 @@ def render_policy_rollout(
             frames.append(Image.fromarray(rgba[:, :, :3]))
         plt.close(fig)
 
-    os.makedirs(os.path.dirname(os.path.abspath(output_gif_path)), exist_ok=True)
+    os.makedirs(
+        os.path.dirname(os.path.abspath(output_gif_path)), exist_ok=True
+    )
     if frames:
         frames[0].save(
             output_gif_path,
@@ -285,7 +291,9 @@ def render_policy_rollout(
     return total_reward
 
 
-def plot_training_curves(metrics_history: Dict[str, list], output_plot_path: str):
+def plot_training_curves(
+    metrics_history: Dict[str, list], output_plot_path: str
+):
     """Saves updated reward and loss curves to a PNG image."""
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4))
 
@@ -301,7 +309,10 @@ def plot_training_curves(metrics_history: Dict[str, list], output_plot_path: str
             linewidth=2,
         )
     ax1.set_title(
-        "Evaluation Episode Return", fontsize=12, fontweight="bold", color="#1e293b"
+        "Evaluation Episode Return",
+        fontsize=12,
+        fontweight="bold",
+        color="#1e293b",
     )
     ax1.set_xlabel("Environment Steps")
     ax1.set_ylabel("Cumulative Return")
@@ -318,13 +329,17 @@ def plot_training_curves(metrics_history: Dict[str, list], output_plot_path: str
             color="#dc2626",
             linewidth=2,
         )
-    ax2.set_title("PPO Total Loss", fontsize=12, fontweight="bold", color="#1e293b")
+    ax2.set_title(
+        "PPO Total Loss", fontsize=12, fontweight="bold", color="#1e293b"
+    )
     ax2.set_xlabel("Environment Steps")
     ax2.set_ylabel("Loss")
     ax2.grid(True, linestyle="--", alpha=0.6)
 
     plt.tight_layout()
-    os.makedirs(os.path.dirname(os.path.abspath(output_plot_path)), exist_ok=True)
+    os.makedirs(
+        os.path.dirname(os.path.abspath(output_plot_path)), exist_ok=True
+    )
     plt.savefig(output_plot_path, dpi=120)
     plt.close(fig)
 
@@ -337,21 +352,35 @@ def main():
         description="Cartpole Brax MJX PPO Training with Visualization"
     )
     parser.add_argument(
-        "--num_envs", type=int, default=64, help="Number of parallel environments"
+        "--num_envs",
+        type=int,
+        default=64,
+        help="Number of parallel environments",
     )
     parser.add_argument(
-        "--total_timesteps", type=int, default=50_000, help="Total environment steps"
+        "--total_timesteps",
+        type=int,
+        default=50_000,
+        help="Total environment steps",
     )
     parser.add_argument(
-        "--num_evals", type=int, default=10, help="Number of evaluation checkpoints"
+        "--num_evals",
+        type=int,
+        default=10,
+        help="Number of evaluation checkpoints",
     )
     parser.add_argument(
         "--episode_length", type=int, default=200, help="Episode length"
     )
     parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate")
-    parser.add_argument("--gamma", type=float, default=0.99, help="Discount factor")
     parser.add_argument(
-        "--output_dir", type=str, default="cartpole_renders", help="Output directory"
+        "--gamma", type=float, default=0.99, help="Discount factor"
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default="cartpole_renders",
+        help="Output directory",
     )
     parser.add_argument(
         "--vnc",
@@ -366,7 +395,9 @@ def main():
     args = parser.parse_args()
 
     # Resolve output directory relative to workspace root if invoked via Bazel
-    workspace_dir = os.environ.get("BUILD_WORKSPACE_DIRECTORY", os.path.abspath("."))
+    workspace_dir = os.environ.get(
+        "BUILD_WORKSPACE_DIRECTORY", os.path.abspath(".")
+    )
     if not os.path.isabs(args.output_dir):
         args.output_dir = os.path.join(workspace_dir, args.output_dir)
 
@@ -471,7 +502,9 @@ def main():
 
     # Render final policy rollout
     final_gif_path = os.path.join(args.output_dir, "cartpole_latest.gif")
-    eval_score = render_policy_rollout(env.mj_model, inference_fn, final_gif_path)
+    eval_score = render_policy_rollout(
+        env.mj_model, inference_fn, final_gif_path
+    )
     print(
         f"\n🎬 [Final Visualization Saved] -> {final_gif_path} (Score: {eval_score:.1f})"
     )
@@ -505,7 +538,9 @@ def main():
             rng_eval, act_rng = jax.random.split(rng_eval)
             action, _ = inference_fn(obs_eval, act_rng)
             with viewer.lock():
-                eval_data.ctrl[0] = np.clip(float(np.array(action)[0]), -1.0, 1.0)
+                eval_data.ctrl[0] = np.clip(
+                    float(np.array(action)[0]), -1.0, 1.0
+                )
                 mujoco.mj_step(env.mj_model, eval_data)
             viewer.sync()
             time.sleep(0.015)
