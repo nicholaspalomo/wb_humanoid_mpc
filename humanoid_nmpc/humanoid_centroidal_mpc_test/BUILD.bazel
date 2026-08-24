@@ -13,6 +13,8 @@ _TEST_DEPS = [
     "@pinocchio",
     "@ros2_rclcpp",
     "@ros2_ament_index_cpp",
+    "@abseil-cpp//absl/status",
+    "@abseil-cpp//absl/status:statusor",
     "@googletest//:gtest_main",
 ]
 
@@ -56,6 +58,14 @@ cc_test(
 cc_test(
     name = "test_contact_wrench_cone_constraint",
     srcs = ["src/testContactWrenchConeConstraint.cpp"],
+    copts = _TEST_COPTS,
+    data = _TEST_DATA,
+    deps = _TEST_DEPS,
+)
+
+cc_test(
+    name = "test_gait_switching_time_optimization",
+    srcs = ["src/testGaitSwitchingTimeOptimization.cpp"],
     copts = _TEST_COPTS,
     data = _TEST_DATA,
     deps = _TEST_DEPS,

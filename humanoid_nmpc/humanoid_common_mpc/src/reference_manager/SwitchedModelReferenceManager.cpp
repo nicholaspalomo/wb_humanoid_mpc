@@ -30,56 +30,62 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
+#include <algorithm>
+#include <cmath>
+
 #include <humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h>
 
 namespace ocs2::humanoid {
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
+namespace {
+
+static constexpr scalar_t kHalf = 0.5;
+static constexpr scalar_t kPhaseTimeOffset = 0.01;
+static constexpr scalar_t kArmSwingLead = 0.15;
+static constexpr scalar_t kArmSwingAmplitude = -0.15;
+
+}  // namespace
+
 SwitchedModelReferenceManager::SwitchedModelReferenceManager(std::shared_ptr<GaitSchedule> gaitSchedulePtr,
                                                              std::shared_ptr<SwingTrajectoryPlanner> swingTrajectoryPtr,
                                                              const PinocchioInterface& pinocchioInterface,
-                                                             const MpcRobotModelBase<scalar_t>& mpcRobotModel)
+                                                             const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+                                                             GaitOptimizationSettings gaitOptimizationSettings)
     : ReferenceManager(TargetTrajectories(), ModeSchedule()),
       gaitSchedulePtr_(std::move(gaitSchedulePtr)),
       swingTrajectoryPtr_(std::move(swingTrajectoryPtr)),
-      // The reference manager gets a copy of the pinocchio model to use for initializing the ground height
       pinocchioInterface_(pinocchioInterface),
-      mpcRobotModelPtr_(&mpcRobotModel) {}
+      mpcRobotModelPtr_(&mpcRobotModel),
+      gaitOptimizationSettings_(std::move(gaitOptimizationSettings)),
+      gaitSwitchingTimeOptimizerPtr_(std::make_unique<GaitSwitchingTimeOptimizer>(gaitOptimizationSettings_)) {}
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
+void SwitchedModelReferenceManager::setGaitOptimizationSettings(GaitOptimizationSettings settings) {
+  gaitOptimizationSettings_ = std::move(settings);
+  gaitSwitchingTimeOptimizerPtr_->setSettings(gaitOptimizationSettings_);
+}
+
 contact_flag_t SwitchedModelReferenceManager::getContactFlags(scalar_t time) const {
   return modeNumber2StanceLeg(this->getModeSchedule().modeAtTime(time));
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
 scalar_t SwitchedModelReferenceManager::getPhaseVariable(scalar_t time) const {
-  const auto it = std::upper_bound(modeSchedule_.eventTimes.begin(), modeSchedule_.eventTimes.end(), time);
-  scalar_t nextEventTime = *it;
-  scalar_t prevEventTime = *(it - 1);
+  const std::vector<scalar_t>::const_iterator it = std::upper_bound(modeSchedule_.eventTimes.begin(), modeSchedule_.eventTimes.end(), time);
+  const scalar_t nextEventTime = *it;
+  const scalar_t prevEventTime = *(it - 1);
 
   if (modeSchedule_.modeAtTime(time) == LF) {
-    return (0.5 * (time - prevEventTime) / (nextEventTime - prevEventTime));
+    return (kHalf * (time - prevEventTime) / (nextEventTime - prevEventTime));
   } else if (modeSchedule_.modeAtTime(time) == RF) {
-    return (0.5 + 0.5 * (time - prevEventTime) / (nextEventTime - prevEventTime));
+    return (kHalf + kHalf * (time - prevEventTime) / (nextEventTime - prevEventTime));
   } else {
-    if (modeSchedule_.modeAtTime(prevEventTime - 0.01) == LF) {
-      return 0.5;
+    if (modeSchedule_.modeAtTime(prevEventTime - kPhaseTimeOffset) == LF) {
+      return kHalf;
     } else {
-      return 0;
+      return 0.0;
     }
   }
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 scalar_t SwitchedModelReferenceManager::adaptToCurrentGroundHeight(TargetTrajectories& targetTrajectories,
                                                                    const vector_t& initState,
                                                                    size_t initMode) {
@@ -88,24 +94,14 @@ scalar_t SwitchedModelReferenceManager::adaptToCurrentGroundHeight(TargetTraject
 
   terrainHeight = 0.0;
 
-  // adapt target Trajectories to current terrain height
-  // Since they are published in the past the current observations ground height might have drifted.
-
-  // Adapt the ground height difference for every state in the target Trajectories.
-  // The height difference between last update and the current update is applied here
-  // to prevent applying the same difference twice in case the trajectories have not been updated.
   for (size_t i = 0; i < targetTrajectories.stateTrajectory.size(); i++) {
     vector_t& targetState = targetTrajectories.stateTrajectory[i];
-    scalar_t heightDifference = terrainHeight - previousGroundHeightEstimate_;
+    const scalar_t heightDifference = terrainHeight - previousGroundHeightEstimate_;
     mpcRobotModelPtr_->adaptBasePoseHeight(targetState, heightDifference);
   }
   previousGroundHeightEstimate_ = terrainHeight;
   return terrainHeight;
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
 
 vector_t SwitchedModelReferenceManager::getDesiredState(const TargetTrajectories& targetTrajectories,
                                                         const vector_t& state,
@@ -113,40 +109,65 @@ vector_t SwitchedModelReferenceManager::getDesiredState(const TargetTrajectories
   vector_t xNominal = targetTrajectories.getDesiredState(time);
 
   if (armSwingReferenceActive_) {
-    scalar_t phaseVariable = this->getPhaseVariable(time);
+    const scalar_t phaseVariable = this->getPhaseVariable(time);
     vector_t desiredJointAngles = mpcRobotModelPtr_->getJointAngles(xNominal);
 
-    vector3_t linVelCommand = mpcRobotModelPtr_->getBaseComLinearVelocity(xNominal);
-    scalar_t currentEulerZ = mpcRobotModelPtr_->getBasePose(state)[3];
+    const vector3_t linVelCommand = mpcRobotModelPtr_->getBaseComLinearVelocity(xNominal);
+    const scalar_t currentEulerZ = mpcRobotModelPtr_->getBasePose(state)[3];
 
     const scalar_t localVelXCommand = (std::cos(currentEulerZ) * linVelCommand[0] + std::sin(currentEulerZ) * linVelCommand[1]);
 
     const ModelSettings& modelSettings = mpcRobotModelPtr_->modelSettings;
 
-    scalar_t gaitCycleFactor = std::sin(2 * M_PI * (phaseVariable - 0.15)) * localVelXCommand;
-    desiredJointAngles[modelSettings.j_l_shoulder_y_index] += -0.15 * gaitCycleFactor;
-    desiredJointAngles[modelSettings.j_r_shoulder_y_index] += 0.15 * gaitCycleFactor;
-    desiredJointAngles[modelSettings.j_l_elbow_y_index] += -0.15 * gaitCycleFactor;
-    desiredJointAngles[modelSettings.j_r_elbow_y_index] += 0.15 * gaitCycleFactor;
+    const scalar_t gaitCycleFactor = std::sin(2.0 * M_PI * (phaseVariable - kArmSwingLead)) * localVelXCommand;
+    desiredJointAngles[modelSettings.j_l_shoulder_y_index] += kArmSwingAmplitude * gaitCycleFactor;
+    desiredJointAngles[modelSettings.j_r_shoulder_y_index] += -kArmSwingAmplitude * gaitCycleFactor;
+    desiredJointAngles[modelSettings.j_l_elbow_y_index] += kArmSwingAmplitude * gaitCycleFactor;
+    desiredJointAngles[modelSettings.j_r_elbow_y_index] += -kArmSwingAmplitude * gaitCycleFactor;
 
     mpcRobotModelPtr_->setJointAngles(xNominal, desiredJointAngles);
   }
   return xNominal;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
+bool SwitchedModelReferenceManager::optimizeSwitchingTimes(const PrimalSolution& primalSolution) {
+  if (!gaitOptimizationSettings_.enabled || !gaitSwitchingTimeOptimizerPtr_) {
+    return false;
+  }
+
+  ModeSchedule schedule = gaitSchedulePtr_->getCurrentModeSchedule();
+  const bool modified = gaitSwitchingTimeOptimizerPtr_->optimizeEventTimes(primalSolution, schedule);
+  if (modified) {
+    gaitSchedulePtr_->updateModeSchedule(schedule);
+    modeSchedule_ = schedule;
+  }
+  return modified;
+}
+
+bool SwitchedModelReferenceManager::adaptFromContactFeedback(const contact_flag_t& measuredContactFlags, scalar_t currentTime) {
+  if (!gaitOptimizationSettings_.enabled || !gaitSwitchingTimeOptimizerPtr_) {
+    return false;
+  }
+
+  ModeSchedule schedule = gaitSchedulePtr_->getCurrentModeSchedule();
+  const bool modified = gaitSwitchingTimeOptimizerPtr_->adaptFromContactFeedback(measuredContactFlags, currentTime, schedule);
+  if (modified) {
+    gaitSchedulePtr_->updateModeSchedule(schedule);
+    modeSchedule_ = schedule;
+  }
+  return modified;
+}
+
 void SwitchedModelReferenceManager::modifyReferences(scalar_t initTime,
                                                      scalar_t finalTime,
                                                      const vector_t& initState,
                                                      size_t initMode,
                                                      TargetTrajectories& targetTrajectories,
                                                      ModeSchedule& modeSchedule) {
-  const auto timeHorizon = finalTime - initTime;
+  const scalar_t timeHorizon = finalTime - initTime;
   modeSchedule = gaitSchedulePtr_->getModeSchedule(initTime - timeHorizon, finalTime + timeHorizon);
 
-  scalar_t terrainHeight = adaptToCurrentGroundHeight(targetTrajectories, initState, initMode);
+  const scalar_t terrainHeight = adaptToCurrentGroundHeight(targetTrajectories, initState, initMode);
 
   swingTrajectoryPtr_->update(modeSchedule, terrainHeight);
 

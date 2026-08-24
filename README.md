@@ -15,6 +15,9 @@ The centroidal MPC optimizes over the **whole-body kinematics** and the center o
 ### Whole-Body Dynamics MPC
 The **whole-body dynamics** MPC optimizes over the contact forces and joint accelerations with the option to compute the joint torques for each step planned across the horizon. The most relevant information on the chosen approach can currently be found in [Galliker et al., Bipedal Locomotion with Nonlinear Model Predictive Control: Online Gait Generation using Whole-Body Dynamics](http://ames.caltech.edu/galliker2022bipedal.pdf).
 
+### Gait Switching Time Optimization & Contact Feedback
+The framework includes online optimization of gait phase switching times using Hamiltonian jump sensitivities from the Pontryagin Maximum Principle, paired with early/late touchdown reactive contact adaptation. See the [Gait Optimization Documentation](humanoid_nmpc/humanoid_common_mpc/src/gait/README.md) for full mathematical derivations and architecture block diagrams.
+
 ### Robot Examples
 
 The project supports the following robot examples:
