@@ -51,22 +51,32 @@ namespace ocs2::humanoid {
 class FootCollisionConstraint final : public StateConstraintCppAd {
  public:
   struct Config {
-    // Foot and ankle
+    // Ankle joint frames
     std::string leftAnkleFrame;
     std::string rightAnkleFrame;
 
+    // Foot center collision frames (midfoot / contact origin)
     std::string leftFootCenterFrame{"foot_l_contact"};
     std::string rightFootCenterFrame{"foot_r_contact"};
 
+    /**
+     * Foot collision sphere 1 (anterior / front offset near toe):
+     * Offset along +x of the foot polygon (x_max * 0.6) from the contact center.
+     */
     std::string leftFootFrame1{"foot_l_contact_collision_p_1"};
     std::string rightFootFrame1{"foot_r_contact_collision_p_1"};
 
+    /**
+     * Foot collision sphere 2 (posterior / rear offset near heel):
+     * Offset along -x of the foot polygon (x_min * 0.6) from the contact center.
+     */
     std::string leftFootFrame2{"foot_l_contact_collision_p_2"};
     std::string rightFootFrame2{"foot_r_contact_collision_p_2"};
 
+    /// Radius of the collision spheres centered at ankle, foot center, foot1 (front/toe), and foot2 (rear/heel)
     scalar_t footCollisionSphereRadius;
 
-    // Knee
+    // Knee joint frames
     std::string leftKneeFrame;
     std::string rightKneeFrame;
     scalar_t kneeCollisionSphereRadius;

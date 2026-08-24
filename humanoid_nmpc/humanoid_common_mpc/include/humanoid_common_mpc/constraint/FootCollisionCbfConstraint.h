@@ -53,22 +53,32 @@ namespace ocs2::humanoid {
 class FootCollisionCbfConstraint final : public StateInputConstraintCppAd {
  public:
   struct Config {
-    // Foot and ankle frame names
+    // Ankle joint frames
     std::string leftAnkleFrame;
     std::string rightAnkleFrame;
 
+    // Foot center collision frames (midfoot / contact origin)
     std::string leftFootCenterFrame{"foot_l_contact"};
     std::string rightFootCenterFrame{"foot_r_contact"};
 
+    /**
+     * Foot collision sphere 1 (anterior / front offset near toe):
+     * Offset along +x of the foot polygon (x_max * 0.6) from the contact center.
+     */
     std::string leftFootFrame1{"foot_l_contact_collision_p_1"};
     std::string rightFootFrame1{"foot_r_contact_collision_p_1"};
 
+    /**
+     * Foot collision sphere 2 (posterior / rear offset near heel):
+     * Offset along -x of the foot polygon (x_min * 0.6) from the contact center.
+     */
     std::string leftFootFrame2{"foot_l_contact_collision_p_2"};
     std::string rightFootFrame2{"foot_r_contact_collision_p_2"};
 
+    /// Radius of the collision spheres centered at ankle, foot center, foot1 (front/toe), and foot2 (rear/heel)
     scalar_t footCollisionSphereRadius = 0.065;
 
-    // Knee frame names
+    // Knee joint collision frames
     std::string leftKneeFrame;
     std::string rightKneeFrame;
     scalar_t kneeCollisionSphereRadius = 0.07;
@@ -100,10 +110,8 @@ class FootCollisionCbfConstraint final : public StateInputConstraintCppAd {
     return parameters;
   }
 
-  void setSphereRadii(scalar_t footCollisionSphereRadius, scalar_t kneeCollisionSphereRadius) {
-    cfg_.footCollisionSphereRadius = footCollisionSphereRadius;
-    cfg_.kneeCollisionSphereRadius = kneeCollisionSphereRadius;
-  }
+  void setFootCollisionSphereRadius(scalar_t footCollisionSphereRadius) { cfg_.footCollisionSphereRadius = footCollisionSphereRadius; }
+  void setKneeCollisionSphereRadius(scalar_t kneeCollisionSphereRadius) { cfg_.kneeCollisionSphereRadius = kneeCollisionSphereRadius; }
 
   void setGamma(scalar_t gamma) { cfg_.gamma = gamma; }
   scalar_t getGamma() const { return cfg_.gamma; }
@@ -120,8 +128,19 @@ class FootCollisionCbfConstraint final : public StateInputConstraintCppAd {
 
   const SwitchedModelReferenceManager* referenceManagerPtr_;
   PinocchioInterfaceCppAd pinocchioInterfaceCppAd_;
-  std::unique_ptr<MpcRobotModelBase<ad_scalar_t>> mpcRobotModelPtr_;
+  const MpcRobotModelBase<ad_scalar_t>* const mpcRobotModelPtr_;
   Config cfg_;
+
+  size_t leftAnkleId_ = 0;
+  size_t rightAnkleId_ = 0;
+  size_t leftFootCenterId_ = 0;
+  size_t rightFootCenterId_ = 0;
+  size_t leftFoot1Id_ = 0;   // Anterior / toe collision frame (collision_p_1)
+  size_t rightFoot1Id_ = 0;  // Anterior / toe collision frame (collision_p_1)
+  size_t leftFoot2Id_ = 0;   // Posterior / heel collision frame (collision_p_2)
+  size_t rightFoot2Id_ = 0;  // Posterior / heel collision frame (collision_p_2)
+  size_t leftKneeId_ = 0;
+  size_t rightKneeId_ = 0;
 
   const size_t numConstraints_ = 16;
   bool isActive_ = true;

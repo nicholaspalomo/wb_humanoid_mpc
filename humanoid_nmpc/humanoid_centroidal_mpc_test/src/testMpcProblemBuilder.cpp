@@ -123,6 +123,14 @@ TEST(TestMpcProblemBuilder, LoadR1ProblemDefinition) {
 
   EXPECT_FALSE(problemDef.costs.empty());
   EXPECT_FALSE(problemDef.equalityConstraints.empty());
+
+  bool hasFootCollisionCbf = false;
+  for (const ProblemTermConfig& term : problemDef.softConstraints) {
+    if (term.type == "FootCollisionCbfConstraint" && term.enabled) {
+      hasFootCollisionCbf = true;
+    }
+  }
+  EXPECT_TRUE(hasFootCollisionCbf);
 }
 
 TEST(TestMpcProblemBuilder, NonExistentFileReturnsError) {

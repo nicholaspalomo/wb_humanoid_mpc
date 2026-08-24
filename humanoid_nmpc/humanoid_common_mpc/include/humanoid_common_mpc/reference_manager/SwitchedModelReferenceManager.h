@@ -105,17 +105,15 @@ class SwitchedModelReferenceManager : public ReferenceManager {
   scalar_t adaptToCurrentGroundHeight(TargetTrajectories& targetTrajectories, const vector_t& initState, size_t initMode);
   scalar_t previousGroundHeightEstimate_{0.0};
 
-  PinocchioInterface pinocchioInterface_;
-  const MpcRobotModelBase<scalar_t>* mpcRobotModelPtr_;
-  ModeSchedule modeSchedule_;
-
-  bool armSwingReferenceActive_{false};
-
   std::shared_ptr<GaitSchedule> gaitSchedulePtr_;
   std::shared_ptr<SwingTrajectoryPlanner> swingTrajectoryPtr_;
-
+  PinocchioInterface pinocchioInterface_;
+  const MpcRobotModelBase<scalar_t>* mpcRobotModelPtr_;
   GaitOptimizationSettings gaitOptimizationSettings_;
   std::unique_ptr<GaitSwitchingTimeOptimizer> gaitSwitchingTimeOptimizerPtr_;
+
+  ModeSchedule modeSchedule_;
+  bool armSwingReferenceActive_{false};
 };
 
 }  // namespace ocs2::humanoid

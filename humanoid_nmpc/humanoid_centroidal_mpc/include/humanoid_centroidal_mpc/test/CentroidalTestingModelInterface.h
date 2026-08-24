@@ -45,18 +45,18 @@ struct CentroidalTestingModelInterface {
   std::string taskFile;
   std::string urdfFile;
   std::string referenceFile;
-  ModelSettings modelSettings(taskFile, urdfFile, "centroidal_testing_interfce", "false");
+  ModelSettings modelSettings;
 
   std::unique_ptr<PinocchioInterface> pinocchioInterfacePtr;
   std::unique_ptr<CentroidalMpcRobotModel<scalar_t>> mpcRobotModelPtr_;
   std::unique_ptr<CentroidalMpcRobotModel<ad_scalar_t>> mpcRobotModelADPtr_;
 
   CentroidalTestingModelInterface() {
-    const std::string path(__FILE__);
     const std::string humanoid_centroidal_mpc_install_dir = ament_index_cpp::get_package_share_directory("humanoid_centroidal_mpc");
     taskFile = humanoid_centroidal_mpc_install_dir + "/config/mpc/task.info";
     urdfFile = robot_definitions::URDF_FILE_PATH;
     referenceFile = humanoid_centroidal_mpc_install_dir + "/config/command/reference.info";
+    modelSettings = ModelSettings(taskFile, urdfFile, "centroidal_testing_interfce", "false");
 
     pinocchioInterfacePtr.reset(
         new PinocchioInterface(createCustomPinocchioInterface(taskFile, urdfFile, modelSettings.mpcModelJointNames)));
@@ -64,6 +64,8 @@ struct CentroidalTestingModelInterface {
     mpcRobotModelADPtr_.reset(new CentroidalMpcRobotModel<ad_scalar_t>((*pinocchioInterfacePtr).toCppAd(),
                                                                        getCentroidalModelInfo(*pinocchioInterfacePtr).toCppAd()));
   }
+
+  const ModelSettings& getModelSettings() const { return modelSettings; }
 
   PinocchioInterface& getPinocchioInterface() const { return *pinocchioInterfacePtr; }
 

@@ -33,6 +33,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_core/misc/LoadData.h>
 #include <ocs2_core/penalties/Penalties.h>
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 
 #include <ocs2_core/constraint/StateInputConstraint.h>
 #include <ocs2_core/cost/QuadraticStateCost.h>
@@ -124,14 +126,14 @@ std::unique_ptr<StateCost> HumanoidCostConstraintFactory::getFootCollisionConstr
 std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getFootCollisionCbfConstraint() const {
   loadData::PropertyTree pt;
   loadData::readPropertyTree(taskFile_, pt);
-  const std::string prefix = "collision_cbf_constraint.";
+  constexpr absl::string_view prefix = "collision_cbf_constraint.";
 
   FootCollisionCbfConstraint::Config collisionConfig =
       FootCollisionCbfConstraint::loadFootCollisionCbfConstraintConfig(taskFile_, verbose_);
   PieceWisePolynomialBarrierPenalty::Config barrierPenaltyConfig;
 
-  loadData::loadPtreeValue(pt, barrierPenaltyConfig.mu, prefix + "mu", verbose_);
-  loadData::loadPtreeValue(pt, barrierPenaltyConfig.delta, prefix + "delta", verbose_);
+  loadData::loadPtreeValue(pt, barrierPenaltyConfig.mu, absl::StrCat(prefix, "mu"), verbose_);
+  loadData::loadPtreeValue(pt, barrierPenaltyConfig.delta, absl::StrCat(prefix, "delta"), verbose_);
 
   std::unique_ptr<PieceWisePolynomialBarrierPenalty> penalty(new PieceWisePolynomialBarrierPenalty(barrierPenaltyConfig));
 
