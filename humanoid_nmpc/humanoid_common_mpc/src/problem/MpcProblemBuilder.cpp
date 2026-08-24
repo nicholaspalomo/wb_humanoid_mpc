@@ -222,6 +222,8 @@ absl::Status MpcProblemBuilder::addSoftConstraints(OptimalControlProblem& proble
       } else {
         problem.softConstraintPtr->add(term.name, factoryPtr_->getContactMomentXYConstraint(0, term.name));
       }
+    } else if (term.type == "FootCollisionCbfConstraint") {
+      problem.softConstraintPtr->add(term.name, factoryPtr_->getFootCollisionCbfConstraint());
     } else {
       return absl::InvalidArgumentError(absl::StrFormat("Unknown soft constraint type: '%s'", term.type));
     }

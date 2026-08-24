@@ -47,6 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <humanoid_common_mpc/pinocchio_model/pinocchioUtils.h>
 #include "humanoid_common_mpc/constraint/ContactMomentXYConstraintCppAd.h"
 #include "humanoid_common_mpc/constraint/ContactWrenchConeConstraint.h"
+#include "humanoid_common_mpc/constraint/FootCollisionCbfConstraint.h"
 #include "humanoid_common_mpc/constraint/FootCollisionConstraint.h"
 #include "humanoid_common_mpc/constraint/JointLimitsSoftConstraint.h"
 #include "humanoid_common_mpc/cost/ExternalTorqueQuadraticCostAD.h"
@@ -114,6 +115,31 @@ std::unique_ptr<StateCost> HumanoidCostConstraintFactory::getFootCollisionConstr
                                   "FootCollisionConstraint", modelSettings_));
 
   return std::unique_ptr<StateCost>(new StateSoftConstraint(std::move(footCollisionConstraintPtr), std::move(penalty)));
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getFootCollisionCbfConstraint() const {
+  loadData::PropertyTree pt;
+  loadData::readPropertyTree(taskFile_, pt);
+  const std::string prefix = "collision_cbf_constraint.";
+
+  FootCollisionCbfConstraint::Config collisionConfig =
+      FootCollisionCbfConstraint::loadFootCollisionCbfConstraintConfig(taskFile_, verbose_);
+  PieceWisePolynomialBarrierPenalty::Config barrierPenaltyConfig;
+
+  loadData::loadPtreeValue(pt, barrierPenaltyConfig.mu, prefix + "mu", verbose_);
+  loadData::loadPtreeValue(pt, barrierPenaltyConfig.delta, prefix + "delta", verbose_);
+
+  std::unique_ptr<PieceWisePolynomialBarrierPenalty> penalty(new PieceWisePolynomialBarrierPenalty(barrierPenaltyConfig));
+
+  std::unique_ptr<FootCollisionCbfConstraint> footCollisionCbfConstraintPtr(
+      new FootCollisionCbfConstraint(*referenceManagerPtr_, *pinocchioInterfacePtr_, *mpcRobotModelADPtr_, std::move(collisionConfig),
+                                     "FootCollisionCbfConstraint", modelSettings_));
+
+  return std::unique_ptr<StateInputCost>(new StateInputSoftConstraint(std::move(footCollisionCbfConstraintPtr), std::move(penalty)));
 }
 
 /******************************************************************************************************/
