@@ -363,26 +363,26 @@ right_leg_torque_cost:
 
 contacts:
   contact_frame_translation:
-    # ; Translation vector from parent joint to contact frame ;;
+    # ; Translation vector from parent joint to contact frame (bottom of foot just below ankle) ;;
     x: 0.0
     y: 0.0
-    z: -0.03
+    z: -0.076
   contact_rectangle:
     # ; length specified in contact frame ;;
-    x_max: 0.06
-    x_min: -0.03
-    y_max: 0.03
-    y_min: -0.03
+    x_max: 0.17
+    x_min: -0.09
+    y_max: 0.07
+    y_min: -0.07
 
-  frictionForceConeSoftConstraint:
-    frictionCoefficient: 0.4
+  contactWrenchConeSoftConstraint:
+    frictionCoefficient: 0.7
+    torsionalFrictionCoefficient: 0.05
+    minNormalForce: 5.0
+    gripperForce: 0.0
+    numBasisVectors: 8
     # relaxed log barrier parameters
     mu: 0.2
     delta: 5.0
-  contactMomentXYSoftConstraint:
-    # relaxed log barrier parameters
-    mu: 0.6
-    delta: 0.03
 
 jointLimits:
   # relaxed log barrier parameters
