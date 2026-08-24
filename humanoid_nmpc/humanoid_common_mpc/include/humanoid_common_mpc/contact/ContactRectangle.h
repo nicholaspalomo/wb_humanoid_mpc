@@ -35,23 +35,28 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 ///
-/// \brief A planar contact polygon defined by the convex hull spanned up by a set of corner points expressed in a local
-/// planar frame.
+/// \brief A planar contact polygon defined by the convex hull spanned up by a
+/// set of corner points expressed in a local planar frame.
 ///
-/// \param[in] polygonBounds the maximum extension of the rectangle aligned with the specified frame
-/// \param[in] frameName name of pinocchio frame the polygon is specified in
-/// \param[in] scaleFactor A factor to shrink or extent the polygon
+/// \param[in] polygonBounds the maximum extension of the rectangle aligned with
+/// the specified frame \param[in] frameName name of pinocchio frame the polygon
+/// is specified in \param[in] scaleFactor A factor to shrink or extent the
+/// polygon
 ///
 class ContactRectangle : public ContactPolygon {
  public:
-  ContactRectangle(const PolygonBounds& polygonBounds, const ContactCenterPoint& contactCenterPoint, const scalar_t& scale_factor = 1.0);
+  ContactRectangle(const PolygonBounds& polygonBounds,
+                   const ContactCenterPoint& contactCenterPoint,
+                   const scalar_t& scale_factor = 1.0);
 
-  static std::vector<vector3_t> pointsFromBounds(const PolygonBounds& polygonBounds, const scalar_t& scaleFactor);
+  static std::vector<vector3_t> pointsFromBounds(
+      const PolygonBounds& polygonBounds, const scalar_t& scaleFactor);
 
-  static ContactRectangle loadContactRectangle(const std::string& taskFile,
-                                               const ModelSettings& modelSettings,
-                                               int contactIndex,
-                                               bool verbose = false);
+  static ContactRectangle loadContactRectangle(
+      const std::string& taskFile,
+      const ModelSettings& modelSettings,
+      int contactIndex,
+      bool verbose = false);
 
 };  // namespace ContactPolygon
 

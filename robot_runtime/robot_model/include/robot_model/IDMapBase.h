@@ -28,20 +28,28 @@ concept IDMapExtractor = requires(E e, const T& val) {
 template <typename T>
 class IDMapBase {
  public:
-  std::optional<T>& at(size_t element_id) { return map_elements_.at(element_id); }
+  std::optional<T>& at(size_t element_id) {
+    return map_elements_.at(element_id);
+  }
 
-  const std::optional<T>& at(size_t element_id) const { return map_elements_.at(element_id); }
+  const std::optional<T>& at(size_t element_id) const {
+    return map_elements_.at(element_id);
+  }
 
   std::optional<T>& operator[](size_t element_id) { return at(element_id); }
 
-  const std::optional<T>& operator[](size_t element_id) const { return at(element_id); }
+  const std::optional<T>& operator[](size_t element_id) const {
+    return at(element_id);
+  }
 
   template <typename It, typename ScalarType>
-  Eigen::Matrix<ScalarType, Eigen::Dynamic, 1> toEigenVector(It begin,
-                                                             It end,
-                                                             IDMapExtractor<T, ScalarType> auto extractor,
-                                                             ScalarType defaultValue) const {
-    Eigen::Matrix<ScalarType, Eigen::Dynamic, 1> vector(std::distance(begin, end));
+  Eigen::Matrix<ScalarType, Eigen::Dynamic, 1> toEigenVector(
+      It begin,
+      It end,
+      IDMapExtractor<T, ScalarType> auto extractor,
+      ScalarType defaultValue) const {
+    Eigen::Matrix<ScalarType, Eigen::Dynamic, 1> vector(
+        std::distance(begin, end));
     int index = 0;
     for (const auto& id : std::ranges::subrange(begin, end)) {
       const std::optional<T>& val = this->at(id);
@@ -64,7 +72,9 @@ class IDMapBase {
   }
 
   size_t size() const {
-    return std::count_if(begin(), end(), [](const std::optional<T>& opt) { return opt.has_value(); });
+    return std::count_if(begin(), end(), [](const std::optional<T>& opt) {
+      return opt.has_value();
+    });
   }
 
   size_t capacity() const { return map_elements_.size(); }
@@ -90,9 +100,13 @@ class IDMapBase {
       return *this;
     }
 
-    bool operator==(const iterator_base& other) const { return it_ == other.it_; }
+    bool operator==(const iterator_base& other) const {
+      return it_ == other.it_;
+    }
 
-    bool operator!=(const iterator_base& other) const { return it_ != other.it_; }
+    bool operator!=(const iterator_base& other) const {
+      return it_ != other.it_;
+    }
 
    protected:
     MapType map_;
@@ -100,7 +114,8 @@ class IDMapBase {
 
     // Helper function to skip over elements that are not null optionals
     void skipNullopt() {
-      while (it_ != map_->map_elements_.size() && !map_->map_elements_[it_].has_value()) {
+      while (it_ != map_->map_elements_.size() &&
+             !map_->map_elements_[it_].has_value()) {
         ++it_;  // skip while current element is std::nullopt
       }
     }
@@ -112,38 +127,50 @@ class IDMapBase {
 
   class iterator : public iterator_base<IDMapBase<T>*, T&> {
    public:
-    iterator(IDMapBase<T>* map, size_t it) : iterator_base<IDMapBase<T>*, T&>(map, it) {}
+    iterator(IDMapBase<T>* map, size_t it)
+        : iterator_base<IDMapBase<T>*, T&>(map, it) {}
 
     // Dereference to get underlying data
     T& operator*() { return this->map_->map_elements_[this->it_].value(); }
 
     // Conversion to const iterator
-    operator const_iterator() const { return const_iterator(this->map_, this->it_); }
+    operator const_iterator() const {
+      return const_iterator(this->map_, this->it_);
+    }
   };
 
   class const_iterator : public iterator_base<const IDMapBase<T>*, const T&> {
    public:
-    const_iterator(const IDMapBase<T>* map, size_t it) : iterator_base<const IDMapBase<T>*, const T&>(map, it) {}
+    const_iterator(const IDMapBase<T>* map, size_t it)
+        : iterator_base<const IDMapBase<T>*, const T&>(map, it) {}
 
     // Constructor from non-const iterator
-    const_iterator(const iterator& other) : iterator_base<const IDMapBase<T>*, const T&>(other.map_, other.it_) {}
+    const_iterator(const iterator& other)
+        : iterator_base<const IDMapBase<T>*, const T&>(other.map_, other.it_) {}
 
     // Dereference to get underlying data
-    const T& operator*() const { return this->map_->map_elements_[this->it_].value(); }
+    const T& operator*() const {
+      return this->map_->map_elements_[this->it_].value();
+    }
   };
 
   iterator begin() { return iterator(this, 0); }
   iterator end() { return iterator(this, map_elements_.size()); }
   const_iterator begin() const { return const_iterator(this, 0); }
-  const_iterator end() const { return const_iterator(this, map_elements_.size()); }
+  const_iterator end() const {
+    return const_iterator(this, map_elements_.size());
+  }
   const_iterator cbegin() const { return const_iterator(this, 0); }
-  const_iterator cend() const { return const_iterator(this, map_elements_.size()); }
+  const_iterator cend() const {
+    return const_iterator(this, map_elements_.size());
+  }
 
  protected:
   explicit IDMapBase(size_t size) : map_elements_(size) {
     // Limit map size
     if (size > 255) {
-      throw std::runtime_error("Too many elements in ID map. max supported size is 255");
+      throw std::runtime_error(
+          "Too many elements in ID map. max supported size is 255");
     }
     if (size < 2) {
       throw std::runtime_error("Initialized map with only one id!");

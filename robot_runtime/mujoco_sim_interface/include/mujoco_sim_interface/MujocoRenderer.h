@@ -61,11 +61,13 @@ class MujocoRenderer {
   void waitForInit() const;
 
  private:
-  /// These callbacks are required to be static by glfw3 and are hence not part of the visualizer class. They have access to the visualizer
-  /// through the window user pointer.
+  /// These callbacks are required to be static by glfw3 and are hence not part
+  /// of the visualizer class. They have access to the visualizer through the
+  /// window user pointer.
 
   // keyboard callback
-  static void keyboard(GLFWwindow* window, int key, int scancode, int act, int mods);
+  static void keyboard(
+      GLFWwindow* window, int key, int scancode, int act, int mods);
 
   // mouse button callback
   static void mouse_button(GLFWwindow* window, int button, int act, int mods);

@@ -64,13 +64,15 @@ TEST(TestGaitSwitchingTimeOptimization, DisabledConfig) {
   primalSolution.stateTrajectory_.resize(6, vector_t::Zero(12));
   primalSolution.inputTrajectory_.resize(6, vector_t::Zero(12));
 
-  const bool trajectoryOptimized = optimizer.optimizeEventTimes(primalSolution, schedule);
+  const bool trajectoryOptimized =
+      optimizer.optimizeEventTimes(primalSolution, schedule);
   EXPECT_FALSE(trajectoryOptimized);
   EXPECT_NEAR(schedule.eventTimes[0], kInitialEventTime1, kTolerance);
   EXPECT_NEAR(schedule.eventTimes[1], kInitialEventTime2, kTolerance);
 
   const contact_flag_t measuredContact = {true, true};
-  const bool feedbackAdapted = optimizer.adaptFromContactFeedback(measuredContact, 0.45, schedule);
+  const bool feedbackAdapted =
+      optimizer.adaptFromContactFeedback(measuredContact, 0.45, schedule);
   EXPECT_FALSE(feedbackAdapted);
   EXPECT_NEAR(schedule.eventTimes[0], kInitialEventTime1, kTolerance);
   EXPECT_NEAR(schedule.eventTimes[1], kInitialEventTime2, kTolerance);
@@ -85,8 +87,9 @@ TEST(TestGaitSwitchingTimeOptimization, EnforceDurationBounds) {
   settings.maxDoubleSupportDuration = kMaxDoubleSupport;
   GaitSwitchingTimeOptimizer optimizer(settings);
 
-  // Single support mode 1 (left swing) with duration 0.1s (too short, should be clamped to 0.25s)
-  // Double support mode 3 with duration 0.6s (too long, should be clamped to 0.20s)
+  // Single support mode 1 (left swing) with duration 0.1s (too short, should be
+  // clamped to 0.25s) Double support mode 3 with duration 0.6s (too long,
+  // should be clamped to 0.20s)
   ModeSchedule schedule({0.1, 0.7}, {1, 3, 1});
   optimizer.enforceDurationBounds(schedule);
 
@@ -117,7 +120,8 @@ TEST(TestGaitSwitchingTimeOptimization, EarlyTouchdownFeedback) {
   const scalar_t currentTime = 0.42;
   const contact_flag_t measuredContact = {true, true};
 
-  const bool adapted = optimizer.adaptFromContactFeedback(measuredContact, currentTime, schedule);
+  const bool adapted = optimizer.adaptFromContactFeedback(
+      measuredContact, currentTime, schedule);
   EXPECT_TRUE(adapted);
   // Event time should be moved earlier to currentTime (or bounded)
   EXPECT_LE(schedule.eventTimes[0], 0.45);
@@ -134,21 +138,27 @@ TEST(TestGaitSwitchingTimeOptimization, StatusOrSensitivityLookup) {
   primalSolution.inputTrajectory_.resize(6, vector_t::Zero(12));
 
   // Valid interior point
-  const absl::StatusOr<size_t> interiorIndexStatus = GaitSwitchingTimeOptimizer::findInteriorTimeIndex(primalSolution.timeTrajectory_, 0.4);
+  const absl::StatusOr<size_t> interiorIndexStatus =
+      GaitSwitchingTimeOptimizer::findInteriorTimeIndex(
+          primalSolution.timeTrajectory_, 0.4);
   ASSERT_TRUE(interiorIndexStatus.ok());
   EXPECT_EQ(interiorIndexStatus.value(), 2);
 
   // Out of range (boundary point 0.0 or outside horizon)
-  const absl::StatusOr<size_t> boundaryIndexStatus = GaitSwitchingTimeOptimizer::findInteriorTimeIndex(primalSolution.timeTrajectory_, 0.0);
+  const absl::StatusOr<size_t> boundaryIndexStatus =
+      GaitSwitchingTimeOptimizer::findInteriorTimeIndex(
+          primalSolution.timeTrajectory_, 0.0);
   EXPECT_FALSE(boundaryIndexStatus.ok());
   EXPECT_EQ(boundaryIndexStatus.status().code(), absl::StatusCode::kOutOfRange);
 
   // Sensitivity computation with valid interior point
-  const absl::StatusOr<scalar_t> sensitivityStatus = optimizer.computeSwitchingTimeSensitivity(0.4, 1, 3, primalSolution);
+  const absl::StatusOr<scalar_t> sensitivityStatus =
+      optimizer.computeSwitchingTimeSensitivity(0.4, 1, 3, primalSolution);
   EXPECT_TRUE(sensitivityStatus.ok());
 
   // Sensitivity computation with boundary point
-  const absl::StatusOr<scalar_t> invalidSensitivityStatus = optimizer.computeSwitchingTimeSensitivity(0.0, 1, 3, primalSolution);
+  const absl::StatusOr<scalar_t> invalidSensitivityStatus =
+      optimizer.computeSwitchingTimeSensitivity(0.0, 1, 3, primalSolution);
   EXPECT_FALSE(invalidSensitivityStatus.ok());
 }
 

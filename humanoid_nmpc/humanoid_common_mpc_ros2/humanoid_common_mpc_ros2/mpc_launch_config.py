@@ -18,7 +18,9 @@ def extract_constant_from_cpp(file_path, constant_name):
                     # Extracting the string between double quotes
                     string_parts = parts[1].split('"')
                     if len(string_parts) >= 2:
-                        return string_parts[1].strip()  # Remove whitespace if any
+                        return string_parts[
+                            1
+                        ].strip()  # Remove whitespace if any
     return None
 
 
@@ -39,14 +41,20 @@ class MPCLaunchConfig:
         self.solver = solver
         self.mpc_lib_pkg: str = mpc_lib_pkg
         self.mpc_lib_pkg_ros2: str = mpc_lib_pkg + "_ros2"
-        self.mpc_config_pkg_dir: str = get_package_share_directory(mpc_config_pkg)
+        self.mpc_config_pkg_dir: str = get_package_share_directory(
+            mpc_config_pkg
+        )
 
         self.common_mpc_dir = get_package_share_directory("humanoid_common_mpc")
         self.mpc_dir = get_package_share_directory(self.mpc_lib_pkg)
         self.mpc_ros2_dir = get_package_share_directory(self.mpc_lib_pkg_ros2)
 
-        self.urdf_path = get_package_share_directory(mpc_model_pkg) + urdf_rel_path
-        self.xml_path = get_package_share_directory(mpc_model_pkg) + xml_rel_path
+        self.urdf_path = (
+            get_package_share_directory(mpc_model_pkg) + urdf_rel_path
+        )
+        self.xml_path = (
+            get_package_share_directory(mpc_model_pkg) + xml_rel_path
+        )
 
         ### MPC Config ###
         default_mpc_config_path = os.path.join(
@@ -69,7 +77,9 @@ class MPCLaunchConfig:
 
         ### Termianl Prefix ###
         if enable_debug:
-            self.always_terminal_prefix = ["x-terminal-emulator -e gdb -ex run --args"]
+            self.always_terminal_prefix = [
+                "x-terminal-emulator -e gdb -ex run --args"
+            ]
             self.terminal_prefix = ["x-terminal-emulator -e gdb -ex run --args"]
         else:
             self.always_terminal_prefix = ["x-terminal-emulator -e"]

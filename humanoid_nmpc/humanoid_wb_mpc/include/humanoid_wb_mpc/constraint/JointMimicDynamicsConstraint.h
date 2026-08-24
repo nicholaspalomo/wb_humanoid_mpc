@@ -60,20 +60,27 @@ class JointMimicDynamicsConstraint final : public StateInputConstraint {
   /**
    * @param [in] contactPointIndex : The 3 DoF contact index.
    */
-  JointMimicDynamicsConstraint(const WBAccelMpcRobotModel<scalar_t>& mpcRobotModel, Config config);
+  JointMimicDynamicsConstraint(
+      const WBAccelMpcRobotModel<scalar_t>& mpcRobotModel, Config config);
 
   ~JointMimicDynamicsConstraint() override = default;
-  JointMimicDynamicsConstraint* clone() const override { return new JointMimicDynamicsConstraint(*this); }
+  JointMimicDynamicsConstraint* clone() const override {
+    return new JointMimicDynamicsConstraint(*this);
+  }
 
   bool isActive(scalar_t time) const override;
   void setActive(bool isActive) override { isActive_ = isActive; }
   bool getActive() const override { return isActive_; }
   size_t getNumConstraints(scalar_t time) const override { return 1; }
-  vector_t getValue(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) const override;
-  VectorFunctionLinearApproximation getLinearApproximation(scalar_t time,
-                                                           const vector_t& state,
-                                                           const vector_t& input,
-                                                           const PreComputation& preComp) const override;
+  vector_t getValue(scalar_t time,
+                    const vector_t& state,
+                    const vector_t& input,
+                    const PreComputation& preComp) const override;
+  VectorFunctionLinearApproximation getLinearApproximation(
+      scalar_t time,
+      const vector_t& state,
+      const vector_t& input,
+      const PreComputation& preComp) const override;
 
  private:
   JointMimicDynamicsConstraint(const JointMimicDynamicsConstraint& rhs);

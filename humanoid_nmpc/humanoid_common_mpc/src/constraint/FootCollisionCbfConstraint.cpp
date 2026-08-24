@@ -46,12 +46,13 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-FootCollisionCbfConstraint::FootCollisionCbfConstraint(const SwitchedModelReferenceManager& referenceManager,
-                                                       const PinocchioInterface& pinocchioInterface,
-                                                       const MpcRobotModelBase<ad_scalar_t>& mpcRobotModel,
-                                                       const Config& config,
-                                                       std::string costName,
-                                                       const ModelSettings& modelSettings)
+FootCollisionCbfConstraint::FootCollisionCbfConstraint(
+    const SwitchedModelReferenceManager& referenceManager,
+    const PinocchioInterface& pinocchioInterface,
+    const MpcRobotModelBase<ad_scalar_t>& mpcRobotModel,
+    const Config& config,
+    std::string costName,
+    const ModelSettings& modelSettings)
     : StateInputConstraintCppAd(ConstraintOrder::Linear),
       referenceManagerPtr_(&referenceManager),
       pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
@@ -69,7 +70,8 @@ FootCollisionCbfConstraint::FootCollisionCbfConstraint(const SwitchedModelRefere
   leftKneeId_ = model.getFrameId(cfg_.leftKneeFrame);
   rightKneeId_ = model.getFrameId(cfg_.rightKneeFrame);
 
-  initialize(mpcRobotModelPtr_->getStateDim(), mpcRobotModelPtr_->getInputDim(), 3, std::move(costName), modelSettings.modelFolderCppAd,
+  initialize(mpcRobotModelPtr_->getStateDim(), mpcRobotModelPtr_->getInputDim(),
+             3, std::move(costName), modelSettings.modelFolderCppAd,
              modelSettings.recompileLibrariesCppAd, modelSettings.verboseCppAd);
 }
 
@@ -77,7 +79,8 @@ FootCollisionCbfConstraint::FootCollisionCbfConstraint(const SwitchedModelRefere
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-FootCollisionCbfConstraint::FootCollisionCbfConstraint(const FootCollisionCbfConstraint& other)
+FootCollisionCbfConstraint::FootCollisionCbfConstraint(
+    const FootCollisionCbfConstraint& other)
     : StateInputConstraintCppAd(other),
       referenceManagerPtr_(other.referenceManagerPtr_),
       pinocchioInterfaceCppAd_(other.pinocchioInterfaceCppAd_),
@@ -103,7 +106,8 @@ FootCollisionCbfConstraint::FootCollisionCbfConstraint(const FootCollisionCbfCon
 bool FootCollisionCbfConstraint::isActive(scalar_t time) const {
   if (!isActive_) return false;
 
-  // Inactivate the constraint if both feet are in contact. Prevents it from fighting against the stance foot constraints.
+  // Inactivate the constraint if both feet are in contact. Prevents it from
+  // fighting against the stance foot constraints.
   auto contactFlags = referenceManagerPtr_->getContactFlags(time);
   return !(contactFlags[0] && contactFlags[1]);
 }
@@ -112,11 +116,13 @@ bool FootCollisionCbfConstraint::isActive(scalar_t time) const {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-ad_vector_t FootCollisionCbfConstraint::constraintFunction(ad_scalar_t time,
-                                                           const ad_vector_t& state,
-                                                           const ad_vector_t& input,
-                                                           const ad_vector_t& parameters) const {
-  const pinocchio::ReferenceFrame rf = pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED;
+ad_vector_t FootCollisionCbfConstraint::constraintFunction(
+    ad_scalar_t time,
+    const ad_vector_t& state,
+    const ad_vector_t& input,
+    const ad_vector_t& parameters) const {
+  const pinocchio::ReferenceFrame rf =
+      pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED;
 
   const auto& model = pinocchioInterfaceCppAd_.getModel();
   auto data = pinocchioInterfaceCppAd_.getData();
@@ -127,40 +133,64 @@ ad_vector_t FootCollisionCbfConstraint::constraintFunction(ad_scalar_t time,
   pinocchio::forwardKinematics(model, data, q, v);
 
   // Ankle collision points and velocities
-  ad_vector3_t pos_ankle_l = pinocchio::updateFramePlacement(model, data, leftAnkleId_).translation();
-  ad_vector3_t pos_ankle_r = pinocchio::updateFramePlacement(model, data, rightAnkleId_).translation();
-  ad_vector3_t vel_ankle_l = pinocchio::getFrameVelocity(model, data, leftAnkleId_, rf).linear();
-  ad_vector3_t vel_ankle_r = pinocchio::getFrameVelocity(model, data, rightAnkleId_, rf).linear();
+  ad_vector3_t pos_ankle_l =
+      pinocchio::updateFramePlacement(model, data, leftAnkleId_).translation();
+  ad_vector3_t pos_ankle_r =
+      pinocchio::updateFramePlacement(model, data, rightAnkleId_).translation();
+  ad_vector3_t vel_ankle_l =
+      pinocchio::getFrameVelocity(model, data, leftAnkleId_, rf).linear();
+  ad_vector3_t vel_ankle_r =
+      pinocchio::getFrameVelocity(model, data, rightAnkleId_, rf).linear();
 
   // Foot collision points and velocities
-  ad_vector3_t pos_f_l = pinocchio::updateFramePlacement(model, data, leftFootCenterId_).translation();
-  ad_vector3_t pos_f_r = pinocchio::updateFramePlacement(model, data, rightFootCenterId_).translation();
-  ad_vector3_t vel_f_l = pinocchio::getFrameVelocity(model, data, leftFootCenterId_, rf).linear();
-  ad_vector3_t vel_f_r = pinocchio::getFrameVelocity(model, data, rightFootCenterId_, rf).linear();
+  ad_vector3_t pos_f_l =
+      pinocchio::updateFramePlacement(model, data, leftFootCenterId_)
+          .translation();
+  ad_vector3_t pos_f_r =
+      pinocchio::updateFramePlacement(model, data, rightFootCenterId_)
+          .translation();
+  ad_vector3_t vel_f_l =
+      pinocchio::getFrameVelocity(model, data, leftFootCenterId_, rf).linear();
+  ad_vector3_t vel_f_r =
+      pinocchio::getFrameVelocity(model, data, rightFootCenterId_, rf).linear();
 
-  ad_vector3_t pos_f_l_p1 = pinocchio::updateFramePlacement(model, data, leftFoot1Id_).translation();
-  ad_vector3_t pos_f_r_p1 = pinocchio::updateFramePlacement(model, data, rightFoot1Id_).translation();
-  ad_vector3_t vel_f_l_p1 = pinocchio::getFrameVelocity(model, data, leftFoot1Id_, rf).linear();
-  ad_vector3_t vel_f_r_p1 = pinocchio::getFrameVelocity(model, data, rightFoot1Id_, rf).linear();
+  ad_vector3_t pos_f_l_p1 =
+      pinocchio::updateFramePlacement(model, data, leftFoot1Id_).translation();
+  ad_vector3_t pos_f_r_p1 =
+      pinocchio::updateFramePlacement(model, data, rightFoot1Id_).translation();
+  ad_vector3_t vel_f_l_p1 =
+      pinocchio::getFrameVelocity(model, data, leftFoot1Id_, rf).linear();
+  ad_vector3_t vel_f_r_p1 =
+      pinocchio::getFrameVelocity(model, data, rightFoot1Id_, rf).linear();
 
-  ad_vector3_t pos_f_l_p2 = pinocchio::updateFramePlacement(model, data, leftFoot2Id_).translation();
-  ad_vector3_t pos_f_r_p2 = pinocchio::updateFramePlacement(model, data, rightFoot2Id_).translation();
-  ad_vector3_t vel_f_l_p2 = pinocchio::getFrameVelocity(model, data, leftFoot2Id_, rf).linear();
-  ad_vector3_t vel_f_r_p2 = pinocchio::getFrameVelocity(model, data, rightFoot2Id_, rf).linear();
+  ad_vector3_t pos_f_l_p2 =
+      pinocchio::updateFramePlacement(model, data, leftFoot2Id_).translation();
+  ad_vector3_t pos_f_r_p2 =
+      pinocchio::updateFramePlacement(model, data, rightFoot2Id_).translation();
+  ad_vector3_t vel_f_l_p2 =
+      pinocchio::getFrameVelocity(model, data, leftFoot2Id_, rf).linear();
+  ad_vector3_t vel_f_r_p2 =
+      pinocchio::getFrameVelocity(model, data, rightFoot2Id_, rf).linear();
 
   // Knee collision points and velocities
-  ad_vector3_t pos_k_l = pinocchio::updateFramePlacement(model, data, leftKneeId_).translation();
-  ad_vector3_t pos_k_r = pinocchio::updateFramePlacement(model, data, rightKneeId_).translation();
-  ad_vector3_t vel_k_l = pinocchio::getFrameVelocity(model, data, leftKneeId_, rf).linear();
-  ad_vector3_t vel_k_r = pinocchio::getFrameVelocity(model, data, rightKneeId_, rf).linear();
+  ad_vector3_t pos_k_l =
+      pinocchio::updateFramePlacement(model, data, leftKneeId_).translation();
+  ad_vector3_t pos_k_r =
+      pinocchio::updateFramePlacement(model, data, rightKneeId_).translation();
+  ad_vector3_t vel_k_l =
+      pinocchio::getFrameVelocity(model, data, leftKneeId_, rf).linear();
+  ad_vector3_t vel_k_r =
+      pinocchio::getFrameVelocity(model, data, rightKneeId_, rf).linear();
 
   // Parameters: [footCollisionSphereRadius, kneeCollisionSphereRadius, gamma]
   ad_scalar_t minDistFootSq = 4.0 * parameters[0] * parameters[0];
   ad_scalar_t minDistKneeSq = 4.0 * parameters[1] * parameters[1];
   ad_scalar_t gamma = parameters[2];
 
-  auto computeCbfPair = [&](const ad_vector3_t& pos_A, const ad_vector3_t& vel_A, const ad_vector3_t& pos_B, const ad_vector3_t& vel_B,
-                            ad_scalar_t minDistanceSq) -> ad_scalar_t {
+  auto computeCbfPair =
+      [&](const ad_vector3_t& pos_A, const ad_vector3_t& vel_A,
+          const ad_vector3_t& pos_B, const ad_vector3_t& vel_B,
+          ad_scalar_t minDistanceSq) -> ad_scalar_t {
     ad_vector3_t diff_p = pos_A - pos_B;
     ad_vector3_t diff_v = vel_A - vel_B;
     ad_scalar_t distSq = diff_p.squaredNorm();
@@ -170,25 +200,41 @@ ad_vector_t FootCollisionCbfConstraint::constraintFunction(ad_scalar_t time,
   };
 
   ad_vector_t constraintValues(numConstraints_);
-  constraintValues[0] = computeCbfPair(pos_f_l_p1, vel_f_l_p1, pos_f_r_p1, vel_f_r_p1, minDistFootSq);
-  constraintValues[1] = computeCbfPair(pos_f_l_p1, vel_f_l_p1, pos_f_r_p2, vel_f_r_p2, minDistFootSq);
-  constraintValues[2] = computeCbfPair(pos_f_l_p2, vel_f_l_p2, pos_f_r_p1, vel_f_r_p1, minDistFootSq);
-  constraintValues[3] = computeCbfPair(pos_f_l_p2, vel_f_l_p2, pos_f_r_p2, vel_f_r_p2, minDistFootSq);
+  constraintValues[0] = computeCbfPair(pos_f_l_p1, vel_f_l_p1, pos_f_r_p1,
+                                       vel_f_r_p1, minDistFootSq);
+  constraintValues[1] = computeCbfPair(pos_f_l_p1, vel_f_l_p1, pos_f_r_p2,
+                                       vel_f_r_p2, minDistFootSq);
+  constraintValues[2] = computeCbfPair(pos_f_l_p2, vel_f_l_p2, pos_f_r_p1,
+                                       vel_f_r_p1, minDistFootSq);
+  constraintValues[3] = computeCbfPair(pos_f_l_p2, vel_f_l_p2, pos_f_r_p2,
+                                       vel_f_r_p2, minDistFootSq);
 
-  constraintValues[4] = computeCbfPair(pos_f_l, vel_f_l, pos_f_r_p1, vel_f_r_p1, minDistFootSq);
-  constraintValues[5] = computeCbfPair(pos_f_l, vel_f_l, pos_f_r_p2, vel_f_r_p2, minDistFootSq);
-  constraintValues[6] = computeCbfPair(pos_f_r, vel_f_r, pos_f_l_p1, vel_f_l_p1, minDistFootSq);
-  constraintValues[7] = computeCbfPair(pos_f_r, vel_f_r, pos_f_l_p2, vel_f_l_p2, minDistFootSq);
-  constraintValues[8] = computeCbfPair(pos_f_l, vel_f_l, pos_f_r, vel_f_r, minDistFootSq);
+  constraintValues[4] =
+      computeCbfPair(pos_f_l, vel_f_l, pos_f_r_p1, vel_f_r_p1, minDistFootSq);
+  constraintValues[5] =
+      computeCbfPair(pos_f_l, vel_f_l, pos_f_r_p2, vel_f_r_p2, minDistFootSq);
+  constraintValues[6] =
+      computeCbfPair(pos_f_r, vel_f_r, pos_f_l_p1, vel_f_l_p1, minDistFootSq);
+  constraintValues[7] =
+      computeCbfPair(pos_f_r, vel_f_r, pos_f_l_p2, vel_f_l_p2, minDistFootSq);
+  constraintValues[8] =
+      computeCbfPair(pos_f_l, vel_f_l, pos_f_r, vel_f_r, minDistFootSq);
 
-  constraintValues[9] = computeCbfPair(pos_k_l, vel_k_l, pos_k_r, vel_k_r, minDistKneeSq);
+  constraintValues[9] =
+      computeCbfPair(pos_k_l, vel_k_l, pos_k_r, vel_k_r, minDistKneeSq);
 
-  constraintValues[10] = computeCbfPair(pos_f_l, vel_f_l, pos_ankle_r, vel_ankle_r, minDistFootSq);
-  constraintValues[11] = computeCbfPair(pos_f_l_p1, vel_f_l_p1, pos_ankle_r, vel_ankle_r, minDistFootSq);
-  constraintValues[12] = computeCbfPair(pos_f_l_p2, vel_f_l_p2, pos_ankle_r, vel_ankle_r, minDistFootSq);
-  constraintValues[13] = computeCbfPair(pos_f_r, vel_f_r, pos_ankle_l, vel_ankle_l, minDistFootSq);
-  constraintValues[14] = computeCbfPair(pos_f_r_p1, vel_f_r_p1, pos_ankle_l, vel_ankle_l, minDistFootSq);
-  constraintValues[15] = computeCbfPair(pos_f_r_p2, vel_f_r_p2, pos_ankle_l, vel_ankle_l, minDistFootSq);
+  constraintValues[10] =
+      computeCbfPair(pos_f_l, vel_f_l, pos_ankle_r, vel_ankle_r, minDistFootSq);
+  constraintValues[11] = computeCbfPair(pos_f_l_p1, vel_f_l_p1, pos_ankle_r,
+                                        vel_ankle_r, minDistFootSq);
+  constraintValues[12] = computeCbfPair(pos_f_l_p2, vel_f_l_p2, pos_ankle_r,
+                                        vel_ankle_r, minDistFootSq);
+  constraintValues[13] =
+      computeCbfPair(pos_f_r, vel_f_r, pos_ankle_l, vel_ankle_l, minDistFootSq);
+  constraintValues[14] = computeCbfPair(pos_f_r_p1, vel_f_r_p1, pos_ankle_l,
+                                        vel_ankle_l, minDistFootSq);
+  constraintValues[15] = computeCbfPair(pos_f_r_p2, vel_f_r_p2, pos_ankle_l,
+                                        vel_ankle_l, minDistFootSq);
 
   return constraintValues;
 }
@@ -197,21 +243,34 @@ ad_vector_t FootCollisionCbfConstraint::constraintFunction(ad_scalar_t time,
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-FootCollisionCbfConstraint::Config FootCollisionCbfConstraint::loadFootCollisionCbfConstraintConfig(absl::string_view taskFile,
-                                                                                                    bool verbose) {
+FootCollisionCbfConstraint::Config
+FootCollisionCbfConstraint::loadFootCollisionCbfConstraintConfig(
+    absl::string_view taskFile, bool verbose) {
   loadData::PropertyTree pt;
   loadData::readPropertyTree(std::string(taskFile), pt);
   constexpr absl::string_view prefix = "collision_cbf_constraint.";
 
   Config collisionConfig;
 
-  loadData::loadPtreeValue(pt, collisionConfig.gamma, absl::StrCat(prefix, "gamma"), verbose);
-  loadData::loadPtreeValue(pt, collisionConfig.leftAnkleFrame, absl::StrCat(prefix, "foot.leftAnkleFrame"), verbose);
-  loadData::loadPtreeValue(pt, collisionConfig.rightAnkleFrame, absl::StrCat(prefix, "foot.rightAnkleFrame"), verbose);
-  loadData::loadPtreeValue(pt, collisionConfig.footCollisionSphereRadius, absl::StrCat(prefix, "foot.footCollisionSphereRadius"), verbose);
-  loadData::loadPtreeValue(pt, collisionConfig.leftKneeFrame, absl::StrCat(prefix, "knee.leftKneeFrame"), verbose);
-  loadData::loadPtreeValue(pt, collisionConfig.rightKneeFrame, absl::StrCat(prefix, "knee.rightKneeFrame"), verbose);
-  loadData::loadPtreeValue(pt, collisionConfig.kneeCollisionSphereRadius, absl::StrCat(prefix, "knee.kneeCollisionSphereRadius"), verbose);
+  loadData::loadPtreeValue(pt, collisionConfig.gamma,
+                           absl::StrCat(prefix, "gamma"), verbose);
+  loadData::loadPtreeValue(pt, collisionConfig.leftAnkleFrame,
+                           absl::StrCat(prefix, "foot.leftAnkleFrame"),
+                           verbose);
+  loadData::loadPtreeValue(pt, collisionConfig.rightAnkleFrame,
+                           absl::StrCat(prefix, "foot.rightAnkleFrame"),
+                           verbose);
+  loadData::loadPtreeValue(
+      pt, collisionConfig.footCollisionSphereRadius,
+      absl::StrCat(prefix, "foot.footCollisionSphereRadius"), verbose);
+  loadData::loadPtreeValue(pt, collisionConfig.leftKneeFrame,
+                           absl::StrCat(prefix, "knee.leftKneeFrame"), verbose);
+  loadData::loadPtreeValue(pt, collisionConfig.rightKneeFrame,
+                           absl::StrCat(prefix, "knee.rightKneeFrame"),
+                           verbose);
+  loadData::loadPtreeValue(
+      pt, collisionConfig.kneeCollisionSphereRadius,
+      absl::StrCat(prefix, "knee.kneeCollisionSphereRadius"), verbose);
 
   return collisionConfig;
 }

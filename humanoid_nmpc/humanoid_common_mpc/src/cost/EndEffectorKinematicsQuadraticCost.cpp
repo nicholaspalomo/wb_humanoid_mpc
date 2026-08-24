@@ -36,18 +36,20 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-EndEffectorKinematicsQuadraticCost::EndEffectorKinematicsQuadraticCost(EndEffectorKinematicsWeights weights,
-                                                                       const PinocchioInterface& pinocchioInterface,
-                                                                       const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
-                                                                       const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
-                                                                       std::string endEffectorName,
-                                                                       const ModelSettings& modelSettings)
+EndEffectorKinematicsQuadraticCost::EndEffectorKinematicsQuadraticCost(
+    EndEffectorKinematicsWeights weights,
+    const PinocchioInterface& pinocchioInterface,
+    const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
+    const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
+    std::string endEffectorName,
+    const ModelSettings& modelSettings)
     : StateInputCostGaussNewtonAd(),
       sqrtWeights_(weights.toVector().cwiseSqrt()),
       endEffectorKinematicsPtr_(endEffectorKinematics.clone()),
       pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
       mpcRobotModelADPtr(mpcRobotModelAD.clone()) {
-  std::cout << "Initialized EndEffectorKinematicsQuadraticCost with weights: " << weights.toVector().transpose() << std::endl;
+  std::cout << "Initialized EndEffectorKinematicsQuadraticCost with weights: "
+            << weights.toVector().transpose() << std::endl;
   std::cout << "Frame name: " << endEffectorName << std::endl;
   frameID_ = pinocchioInterface.getModel().getFrameId(endEffectorName);
   std::cout << "Frame ID: " << frameID_ << std::endl;
@@ -55,16 +57,19 @@ EndEffectorKinematicsQuadraticCost::EndEffectorKinematicsQuadraticCost(EndEffect
   std::cout << "Input dim: " << mpcRobotModelADPtr->getInputDim() << std::endl;
   std::cout << "Parameters dim: " << n_parameters_ << std::endl;
 
-  initialize(mpcRobotModelADPtr->getStateDim(), mpcRobotModelADPtr->getInputDim(), n_parameters_,
-             endEffectorName + "_KinematicsQuadraticCost", modelSettings.modelFolderCppAd, modelSettings.recompileLibrariesCppAd,
-             modelSettings.verboseCppAd);
+  initialize(mpcRobotModelADPtr->getStateDim(),
+             mpcRobotModelADPtr->getInputDim(), n_parameters_,
+             endEffectorName + "_KinematicsQuadraticCost",
+             modelSettings.modelFolderCppAd,
+             modelSettings.recompileLibrariesCppAd, modelSettings.verboseCppAd);
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-EndEffectorKinematicsQuadraticCost::EndEffectorKinematicsQuadraticCost(const EndEffectorKinematicsQuadraticCost& other)
+EndEffectorKinematicsQuadraticCost::EndEffectorKinematicsQuadraticCost(
+    const EndEffectorKinematicsQuadraticCost& other)
     : StateInputCostGaussNewtonAd(other),
       sqrtWeights_(other.sqrtWeights_),
       n_parameters_(other.n_parameters_),
@@ -77,15 +82,18 @@ EndEffectorKinematicsQuadraticCost::EndEffectorKinematicsQuadraticCost(const End
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-vector_t EndEffectorKinematicsQuadraticCost::getParameters(scalar_t time,
-                                                           const TargetTrajectories& targetTrajectories,
-                                                           const PreComputation& preComputation) const {
+vector_t EndEffectorKinematicsQuadraticCost::getParameters(
+    scalar_t time,
+    const TargetTrajectories& targetTrajectories,
+    const PreComputation& preComputation) const {
   // Interpolate reference
   const vector_t xRef = targetTrajectories.getDesiredState(time);
   const vector_t uRef = targetTrajectories.getDesiredInput(time);
 
   vector_t parameters(n_parameters_);
-  parameters << getReferenceCostElement(xRef, uRef, *endEffectorKinematicsPtr_).getValues(), sqrtWeights_;
+  parameters << getReferenceCostElement(xRef, uRef, *endEffectorKinematicsPtr_)
+                    .getValues(),
+      sqrtWeights_;
   return parameters;
 }
 
@@ -93,13 +101,18 @@ vector_t EndEffectorKinematicsQuadraticCost::getParameters(scalar_t time,
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-EndEffectorKinematicsCostElement<scalar_t> EndEffectorKinematicsQuadraticCost::getReferenceCostElement(
-    const vector_t& state, const vector_t& input, const EndEffectorKinematics<scalar_t>& endEffectorKinematics) {
+EndEffectorKinematicsCostElement<scalar_t>
+EndEffectorKinematicsQuadraticCost::getReferenceCostElement(
+    const vector_t& state,
+    const vector_t& input,
+    const EndEffectorKinematics<scalar_t>& endEffectorKinematics) {
   EndEffectorKinematicsCostElement<scalar_t> costElement;
   costElement.setPosition(endEffectorKinematics.getPosition(state)[0]);
   costElement.setOrientation(endEffectorKinematics.getOrientation(state)[0]);
-  costElement.setLinearVelocity(endEffectorKinematics.getVelocity(state, input)[0]);
-  costElement.setAngularVelocity(endEffectorKinematics.getAngularVelocity(state, input)[0]);
+  costElement.setLinearVelocity(
+      endEffectorKinematics.getVelocity(state, input)[0]);
+  costElement.setAngularVelocity(
+      endEffectorKinematics.getAngularVelocity(state, input)[0]);
   return costElement;
 }
 
@@ -107,32 +120,40 @@ EndEffectorKinematicsCostElement<scalar_t> EndEffectorKinematicsQuadraticCost::g
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-ad_vector_t EndEffectorKinematicsQuadraticCost::costVectorFunction(ad_scalar_t time,
-                                                                   const ad_vector_t& state,
-                                                                   const ad_vector_t& input,
-                                                                   const ad_vector_t& parameters) {
-  const pinocchio::ReferenceFrame rf = pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED;
+ad_vector_t EndEffectorKinematicsQuadraticCost::costVectorFunction(
+    ad_scalar_t time,
+    const ad_vector_t& state,
+    const ad_vector_t& input,
+    const ad_vector_t& parameters) {
+  const pinocchio::ReferenceFrame rf =
+      pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED;
 
   const auto& model = pinocchioInterfaceCppAd_.getModel();
   auto& data = pinocchioInterfaceCppAd_.getData();
 
   const ad_vector_t q = mpcRobotModelADPtr->getGeneralizedCoordinates(state);
-  const ad_vector_t v = mpcRobotModelADPtr->getGeneralizedVelocities(state, input);
+  const ad_vector_t v =
+      mpcRobotModelADPtr->getGeneralizedVelocities(state, input);
   pinocchio::forwardKinematics(model, data, q, v);
   auto frameData = pinocchio::updateFramePlacement(model, data, frameID_);
 
   // auto oMf = data.oMf;
   ad_vector_t position = frameData.translation();
-  ad_vector_t linearVelocity = pinocchio::getFrameVelocity(model, data, frameID_, rf).linear();
+  ad_vector_t linearVelocity =
+      pinocchio::getFrameVelocity(model, data, frameID_, rf).linear();
   ad_quaternion_t orientation = matrixToQuaternion(frameData.rotation());
-  ad_vector_t angularVelocity = pinocchio::getFrameVelocity(model, data, frameID_, rf).angular();
+  ad_vector_t angularVelocity =
+      pinocchio::getFrameVelocity(model, data, frameID_, rf).angular();
   ad_vector_t taskSpaceVec(13);
-  taskSpaceVec << position, orientation.coeffs(), linearVelocity, angularVelocity;
+  taskSpaceVec << position, orientation.coeffs(), linearVelocity,
+      angularVelocity;
   // ad_vector_t errors = ad_vector_t::Zero(12);
-  ad_vector_t errors = computeTaskSpaceErrors(EndEffectorKinematicsCostElement<ad_scalar_t>(taskSpaceVec),
-                                              EndEffectorKinematicsCostElement<ad_scalar_t>(parameters.head(13)));
+  ad_vector_t errors = computeTaskSpaceErrors(
+      EndEffectorKinematicsCostElement<ad_scalar_t>(taskSpaceVec),
+      EndEffectorKinematicsCostElement<ad_scalar_t>(parameters.head(13)));
 
-  const ad_vector_t sqrtWeightParams = parameters.segment<12>(13);  // EndEffectorKinematicsWeights vector element
+  const ad_vector_t sqrtWeightParams = parameters.segment<12>(
+      13);  // EndEffectorKinematicsWeights vector element
 
   return errors.cwiseProduct(sqrtWeightParams);
 }

@@ -46,8 +46,10 @@ constexpr int kNominalBaseHeight = 0.8415;
  * @brief This file contains Manu's personal pinocchio playground.
  */
 
-void testOrientationErrorWrtPlane(const PinocchioInterface* pinocchioInterfacePtr, Eigen::VectorXd q) {
-  const pinocchio::ReferenceFrame rf = pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED;
+void testOrientationErrorWrtPlane(
+    const PinocchioInterface* pinocchioInterfacePtr, Eigen::VectorXd q) {
+  const pinocchio::ReferenceFrame rf =
+      pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED;
 
   pinocchio::Model model = pinocchioInterfacePtr->getModel();
   pinocchio::Data data = pinocchioInterfacePtr->getData();
@@ -65,14 +67,18 @@ void testOrientationErrorWrtPlane(const PinocchioInterface* pinocchioInterfacePt
   // // Rotation matrix local end effector frame to world frame
   // matrix3_t R_w_l = data.oMf[frameId].rotation();
 
-  // // Passive rotation projecting from end effector frame to the closest frame in plane.
-  // // Computed through the shortest arc rotation  from the end effector z axis to the plane normal (both expressed in world frame).
-  // quaternion_t quaternion_correction = getQuaternionFromUnitVectors<scalar_t>(R_w_l * z_axis, planeNormal);
+  // // Passive rotation projecting from end effector frame to the closest frame
+  // in plane.
+  // // Computed through the shortest arc rotation  from the end effector z axis
+  // to the plane normal (both expressed in world frame). quaternion_t
+  // quaternion_correction = getQuaternionFromUnitVectors<scalar_t>(R_w_l *
+  // z_axis, planeNormal);
 
-  // std::cout << "quaternion_correction: " << quaternion_correction.coeffs() << std::endl;
+  // std::cout << "quaternion_correction: " << quaternion_correction.coeffs() <<
+  // std::endl;
 
-  // error = quaternionDistance(quaternion_correction, quaternion_t::Identity());
-  // std::cout << "error: " << error << std::endl;
+  // error = quaternionDistance(quaternion_correction,
+  // quaternion_t::Identity()); std::cout << "error: " << error << std::endl;
 }
 
 void printModelDimensionality(PinocchioInterface pin_interface) {
@@ -86,8 +92,10 @@ void printModelDimensionality(PinocchioInterface pin_interface) {
 
 void printJointNames(PinocchioInterface pin_interface) {
   pinocchio::Model model = pin_interface.getModel();
-  for (pinocchio::JointIndex joint_id = 0; joint_id < (pinocchio::JointIndex)model.njoints; ++joint_id)
-    std::cout << std::setw(24) << std::left << model.names[joint_id] << std::endl;
+  for (pinocchio::JointIndex joint_id = 0;
+       joint_id < (pinocchio::JointIndex)model.njoints; ++joint_id)
+    std::cout << std::setw(24) << std::left << model.names[joint_id]
+              << std::endl;
 }
 
 std::ostream& operator<<(std::ostream& os, const Eigen::Quaternion<double>& q) {
@@ -95,7 +103,9 @@ std::ostream& operator<<(std::ostream& os, const Eigen::Quaternion<double>& q) {
   return os;
 }
 
-void printFrameRotation(PinocchioInterface pin_interface, Eigen::VectorXd q, std::string& frameName) {
+void printFrameRotation(PinocchioInterface pin_interface,
+                        Eigen::VectorXd q,
+                        std::string& frameName) {
   pinocchio::Model model = pin_interface.getModel();
   pinocchio::Data data = pin_interface.getData();
 
@@ -103,19 +113,25 @@ void printFrameRotation(PinocchioInterface pin_interface, Eigen::VectorXd q, std
   pinocchio::forwardKinematics(model, data, q);
   pinocchio::updateFramePlacements(model, data);
 
-  pinocchio::FrameIndex frameID = pin_interface.getModel().getFrameId(frameName);
+  pinocchio::FrameIndex frameID =
+      pin_interface.getModel().getFrameId(frameName);
   // Print out the placement of each joint of the kinematic tree
   matrix3_t R_w_l = data.oMf[frameID].rotation();
   auto q_w_l = matrixToQuaternion(R_w_l);
-  auto translation = data.oMf[frameID].toHomogeneousMatrix_impl();  // translation from local into world frame
-  std::cout << "Orientation of frame: R local to world " << frameName << ": " << std::endl;
+  auto translation =
+      data.oMf[frameID].toHomogeneousMatrix_impl();  // translation from local
+                                                     // into world frame
+  std::cout << "Orientation of frame: R local to world " << frameName << ": "
+            << std::endl;
   std::cout << q_w_l << std::endl;
   std::cout << R_w_l << std::endl;
-  std::cout << "Translation from local to world frame " << frameName << ": " << std::endl;
+  std::cout << "Translation from local to world frame " << frameName << ": "
+            << std::endl;
   std::cout << translation << std::endl;
 }
 
-void computeForwardKinematics(PinocchioInterface pin_interface, Eigen::VectorXd q) {
+void computeForwardKinematics(PinocchioInterface pin_interface,
+                              Eigen::VectorXd q) {
   pinocchio::Model model = pin_interface.getModel();
   pinocchio::Data data = pin_interface.getData();
 
@@ -126,18 +142,27 @@ void computeForwardKinematics(PinocchioInterface pin_interface, Eigen::VectorXd 
   std::cout << "###########################################" << std::endl;
   std::cout << "############### Model Joints ##############" << std::endl;
   std::cout << "###########################################" << std::endl;
-  for (pinocchio::JointIndex joint_id = 0; joint_id < (pinocchio::JointIndex)model.njoints; ++joint_id)
-    std::cout << std::setw(5) << std::left << "ID: " << joint_id << ", " << model.names[joint_id] << ": " << std::fixed
-              << std::setprecision(5) << data.oMi[joint_id].translation().transpose() << std::endl;
+  for (pinocchio::JointIndex joint_id = 0;
+       joint_id < (pinocchio::JointIndex)model.njoints; ++joint_id)
+    std::cout << std::setw(5) << std::left << "ID: " << joint_id << ", "
+              << model.names[joint_id] << ": " << std::fixed
+              << std::setprecision(5)
+              << data.oMi[joint_id].translation().transpose() << std::endl;
   std::cout << "###########################################" << std::endl;
   std::cout << "############### Model Frames ##############" << std::endl;
   std::cout << "###########################################" << std::endl;
-  for (pinocchio::FrameIndex frame_id = 0; frame_id < (pinocchio::FrameIndex)model.nframes; ++frame_id)
-    std::cout << std::setw(10) << std::left << "ID: " << frame_id << ", name: " << model.frames[frame_id].name
-              << " : Pos: " << std::setprecision(5) << data.oMf[frame_id].translation().transpose() << std::endl;
+  for (pinocchio::FrameIndex frame_id = 0;
+       frame_id < (pinocchio::FrameIndex)model.nframes; ++frame_id)
+    std::cout << std::setw(10) << std::left << "ID: " << frame_id
+              << ", name: " << model.frames[frame_id].name
+              << " : Pos: " << std::setprecision(5)
+              << data.oMf[frame_id].translation().transpose() << std::endl;
 }
 
-void computeInverseDyanmics(PinocchioInterface pin_interface, Eigen::VectorXd q, Eigen::VectorXd dq, Eigen::VectorXd ddq) {
+void computeInverseDyanmics(PinocchioInterface pin_interface,
+                            Eigen::VectorXd q,
+                            Eigen::VectorXd dq,
+                            Eigen::VectorXd ddq) {
   pinocchio::Model model = pin_interface.getModel();
   pinocchio::Data data = pin_interface.getData();
 
@@ -151,10 +176,15 @@ int main(int argc, char** argv) {
 
   std::string urdfFile;
   try {
-    urdfFile = ament_index_cpp::get_package_share_directory(std::string(kRobotModelPackagePath)) +
-               std::filesystem::path::preferred_separator + std::string(kUrdfFileName);
+    urdfFile = ament_index_cpp::get_package_share_directory(
+                   std::string(kRobotModelPackagePath)) +
+               std::filesystem::path::preferred_separator +
+               std::string(kUrdfFileName);
   } catch (const std::exception& e) {
-    throw std::runtime_error("Failed to get package share directory: drc_atlas_description. Error: " + std::string(e.what()));
+    throw std::runtime_error(
+        "Failed to get package share directory: drc_atlas_description. "
+        "Error: " +
+        std::string(e.what()));
   }
 
   const std::string taskFile = dir + std::string(kTaskConfigPath);
@@ -181,7 +211,8 @@ int main(int argc, char** argv) {
   /// Test custom model
   ModelSettings modelSettings(taskFile, urdfFile, "test_pinocchio", "true");
 
-  pin_interface = createCustomPinocchioInterface(taskFile, urdfFile, modelSettings);
+  pin_interface =
+      createCustomPinocchioInterface(taskFile, urdfFile, modelSettings);
 
   std::cout << "Custom PinocchioInterface initialized " << std::endl;
 
@@ -201,7 +232,8 @@ int main(int argc, char** argv) {
 
   // /// Test custom model with mass scaling
 
-  // pin_interface = createCustomPinocchioInterface(taskFile, urdfFile, modelSettings, true, 44.44);
+  // pin_interface = createCustomPinocchioInterface(taskFile, urdfFile,
+  // modelSettings, true, 44.44);
 
   return 0;
 }

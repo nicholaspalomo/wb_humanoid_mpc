@@ -66,10 +66,14 @@ class KeyboardWalkingCommandPublisher(Node):
         )
 
         self.publisher_ = self.create_publisher(
-            WalkingVelocityCommand, "/humanoid/walking_velocity_command", qos_profile
+            WalkingVelocityCommand,
+            "/humanoid/walking_velocity_command",
+            qos_profile,
         )
         self.publisher_rate = 25  # Hz
-        self.timer = self.create_timer(1 / self.publisher_rate, self.timer_callback)
+        self.timer = self.create_timer(
+            1 / self.publisher_rate, self.timer_callback
+        )
 
         # Set up the terminal for non-blocking input
         self.old_settings = termios.tcgetattr(sys.stdin)

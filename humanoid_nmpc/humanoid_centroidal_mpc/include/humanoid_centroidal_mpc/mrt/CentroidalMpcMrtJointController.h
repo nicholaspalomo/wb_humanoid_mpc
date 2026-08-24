@@ -38,7 +38,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase {
+class CentroidalMpcMrtJointController final
+    : public ::robot::model::ControlBase {
  public:
   /**
    * Constructor.
@@ -47,13 +48,14 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
    * @param [in] topicPrefix: The robot's name.
    * @param [in] mpcDesiredFrequency: The max frequency to run the mpc at.
    */
-  CentroidalMpcMrtJointController(const ::robot::model::RobotDescription& robotDescription,
-                                  const ModelSettings& modelSettings,
-                                  const CentroidalMpcRobotModel<scalar_t>& mpcRobotModel,
-                                  MPC_BASE& mpc,
-                                  PinocchioInterface pinocchioInterface,
-                                  scalar_t mpcDesiredFrequency = -1,
-                                  std::shared_ptr<DummyObserver> rVizVisualizerPtr = nullptr);
+  CentroidalMpcMrtJointController(
+      const ::robot::model::RobotDescription& robotDescription,
+      const ModelSettings& modelSettings,
+      const CentroidalMpcRobotModel<scalar_t>& mpcRobotModel,
+      MPC_BASE& mpc,
+      PinocchioInterface pinocchioInterface,
+      scalar_t mpcDesiredFrequency = -1,
+      std::shared_ptr<DummyObserver> rVizVisualizerPtr = nullptr);
 
   /**
    * Destructor.
@@ -63,12 +65,14 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   bool ready() const { return mcpMrtInterface_.initialPolicyReceived(); }
 
   /**
-   * Handles the low level controller loop that updates the mpc observation, reads out the latest policy and sets the joint control action.
+   * Handles the low level controller loop that updates the mpc observation,
+   * reads out the latest policy and sets the joint control action.
    */
 
-  void computeJointControlAction(scalar_t time,
-                                 const ::robot::model::RobotState& robotState,
-                                 ::robot::model::RobotJointAction& robotJointAction) override;
+  void computeJointControlAction(
+      scalar_t time,
+      const ::robot::model::RobotState& robotState,
+      ::robot::model::RobotJointAction& robotJointAction) override;
 
   void startMpcThread(const ::robot::model::RobotState& initRobotState);
 
@@ -79,15 +83,18 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   void solverWorker();
 
   /**
-   * Method to convert the latest observation msg to a stable desired trajectory (current position, zero velocity and
-   * acceleration)
+   * Method to convert the latest observation msg to a stable desired trajectory
+   * (current position, zero velocity and acceleration)
    *
    * @param [in] msg: The observation message.
    */
-  TargetTrajectories currentObservationToResetTrajectory(const SystemObservation& currentMpcObservation);
+  TargetTrajectories currentObservationToResetTrajectory(
+      const SystemObservation& currentMpcObservation);
 
-  void updateMpcState(vector_t& mpcState, const ::robot::model::RobotState& robotState);
-  void updateMpcObservation(ocs2::SystemObservation& mpcObservation, const ::robot::model::RobotState& robotState);
+  void updateMpcState(vector_t& mpcState,
+                      const ::robot::model::RobotState& robotState);
+  void updateMpcObservation(ocs2::SystemObservation& mpcObservation,
+                            const ::robot::model::RobotState& robotState);
 
   MPC_MRT_Interface mcpMrtInterface_;
 

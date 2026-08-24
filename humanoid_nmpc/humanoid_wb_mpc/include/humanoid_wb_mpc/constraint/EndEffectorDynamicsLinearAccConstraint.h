@@ -39,10 +39,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Defines a linear constraint on an end-effector position (xee) and linear velocity (vee).
- * g(xee, vee, aee) = Ax * xee + Av * vee + Aa *aee + b
+ * Defines a linear constraint on an end-effector position (xee) and linear
+ * velocity (vee). g(xee, vee, aee) = Ax * xee + Av * vee + Aa *aee + b
  */
-class EndEffectorDynamicsLinearAccConstraint final : public StateInputConstraint {
+class EndEffectorDynamicsLinearAccConstraint final
+    : public StateInputConstraint {
  public:
   /**
    * Coefficients of the linear constraints of the form:
@@ -57,16 +58,21 @@ class EndEffectorDynamicsLinearAccConstraint final : public StateInputConstraint
 
   /**
    * Constructor
-   * @param [in] endEffectorKinematics: The kinematic interface to the target end-effector.
+   * @param [in] endEffectorKinematics: The kinematic interface to the target
+   * end-effector.
    * @param [in] numConstraints: The number of constraints {1, 2, 3}
-   * @param [in] config: The constraint coefficients, g(xee, vee, aee) = Ax * xee + Av * vee + Aa *aee + b
+   * @param [in] config: The constraint coefficients, g(xee, vee, aee) = Ax *
+   * xee + Av * vee + Aa *aee + b
    */
-  EndEffectorDynamicsLinearAccConstraint(const EndEffectorDynamics<scalar_t>& endEffectorDynamics,
-                                         size_t numConstraints,
-                                         Config config = Config());
+  EndEffectorDynamicsLinearAccConstraint(
+      const EndEffectorDynamics<scalar_t>& endEffectorDynamics,
+      size_t numConstraints,
+      Config config = Config());
 
   ~EndEffectorDynamicsLinearAccConstraint() override = default;
-  EndEffectorDynamicsLinearAccConstraint* clone() const override { return new EndEffectorDynamicsLinearAccConstraint(*this); }
+  EndEffectorDynamicsLinearAccConstraint* clone() const override {
+    return new EndEffectorDynamicsLinearAccConstraint(*this);
+  }
 
   /** Sets a new constraint coefficients. */
   void configure(Config&& config);
@@ -74,17 +80,26 @@ class EndEffectorDynamicsLinearAccConstraint final : public StateInputConstraint
   void configure(const Config& config) { this->configure(Config(config)); }
 
   /** Gets the underlying end-effector kinematics interface. */
-  EndEffectorDynamics<scalar_t>& getEndEffectorDynamics() { return *endEffectorDynamicsPtr_; }
+  EndEffectorDynamics<scalar_t>& getEndEffectorDynamics() {
+    return *endEffectorDynamicsPtr_;
+  }
 
-  size_t getNumConstraints(scalar_t time) const override { return numConstraints_; }
-  vector_t getValue(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) const override;
-  VectorFunctionLinearApproximation getLinearApproximation(scalar_t time,
-                                                           const vector_t& state,
-                                                           const vector_t& input,
-                                                           const PreComputation& preComp) const override;
+  size_t getNumConstraints(scalar_t time) const override {
+    return numConstraints_;
+  }
+  vector_t getValue(scalar_t time,
+                    const vector_t& state,
+                    const vector_t& input,
+                    const PreComputation& preComp) const override;
+  VectorFunctionLinearApproximation getLinearApproximation(
+      scalar_t time,
+      const vector_t& state,
+      const vector_t& input,
+      const PreComputation& preComp) const override;
 
  private:
-  EndEffectorDynamicsLinearAccConstraint(const EndEffectorDynamicsLinearAccConstraint& rhs);
+  EndEffectorDynamicsLinearAccConstraint(
+      const EndEffectorDynamicsLinearAccConstraint& rhs);
 
   std::unique_ptr<EndEffectorDynamics<scalar_t>> endEffectorDynamicsPtr_;
   const size_t numConstraints_;

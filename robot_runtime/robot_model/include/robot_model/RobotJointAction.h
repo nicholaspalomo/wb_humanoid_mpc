@@ -12,12 +12,15 @@ struct JointAction {
   scalar_t kd = 0;
   scalar_t feed_forward_effort = 0;
 
-  scalar_t getTotalFeedbackTorque(scalar_t q, scalar_t qd) const { return (kp * (q_des - q) + kd * (qd_des - qd) + feed_forward_effort); }
+  scalar_t getTotalFeedbackTorque(scalar_t q, scalar_t qd) const {
+    return (kp * (q_des - q) + kd * (qd_des - qd) + feed_forward_effort);
+  }
 };
 
 class RobotJointAction : public JointIdMap<JointAction> {
  public:
-  explicit RobotJointAction(const RobotDescription& robotDescription) : JointIdMap(robotDescription) {
+  explicit RobotJointAction(const RobotDescription& robotDescription)
+      : JointIdMap(robotDescription) {
     for (joint_index_t idx : robotDescription.getJointIndices()) {
       this->at(idx).emplace();
     }

@@ -35,10 +35,11 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-CentroidalDynamicsAD::CentroidalDynamicsAD(const PinocchioInterface& pinocchioInterface,
-                                           const CentroidalModelInfo& info,
-                                           const std::string& modelName,
-                                           const ModelSettings& modelSettings)
+CentroidalDynamicsAD::CentroidalDynamicsAD(
+    const PinocchioInterface& pinocchioInterface,
+    const CentroidalModelInfo& info,
+    const std::string& modelName,
+    const ModelSettings& modelSettings)
     : pinocchioCentroidalDynamicsAd_(pinocchioInterface,
                                      info,
                                      modelName,
@@ -49,18 +50,23 @@ CentroidalDynamicsAD::CentroidalDynamicsAD(const PinocchioInterface& pinocchioIn
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-vector_t CentroidalDynamicsAD::computeFlowMap(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) {
+vector_t CentroidalDynamicsAD::computeFlowMap(scalar_t time,
+                                              const vector_t& state,
+                                              const vector_t& input,
+                                              const PreComputation& preComp) {
   return pinocchioCentroidalDynamicsAd_.getValue(time, state, input);
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-VectorFunctionLinearApproximation CentroidalDynamicsAD::linearApproximation(scalar_t time,
-                                                                            const vector_t& state,
-                                                                            const vector_t& input,
-                                                                            const PreComputation& preComp) {
-  return pinocchioCentroidalDynamicsAd_.getLinearApproximation(time, state, input);
+VectorFunctionLinearApproximation CentroidalDynamicsAD::linearApproximation(
+    scalar_t time,
+    const vector_t& state,
+    const vector_t& input,
+    const PreComputation& preComp) {
+  return pinocchioCentroidalDynamicsAd_.getLinearApproximation(time, state,
+                                                               input);
 }
 
 }  // namespace ocs2::humanoid

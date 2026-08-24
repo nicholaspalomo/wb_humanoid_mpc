@@ -32,14 +32,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-DdpBenchmarksPublisher::DdpBenchmarksPublisher(rclcpp::Node::SharedPtr node, const ocs2::GaussNewtonDDP* ddpSolver)
+DdpBenchmarksPublisher::DdpBenchmarksPublisher(
+    rclcpp::Node::SharedPtr node, const ocs2::GaussNewtonDDP* ddpSolver)
     : ddpSolver_(ddpSolver) {
   rclcpp::QoS qos(1);
   qos.best_effort();
-  benchmarksPublisher_ = node->create_publisher<ocs2_ros2_msgs::msg::Benchmarks>("/humanoid/mpc_benchmarks", qos);
+  benchmarksPublisher_ =
+      node->create_publisher<ocs2_ros2_msgs::msg::Benchmarks>(
+          "/humanoid/mpc_benchmarks", qos);
 }
 
-void DdpBenchmarksPublisher::postSolverRun(const ocs2::PrimalSolution& primalSolution) {
+void DdpBenchmarksPublisher::postSolverRun(
+    const ocs2::PrimalSolution& primalSolution) {
   if (primalSolution.timeTrajectory_.size() == 0) return;
 
   const GaussNewtonDDP::Benchmarks benchmarks = ddpSolver_->getBenchmarks();
@@ -53,7 +57,8 @@ void DdpBenchmarksPublisher::postSolverRun(const ocs2::PrimalSolution& primalSol
     bmMsg.benchmarks.emplace_back(ibmMsg);
   };
   addBenchmark("initializationTime", benchmarks.initializationTime);
-  addBenchmark("linearQuadraticApproximationTime", benchmarks.linearQuadraticApproximationTime);
+  addBenchmark("linearQuadraticApproximationTime",
+               benchmarks.linearQuadraticApproximationTime);
   addBenchmark("backwardPassTime", benchmarks.backwardPassTime);
   addBenchmark("computeControllerTime", benchmarks.computeControllerTime);
   addBenchmark("searchStrategyTime", benchmarks.searchStrategyTime);

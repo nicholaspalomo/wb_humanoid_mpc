@@ -51,7 +51,10 @@ namespace ocs2::humanoid {
 class ProceduralMpcMotionManager : public SolverSynchronizedModule {
  public:
   using VelocityTargetToTargetTrajectories =
-      std::function<TargetTrajectories(const vector4_t& velocityTarget, scalar_t initTime, scalar_t finalTime, const vector_t& initState)>;
+      std::function<TargetTrajectories(const vector4_t& velocityTarget,
+                                       scalar_t initTime,
+                                       scalar_t finalTime,
+                                       const vector_t& initState)>;
 
   struct GaitModeStateConfig {
     std::string gaitCommand = "stance";
@@ -66,18 +69,25 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
   /**
    * Constructor
    *
-   * @param [in] gaitFile: The file path that contains the different gait patterns.
-   * @param [in] referenceFile: The file path containing the default references and velocity limits.
-   * @param [in] velocityTargetToTargetTrajectories: A function which transforms the commanded velocities to TargetTrajectories.
-   * @param [in] switchedModelReferenceManagerPtr: A pointer to the switched model reference manager used to update gait and references
+   * @param [in] gaitFile: The file path that contains the different gait
+   * patterns.
+   * @param [in] referenceFile: The file path containing the default references
+   * and velocity limits.
+   * @param [in] velocityTargetToTargetTrajectories: A function which transforms
+   * the commanded velocities to TargetTrajectories.
+   * @param [in] switchedModelReferenceManagerPtr: A pointer to the switched
+   * model reference manager used to update gait and references
    */
-  ProceduralMpcMotionManager(const std::string& gaitFile,
-                             const std::string& referenceFile,
-                             std::shared_ptr<SwitchedModelReferenceManager> switchedModelReferenceManagerPtr,
-                             const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                             VelocityTargetToTargetTrajectories velocityTargetToTargetTrajectories);
+  ProceduralMpcMotionManager(
+      const std::string& gaitFile,
+      const std::string& referenceFile,
+      std::shared_ptr<SwitchedModelReferenceManager>
+          switchedModelReferenceManagerPtr,
+      const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+      VelocityTargetToTargetTrajectories velocityTargetToTargetTrajectories);
 
-  ProceduralMpcMotionManager(const ProceduralMpcMotionManager& mpcMotionManager) = delete;
+  ProceduralMpcMotionManager(
+      const ProceduralMpcMotionManager& mpcMotionManager) = delete;
 
   /**
    * Method called right before the solver runs
@@ -85,7 +95,8 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
    * @param initTime : start time of the MPC horizon
    * @param finalTime : Final time of the MPC horizon
    * @param initState : State at the start of the MPC horizon
-   * @param referenceManager : The ReferenceManager which manages both ModeSchedule and TargetTrajectories.
+   * @param referenceManager : The ReferenceManager which manages both
+   * ModeSchedule and TargetTrajectories.
    */
   void preSolverRun(scalar_t initTime,
                     scalar_t finalTime,
@@ -99,11 +110,16 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
    */
   void postSolverRun(const PrimalSolution& primalSolution) override {};
 
-  virtual void setAndScaleVelocityCommand(const WalkingVelocityCommand& rawVelocityCommand);
+  virtual void setAndScaleVelocityCommand(
+      const WalkingVelocityCommand& rawVelocityCommand);
 
-  static bool transitionToFasterGait(const vector4_t& velCommandVec, const vector6_t& baseVelocity, const GaitModeStateConfig& cfg);
+  static bool transitionToFasterGait(const vector4_t& velCommandVec,
+                                     const vector6_t& baseVelocity,
+                                     const GaitModeStateConfig& cfg);
 
-  static bool transitionToSlowerGait(const vector4_t& velCommandVec, const vector6_t& baseVelocity, const GaitModeStateConfig& cfg);
+  static bool transitionToSlowerGait(const vector4_t& velCommandVec,
+                                     const vector6_t& baseVelocity,
+                                     const GaitModeStateConfig& cfg);
 
  protected:
   // clang-format off
@@ -119,11 +135,15 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
 
   size_t currentGaitMode_{0};
 
-  virtual WalkingVelocityCommand getScaledWalkingVelocityCommand() { return velocityCommand_; }
+  virtual WalkingVelocityCommand getScaledWalkingVelocityCommand() {
+    return velocityCommand_;
+  }
 
-  WalkingVelocityCommand scaleWalkingVelocityCommand(const WalkingVelocityCommand& rawVelocityCommand) const;
+  WalkingVelocityCommand scaleWalkingVelocityCommand(
+      const WalkingVelocityCommand& rawVelocityCommand) const;
 
-  std::shared_ptr<SwitchedModelReferenceManager> switchedModelReferenceManagerPtr_;
+  std::shared_ptr<SwitchedModelReferenceManager>
+      switchedModelReferenceManagerPtr_;
   std::shared_ptr<GaitSchedule> gaitSchedulePtr_;
   const MpcRobotModelBase<scalar_t>* mpcRobotModelPtr_;
 

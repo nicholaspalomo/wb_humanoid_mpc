@@ -61,19 +61,22 @@ class FootCollisionConstraint final : public StateConstraintCppAd {
 
     /**
      * Foot collision sphere 1 (anterior / front offset near toe):
-     * Offset along +x of the foot polygon (x_max * 0.6) from the contact center.
+     * Offset along +x of the foot polygon (x_max * 0.6) from the contact
+     * center.
      */
     std::string leftFootFrame1{"foot_l_contact_collision_p_1"};
     std::string rightFootFrame1{"foot_r_contact_collision_p_1"};
 
     /**
      * Foot collision sphere 2 (posterior / rear offset near heel):
-     * Offset along -x of the foot polygon (x_min * 0.6) from the contact center.
+     * Offset along -x of the foot polygon (x_min * 0.6) from the contact
+     * center.
      */
     std::string leftFootFrame2{"foot_l_contact_collision_p_2"};
     std::string rightFootFrame2{"foot_r_contact_collision_p_2"};
 
-    /// Radius of the collision spheres centered at ankle, foot center, foot1 (front/toe), and foot2 (rear/heel)
+    /// Radius of the collision spheres centered at ankle, foot center, foot1
+    /// (front/toe), and foot2 (rear/heel)
     scalar_t footCollisionSphereRadius;
 
     // Knee joint frames
@@ -91,34 +94,45 @@ class FootCollisionConstraint final : public StateConstraintCppAd {
                           const ModelSettings& modelSettings);
 
   ~FootCollisionConstraint() override = default;
-  FootCollisionConstraint* clone() const override { return new FootCollisionConstraint(*this); }
+  FootCollisionConstraint* clone() const override {
+    return new FootCollisionConstraint(*this);
+  }
 
   bool isActive(scalar_t time) const override;
   bool getActive() const { return isActive_; }
   void setActive(bool active) { isActive_ = active; }
 
-  size_t getNumConstraints(scalar_t time) const override { return numConstraints_; };
+  size_t getNumConstraints(scalar_t time) const override {
+    return numConstraints_;
+  };
 
-  vector_t getParameters(scalar_t time, const PreComputation& preComputation) const override {
+  vector_t getParameters(scalar_t time,
+                         const PreComputation& preComputation) const override {
     vector_t parameters(2);
-    parameters << cfg_.footCollisionSphereRadius, cfg_.kneeCollisionSphereRadius;
+    parameters << cfg_.footCollisionSphereRadius,
+        cfg_.kneeCollisionSphereRadius;
     return parameters;
   };
 
-  void setSphereRadii(scalar_t footCollisionSphereRadius, scalar_t kneeCollisionSphereRadius) {
+  void setSphereRadii(scalar_t footCollisionSphereRadius,
+                      scalar_t kneeCollisionSphereRadius) {
     cfg_.footCollisionSphereRadius = footCollisionSphereRadius;
     cfg_.kneeCollisionSphereRadius = kneeCollisionSphereRadius;
   }
 
-  void getSphereRadii(scalar_t& footCollisionSphereRadius, scalar_t& kneeCollisionSphereRadius) const {
+  void getSphereRadii(scalar_t& footCollisionSphereRadius,
+                      scalar_t& kneeCollisionSphereRadius) const {
     footCollisionSphereRadius = cfg_.footCollisionSphereRadius;
     kneeCollisionSphereRadius = cfg_.kneeCollisionSphereRadius;
   }
 
-  static Config loadFootCollisionConstraintConfig(const std::string taskFile, bool verbose = false);
+  static Config loadFootCollisionConstraintConfig(const std::string taskFile,
+                                                  bool verbose = false);
 
  private:
-  ad_vector_t constraintFunction(ad_scalar_t time, const ad_vector_t& state, const ad_vector_t& parameters) const override;
+  ad_vector_t constraintFunction(ad_scalar_t time,
+                                 const ad_vector_t& state,
+                                 const ad_vector_t& parameters) const override;
 
   FootCollisionConstraint(const FootCollisionConstraint& other);
 

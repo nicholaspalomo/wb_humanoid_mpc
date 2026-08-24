@@ -37,13 +37,17 @@ namespace ocs2::humanoid {
 
 class EndEffectorFootGainsUpdater : public GainsUpdaterInterface {
  public:
-  EndEffectorFootGainsUpdater(std::shared_ptr<GenericGuiInterface> gui) : GainsUpdaterInterface(gui) {}
+  EndEffectorFootGainsUpdater(std::shared_ptr<GenericGuiInterface> gui)
+      : GainsUpdaterInterface(gui) {}
   ~EndEffectorFootGainsUpdater() override = default;
 
-  bool initialize(ocs2::OptimalControlProblem& optimalControlProblem, const std::string& description) override {
+  bool initialize(ocs2::OptimalControlProblem& optimalControlProblem,
+                  const std::string& description) override {
     try {
       auto& generic = optimalControlProblem.costPtr->get(description);
-      auto& custom = dynamic_cast<ocs2::humanoid::CentroidalMpcEndEffectorFootCost&>(generic);
+      auto& custom =
+          dynamic_cast<ocs2::humanoid::CentroidalMpcEndEffectorFootCost&>(
+              generic);
 
       name_ = description;
       component_ = &custom;
@@ -68,16 +72,20 @@ class EndEffectorFootGainsUpdater : public GainsUpdaterInterface {
       component_->getWeights(weights);
 
       // Get descriptions
-      static const auto& descriptions = ocs2::humanoid::EndEffectorKinematicsWeights::getDescriptions();
+      static const auto& descriptions =
+          ocs2::humanoid::EndEffectorKinematicsWeights::getDescriptions();
       if (descriptions.size() != weights.size()) {
-        throw std::runtime_error("[EndEffectorKinematicsGainsUpdater] Invalid number of descriptions!");
+        throw std::runtime_error(
+            "[EndEffectorKinematicsGainsUpdater] Invalid number of "
+            "descriptions!");
       }
 
       // Draw gui
       if (gui_->Checkbox("Active", &active)) hasBeenTriggered = true;
       if (active) {
         for (auto i = 0; i < weights.size(); i++) {
-          if (gui_->InputDouble(descriptions.at(i).c_str(), &weights(i))) hasBeenTriggered = true;
+          if (gui_->InputDouble(descriptions.at(i).c_str(), &weights(i)))
+            hasBeenTriggered = true;
         }
       }
 
@@ -105,9 +113,11 @@ class EndEffectorFootGainsUpdater : public GainsUpdaterInterface {
     data.insert(data.end(), weights.data(), weights.data() + weights.size());
   }
 
-  void setFromMessage(const ocs2_ros2_msgs::msg::IndividualGains& gains) override {
+  void setFromMessage(
+      const ocs2_ros2_msgs::msg::IndividualGains& gains) override {
     if (gains.name != name_ || gains.values.size() != 12) {
-      throw std::runtime_error("[EndEffectorFootGainsUpdater] Invalid message received!");
+      throw std::runtime_error(
+          "[EndEffectorFootGainsUpdater] Invalid message received!");
     }
 
     component_->setActive(gains.is_active);

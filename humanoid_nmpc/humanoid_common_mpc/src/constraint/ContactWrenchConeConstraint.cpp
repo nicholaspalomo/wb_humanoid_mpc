@@ -60,12 +60,13 @@ static constexpr scalar_t kHalf = 0.5;
 
 }  // namespace
 
-ContactWrenchConeConstraint::ContactWrenchConeConstraint(const SwitchedModelReferenceManager& referenceManager,
-                                                         const ContactRectangle& contactRectangle,
-                                                         size_t contactPointIndex,
-                                                         const PinocchioInterface& pinocchioInterface,
-                                                         const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                                                         Config config)
+ContactWrenchConeConstraint::ContactWrenchConeConstraint(
+    const SwitchedModelReferenceManager& referenceManager,
+    const ContactRectangle& contactRectangle,
+    size_t contactPointIndex,
+    const PinocchioInterface& pinocchioInterface,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+    Config config)
     : StateInputConstraint(ConstraintOrder::Linear),
       referenceManagerPtr_(&referenceManager),
       pinocchioInterfacePtr_(&pinocchioInterface),
@@ -76,7 +77,8 @@ ContactWrenchConeConstraint::ContactWrenchConeConstraint(const SwitchedModelRefe
   initializeLocalConstraintMatrix();
 }
 
-ContactWrenchConeConstraint::ContactWrenchConeConstraint(const ContactWrenchConeConstraint& other)
+ContactWrenchConeConstraint::ContactWrenchConeConstraint(
+    const ContactWrenchConeConstraint& other)
     : StateInputConstraint(other),
       referenceManagerPtr_(other.referenceManagerPtr_),
       pinocchioInterfacePtr_(other.pinocchioInterfacePtr_),
@@ -104,12 +106,14 @@ void ContactWrenchConeConstraint::initializeLocalConstraintMatrix() {
   b_local_ = vector_t::Zero(numConstraints_);
 
   size_t constraintIdx = 0;
-  const scalar_t effectiveGripperNormal = config_.frictionCoefficient * config_.gripperForce;
+  const scalar_t effectiveGripperNormal =
+      config_.frictionCoefficient * config_.gripperForce;
 
   // 1. Friction cone approximation with numBasisVectors basis vectors:
   // mu * (Fz + F_grip) - (cos(theta_k) * Fx + sin(theta_k) * Fy) >= 0
   const size_t numBasisVectors = config_.numBasisVectors;
-  const scalar_t angleStep = 2.0 * M_PI / static_cast<scalar_t>(numBasisVectors);
+  const scalar_t angleStep =
+      2.0 * M_PI / static_cast<scalar_t>(numBasisVectors);
   for (size_t k = 0; k < numBasisVectors; ++k) {
     const scalar_t theta_k = k * angleStep;
     const scalar_t cos_k = std::cos(theta_k);
@@ -126,7 +130,8 @@ void ContactWrenchConeConstraint::initializeLocalConstraintMatrix() {
   b_local_(constraintIdx) = -config_.minNormalForce;
   constraintIdx++;
 
-  // 3. Center of Pressure (CoP) / Moment constraints (Bounds relative to local foot contact frame)
+  // 3. Center of Pressure (CoP) / Moment constraints (Bounds relative to local
+  // foot contact frame)
   const PolygonBounds& bounds = contactRectangle_.getBounds();
   // tau_x - y_min * Fz >= 0
   A_f_local_(constraintIdx, kForceZIdx) = -bounds.y_min;
@@ -151,15 +156,18 @@ void ContactWrenchConeConstraint::initializeLocalConstraintMatrix() {
   // 4. Torsional yaw friction moment about the contact patch center
   vector3_t offset;
   if (config_.patchOffset.isZero(kPatchOffsetZeroThreshold)) {
-    offset = vector3_t(kHalf * (bounds.x_min + bounds.x_max), kHalf * (bounds.y_min + bounds.y_max), 0.0);
+    offset = vector3_t(kHalf * (bounds.x_min + bounds.x_max),
+                       kHalf * (bounds.y_min + bounds.y_max), 0.0);
   } else {
     offset = config_.patchOffset;
   }
 
-  const scalar_t effectiveTorsionalGripper = config_.torsionalFrictionCoefficient * config_.gripperForce;
+  const scalar_t effectiveTorsionalGripper =
+      config_.torsionalFrictionCoefficient * config_.gripperForce;
 
   // mu_torsion * (Fz + F_grip) + tau_patch_z >= 0
-  // tau_patch_z = tau_z - (offset.x * Fy - offset.y * Fx) = offset.y * Fx - offset.x * Fy + tau_z
+  // tau_patch_z = tau_z - (offset.x * Fy - offset.y * Fx) = offset.y * Fx -
+  // offset.x * Fy + tau_z
   A_f_local_(constraintIdx, kForceXIdx) = offset.y();
   A_f_local_(constraintIdx, kForceYIdx) = -offset.x();
   A_f_local_(constraintIdx, kForceZIdx) = config_.torsionalFrictionCoefficient;
@@ -177,20 +185,25 @@ void ContactWrenchConeConstraint::initializeLocalConstraintMatrix() {
   constraintIdx++;
 }
 
-vector_t ContactWrenchConeConstraint::getValue(scalar_t time,
-                                               const vector_t& state,
-                                               const vector_t& input,
-                                               const PreComputation& preComp) const {
+vector_t ContactWrenchConeConstraint::getValue(
+    scalar_t time,
+    const vector_t& state,
+    const vector_t& input,
+    const PreComputation& preComp) const {
   const pinocchio::Model& model = pinocchioInterfacePtr_->getModel();
   pinocchio::Data data = pinocchioInterfacePtr_->getData();
-  updateFramePlacements(mpcRobotModelPtr_->getGeneralizedCoordinates(state), model, data);
-  const pinocchio::FrameIndex frameID = getContactFrameIndex(*pinocchioInterfacePtr_, *mpcRobotModelPtr_, contactPointIndex_);
+  updateFramePlacements(mpcRobotModelPtr_->getGeneralizedCoordinates(state),
+                        model, data);
+  const pinocchio::FrameIndex frameID = getContactFrameIndex(
+      *pinocchioInterfacePtr_, *mpcRobotModelPtr_, contactPointIndex_);
 
   const matrix3_t w_R_l = getRotationMatrixLocalToWorld(data, frameID);
   const matrix3_t l_R_w = w_R_l.transpose();
 
-  const vector3_t forceInWorld = mpcRobotModelPtr_->getContactForce(input, contactPointIndex_);
-  const vector3_t momentInWorld = mpcRobotModelPtr_->getContactMoment(input, contactPointIndex_);
+  const vector3_t forceInWorld =
+      mpcRobotModelPtr_->getContactForce(input, contactPointIndex_);
+  const vector3_t momentInWorld =
+      mpcRobotModelPtr_->getContactMoment(input, contactPointIndex_);
 
   const vector3_t forceInLocal = l_R_w * forceInWorld;
   const vector3_t momentInLocal = l_R_w * momentInWorld;
@@ -198,14 +211,18 @@ vector_t ContactWrenchConeConstraint::getValue(scalar_t time,
   return A_f_local_ * forceInLocal + A_tau_local_ * momentInLocal + b_local_;
 }
 
-VectorFunctionLinearApproximation ContactWrenchConeConstraint::getLinearApproximation(scalar_t time,
-                                                                                      const vector_t& state,
-                                                                                      const vector_t& input,
-                                                                                      const PreComputation& preComp) const {
+VectorFunctionLinearApproximation
+ContactWrenchConeConstraint::getLinearApproximation(
+    scalar_t time,
+    const vector_t& state,
+    const vector_t& input,
+    const PreComputation& preComp) const {
   const pinocchio::Model& model = pinocchioInterfacePtr_->getModel();
   pinocchio::Data data = pinocchioInterfacePtr_->getData();
-  updateFramePlacements(mpcRobotModelPtr_->getGeneralizedCoordinates(state), model, data);
-  const pinocchio::FrameIndex frameID = getContactFrameIndex(*pinocchioInterfacePtr_, *mpcRobotModelPtr_, contactPointIndex_);
+  updateFramePlacements(mpcRobotModelPtr_->getGeneralizedCoordinates(state),
+                        model, data);
+  const pinocchio::FrameIndex frameID = getContactFrameIndex(
+      *pinocchioInterfacePtr_, *mpcRobotModelPtr_, contactPointIndex_);
 
   const matrix3_t w_R_l = getRotationMatrixLocalToWorld(data, frameID);
   const matrix3_t l_R_w = w_R_l.transpose();
@@ -213,35 +230,53 @@ VectorFunctionLinearApproximation ContactWrenchConeConstraint::getLinearApproxim
   const matrix_t A_f_world = A_f_local_ * l_R_w;
   const matrix_t A_tau_world = A_tau_local_ * l_R_w;
 
-  const vector3_t forceInWorld = mpcRobotModelPtr_->getContactForce(input, contactPointIndex_);
-  const vector3_t momentInWorld = mpcRobotModelPtr_->getContactMoment(input, contactPointIndex_);
+  const vector3_t forceInWorld =
+      mpcRobotModelPtr_->getContactForce(input, contactPointIndex_);
+  const vector3_t momentInWorld =
+      mpcRobotModelPtr_->getContactMoment(input, contactPointIndex_);
 
   VectorFunctionLinearApproximation linearApproximation;
-  linearApproximation.f = A_f_world * forceInWorld + A_tau_world * momentInWorld + b_local_;
-  linearApproximation.dfdx = matrix_t::Zero(numConstraints_, mpcRobotModelPtr_->getStateDim());
-  linearApproximation.dfdu = matrix_t::Zero(numConstraints_, mpcRobotModelPtr_->getInputDim());
+  linearApproximation.f =
+      A_f_world * forceInWorld + A_tau_world * momentInWorld + b_local_;
+  linearApproximation.dfdx =
+      matrix_t::Zero(numConstraints_, mpcRobotModelPtr_->getStateDim());
+  linearApproximation.dfdu =
+      matrix_t::Zero(numConstraints_, mpcRobotModelPtr_->getInputDim());
 
-  const size_t forceStartIdx = mpcRobotModelPtr_->getContactForceStartIndices(contactPointIndex_);
-  const size_t momentStartIdx = mpcRobotModelPtr_->getContactMomentStartIndices(contactPointIndex_);
+  const size_t forceStartIdx =
+      mpcRobotModelPtr_->getContactForceStartIndices(contactPointIndex_);
+  const size_t momentStartIdx =
+      mpcRobotModelPtr_->getContactMomentStartIndices(contactPointIndex_);
 
-  linearApproximation.dfdu.block(0, forceStartIdx, numConstraints_, kWrenchForceDim) = A_f_world;
-  linearApproximation.dfdu.block(0, momentStartIdx, numConstraints_, kWrenchMomentDim) = A_tau_world;
+  linearApproximation.dfdu.block(0, forceStartIdx, numConstraints_,
+                                 kWrenchForceDim) = A_f_world;
+  linearApproximation.dfdu.block(0, momentStartIdx, numConstraints_,
+                                 kWrenchMomentDim) = A_tau_world;
 
   return linearApproximation;
 }
 
-VectorFunctionQuadraticApproximation ContactWrenchConeConstraint::getQuadraticApproximation(scalar_t time,
-                                                                                            const vector_t& state,
-                                                                                            const vector_t& input,
-                                                                                            const PreComputation& preComp) const {
-  const VectorFunctionLinearApproximation linearApprox = getLinearApproximation(time, state, input, preComp);
+VectorFunctionQuadraticApproximation
+ContactWrenchConeConstraint::getQuadraticApproximation(
+    scalar_t time,
+    const vector_t& state,
+    const vector_t& input,
+    const PreComputation& preComp) const {
+  const VectorFunctionLinearApproximation linearApprox =
+      getLinearApproximation(time, state, input, preComp);
   VectorFunctionQuadraticApproximation quadraticApproximation;
   quadraticApproximation.f = linearApprox.f;
   quadraticApproximation.dfdx = linearApprox.dfdx;
   quadraticApproximation.dfdu = linearApprox.dfdu;
-  quadraticApproximation.dfdxx.resize(numConstraints_, matrix_t::Zero(mpcRobotModelPtr_->getStateDim(), mpcRobotModelPtr_->getStateDim()));
-  quadraticApproximation.dfduu.resize(numConstraints_, matrix_t::Zero(mpcRobotModelPtr_->getInputDim(), mpcRobotModelPtr_->getInputDim()));
-  quadraticApproximation.dfdux.resize(numConstraints_, matrix_t::Zero(mpcRobotModelPtr_->getInputDim(), mpcRobotModelPtr_->getStateDim()));
+  quadraticApproximation.dfdxx.resize(
+      numConstraints_, matrix_t::Zero(mpcRobotModelPtr_->getStateDim(),
+                                      mpcRobotModelPtr_->getStateDim()));
+  quadraticApproximation.dfduu.resize(
+      numConstraints_, matrix_t::Zero(mpcRobotModelPtr_->getInputDim(),
+                                      mpcRobotModelPtr_->getInputDim()));
+  quadraticApproximation.dfdux.resize(
+      numConstraints_, matrix_t::Zero(mpcRobotModelPtr_->getInputDim(),
+                                      mpcRobotModelPtr_->getStateDim()));
   return quadraticApproximation;
 }
 

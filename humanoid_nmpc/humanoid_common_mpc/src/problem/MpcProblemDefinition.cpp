@@ -44,18 +44,23 @@ namespace ocs2::humanoid {
 
 namespace {
 
-inline constexpr absl::string_view kDefaultPenaltyType = "RelaxedBarrierPenalty";
+inline constexpr absl::string_view kDefaultPenaltyType =
+    "RelaxedBarrierPenalty";
 inline constexpr absl::string_view kCostsSection = "costs";
 inline constexpr absl::string_view kTerminalCostsSection = "terminal_costs";
-inline constexpr absl::string_view kStateSoftConstraintsSection = "state_soft_constraints";
+inline constexpr absl::string_view kStateSoftConstraintsSection =
+    "state_soft_constraints";
 inline constexpr absl::string_view kSoftConstraintsSection = "soft_constraints";
-inline constexpr absl::string_view kEqualityConstraintsSection = "equality_constraints";
+inline constexpr absl::string_view kEqualityConstraintsSection =
+    "equality_constraints";
 
-absl::StatusOr<std::vector<ProblemTermConfig>> parseSection(const loadData::PropertyTree& parentTree,
-                                                            absl::string_view sectionName,
-                                                            bool verbose) {
+absl::StatusOr<std::vector<ProblemTermConfig>> parseSection(
+    const loadData::PropertyTree& parentTree,
+    absl::string_view sectionName,
+    bool verbose) {
   std::vector<ProblemTermConfig> terms;
-  const auto optionalSection = parentTree.get_child_optional(std::string(sectionName));
+  const auto optionalSection =
+      parentTree.get_child_optional(std::string(sectionName));
   if (!optionalSection.has_value()) {
     return terms;
   }
@@ -73,19 +78,23 @@ absl::StatusOr<std::vector<ProblemTermConfig>> parseSection(const loadData::Prop
     }
 
     if (termTree.count("type") == 0) {
-      return absl::InvalidArgumentError(
-          absl::StrFormat("Section '%s', term '%s' is missing required 'type' attribute.", sectionName, term.name));
+      return absl::InvalidArgumentError(absl::StrFormat(
+          "Section '%s', term '%s' is missing required 'type' attribute.",
+          sectionName, term.name));
     }
     term.type = termTree.get<std::string>("type");
     term.configPath = termTree.get<std::string>("config_path", "");
-    term.penaltyType = termTree.get<std::string>("penalty", std::string(kDefaultPenaltyType));
+    term.penaltyType =
+        termTree.get<std::string>("penalty", std::string(kDefaultPenaltyType));
     term.perContact = termTree.get<bool>("per_contact", false);
     term.enabled = termTree.get<bool>("enabled", true);
 
     if (verbose) {
-      std::cout << absl::StrFormat(" [MpcProblemDefinition]   - %s (%s): type=%s, enabled=%s, perContact=%s, configPath=%s\n", sectionName,
-                                   term.name, term.type, term.enabled ? "true" : "false", term.perContact ? "true" : "false",
-                                   term.configPath);
+      std::cout << absl::StrFormat(
+          " [MpcProblemDefinition]   - %s (%s): type=%s, enabled=%s, "
+          "perContact=%s, configPath=%s\n",
+          sectionName, term.name, term.type, term.enabled ? "true" : "false",
+          term.perContact ? "true" : "false", term.configPath);
     }
 
     terms.push_back(std::move(term));
@@ -96,59 +105,69 @@ absl::StatusOr<std::vector<ProblemTermConfig>> parseSection(const loadData::Prop
 
 }  // namespace
 
-absl::StatusOr<MpcProblemDefinition> loadMpcProblemDefinition(absl::string_view filename, absl::string_view fieldName, bool verbose) {
+absl::StatusOr<MpcProblemDefinition> loadMpcProblemDefinition(
+    absl::string_view filename, absl::string_view fieldName, bool verbose) {
   loadData::PropertyTree pt;
   const std::string filenameStr(filename);
   try {
     loadData::readPropertyTree(filenameStr, pt);
   } catch (const std::exception& e) {
-    return absl::NotFoundError(absl::StrFormat("Failed to read property tree from '%s': %s", filename, e.what()));
+    return absl::NotFoundError(absl::StrFormat(
+        "Failed to read property tree from '%s': %s", filename, e.what()));
   }
 
   const auto problemDefOptional = pt.get_child_optional(std::string(fieldName));
   if (!problemDefOptional.has_value()) {
-    return absl::NotFoundError(absl::StrFormat("Field '%s' not found in file '%s'.", fieldName, filename));
+    return absl::NotFoundError(absl::StrFormat(
+        "Field '%s' not found in file '%s'.", fieldName, filename));
   }
 
   if (verbose) {
-    std::cout << absl::StrFormat("\n #### Loading MpcProblemDefinition from '%s' [%s] ####\n", filename, fieldName);
+    std::cout << absl::StrFormat(
+        "\n #### Loading MpcProblemDefinition from '%s' [%s] ####\n", filename,
+        fieldName);
   }
 
   const loadData::PropertyTree& problemTree = problemDefOptional.value();
   MpcProblemDefinition problemDefinition;
 
   // 1. Costs
-  const absl::StatusOr<std::vector<ProblemTermConfig>> costsStatus = parseSection(problemTree, kCostsSection, verbose);
+  const absl::StatusOr<std::vector<ProblemTermConfig>> costsStatus =
+      parseSection(problemTree, kCostsSection, verbose);
   if (!costsStatus.ok()) {
     return costsStatus.status();
   }
   problemDefinition.costs = costsStatus.value();
 
   // 2. Terminal Costs
-  const absl::StatusOr<std::vector<ProblemTermConfig>> terminalCostsStatus = parseSection(problemTree, kTerminalCostsSection, verbose);
+  const absl::StatusOr<std::vector<ProblemTermConfig>> terminalCostsStatus =
+      parseSection(problemTree, kTerminalCostsSection, verbose);
   if (!terminalCostsStatus.ok()) {
     return terminalCostsStatus.status();
   }
   problemDefinition.terminalCosts = terminalCostsStatus.value();
 
   // 3. State Soft Constraints
-  const absl::StatusOr<std::vector<ProblemTermConfig>> stateSoftConstraintsStatus =
-      parseSection(problemTree, kStateSoftConstraintsSection, verbose);
+  const absl::StatusOr<std::vector<ProblemTermConfig>>
+      stateSoftConstraintsStatus =
+          parseSection(problemTree, kStateSoftConstraintsSection, verbose);
   if (!stateSoftConstraintsStatus.ok()) {
     return stateSoftConstraintsStatus.status();
   }
   problemDefinition.stateSoftConstraints = stateSoftConstraintsStatus.value();
 
   // 4. Soft Constraints (State-Input)
-  const absl::StatusOr<std::vector<ProblemTermConfig>> softConstraintsStatus = parseSection(problemTree, kSoftConstraintsSection, verbose);
+  const absl::StatusOr<std::vector<ProblemTermConfig>> softConstraintsStatus =
+      parseSection(problemTree, kSoftConstraintsSection, verbose);
   if (!softConstraintsStatus.ok()) {
     return softConstraintsStatus.status();
   }
   problemDefinition.softConstraints = softConstraintsStatus.value();
 
   // 5. Equality Constraints
-  const absl::StatusOr<std::vector<ProblemTermConfig>> equalityConstraintsStatus =
-      parseSection(problemTree, kEqualityConstraintsSection, verbose);
+  const absl::StatusOr<std::vector<ProblemTermConfig>>
+      equalityConstraintsStatus =
+          parseSection(problemTree, kEqualityConstraintsSection, verbose);
   if (!equalityConstraintsStatus.ok()) {
     return equalityConstraintsStatus.status();
   }

@@ -66,7 +66,11 @@ EXACT_FILES = {
 def should_skip(path):
     rel = os.path.relpath(path, REPO_ROOT)
     for exc in EXCLUDE_DIRS:
-        if rel == exc or rel.startswith(exc + os.sep) or (os.sep + exc + os.sep) in rel:
+        if (
+            rel == exc
+            or rel.startswith(exc + os.sep)
+            or (os.sep + exc + os.sep) in rel
+        ):
             return True
     return False
 
@@ -134,7 +138,7 @@ def main():
     if py_files:
         try:
             subprocess.run(
-                ["black", "--quiet"] + py_files,
+                ["black", "--line-length", "80", "--quiet"] + py_files,
                 check=False,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,

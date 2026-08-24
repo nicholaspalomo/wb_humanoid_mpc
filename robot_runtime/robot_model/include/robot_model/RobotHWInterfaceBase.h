@@ -19,19 +19,25 @@ class RobotHWInterfaceBase {
         threadSafeRobotState_(robotState_),
         threadSafeRobotJointAction_(robotJointAction_) {}
 
-  const model::RobotDescription& getRobotDescription() const { return robotDescription_; }
+  const model::RobotDescription& getRobotDescription() const {
+    return robotDescription_;
+  }
 
   // Get Access to a read only version of the robot state
   const RobotState& getRobotState() const { return robotState_; }
 
   // Update the internal robot state
-  void updateInterfaceStateFromRobot() { threadSafeRobotState_.copy_value(robotState_); }
+  void updateInterfaceStateFromRobot() {
+    threadSafeRobotState_.copy_value(robotState_);
+  }
 
   // Get a reference to fill in the updated joint control action
   RobotJointAction& getRobotJointAction() { return robotJointAction_; }
 
   // Send the new action to the robot.
-  void applyJointAction() { threadSafeRobotJointAction_.set(robotJointAction_); }
+  void applyJointAction() {
+    threadSafeRobotJointAction_.set(robotJointAction_);
+  }
 
  private:
   const RobotDescription robotDescription_;

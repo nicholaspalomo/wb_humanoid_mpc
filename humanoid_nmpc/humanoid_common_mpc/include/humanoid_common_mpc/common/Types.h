@@ -97,7 +97,9 @@ using feet_array_t = std::array<T, N_CONTACTS>;
 template <typename T>
 using feet_vec_t = std::vector<T>;
 
-using contact_flag_t = feet_array_t<bool>;  // describes which feet are in contacts [left_contact, right_contact]
+using contact_flag_t =
+    feet_array_t<bool>;  // describes which feet are in contacts [left_contact,
+                         // right_contact]
 
 constexpr size_t CONTACT_WRENCH_DIM = 6;
 

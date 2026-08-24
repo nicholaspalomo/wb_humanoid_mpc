@@ -41,7 +41,9 @@ class MpcObservationLogger(Node):
     def __init__(self):
         super().__init__("mpc_observation_subscriber")
         print("Setting up MPC observation logger...")
-        qos_profile = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, depth=10)
+        qos_profile = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT, depth=10
+        )
 
         self.subscription = self.create_subscription(
             MpcObservation,
@@ -154,12 +156,16 @@ class MpcObservationLogger(Node):
         mpc_obs_arr = np.append(mpc_obs_arr, msg.input.value)
         mpc_obs_arr = np.append(mpc_obs_arr, np.zeros(7))
         mpc_obs_arr = np.append(mpc_obs_arr, msg.time)
-        new_df = pd.DataFrame(mpc_obs_arr.reshape(1, -1), columns=self.logger_cols)
+        new_df = pd.DataFrame(
+            mpc_obs_arr.reshape(1, -1), columns=self.logger_cols
+        )
         self.data_df = pd.concat([self.data_df, new_df], ignore_index=True)
 
     def save_log(self):
         log_name = (
-            "mpc_observation_" + datetime.now().strftime("%Y%m%d_%H%M%S") + ".csv"
+            "mpc_observation_"
+            + datetime.now().strftime("%Y%m%d_%H%M%S")
+            + ".csv"
         )
         print("Saving log:", log_name)
         self.data_df.to_csv(log_name, index=False)

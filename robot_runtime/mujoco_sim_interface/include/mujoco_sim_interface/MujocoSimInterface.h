@@ -64,7 +64,8 @@ struct MujocoSimConfig {
 
 class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
  public:
-  MujocoSimInterface(const MujocoSimConfig& config, const std::string& urdfPath);
+  MujocoSimInterface(const MujocoSimConfig& config,
+                     const std::string& urdfPath);
 
   /** Destructor */
   ~MujocoSimInterface();
@@ -78,7 +79,8 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   // Todo Manu also reset environment
   void reset();
 
-  // Allows the renderer to make a thread safe copy of the state at it's own frequency.
+  // Allows the renderer to make a thread safe copy of the state at it's own
+  // frequency.
   void copyMjState(MjState& state) const;
 
   const mjModel* getModel() const { return mujocoModel_; }
@@ -101,7 +103,8 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   MujocoSimConfig config_;
 
   model::RobotState robotStateInternal_;
-  mjtNum* qpos_init_;  // position                                         (nq x 1)
+  mjtNum*
+      qpos_init_;  // position                                         (nq x 1)
   mjtNum* qvel_init_;
   model::RobotJointAction robotJointActionInternal_;
 
@@ -125,7 +128,8 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   std::atomic<bool> terminate_{false};
   std::atomic<bool> guiInitialized_{false};
 
-  mutable std::mutex mujocoMutex_;  // Used to access mujoco model and data accross simulation and render threads.
+  mutable std::mutex mujocoMutex_;  // Used to access mujoco model and data
+                                    // accross simulation and render threads.
   std::thread simulate_thread_;
   std::unique_ptr<MujocoRenderer> renderer_;
 

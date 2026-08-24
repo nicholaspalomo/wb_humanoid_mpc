@@ -85,23 +85,33 @@ CentroidalMpcInterface::CentroidalMpcInterface(const std::string& taskFile,
   // check that task file exists
   std::filesystem::path taskFilePath(taskFile);
   if (std::filesystem::exists(taskFilePath)) {
-    std::cerr << "[CentroidalMpcInterface] Loading task file: " << taskFilePath << std::endl;
+    std::cerr << "[CentroidalMpcInterface] Loading task file: " << taskFilePath
+              << std::endl;
   } else {
-    throw std::invalid_argument(absl::StrCat("[CentroidalMpcInterface] Task file not found: ", taskFilePath.string()));
+    throw std::invalid_argument(
+        absl::StrCat("[CentroidalMpcInterface] Task file not found: ",
+                     taskFilePath.string()));
   }
   // check that urdf file exists
   std::filesystem::path urdfFilePath(urdfFile);
   if (std::filesystem::exists(urdfFilePath)) {
-    std::cerr << "[CentroidalMpcInterface] Loading Pinocchio model from: " << urdfFilePath << std::endl;
+    std::cerr << "[CentroidalMpcInterface] Loading Pinocchio model from: "
+              << urdfFilePath << std::endl;
   } else {
-    throw std::invalid_argument(absl::StrCat("[CentroidalMpcInterface] URDF file not found: ", urdfFilePath.string()));
+    throw std::invalid_argument(
+        absl::StrCat("[CentroidalMpcInterface] URDF file not found: ",
+                     urdfFilePath.string()));
   }
   // check that targetCommand file exists
   std::filesystem::path referenceFilePath(referenceFile);
   if (std::filesystem::exists(referenceFilePath)) {
-    std::cerr << "[CentroidalMpcInterface] Loading target command settings from: " << referenceFilePath << std::endl;
+    std::cerr
+        << "[CentroidalMpcInterface] Loading target command settings from: "
+        << referenceFilePath << std::endl;
   } else {
-    throw std::invalid_argument(absl::StrCat("[CentroidalMpcInterface] targetCommand file not found: ", referenceFilePath.string()));
+    throw std::invalid_argument(
+        absl::StrCat("[CentroidalMpcInterface] targetCommand file not found: ",
+                     referenceFilePath.string()));
   }
 
   loadData::loadCppDataType(taskFile, "interface.verbose", verbose_);
@@ -113,35 +123,49 @@ CentroidalMpcInterface::CentroidalMpcInterface(const std::string& taskFile,
   sqpSettings_ = sqp::loadSettings(taskFile, "multiple_shooting", verbose_);
 
   // PinocchioInterface
-  pinocchioInterfacePtr_.reset(new PinocchioInterface(createCustomPinocchioInterface(taskFile, urdfFile, modelSettings_, false)));
+  pinocchioInterfacePtr_.reset(
+      new PinocchioInterface(createCustomPinocchioInterface(
+          taskFile, urdfFile, modelSettings_, false)));
 
   // CentroidalModelInfo
   centroidalModelInfo_ = centroidal_model::createCentroidalModelInfo(
       *pinocchioInterfacePtr_, centroidal_model::loadCentroidalType(taskFile),
-      centroidal_model::loadDefaultJointState(pinocchioInterfacePtr_->getModel().nq - 6, referenceFile), modelSettings_.contactNames3DoF,
-      modelSettings_.contactNames6DoF);
+      centroidal_model::loadDefaultJointState(
+          pinocchioInterfacePtr_->getModel().nq - 6, referenceFile),
+      modelSettings_.contactNames3DoF, modelSettings_.contactNames6DoF);
 
-  std::cout << "centroidalModelInfo_.numSixDofContacts: " << centroidalModelInfo_.numSixDofContacts << std::endl;
+  std::cout << "centroidalModelInfo_.numSixDofContacts: "
+            << centroidalModelInfo_.numSixDofContacts << std::endl;
   for (int i = 0; i < centroidalModelInfo_.numSixDofContacts; i++) {
-    std::cout << "frameIndices: " << centroidalModelInfo_.endEffectorFrameIndices[i] << std::endl;
+    std::cout << "frameIndices: "
+              << centroidalModelInfo_.endEffectorFrameIndices[i] << std::endl;
   }
 
   // Setup Centroidal State Input Mapping
-  mpcRobotModelPtr_.reset(new CentroidalMpcRobotModel<scalar_t>(modelSettings_, *pinocchioInterfacePtr_, centroidalModelInfo_));
-  mpcRobotModelADPtr_.reset(
-      new CentroidalMpcRobotModel<ad_scalar_t>(modelSettings_, (*pinocchioInterfacePtr_).toCppAd(), centroidalModelInfo_.toCppAd()));
+  mpcRobotModelPtr_.reset(new CentroidalMpcRobotModel<scalar_t>(
+      modelSettings_, *pinocchioInterfacePtr_, centroidalModelInfo_));
+  mpcRobotModelADPtr_.reset(new CentroidalMpcRobotModel<ad_scalar_t>(
+      modelSettings_, (*pinocchioInterfacePtr_).toCppAd(),
+      centroidalModelInfo_.toCppAd()));
 
   // Swing trajectory planner
   std::unique_ptr<SwingTrajectoryPlanner> swingTrajectoryPlanner(
-      new SwingTrajectoryPlanner(loadSwingTrajectorySettings(taskFile, "swing_trajectory_config", verbose_), N_CONTACTS));
+      new SwingTrajectoryPlanner(
+          loadSwingTrajectorySettings(taskFile, "swing_trajectory_config",
+                                      verbose_),
+          N_CONTACTS));
 
-  const absl::StatusOr<GaitOptimizationSettings> gaitOptimizationSettingsStatus =
-      loadGaitOptimizationSettings(taskFile, "gait_optimization", verbose_);
+  const absl::StatusOr<GaitOptimizationSettings>
+      gaitOptimizationSettingsStatus =
+          loadGaitOptimizationSettings(taskFile, "gait_optimization", verbose_);
   const GaitOptimizationSettings gaitOptimizationSettings =
-      gaitOptimizationSettingsStatus.ok() ? gaitOptimizationSettingsStatus.value() : GaitOptimizationSettings();
+      gaitOptimizationSettingsStatus.ok()
+          ? gaitOptimizationSettingsStatus.value()
+          : GaitOptimizationSettings();
 
   referenceManagerPtr_ = std::make_shared<SwitchedModelReferenceManager>(
-      GaitSchedule::loadGaitSchedule(referenceFile, modelSettings_, verbose_), std::move(swingTrajectoryPlanner), *pinocchioInterfacePtr_,
+      GaitSchedule::loadGaitSchedule(referenceFile, modelSettings_, verbose_),
+      std::move(swingTrajectoryPlanner), *pinocchioInterfacePtr_,
       *mpcRobotModelPtr_, gaitOptimizationSettings);
   referenceManagerPtr_->setArmSwingReferenceActive(true);
 
@@ -159,8 +183,9 @@ CentroidalMpcInterface::CentroidalMpcInterface(const std::string& taskFile,
 /******************************************************************************************************/
 
 void CentroidalMpcInterface::setupOptimalControlProblem() {
-  const HumanoidCostConstraintFactory factory(taskFile_, referenceFile_, *referenceManagerPtr_, *pinocchioInterfacePtr_, *mpcRobotModelPtr_,
-                                              *mpcRobotModelADPtr_, modelSettings_, verbose_);
+  const HumanoidCostConstraintFactory factory(
+      taskFile_, referenceFile_, *referenceManagerPtr_, *pinocchioInterfacePtr_,
+      *mpcRobotModelPtr_, *mpcRobotModelADPtr_, modelSettings_, verbose_);
 
   // Optimal control problem
   problemPtr_.reset(new OptimalControlProblem);
@@ -168,105 +193,139 @@ void CentroidalMpcInterface::setupOptimalControlProblem() {
   // Dynamics
   std::unique_ptr<SystemDynamicsBase> dynamicsPtr;
   const std::string modelName = "dynamics";
-  dynamicsPtr.reset(new CentroidalDynamicsAD(*pinocchioInterfacePtr_, centroidalModelInfo_, modelName, modelSettings_));
+  dynamicsPtr.reset(new CentroidalDynamicsAD(*pinocchioInterfacePtr_,
+                                             centroidalModelInfo_, modelName,
+                                             modelSettings_));
   problemPtr_->dynamicsPtr = std::move(dynamicsPtr);
 
   const auto infoCppAd = centroidalModelInfo_.toCppAd();
   const CentroidalModelPinocchioMappingCppAd pinocchioMappingCppAd(infoCppAd);
 
-  auto velocityUpdateCallback = [&infoCppAd](const ad_vector_t& state, PinocchioInterfaceCppAd& pinocchioInterfaceAd) {
-    const ad_vector_t q = centroidal_model::getGeneralizedCoordinates(state, infoCppAd);
-    updateCentroidalDynamics(pinocchioInterfaceAd, infoCppAd, q);
-  };
+  auto velocityUpdateCallback =
+      [&infoCppAd](const ad_vector_t& state,
+                   PinocchioInterfaceCppAd& pinocchioInterfaceAd) {
+        const ad_vector_t q =
+            centroidal_model::getGeneralizedCoordinates(state, infoCppAd);
+        updateCentroidalDynamics(pinocchioInterfaceAd, infoCppAd, q);
+      };
 
   const EndEffectorKinematicsWeights footTrackingCostWeights =
-      EndEffectorKinematicsWeights::getWeights(taskFile_, "task_space_foot_cost_weights.", verbose_);
+      EndEffectorKinematicsWeights::getWeights(
+          taskFile_, "task_space_foot_cost_weights.", verbose_);
 
   // Cache EE kinematics per foot
-  std::vector<std::shared_ptr<EndEffectorKinematics<scalar_t>>> eeKinematicsList(N_CONTACTS);
+  std::vector<std::shared_ptr<EndEffectorKinematics<scalar_t>>>
+      eeKinematicsList(N_CONTACTS);
   for (size_t i = 0; i < N_CONTACTS; ++i) {
     const absl::string_view footName = modelSettings_.contactNames[i];
     eeKinematicsList[i] = std::make_shared<PinocchioEndEffectorKinematicsCppAd>(
-        *pinocchioInterfacePtr_, pinocchioMappingCppAd, std::vector<std::string>{std::string(footName)}, centroidalModelInfo_.stateDim,
-        centroidalModelInfo_.inputDim, velocityUpdateCallback, std::string(footName), modelSettings_.modelFolderCppAd,
-        modelSettings_.recompileLibrariesCppAd, modelSettings_.verboseCppAd);
+        *pinocchioInterfacePtr_, pinocchioMappingCppAd,
+        std::vector<std::string>{std::string(footName)},
+        centroidalModelInfo_.stateDim, centroidalModelInfo_.inputDim,
+        velocityUpdateCallback, std::string(footName),
+        modelSettings_.modelFolderCppAd, modelSettings_.recompileLibrariesCppAd,
+        modelSettings_.verboseCppAd);
   }
 
   // Define custom builders
   MpcProblemBuilder::CustomBuilders customBuilders;
-  customBuilders.footTrackingCostBuilder =
-      [this, &footTrackingCostWeights](size_t contactIndex, absl::string_view name) -> absl::StatusOr<std::unique_ptr<StateInputCost>> {
-    return std::unique_ptr<StateInputCost>(new CentroidalMpcEndEffectorFootCost(*referenceManagerPtr_, footTrackingCostWeights,
-                                                                                *pinocchioInterfacePtr_, *mpcRobotModelADPtr_, contactIndex,
-                                                                                std::string(name), modelSettings_));
+  customBuilders.footTrackingCostBuilder = [this, &footTrackingCostWeights](
+                                               size_t contactIndex,
+                                               absl::string_view name)
+      -> absl::StatusOr<std::unique_ptr<StateInputCost>> {
+    return std::unique_ptr<StateInputCost>(new CentroidalMpcEndEffectorFootCost(
+        *referenceManagerPtr_, footTrackingCostWeights, *pinocchioInterfacePtr_,
+        *mpcRobotModelADPtr_, contactIndex, std::string(name), modelSettings_));
   };
 
   customBuilders.stanceFootConstraintBuilder =
-      [this, &eeKinematicsList](size_t contactIndex, absl::string_view) -> absl::StatusOr<std::unique_ptr<StateInputConstraint>> {
+      [this, &eeKinematicsList](size_t contactIndex, absl::string_view)
+      -> absl::StatusOr<std::unique_ptr<StateInputConstraint>> {
     if (contactIndex >= eeKinematicsList.size()) {
-      return absl::OutOfRangeError(absl::StrFormat("Contact index %zu exceeds kinematics list size.", contactIndex));
+      return absl::OutOfRangeError(absl::StrFormat(
+          "Contact index %zu exceeds kinematics list size.", contactIndex));
     }
-    return getStanceFootConstraint(*eeKinematicsList[contactIndex], contactIndex);
+    return getStanceFootConstraint(*eeKinematicsList[contactIndex],
+                                   contactIndex);
   };
 
   customBuilders.normalVelocityConstraintBuilder =
-      [this, &eeKinematicsList](size_t contactIndex, absl::string_view) -> absl::StatusOr<std::unique_ptr<StateInputConstraint>> {
+      [this, &eeKinematicsList](size_t contactIndex, absl::string_view)
+      -> absl::StatusOr<std::unique_ptr<StateInputConstraint>> {
     if (contactIndex >= eeKinematicsList.size()) {
-      return absl::OutOfRangeError(absl::StrFormat("Contact index %zu exceeds kinematics list size.", contactIndex));
+      return absl::OutOfRangeError(absl::StrFormat(
+          "Contact index %zu exceeds kinematics list size.", contactIndex));
     }
-    return getNormalVelocityConstraint(*eeKinematicsList[contactIndex], contactIndex);
+    return getNormalVelocityConstraint(*eeKinematicsList[contactIndex],
+                                       contactIndex);
   };
 
   customBuilders.jointMimicConstraintBuilder = [this](size_t mimicIndex,
-                                                      absl::string_view) -> absl::StatusOr<std::unique_ptr<StateInputConstraint>> {
+                                                      absl::string_view)
+      -> absl::StatusOr<std::unique_ptr<StateInputConstraint>> {
     return getJointMimicConstraint(mimicIndex);
   };
 
-  customBuilders.taskSpaceKinematicsCostBuilder = [this, &pinocchioMappingCppAd,
-                                                   &velocityUpdateCallback](OptimalControlProblem&) -> absl::Status {
+  customBuilders.taskSpaceKinematicsCostBuilder =
+      [this, &pinocchioMappingCppAd,
+       &velocityUpdateCallback](OptimalControlProblem&) -> absl::Status {
     addTaskSpaceKinematicsCosts(pinocchioMappingCppAd, velocityUpdateCallback);
     return absl::OkStatus();
   };
 
-  customBuilders.icpCostBuilder = [this]() -> absl::StatusOr<std::unique_ptr<StateInputCost>> {
-    const vector2_t icpWeights = ICPCost::getWeights(taskFile_, "icp_cost_weights.", verbose_);
-    return std::unique_ptr<StateInputCost>(new ICPCost(*referenceManagerPtr_, std::move(icpWeights), *pinocchioInterfacePtr_,
-                                                       *mpcRobotModelADPtr_, "icp_Cost", modelSettings_));
+  customBuilders.icpCostBuilder =
+      [this]() -> absl::StatusOr<std::unique_ptr<StateInputCost>> {
+    const vector2_t icpWeights =
+        ICPCost::getWeights(taskFile_, "icp_cost_weights.", verbose_);
+    return std::unique_ptr<StateInputCost>(new ICPCost(
+        *referenceManagerPtr_, std::move(icpWeights), *pinocchioInterfacePtr_,
+        *mpcRobotModelADPtr_, "icp_Cost", modelSettings_));
   };
 
   // Load problem definition from YAML
-  const absl::StatusOr<MpcProblemDefinition> problemDefStatus = loadMpcProblemDefinition(taskFile_, "problem_definition", verbose_);
+  const absl::StatusOr<MpcProblemDefinition> problemDefStatus =
+      loadMpcProblemDefinition(taskFile_, "problem_definition", verbose_);
   if (!problemDefStatus.ok()) {
     throw std::runtime_error(
-        absl::StrCat("Failed to load problem_definition from ", taskFile_, ": ", problemDefStatus.status().ToString()));
+        absl::StrCat("Failed to load problem_definition from ", taskFile_, ": ",
+                     problemDefStatus.status().ToString()));
   }
 
-  const MpcProblemBuilder problemBuilder(problemDefStatus.value(), factory, modelSettings_, std::move(customBuilders));
+  const MpcProblemBuilder problemBuilder(problemDefStatus.value(), factory,
+                                         modelSettings_,
+                                         std::move(customBuilders));
   const absl::Status buildStatus = problemBuilder.buildProblem(*problemPtr_);
   if (!buildStatus.ok()) {
-    throw std::runtime_error(absl::StrCat("Failed to build OptimalControlProblem: ", buildStatus.ToString()));
+    throw std::runtime_error(absl::StrCat(
+        "Failed to build OptimalControlProblem: ", buildStatus.ToString()));
   }
 
   // Pre-computation
-  problemPtr_->preComputationPtr.reset(
-      new HumanoidPreComputation(*pinocchioInterfacePtr_, *referenceManagerPtr_->getSwingTrajectoryPlanner(), *mpcRobotModelPtr_));
+  problemPtr_->preComputationPtr.reset(new HumanoidPreComputation(
+      *pinocchioInterfacePtr_,
+      *referenceManagerPtr_->getSwingTrajectoryPlanner(), *mpcRobotModelPtr_));
 
   // Rollout
-  rolloutPtr_.reset(new TimeTriggeredRollout(*problemPtr_->dynamicsPtr, rolloutSettings_));
+  rolloutPtr_.reset(
+      new TimeTriggeredRollout(*problemPtr_->dynamicsPtr, rolloutSettings_));
 
   // Initialization
   constexpr bool extendNormalizedMomentum = true;
-  initializerPtr_.reset(
-      new CentroidalWeightCompInitializer(centroidalModelInfo_, *referenceManagerPtr_, *mpcRobotModelPtr_, extendNormalizedMomentum));
+  initializerPtr_.reset(new CentroidalWeightCompInitializer(
+      centroidalModelInfo_, *referenceManagerPtr_, *mpcRobotModelPtr_,
+      extendNormalizedMomentum));
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-std::unique_ptr<StateInputConstraint> CentroidalMpcInterface::getStanceFootConstraint(const EndEffectorKinematics<scalar_t>& eeKinematics,
-                                                                                      size_t contactPointIndex) {
-  auto eeZeroVelConConfig = [](scalar_t positionErrorGain, scalar_t orientationErrorGain) {
+std::unique_ptr<StateInputConstraint>
+CentroidalMpcInterface::getStanceFootConstraint(
+    const EndEffectorKinematics<scalar_t>& eeKinematics,
+    size_t contactPointIndex) {
+  auto eeZeroVelConConfig = [](scalar_t positionErrorGain,
+                               scalar_t orientationErrorGain) {
     EndEffectorKinematicsTwistConstraint::Config config;
     config.b.setZero(6);
     config.Ax.setZero(6, 6);
@@ -275,30 +334,37 @@ std::unique_ptr<StateInputConstraint> CentroidalMpcInterface::getStanceFootConst
       config.Ax(2, 2) = positionErrorGain;
     }
     if (!numerics::almost_eq(orientationErrorGain, 0.0)) {
-      config.Ax.block(3, 3, 3, 3) = Eigen::MatrixXd::Identity(3, 3) * orientationErrorGain;
+      config.Ax.block(3, 3, 3, 3) =
+          Eigen::MatrixXd::Identity(3, 3) * orientationErrorGain;
     }
 
     return config;
   };
 
+  return std::unique_ptr<StateInputConstraint>(new ZeroVelocityConstraintCppAd(
+      *referenceManagerPtr_, eeKinematics, contactPointIndex,
+      eeZeroVelConConfig(
+          modelSettings_.footConstraintConfig.positionErrorGain_z,
+          modelSettings_.footConstraintConfig.orientationErrorGain)));
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+std::unique_ptr<StateInputConstraint>
+CentroidalMpcInterface::getNormalVelocityConstraint(
+    const EndEffectorKinematics<scalar_t>& eeKinematics,
+    size_t contactPointIndex) {
   return std::unique_ptr<StateInputConstraint>(
-      new ZeroVelocityConstraintCppAd(*referenceManagerPtr_, eeKinematics, contactPointIndex,
-                                      eeZeroVelConConfig(modelSettings_.footConstraintConfig.positionErrorGain_z,
-                                                         modelSettings_.footConstraintConfig.orientationErrorGain)));
+      new NormalVelocityConstraintCppAd(*referenceManagerPtr_, eeKinematics,
+                                        contactPointIndex));
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-std::unique_ptr<StateInputConstraint> CentroidalMpcInterface::getNormalVelocityConstraint(
-    const EndEffectorKinematics<scalar_t>& eeKinematics, size_t contactPointIndex) {
-  return std::unique_ptr<StateInputConstraint>(new NormalVelocityConstraintCppAd(*referenceManagerPtr_, eeKinematics, contactPointIndex));
-}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-std::unique_ptr<StateInputConstraint> CentroidalMpcInterface::getJointMimicConstraint(size_t mimicIndex) {
+std::unique_ptr<StateInputConstraint>
+CentroidalMpcInterface::getJointMimicConstraint(size_t mimicIndex) {
   loadData::PropertyTree pt;
   loadData::readPropertyTree(taskFile_, pt);
   absl::string_view prefix;
@@ -307,7 +373,8 @@ std::unique_ptr<StateInputConstraint> CentroidalMpcInterface::getJointMimicConst
   } else if (mimicIndex == 1) {
     prefix = "mimicJoints.right_knee.";
   } else {
-    throw std::runtime_error(absl::StrCat("No mimic joint for index: ", mimicIndex));
+    throw std::runtime_error(
+        absl::StrCat("No mimic joint for index: ", mimicIndex));
   }
 
   std::string parentJointName;
@@ -321,19 +388,30 @@ std::unique_ptr<StateInputConstraint> CentroidalMpcInterface::getJointMimicConst
                  "============================================================="
                  "================\n";
   }
-  loadData::loadPtreeValue(pt, parentJointName, std::string(absl::StrCat(prefix, "parentJointName")), verbose_);
-  loadData::loadPtreeValue(pt, childJointName, std::string(absl::StrCat(prefix, "childJointName")), verbose_);
-  loadData::loadPtreeValue(pt, multiplier, std::string(absl::StrCat(prefix, "multiplier")), verbose_);
-  loadData::loadPtreeValue(pt, positionGain, std::string(absl::StrCat(prefix, "positionGain")), verbose_);
+  loadData::loadPtreeValue(pt, parentJointName,
+                           std::string(absl::StrCat(prefix, "parentJointName")),
+                           verbose_);
+  loadData::loadPtreeValue(pt, childJointName,
+                           std::string(absl::StrCat(prefix, "childJointName")),
+                           verbose_);
+  loadData::loadPtreeValue(pt, multiplier,
+                           std::string(absl::StrCat(prefix, "multiplier")),
+                           verbose_);
+  loadData::loadPtreeValue(pt, positionGain,
+                           std::string(absl::StrCat(prefix, "positionGain")),
+                           verbose_);
   if (verbose_) {
     std::cerr << " #### "
                  "============================================================="
                  "================\n";
   }
 
-  JointMimicKinematicConstraint::Config config(*mpcRobotModelPtr_, parentJointName, childJointName, multiplier, positionGain);
+  JointMimicKinematicConstraint::Config config(*mpcRobotModelPtr_,
+                                               parentJointName, childJointName,
+                                               multiplier, positionGain);
 
-  return std::unique_ptr<StateInputConstraint>(new JointMimicKinematicConstraint(*mpcRobotModelPtr_, config));
+  return std::unique_ptr<StateInputConstraint>(
+      new JointMimicKinematicConstraint(*mpcRobotModelPtr_, config));
 }
 
 /******************************************************************************************************/
@@ -341,7 +419,8 @@ std::unique_ptr<StateInputConstraint> CentroidalMpcInterface::getJointMimicConst
 /******************************************************************************************************/
 void CentroidalMpcInterface::addTaskSpaceKinematicsCosts(
     const CentroidalModelPinocchioMappingCppAd& pinocchioMappingCppAd,
-    const PinocchioEndEffectorKinematicsCppAd::update_pinocchio_interface_callback& velocityUpdateCallback) {
+    const PinocchioEndEffectorKinematicsCppAd::
+        update_pinocchio_interface_callback& velocityUpdateCallback) {
   loadData::PropertyTree pt;
   loadData::readPropertyTree(taskFile_, pt);
 
@@ -351,24 +430,33 @@ void CentroidalMpcInterface::addTaskSpaceKinematicsCosts(
     const absl::string_view costName = task_space_cost.first;
     std::string linkName;
 
-    loadData::loadPtreeValue(task_space_costs_pt, linkName, std::string(absl::StrCat(costName, ".link_name")), verbose_);
+    loadData::loadPtreeValue(task_space_costs_pt, linkName,
+                             std::string(absl::StrCat(costName, ".link_name")),
+                             verbose_);
 
     std::unique_ptr<EndEffectorKinematics<scalar_t>> eeKinematicsPtr;
 
-    eeKinematicsPtr.reset(new PinocchioEndEffectorKinematicsCppAd(*pinocchioInterfacePtr_, pinocchioMappingCppAd, {linkName},
-                                                                  centroidalModelInfo_.stateDim, centroidalModelInfo_.inputDim,
-                                                                  velocityUpdateCallback, linkName, modelSettings_.modelFolderCppAd,
-                                                                  modelSettings_.recompileLibrariesCppAd, modelSettings_.verboseCppAd));
+    eeKinematicsPtr.reset(new PinocchioEndEffectorKinematicsCppAd(
+        *pinocchioInterfacePtr_, pinocchioMappingCppAd, {linkName},
+        centroidalModelInfo_.stateDim, centroidalModelInfo_.inputDim,
+        velocityUpdateCallback, linkName, modelSettings_.modelFolderCppAd,
+        modelSettings_.recompileLibrariesCppAd, modelSettings_.verboseCppAd));
 
     EndEffectorKinematicsWeights weights =
-        EndEffectorKinematicsWeights::getWeights(taskFile_, absl::StrCat("task_space_costs.", costName, ".weights."), verbose_);
+        EndEffectorKinematicsWeights::getWeights(
+            taskFile_, absl::StrCat("task_space_costs.", costName, ".weights."),
+            verbose_);
 
-    std::unique_ptr<StateInputCost> cost = std::make_unique<EndEffectorKinematicsQuadraticCost>(
-        weights, *pinocchioInterfacePtr_, *eeKinematicsPtr, *mpcRobotModelADPtr_, linkName, modelSettings_);
+    std::unique_ptr<StateInputCost> cost =
+        std::make_unique<EndEffectorKinematicsQuadraticCost>(
+            weights, *pinocchioInterfacePtr_, *eeKinematicsPtr,
+            *mpcRobotModelADPtr_, linkName, modelSettings_);
 
-    problemPtr_->costPtr->add(absl::StrCat(costName, "_TaskSpaceKinematicsCost"), std::move(cost));
+    problemPtr_->costPtr->add(
+        absl::StrCat(costName, "_TaskSpaceKinematicsCost"), std::move(cost));
 
-    std::cout << "Initialized Task Space Kinematics Cost for link: " << linkName << std::endl;
+    std::cout << "Initialized Task Space Kinematics Cost for link: " << linkName
+              << std::endl;
   }
 }
 
@@ -390,7 +478,8 @@ std::vector<std::string> CentroidalMpcInterface::getCostNames() const {
 
 std::vector<std::string> CentroidalMpcInterface::getTerminalCostNames() const {
   std::vector<std::string> terminalCostNames;
-  for (const auto& [costName, index] : problemPtr_->finalCostPtr->getTermNameMap()) {
+  for (const auto& [costName, index] :
+       problemPtr_->finalCostPtr->getTermNameMap()) {
     terminalCostNames.emplace_back(costName);
   }
   return terminalCostNames;
@@ -400,9 +489,11 @@ std::vector<std::string> CentroidalMpcInterface::getTerminalCostNames() const {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-std::vector<std::string> CentroidalMpcInterface::getStateSoftConstraintNames() const {
+std::vector<std::string> CentroidalMpcInterface::getStateSoftConstraintNames()
+    const {
   std::vector<std::string> costNames;
-  for (const auto& [costName, index] : problemPtr_->stateSoftConstraintPtr->getTermNameMap()) {
+  for (const auto& [costName, index] :
+       problemPtr_->stateSoftConstraintPtr->getTermNameMap()) {
     costNames.emplace_back(costName);
   }
   return costNames;
@@ -412,9 +503,11 @@ std::vector<std::string> CentroidalMpcInterface::getStateSoftConstraintNames() c
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-std::vector<std::string> CentroidalMpcInterface::getSoftConstraintNames() const {
+std::vector<std::string> CentroidalMpcInterface::getSoftConstraintNames()
+    const {
   std::vector<std::string> costNames;
-  for (const auto& [costName, index] : problemPtr_->softConstraintPtr->getTermNameMap()) {
+  for (const auto& [costName, index] :
+       problemPtr_->softConstraintPtr->getTermNameMap()) {
     costNames.emplace_back(costName);
   }
   return costNames;
@@ -424,9 +517,11 @@ std::vector<std::string> CentroidalMpcInterface::getSoftConstraintNames() const 
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-std::vector<std::string> CentroidalMpcInterface::getEqualityConstraintNames() const {
+std::vector<std::string> CentroidalMpcInterface::getEqualityConstraintNames()
+    const {
   std::vector<std::string> costNames;
-  for (const auto& [costName, index] : problemPtr_->equalityConstraintPtr->getTermNameMap()) {
+  for (const auto& [costName, index] :
+       problemPtr_->equalityConstraintPtr->getTermNameMap()) {
     costNames.emplace_back(costName);
   }
   return costNames;

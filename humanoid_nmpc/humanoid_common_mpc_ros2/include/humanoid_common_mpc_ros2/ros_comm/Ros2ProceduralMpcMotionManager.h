@@ -44,28 +44,35 @@ namespace ocs2::humanoid {
  */
 class Ros2ProceduralMpcMotionManager : public ProceduralMpcMotionManager {
  public:
-  Ros2ProceduralMpcMotionManager(const std::string& gaitFile,
-                                 const std::string& referenceFile,
-                                 std::shared_ptr<SwitchedModelReferenceManager> switchedModelReferenceManagerPtr,
-                                 const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                                 VelocityTargetToTargetTrajectories velocityTargetToTargetTrajectories);
+  Ros2ProceduralMpcMotionManager(
+      const std::string& gaitFile,
+      const std::string& referenceFile,
+      std::shared_ptr<SwitchedModelReferenceManager>
+          switchedModelReferenceManagerPtr,
+      const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+      VelocityTargetToTargetTrajectories velocityTargetToTargetTrajectories);
 
   ~Ros2ProceduralMpcMotionManager() override = default;
 
   /** Disable copy / move */
-  Ros2ProceduralMpcMotionManager& operator=(const Ros2ProceduralMpcMotionManager&) = delete;
-  Ros2ProceduralMpcMotionManager(const Ros2ProceduralMpcMotionManager&) = delete;
-  Ros2ProceduralMpcMotionManager& operator=(Ros2ProceduralMpcMotionManager&&) = delete;
+  Ros2ProceduralMpcMotionManager& operator=(
+      const Ros2ProceduralMpcMotionManager&) = delete;
+  Ros2ProceduralMpcMotionManager(const Ros2ProceduralMpcMotionManager&) =
+      delete;
+  Ros2ProceduralMpcMotionManager& operator=(Ros2ProceduralMpcMotionManager&&) =
+      delete;
   Ros2ProceduralMpcMotionManager(Ros2ProceduralMpcMotionManager&&) = delete;
 
-  void setAndScaleVelocityCommand(const WalkingVelocityCommand& rawVelocityCommand) override;
+  void setAndScaleVelocityCommand(
+      const WalkingVelocityCommand& rawVelocityCommand) override;
 
   void subscribe(rclcpp::Node::SharedPtr nodeHandle, const rclcpp::QoS& qos);
 
  private:
   WalkingVelocityCommand getScaledWalkingVelocityCommand() override;
 
-  rclcpp::Subscription<humanoid_mpc_msgs::msg::WalkingVelocityCommand>::SharedPtr velCommandSubscriber_;
+  rclcpp::Subscription<humanoid_mpc_msgs::msg::WalkingVelocityCommand>::
+      SharedPtr velCommandSubscriber_;
   std::mutex walkingVelCommandMutex_;
 };
 

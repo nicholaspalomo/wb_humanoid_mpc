@@ -52,31 +52,46 @@ struct CentroidalTestingModelInterface {
   std::unique_ptr<CentroidalMpcRobotModel<ad_scalar_t>> mpcRobotModelADPtr_;
 
   CentroidalTestingModelInterface() {
-    const std::string humanoid_centroidal_mpc_install_dir = ament_index_cpp::get_package_share_directory("humanoid_centroidal_mpc");
+    const std::string humanoid_centroidal_mpc_install_dir =
+        ament_index_cpp::get_package_share_directory("humanoid_centroidal_mpc");
     taskFile = humanoid_centroidal_mpc_install_dir + "/config/mpc/task.info";
     urdfFile = robot_definitions::URDF_FILE_PATH;
-    referenceFile = humanoid_centroidal_mpc_install_dir + "/config/command/reference.info";
-    modelSettings = ModelSettings(taskFile, urdfFile, "centroidal_testing_interfce", "false");
+    referenceFile =
+        humanoid_centroidal_mpc_install_dir + "/config/command/reference.info";
+    modelSettings = ModelSettings(taskFile, urdfFile,
+                                  "centroidal_testing_interfce", "false");
 
     pinocchioInterfacePtr.reset(
-        new PinocchioInterface(createCustomPinocchioInterface(taskFile, urdfFile, modelSettings.mpcModelJointNames)));
-    mpcRobotModelPtr_.reset(new CentroidalMpcRobotModel<scalar_t>(*pinocchioInterfacePtr, getCentroidalModelInfo(*pinocchioInterfacePtr)));
-    mpcRobotModelADPtr_.reset(new CentroidalMpcRobotModel<ad_scalar_t>((*pinocchioInterfacePtr).toCppAd(),
-                                                                       getCentroidalModelInfo(*pinocchioInterfacePtr).toCppAd()));
+        new PinocchioInterface(createCustomPinocchioInterface(
+            taskFile, urdfFile, modelSettings.mpcModelJointNames)));
+    mpcRobotModelPtr_.reset(new CentroidalMpcRobotModel<scalar_t>(
+        *pinocchioInterfacePtr,
+        getCentroidalModelInfo(*pinocchioInterfacePtr)));
+    mpcRobotModelADPtr_.reset(new CentroidalMpcRobotModel<ad_scalar_t>(
+        (*pinocchioInterfacePtr).toCppAd(),
+        getCentroidalModelInfo(*pinocchioInterfacePtr).toCppAd()));
   }
 
   const ModelSettings& getModelSettings() const { return modelSettings; }
 
-  PinocchioInterface& getPinocchioInterface() const { return *pinocchioInterfacePtr; }
+  PinocchioInterface& getPinocchioInterface() const {
+    return *pinocchioInterfacePtr;
+  }
 
-  CentroidalMpcRobotModel<scalar_t>& getMpcRobotModel() const { return *mpcRobotModelPtr_; }
-  CentroidalMpcRobotModel<ad_scalar_t>& getMpcRobotModelAD() const { return *mpcRobotModelADPtr_; }
+  CentroidalMpcRobotModel<scalar_t>& getMpcRobotModel() const {
+    return *mpcRobotModelPtr_;
+  }
+  CentroidalMpcRobotModel<ad_scalar_t>& getMpcRobotModelAD() const {
+    return *mpcRobotModelADPtr_;
+  }
 
-  CentroidalModelInfo getCentroidalModelInfo(const PinocchioInterface& pinocchioInterface) const {
+  CentroidalModelInfo getCentroidalModelInfo(
+      const PinocchioInterface& pinocchioInterface) const {
     return centroidal_model::createCentroidalModelInfo(
         pinocchioInterface, centroidal_model::loadCentroidalType(taskFile),
-        centroidal_model::loadDefaultJointState(pinocchioInterface.getModel().nq - 6, referenceFile), modelSettings.contactNames3DoF,
-        modelSettings.contactNames6DoF);
+        centroidal_model::loadDefaultJointState(
+            pinocchioInterface.getModel().nq - 6, referenceFile),
+        modelSettings.contactNames3DoF, modelSettings.contactNames6DoF);
   }
 };
 }  // namespace ocs2::humanoid

@@ -63,7 +63,10 @@ class TestRLImportsAndBasics(unittest.TestCase):
     def test_humanoid_env(self):
         """Tests HumanoidMpxEnv reset and step."""
         import jax
-        from humanoid_learning.envs.base_env import HumanoidEnvConfig, HumanoidMpxEnv
+        from humanoid_learning.envs.base_env import (
+            HumanoidEnvConfig,
+            HumanoidMpxEnv,
+        )
 
         config = HumanoidEnvConfig()
         env = HumanoidMpxEnv(config)

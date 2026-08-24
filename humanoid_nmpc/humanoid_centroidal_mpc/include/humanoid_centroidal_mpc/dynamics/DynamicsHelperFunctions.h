@@ -54,18 +54,20 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-/** Computes an input with zero joint velocity and forces which equally distribute the robot weight between contact
- * feet. */
+/** Computes an input with zero joint velocity and forces which equally
+ * distribute the robot weight between contact feet. */
 
-inline vector_t weightCompensatingInput(const CentroidalModelInfoTpl<scalar_t>& info,
-                                        const contact_flag_t& contactFlags,
-                                        const MpcRobotModelBase<scalar_t>& mpcRobotModel) {
+inline vector_t weightCompensatingInput(
+    const CentroidalModelInfoTpl<scalar_t>& info,
+    const contact_flag_t& contactFlags,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel) {
   // Robot mass stays constant
   const static scalar_t totalGravitationalForce = info.robotMass * 9.81;
   const auto numStanceLegs = numberOfLegsInContacts(contactFlags);
   vector_t input = vector_t::Zero(mpcRobotModel.getInputDim());
   if (numStanceLegs > 0) {
-    const vector3_t forceInInertialFrame(0.0, 0.0, totalGravitationalForce / numStanceLegs);
+    const vector3_t forceInInertialFrame(
+        0.0, 0.0, totalGravitationalForce / numStanceLegs);
     for (size_t i = 0; i < contactFlags.size(); i++) {
       if (contactFlags[i]) {
         mpcRobotModel.setContactForce(input, forceInInertialFrame, i);

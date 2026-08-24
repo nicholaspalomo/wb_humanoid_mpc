@@ -43,9 +43,12 @@ namespace ocs2::humanoid {
 
 class TestPinocchioFrameConversions : public ::testing::Test {
  protected:
-  CentroidalTestingModelInterface testingModelInterface = CentroidalTestingModelInterface();
-  PinocchioInterface pinocchioInterface = testingModelInterface.getPinocchioInterface();
-  const CentroidalMpcRobotModel<scalar_t>& mpcRobotModel = testingModelInterface.getMpcRobotModel();
+  CentroidalTestingModelInterface testingModelInterface =
+      CentroidalTestingModelInterface();
+  PinocchioInterface pinocchioInterface =
+      testingModelInterface.getPinocchioInterface();
+  const CentroidalMpcRobotModel<scalar_t>& mpcRobotModel =
+      testingModelInterface.getMpcRobotModel();
   vector_t q = vector_t::Zero(mpcRobotModel.getGenCoordinatesDim());
 
   void SetUp() override {
@@ -61,42 +64,52 @@ class TestPinocchioFrameConversions : public ::testing::Test {
 TEST_F(TestPinocchioFrameConversions, rotateVectorLocalToWorld3D) {
   updateFramePlacements<scalar_t>(q, pinocchioInterface);
 
-  for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface)) {
+  for (const pinocchio::FrameIndex& contactIndex :
+       getContactFrameIndices(pinocchioInterface)) {
     vector3_t testVector = vector3_t::Random();
-    EXPECT_TRUE(testVector.isApprox(rotateVectorLocalToWorld<scalar_t>(testVector, pinocchioInterface.getData(), contactIndex)));
+    EXPECT_TRUE(testVector.isApprox(rotateVectorLocalToWorld<scalar_t>(
+        testVector, pinocchioInterface.getData(), contactIndex)));
   }
 
   scalar_t kneeAngle = 0.5;
   q[6] = kneeAngle;
 
-  matrix3_t R_l_w = getRotationMatrixFromZyxEulerAngles<scalar_t>(vector3_t(0.0, kneeAngle, 0.0));
+  matrix3_t R_l_w = getRotationMatrixFromZyxEulerAngles<scalar_t>(
+      vector3_t(0.0, kneeAngle, 0.0));
   updateFramePlacements<scalar_t>(q, pinocchioInterface);
 
-  for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface)) {
+  for (const pinocchio::FrameIndex& contactIndex :
+       getContactFrameIndices(pinocchioInterface)) {
     vector3_t testVector = vector3_t::Random();
     vector3_t testVectorRotated = R_l_w * testVector;
-    EXPECT_TRUE(testVectorRotated.isApprox(rotateVectorLocalToWorld<scalar_t>(testVector, pinocchioInterface.getData(), contactIndex)));
+    EXPECT_TRUE(testVectorRotated.isApprox(rotateVectorLocalToWorld<scalar_t>(
+        testVector, pinocchioInterface.getData(), contactIndex)));
   }
 }
 
 TEST_F(TestPinocchioFrameConversions, rotateVectorWorldToLocal3D) {
   updateFramePlacements<scalar_t>(q, pinocchioInterface);
 
-  for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface)) {
+  for (const pinocchio::FrameIndex& contactIndex :
+       getContactFrameIndices(pinocchioInterface)) {
     vector3_t testVector = vector3_t::Random();
-    EXPECT_TRUE(testVector.isApprox(rotateVectorWorldToLocal<scalar_t>(testVector, pinocchioInterface.getData(), contactIndex)));
+    EXPECT_TRUE(testVector.isApprox(rotateVectorWorldToLocal<scalar_t>(
+        testVector, pinocchioInterface.getData(), contactIndex)));
   }
 
   scalar_t kneeAngle = 0.5;
   q[6] = kneeAngle;
 
-  matrix3_t R_l_w = getRotationMatrixFromZyxEulerAngles<scalar_t>(vector3_t(0.0, -kneeAngle, 0.0));
+  matrix3_t R_l_w = getRotationMatrixFromZyxEulerAngles<scalar_t>(
+      vector3_t(0.0, -kneeAngle, 0.0));
   updateFramePlacements<scalar_t>(q, pinocchioInterface);
 
-  for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface)) {
+  for (const pinocchio::FrameIndex& contactIndex :
+       getContactFrameIndices(pinocchioInterface)) {
     vector3_t testVector = vector3_t::Random();
     vector3_t testVectorRotated = R_l_w * testVector;
-    EXPECT_TRUE(testVectorRotated.isApprox(rotateVectorWorldToLocal<scalar_t>(testVector, pinocchioInterface.getData(), contactIndex)));
+    EXPECT_TRUE(testVectorRotated.isApprox(rotateVectorWorldToLocal<scalar_t>(
+        testVector, pinocchioInterface.getData(), contactIndex)));
   }
 }
 
@@ -107,11 +120,13 @@ TEST_F(TestPinocchioFrameConversions, backAndForthVector3D) {
 
     updateFramePlacements<scalar_t>(q, pinocchioInterface);
 
-    for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface)) {
+    for (const pinocchio::FrameIndex& contactIndex :
+         getContactFrameIndices(pinocchioInterface)) {
       vector3_t testVector = vector3_t::Random();
-      EXPECT_TRUE(testVector.isApprox(
-          rotateVectorWorldToLocal<scalar_t>(rotateVectorLocalToWorld<scalar_t>(testVector, pinocchioInterface.getData(), contactIndex),
-                                             pinocchioInterface.getData(), contactIndex)));
+      EXPECT_TRUE(testVector.isApprox(rotateVectorWorldToLocal<scalar_t>(
+          rotateVectorLocalToWorld<scalar_t>(
+              testVector, pinocchioInterface.getData(), contactIndex),
+          pinocchioInterface.getData(), contactIndex)));
     }
   }
 }
@@ -119,44 +134,54 @@ TEST_F(TestPinocchioFrameConversions, backAndForthVector3D) {
 TEST_F(TestPinocchioFrameConversions, rotateVectorLocalToWorld6D) {
   updateFramePlacements<scalar_t>(q, pinocchioInterface);
 
-  for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface)) {
+  for (const pinocchio::FrameIndex& contactIndex :
+       getContactFrameIndices(pinocchioInterface)) {
     vector6_t testVector = vector6_t::Random();
-    EXPECT_TRUE(testVector.isApprox(rotateVectorLocalToWorld<scalar_t>(testVector, pinocchioInterface.getData(), contactIndex)));
+    EXPECT_TRUE(testVector.isApprox(rotateVectorLocalToWorld<scalar_t>(
+        testVector, pinocchioInterface.getData(), contactIndex)));
   }
 
   scalar_t kneeAngle = 0.5;
   q[6] = kneeAngle;
 
-  matrix3_t R_l_w = getRotationMatrixFromZyxEulerAngles<scalar_t>(vector3_t(0.0, kneeAngle, 0.0));
+  matrix3_t R_l_w = getRotationMatrixFromZyxEulerAngles<scalar_t>(
+      vector3_t(0.0, kneeAngle, 0.0));
   updateFramePlacements<scalar_t>(q, pinocchioInterface);
 
-  for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface)) {
+  for (const pinocchio::FrameIndex& contactIndex :
+       getContactFrameIndices(pinocchioInterface)) {
     vector6_t testVector = vector6_t::Random();
     vector6_t testVectorRotated(6);
     testVectorRotated << R_l_w * testVector.head(3), R_l_w * testVector.tail(3);
-    EXPECT_TRUE(testVectorRotated.isApprox(rotateVectorLocalToWorld<scalar_t>(testVector, pinocchioInterface.getData(), contactIndex)));
+    EXPECT_TRUE(testVectorRotated.isApprox(rotateVectorLocalToWorld<scalar_t>(
+        testVector, pinocchioInterface.getData(), contactIndex)));
   }
 }
 
 TEST_F(TestPinocchioFrameConversions, rotateVectorWorldToLocal6D) {
   updateFramePlacements<scalar_t>(q, pinocchioInterface);
 
-  for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface)) {
+  for (const pinocchio::FrameIndex& contactIndex :
+       getContactFrameIndices(pinocchioInterface)) {
     vector6_t testVector = vector6_t::Random();
-    EXPECT_TRUE(testVector.isApprox(rotateVectorWorldToLocal<scalar_t>(testVector, pinocchioInterface.getData(), contactIndex)));
+    EXPECT_TRUE(testVector.isApprox(rotateVectorWorldToLocal<scalar_t>(
+        testVector, pinocchioInterface.getData(), contactIndex)));
   }
 
   scalar_t kneeAngle = 0.5;
   q[6] = kneeAngle;
 
-  matrix3_t R_l_w = getRotationMatrixFromZyxEulerAngles<scalar_t>(vector3_t(0.0, -kneeAngle, 0.0));
+  matrix3_t R_l_w = getRotationMatrixFromZyxEulerAngles<scalar_t>(
+      vector3_t(0.0, -kneeAngle, 0.0));
   updateFramePlacements<scalar_t>(q, pinocchioInterface);
 
-  for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface)) {
+  for (const pinocchio::FrameIndex& contactIndex :
+       getContactFrameIndices(pinocchioInterface)) {
     vector6_t testVector = vector6_t::Random();
     vector6_t testVectorRotated(6);
     testVectorRotated << R_l_w * testVector.head(3), R_l_w * testVector.tail(3);
-    EXPECT_TRUE(testVectorRotated.isApprox(rotateVectorWorldToLocal<scalar_t>(testVector, pinocchioInterface.getData(), contactIndex)));
+    EXPECT_TRUE(testVectorRotated.isApprox(rotateVectorWorldToLocal<scalar_t>(
+        testVector, pinocchioInterface.getData(), contactIndex)));
   }
 }
 
@@ -167,11 +192,13 @@ TEST_F(TestPinocchioFrameConversions, backAndForthVector6D) {
 
     updateFramePlacements<scalar_t>(q, pinocchioInterface);
 
-    for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface)) {
+    for (const pinocchio::FrameIndex& contactIndex :
+         getContactFrameIndices(pinocchioInterface)) {
       vector6_t testVector = vector6_t::Random();
-      EXPECT_TRUE(testVector.isApprox(
-          rotateVectorWorldToLocal<scalar_t>(rotateVectorLocalToWorld<scalar_t>(testVector, pinocchioInterface.getData(), contactIndex),
-                                             pinocchioInterface.getData(), contactIndex)));
+      EXPECT_TRUE(testVector.isApprox(rotateVectorWorldToLocal<scalar_t>(
+          rotateVectorLocalToWorld<scalar_t>(
+              testVector, pinocchioInterface.getData(), contactIndex),
+          pinocchioInterface.getData(), contactIndex)));
     }
   }
 }
@@ -186,12 +213,14 @@ TEST_F(TestPinocchioFrameConversions, backAndForthVector6D) {
 
 //   vector3_t leftContactPosInWorldFrame(-0.36582, 0.08950, 0.12097);
 //   EXPECT_TRUE(leftContactPosInWorldFrame.isApprox(
-//       transformPointLocalToWorld<scalar_t>(vector3_t::Zero(), pinocchioInterface.getData(), getContactFrameIndex(pinocchioInterface, 0)),
-//       1e-3));
+//       transformPointLocalToWorld<scalar_t>(vector3_t::Zero(),
+//       pinocchioInterface.getData(), getContactFrameIndex(pinocchioInterface,
+//       0)), 1e-3));
 //   vector3_t rightContactPosInWorldFrame(0.04286, -0.08950, 0.03850);
 //   EXPECT_TRUE(rightContactPosInWorldFrame.isApprox(
-//       transformPointLocalToWorld<scalar_t>(vector3_t::Zero(), pinocchioInterface.getData(), getContactFrameIndex(pinocchioInterface, 1)),
-//       1e-3));
+//       transformPointLocalToWorld<scalar_t>(vector3_t::Zero(),
+//       pinocchioInterface.getData(), getContactFrameIndex(pinocchioInterface,
+//       1)), 1e-3));
 // }
 
 // TEST_F(TestPinocchioFrameConversions, transformPointWorldToLocal) {
@@ -203,12 +232,16 @@ TEST_F(TestPinocchioFrameConversions, backAndForthVector6D) {
 //   updateFramePlacements<scalar_t>(q, pinocchioInterface);
 
 //   vector3_t leftContactPosInWorldFrame(-0.36582, 0.08950, 0.12097);
-//   EXPECT_TRUE(transformPointWorldToLocal<scalar_t>(leftContactPosInWorldFrame, pinocchioInterface.getData(),
-//                                                    getContactFrameIndex(pinocchioInterface, 0))
+//   EXPECT_TRUE(transformPointWorldToLocal<scalar_t>(leftContactPosInWorldFrame,
+//   pinocchioInterface.getData(),
+//                                                    getContactFrameIndex(pinocchioInterface,
+//                                                    0))
 //                   .isZero(1e-3));
 //   vector3_t rightContactPosInWorldFrame(0.04286, -0.08950, 0.03850);
-//   EXPECT_TRUE(transformPointWorldToLocal<scalar_t>(rightContactPosInWorldFrame, pinocchioInterface.getData(),
-//                                                    getContactFrameIndex(pinocchioInterface, 1))
+//   EXPECT_TRUE(transformPointWorldToLocal<scalar_t>(rightContactPosInWorldFrame,
+//   pinocchioInterface.getData(),
+//                                                    getContactFrameIndex(pinocchioInterface,
+//                                                    1))
 //                   .isZero(1e-3));
 // }
 
@@ -219,11 +252,13 @@ TEST_F(TestPinocchioFrameConversions, transformPointBackAndForth) {
 
     updateFramePlacements<scalar_t>(q, pinocchioInterface);
 
-    for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface)) {
+    for (const pinocchio::FrameIndex& contactIndex :
+         getContactFrameIndices(pinocchioInterface)) {
       vector3_t testPoint = vector3_t::Random();
-      EXPECT_TRUE(testPoint.isApprox(
-          transformPointLocalToWorld<scalar_t>(rotateVectorWorldToLocal<scalar_t>(testPoint, pinocchioInterface.getData(), contactIndex),
-                                               pinocchioInterface.getData(), contactIndex)));
+      EXPECT_TRUE(testPoint.isApprox(transformPointLocalToWorld<scalar_t>(
+          rotateVectorWorldToLocal<scalar_t>(
+              testPoint, pinocchioInterface.getData(), contactIndex),
+          pinocchioInterface.getData(), contactIndex)));
     }
   }
 }

@@ -11,7 +11,8 @@
 namespace robot::model {
 
 // Constructor
-RobotDescription::RobotDescription(const std::string& urdfPath) : urdf_path_(urdfPath) {
+RobotDescription::RobotDescription(const std::string& urdfPath)
+    : urdf_path_(urdfPath) {
   // Validate URDF file exists
   if (!std::filesystem::exists(urdfPath)) {
     throw std::runtime_error("URDF file not found: " + urdfPath);
@@ -19,7 +20,8 @@ RobotDescription::RobotDescription(const std::string& urdfPath) : urdf_path_(urd
 
   // Read URDF file content
   std::ifstream urdfFile(urdfPath);
-  std::string urdfContent((std::istreambuf_iterator<char>(urdfFile)), std::istreambuf_iterator<char>());
+  std::string urdfContent((std::istreambuf_iterator<char>(urdfFile)),
+                          std::istreambuf_iterator<char>());
   urdfFile.close();
 
   // Parse URDF
@@ -36,7 +38,8 @@ RobotDescription::RobotDescription(const std::string& urdfPath) : urdf_path_(urd
 
     // Skip fixed joints, continuous joints, and other non-controllable
     // types
-    if (joint->type != urdf::Joint::REVOLUTE && joint->type != urdf::Joint::PRISMATIC) {
+    if (joint->type != urdf::Joint::REVOLUTE &&
+        joint->type != urdf::Joint::PRISMATIC) {
       continue;
     }
 
@@ -77,7 +80,8 @@ bool RobotDescription::containsJoint(const std::string& jointName) const {
   return joint_name_description_map_.contains(jointName);
 }
 
-std::vector<joint_index_t> RobotDescription::getJointIndices(const std::vector<std::string>& jointNames) const {
+std::vector<joint_index_t> RobotDescription::getJointIndices(
+    const std::vector<std::string>& jointNames) const {
   std::vector<joint_index_t> jointIndices;
   jointIndices.reserve(jointNames.size());
   for (std::string jointName : jointNames) {
@@ -97,8 +101,10 @@ const std::string RobotDescription::getURDFName() const {
 }
 
 std::ostream& operator<<(std::ostream& os, const JointDescription& joint) {
-  os << "JointDescription { " << "id: " << joint.id << ", min_angle: " << joint.min_angle << ", max_angle: " << joint.max_angle
-     << ", max_velocity: " << joint.max_velocity << ", max_effort: " << joint.max_effort << " }";
+  os << "JointDescription { " << "id: " << joint.id
+     << ", min_angle: " << joint.min_angle << ", max_angle: " << joint.max_angle
+     << ", max_velocity: " << joint.max_velocity
+     << ", max_effort: " << joint.max_effort << " }";
   return os;
 }
 

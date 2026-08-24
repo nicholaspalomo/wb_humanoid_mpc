@@ -42,94 +42,97 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 static const std::string WARNING_MESSAGE =
-    " \n These tests are to ensure consistency with the Whole Body Controller. \n If tests here fail then it is likely that the urdf has "
+    " \n These tests are to ensure consistency with the Whole Body Controller. "
+    "\n If tests here fail then it is likely that the urdf has "
     "been "
     "updated, the robot mass has changed, or the input and state size has been "
     "updated. \n Ensure both WBC and MPC are consistent";
 
-static const Eigen::Matrix<scalar_t, STATE_DIM, 1> STATE = (Eigen::Matrix<scalar_t, STATE_DIM, 1>() << 0.680375,
-                                                            -0.211234,
-                                                            0.566198,
-                                                            1.5708,
-                                                            0.785398,
-                                                            -0.785398,
-                                                            -0.329554,
-                                                            0.536459,
-                                                            -0.444451,
-                                                            0.10794,
-                                                            -0.0452059,
-                                                            0.257742,
-                                                            -0.270431,
-                                                            0.0268018,
-                                                            0.904459,
-                                                            0.83239,
-                                                            0.271423,
-                                                            0.434594,
-                                                            -0.716795,
-                                                            0.213938,
-                                                            -0.967399,
-                                                            -0.514226,
-                                                            -0.725537,
-                                                            0.608354,
-                                                            -0.686642,
-                                                            -0.198111,
-                                                            -0.740419,
-                                                            -0.782382,
-                                                            0.997849,
-                                                            -0.563486,
-                                                            0.0258648,
-                                                            0.678224,
-                                                            0.22528,
-                                                            -0.407937,
-                                                            0.275105,
-                                                            0.0485744,
-                                                            -0.012834,
-                                                            0.94555,
-                                                            -0.414966,
-                                                            0.542715)
-                                                               .finished();
+static const Eigen::Matrix<scalar_t, STATE_DIM, 1> STATE =
+    (Eigen::Matrix<scalar_t, STATE_DIM, 1>() << 0.680375,
+     -0.211234,
+     0.566198,
+     1.5708,
+     0.785398,
+     -0.785398,
+     -0.329554,
+     0.536459,
+     -0.444451,
+     0.10794,
+     -0.0452059,
+     0.257742,
+     -0.270431,
+     0.0268018,
+     0.904459,
+     0.83239,
+     0.271423,
+     0.434594,
+     -0.716795,
+     0.213938,
+     -0.967399,
+     -0.514226,
+     -0.725537,
+     0.608354,
+     -0.686642,
+     -0.198111,
+     -0.740419,
+     -0.782382,
+     0.997849,
+     -0.563486,
+     0.0258648,
+     0.678224,
+     0.22528,
+     -0.407937,
+     0.275105,
+     0.0485744,
+     -0.012834,
+     0.94555,
+     -0.414966,
+     0.542715)
+        .finished();
 
-static const Eigen::Matrix<scalar_t, INPUT_DIM, 1> INPUT = (Eigen::Matrix<scalar_t, INPUT_DIM, 1>() << 0.05349,
-                                                            0.539828,
-                                                            -0.199543,
-                                                            0.783059,
-                                                            -0.433371,
-                                                            -0.295083,
-                                                            0.615449,
-                                                            0.838053,
-                                                            -0.860489,
-                                                            0.898654,
-                                                            0.0519907,
-                                                            -0.827888,
-                                                            -0.615572,
-                                                            0.326454,
-                                                            0.780465,
-                                                            -0.302214,
-                                                            -0.871657,
-                                                            -0.959954,
-                                                            -0.0845965,
-                                                            -0.873808,
-                                                            -0.52344,
-                                                            0.941268,
-                                                            0.804416,
-                                                            0.70184,
-                                                            -0.466669,
-                                                            0.0795207,
-                                                            -0.249586,
-                                                            0.520497,
-                                                            0.0250707,
-                                                            0.335448,
-                                                            0.0632129,
-                                                            -0.921439,
-                                                            -0.124725,
-                                                            0.86367,
-                                                            0.86162,
-                                                            0.441905,
-                                                            -0.431413,
-                                                            0.477069,
-                                                            0.279958,
-                                                            -0.291903)
-                                                               .finished();
+static const Eigen::Matrix<scalar_t, INPUT_DIM, 1> INPUT =
+    (Eigen::Matrix<scalar_t, INPUT_DIM, 1>() << 0.05349,
+     0.539828,
+     -0.199543,
+     0.783059,
+     -0.433371,
+     -0.295083,
+     0.615449,
+     0.838053,
+     -0.860489,
+     0.898654,
+     0.0519907,
+     -0.827888,
+     -0.615572,
+     0.326454,
+     0.780465,
+     -0.302214,
+     -0.871657,
+     -0.959954,
+     -0.0845965,
+     -0.873808,
+     -0.52344,
+     0.941268,
+     0.804416,
+     0.70184,
+     -0.466669,
+     0.0795207,
+     -0.249586,
+     0.520497,
+     0.0250707,
+     0.335448,
+     0.0632129,
+     -0.921439,
+     -0.124725,
+     0.86367,
+     0.86162,
+     0.441905,
+     -0.431413,
+     0.477069,
+     0.279958,
+     -0.291903)
+        .finished();
 
 static const vector3_t expectedLinearVelocity(0.62015, 2.74312, 1.66311);
 static const vector3_t expectedAngularVelocity(33.1713, 19.5390, -54.0927);
@@ -137,21 +140,29 @@ static const vector3_t expectedLinearMomentumRate(0.6689, 1.3779, -431.8019);
 static const vector3_t expectedAngularMomentumRate(2.42452, -0.18036, -0.68041);
 
 TEST(TestCentroidalConversions, numberOfStateInputVariables) {
-  EXPECT_EQ(INPUT.size(), 40) << "40 input variables are expected" << WARNING_MESSAGE;
-  EXPECT_EQ(STATE.size(), 40) << "40 state variables are expected" << WARNING_MESSAGE;
+  EXPECT_EQ(INPUT.size(), 40)
+      << "40 input variables are expected" << WARNING_MESSAGE;
+  EXPECT_EQ(STATE.size(), 40)
+      << "40 state variables are expected" << WARNING_MESSAGE;
 }
 
 TEST(TestCentroidalConversions, computePelvisTwist) {
-  CentroidalTestingModelInterface testingModelInterface = CentroidalTestingModelInterface();
+  CentroidalTestingModelInterface testingModelInterface =
+      CentroidalTestingModelInterface();
 
-  PinocchioInterface pinocchioInterface = testingModelInterface.getPinocchioInterface();
-  CentroidalModelInfo centroidalModelInfo = testingModelInterface.getCentroidalModelInfo(pinocchioInterface);
-  CentroidalModelPinocchioMapping centroidalModelPinocchioMapping(centroidalModelInfo);
+  PinocchioInterface pinocchioInterface =
+      testingModelInterface.getPinocchioInterface();
+  CentroidalModelInfo centroidalModelInfo =
+      testingModelInterface.getCentroidalModelInfo(pinocchioInterface);
+  CentroidalModelPinocchioMapping centroidalModelPinocchioMapping(
+      centroidalModelInfo);
   centroidalModelPinocchioMapping.setPinocchioInterface(pinocchioInterface);
 
-  vector_t qPinocchio = centroidalModelPinocchioMapping.getPinocchioJointPosition(STATE);
+  vector_t qPinocchio =
+      centroidalModelPinocchioMapping.getPinocchioJointPosition(STATE);
   updateCentroidalDynamics(pinocchioInterface, centroidalModelInfo, qPinocchio);
-  vector_t jointVelocities = centroidalModelPinocchioMapping.getPinocchioJointVelocity(STATE, INPUT);
+  vector_t jointVelocities =
+      centroidalModelPinocchioMapping.getPinocchioJointVelocity(STATE, INPUT);
 
   vector3_t eulerAngleZYX = qPinocchio.segment(3, 3);
 
@@ -160,7 +171,8 @@ TEST(TestCentroidalConversions, computePelvisTwist) {
   vector_t pelvisAngularVelocityEulerZYX = pelvisTwist.tail(3);
 
   vector_t globalAngularVelocity =
-      getGlobalAngularVelocityFromEulerAnglesZyxDerivatives<scalar_t>(eulerAngleZYX, pelvisAngularVelocityEulerZYX);
+      getGlobalAngularVelocityFromEulerAnglesZyxDerivatives<scalar_t>(
+          eulerAngleZYX, pelvisAngularVelocityEulerZYX);
 
   EXPECT_TRUE(pelvisLinearVelocity.isApprox(expectedLinearVelocity, 1e-1))
       << "expected " << expectedLinearVelocity.transpose() << '\n'
@@ -168,22 +180,30 @@ TEST(TestCentroidalConversions, computePelvisTwist) {
 
   EXPECT_TRUE(globalAngularVelocity.isApprox(expectedAngularVelocity, 1e-1))
       << "expected " << expectedAngularVelocity.transpose() << '\n'
-      << "computed " << globalAngularVelocity.tail(3).transpose() << WARNING_MESSAGE;
+      << "computed " << globalAngularVelocity.tail(3).transpose()
+      << WARNING_MESSAGE;
 }
 
 TEST(TestCentroidalConversions, computeMomentumRateOfChange) {
-  CentroidalTestingModelInterface testingModelInterface = CentroidalTestingModelInterface();
+  CentroidalTestingModelInterface testingModelInterface =
+      CentroidalTestingModelInterface();
 
-  PinocchioInterface pinocchioInterface = testingModelInterface.getPinocchioInterface();
-  CentroidalModelInfo centroidalModelInfo = testingModelInterface.getCentroidalModelInfo(pinocchioInterface);
-  CentroidalModelPinocchioMapping centroidalModelPinocchioMapping(centroidalModelInfo);
+  PinocchioInterface pinocchioInterface =
+      testingModelInterface.getPinocchioInterface();
+  CentroidalModelInfo centroidalModelInfo =
+      testingModelInterface.getCentroidalModelInfo(pinocchioInterface);
+  CentroidalModelPinocchioMapping centroidalModelPinocchioMapping(
+      centroidalModelInfo);
   centroidalModelPinocchioMapping.setPinocchioInterface(pinocchioInterface);
 
-  vector_t qPinocchio = centroidalModelPinocchioMapping.getPinocchioJointPosition(STATE);
+  vector_t qPinocchio =
+      centroidalModelPinocchioMapping.getPinocchioJointPosition(STATE);
   updateCentroidalDynamics(pinocchioInterface, centroidalModelInfo, qPinocchio);
 
   Eigen::Matrix<scalar_t, 6, 1> centroidalMomentumRate =
-      centroidalModelInfo.robotMass * getNormalizedCentroidalMomentumRate<scalar_t>(pinocchioInterface, centroidalModelInfo, INPUT);
+      centroidalModelInfo.robotMass *
+      getNormalizedCentroidalMomentumRate<scalar_t>(pinocchioInterface,
+                                                    centroidalModelInfo, INPUT);
 
   vector3_t linearMomentumRate = centroidalMomentumRate.head(3);
   vector3_t angularMomentumRate = centroidalMomentumRate.tail(3);

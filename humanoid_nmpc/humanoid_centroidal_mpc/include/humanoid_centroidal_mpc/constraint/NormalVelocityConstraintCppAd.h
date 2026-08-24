@@ -38,41 +38,53 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Specializes the CppAd version of normal velocity constraint on an end-effector position and linear velocity.
- * Constructs the member EndEffectorKinematicsLinearVelConstraint object with number of constraints of 1.
+ * Specializes the CppAd version of normal velocity constraint on an
+ * end-effector position and linear velocity. Constructs the member
+ * EndEffectorKinematicsLinearVelConstraint object with number of constraints
+ * of 1.
  *
- * See also EndEffectorKinematicsLinearVelConstraint for the underlying computation.
+ * See also EndEffectorKinematicsLinearVelConstraint for the underlying
+ * computation.
  */
 class NormalVelocityConstraintCppAd final : public StateInputConstraint {
  public:
   /**
    * Constructor
    * @param [in] referenceManager : Switched model ReferenceManager
-   * @param [in] endEffectorKinematics: The kinematic interface to the target end-effector.
+   * @param [in] endEffectorKinematics: The kinematic interface to the target
+   * end-effector.
    * @param [in] contactPointIndex : The 3 DoF contact index.
    */
-  NormalVelocityConstraintCppAd(const SwitchedModelReferenceManager& referenceManager,
-                                const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
-                                size_t contactPointIndex);
+  NormalVelocityConstraintCppAd(
+      const SwitchedModelReferenceManager& referenceManager,
+      const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
+      size_t contactPointIndex);
 
   ~NormalVelocityConstraintCppAd() override = default;
-  NormalVelocityConstraintCppAd* clone() const override { return new NormalVelocityConstraintCppAd(*this); }
+  NormalVelocityConstraintCppAd* clone() const override {
+    return new NormalVelocityConstraintCppAd(*this);
+  }
 
   bool isActive(scalar_t time) const override;
   void setActive(bool isActive) override { isActive_ = isActive; }
   bool getActive() const override { return isActive_; }
   size_t getNumConstraints(scalar_t time) const override { return 1; }
-  vector_t getValue(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) const override;
-  VectorFunctionLinearApproximation getLinearApproximation(scalar_t time,
-                                                           const vector_t& state,
-                                                           const vector_t& input,
-                                                           const PreComputation& preComp) const override;
+  vector_t getValue(scalar_t time,
+                    const vector_t& state,
+                    const vector_t& input,
+                    const PreComputation& preComp) const override;
+  VectorFunctionLinearApproximation getLinearApproximation(
+      scalar_t time,
+      const vector_t& state,
+      const vector_t& input,
+      const PreComputation& preComp) const override;
 
  private:
   NormalVelocityConstraintCppAd(const NormalVelocityConstraintCppAd& rhs);
 
   const SwitchedModelReferenceManager* referenceManagerPtr_;
-  std::unique_ptr<EndEffectorKinematicsLinearVelConstraint> eeLinearConstraintPtr_;
+  std::unique_ptr<EndEffectorKinematicsLinearVelConstraint>
+      eeLinearConstraintPtr_;
   const size_t contactPointIndex_;
   bool isActive_ = true;
 };

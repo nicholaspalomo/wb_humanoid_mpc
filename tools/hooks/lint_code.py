@@ -66,7 +66,11 @@ EXACT_FILES = {
 def should_skip(path):
     rel = os.path.relpath(path, REPO_ROOT)
     for exc in EXCLUDE_DIRS:
-        if rel == exc or rel.startswith(exc + os.sep) or (os.sep + exc + os.sep) in rel:
+        if (
+            rel == exc
+            or rel.startswith(exc + os.sep)
+            or (os.sep + exc + os.sep) in rel
+        ):
             return True
     return False
 
@@ -147,7 +151,9 @@ def main():
                 print(res.stderr)
                 cpp_errors.append("clang-format violations detected.")
         except FileNotFoundError:
-            print("⚠️ Warning: clang-format not found, skipping C++ format lint.")
+            print(
+                "⚠️ Warning: clang-format not found, skipping C++ format lint."
+            )
 
     if cpp_errors:
         print("💡 Run 'make format' to auto-format C++ code.")
@@ -158,7 +164,7 @@ def main():
     if py_files:
         try:
             res = subprocess.run(
-                ["black", "--check"] + py_files,
+                ["black", "--line-length", "80", "--check"] + py_files,
                 capture_output=True,
                 text=True,
             )

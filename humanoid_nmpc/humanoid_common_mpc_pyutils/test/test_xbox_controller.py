@@ -78,7 +78,9 @@ def main():
     joystick = init()
     try:
         while True:
-            x_left, y_left, x_right, y_right, lt, rt = get_joystick_inputs(joystick)
+            x_left, y_left, x_right, y_right, lt, rt = get_joystick_inputs(
+                joystick
+            )
             print(f"Left Stick X: {x_left:.2f}, Y: {y_left:.2f}")
             print(f"Right Stick X: {x_right:.2f}, Y: {y_right:.2f}")
             print(f"LT: {lt:.2f}, RT: {rt:.2f}")

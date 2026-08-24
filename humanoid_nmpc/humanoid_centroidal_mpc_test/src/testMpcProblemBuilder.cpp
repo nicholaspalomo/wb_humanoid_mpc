@@ -52,17 +52,20 @@ namespace ocs2::humanoid {
 namespace {
 
 std::string getG1TaskFile() {
-  const std::string packagePath = ament_index_cpp::get_package_share_directory("g1_centroidal_mpc");
+  const std::string packagePath =
+      ament_index_cpp::get_package_share_directory("g1_centroidal_mpc");
   return absl::StrCat(packagePath, "/config/mpc/task.yaml");
 }
 
 std::string getAtlasTaskFile() {
-  const std::string packagePath = ament_index_cpp::get_package_share_directory("drc_atlas_centroidal_mpc");
+  const std::string packagePath =
+      ament_index_cpp::get_package_share_directory("drc_atlas_centroidal_mpc");
   return absl::StrCat(packagePath, "/config/mpc/task.yaml");
 }
 
 std::string getR1TaskFile() {
-  const std::string packagePath = ament_index_cpp::get_package_share_directory("unitree_r1_centroidal_mpc");
+  const std::string packagePath =
+      ament_index_cpp::get_package_share_directory("unitree_r1_centroidal_mpc");
   return absl::StrCat(packagePath, "/config/mpc/task.yaml");
 }
 
@@ -70,7 +73,8 @@ std::string getR1TaskFile() {
 
 TEST(TestMpcProblemBuilder, LoadG1ProblemDefinition) {
   const std::string taskFile = getG1TaskFile();
-  const absl::StatusOr<MpcProblemDefinition> problemDefStatus = loadMpcProblemDefinition(taskFile, "problem_definition", false);
+  const absl::StatusOr<MpcProblemDefinition> problemDefStatus =
+      loadMpcProblemDefinition(taskFile, "problem_definition", false);
 
   ASSERT_TRUE(problemDefStatus.ok()) << problemDefStatus.status().ToString();
   const MpcProblemDefinition& problemDef = problemDefStatus.value();
@@ -100,7 +104,8 @@ TEST(TestMpcProblemBuilder, LoadG1ProblemDefinition) {
 
 TEST(TestMpcProblemBuilder, LoadAtlasProblemDefinition) {
   const std::string taskFile = getAtlasTaskFile();
-  const absl::StatusOr<MpcProblemDefinition> problemDefStatus = loadMpcProblemDefinition(taskFile, "problem_definition", false);
+  const absl::StatusOr<MpcProblemDefinition> problemDefStatus =
+      loadMpcProblemDefinition(taskFile, "problem_definition", false);
 
   ASSERT_TRUE(problemDefStatus.ok()) << problemDefStatus.status().ToString();
   const MpcProblemDefinition& problemDef = problemDefStatus.value();
@@ -116,7 +121,8 @@ TEST(TestMpcProblemBuilder, LoadAtlasProblemDefinition) {
 
 TEST(TestMpcProblemBuilder, LoadR1ProblemDefinition) {
   const std::string taskFile = getR1TaskFile();
-  const absl::StatusOr<MpcProblemDefinition> problemDefStatus = loadMpcProblemDefinition(taskFile, "problem_definition", false);
+  const absl::StatusOr<MpcProblemDefinition> problemDefStatus =
+      loadMpcProblemDefinition(taskFile, "problem_definition", false);
 
   ASSERT_TRUE(problemDefStatus.ok()) << problemDefStatus.status().ToString();
   const MpcProblemDefinition& problemDef = problemDefStatus.value();
@@ -135,7 +141,8 @@ TEST(TestMpcProblemBuilder, LoadR1ProblemDefinition) {
 
 TEST(TestMpcProblemBuilder, NonExistentFileReturnsError) {
   const absl::StatusOr<MpcProblemDefinition> problemDefStatus =
-      loadMpcProblemDefinition("/non/existent/path/task.yaml", "problem_definition", false);
+      loadMpcProblemDefinition("/non/existent/path/task.yaml",
+                               "problem_definition", false);
 
   EXPECT_FALSE(problemDefStatus.ok());
   EXPECT_EQ(problemDefStatus.status().code(), absl::StatusCode::kNotFound);
@@ -143,7 +150,8 @@ TEST(TestMpcProblemBuilder, NonExistentFileReturnsError) {
 
 TEST(TestMpcProblemBuilder, MissingBlockReturnsError) {
   const std::string taskFile = getG1TaskFile();
-  const absl::StatusOr<MpcProblemDefinition> problemDefStatus = loadMpcProblemDefinition(taskFile, "non_existent_problem_block", false);
+  const absl::StatusOr<MpcProblemDefinition> problemDefStatus =
+      loadMpcProblemDefinition(taskFile, "non_existent_problem_block", false);
 
   EXPECT_FALSE(problemDefStatus.ok());
   EXPECT_EQ(problemDefStatus.status().code(), absl::StatusCode::kNotFound);
@@ -154,15 +162,22 @@ TEST(TestMpcProblemBuilder, BuildProblemWithCustomBuilders) {
   ModeSchedule initModeSchedule({0.0, 1.0}, {3});
   ModeSequenceTemplate initModeSequenceTemplate({0.5, 0.5}, {3, 3});
   const std::shared_ptr<GaitSchedule> gaitSchedule =
-      std::make_shared<GaitSchedule>(initModeSchedule, initModeSequenceTemplate, testingModel.getModelSettings().phaseTransitionStanceTime);
+      std::make_shared<GaitSchedule>(
+          initModeSchedule, initModeSequenceTemplate,
+          testingModel.getModelSettings().phaseTransitionStanceTime);
   const std::shared_ptr<SwingTrajectoryPlanner> swingPlanner =
-      std::make_shared<SwingTrajectoryPlanner>(SwingTrajectoryPlanner::Config{}, testingModel.getModelSettings().contactNames.size());
-  SwitchedModelReferenceManager referenceManager(gaitSchedule, swingPlanner, testingModel.getPinocchioInterface(),
-                                                 testingModel.getMpcRobotModel());
+      std::make_shared<SwingTrajectoryPlanner>(
+          SwingTrajectoryPlanner::Config{},
+          testingModel.getModelSettings().contactNames.size());
+  SwitchedModelReferenceManager referenceManager(
+      gaitSchedule, swingPlanner, testingModel.getPinocchioInterface(),
+      testingModel.getMpcRobotModel());
 
-  const HumanoidCostConstraintFactory factory(testingModel.taskFile, testingModel.referenceFile, referenceManager,
-                                              testingModel.getPinocchioInterface(), testingModel.getMpcRobotModel(),
-                                              testingModel.getMpcRobotModelAD(), testingModel.getModelSettings(), false);
+  const HumanoidCostConstraintFactory factory(
+      testingModel.taskFile, testingModel.referenceFile, referenceManager,
+      testingModel.getPinocchioInterface(), testingModel.getMpcRobotModel(),
+      testingModel.getMpcRobotModelAD(), testingModel.getModelSettings(),
+      false);
 
   MpcProblemDefinition problemDef;
   // Add cost terms
@@ -218,19 +233,25 @@ TEST(TestMpcProblemBuilder, BuildProblemWithCustomBuilders) {
   const size_t inputDim = testingModel.getMpcRobotModel().getInputDim();
 
   customBuilders.footTrackingCostBuilder =
-      [stateDim, inputDim](size_t /*contactIndex*/, absl::string_view /*name*/) -> absl::StatusOr<std::unique_ptr<StateInputCost>> {
+      [stateDim, inputDim](size_t /*contactIndex*/, absl::string_view /*name*/)
+      -> absl::StatusOr<std::unique_ptr<StateInputCost>> {
     return std::unique_ptr<StateInputCost>(
-        new QuadraticStateInputCost(matrix_t::Identity(stateDim, stateDim), matrix_t::Identity(inputDim, inputDim)));
+        new QuadraticStateInputCost(matrix_t::Identity(stateDim, stateDim),
+                                    matrix_t::Identity(inputDim, inputDim)));
   };
 
   customBuilders.stanceFootConstraintBuilder =
-      [stateDim, inputDim](size_t /*contactIndex*/, absl::string_view /*name*/) -> absl::StatusOr<std::unique_ptr<StateInputConstraint>> {
-    return std::unique_ptr<StateInputConstraint>(
-        new LinearStateInputConstraint(vector_t::Zero(3), matrix_t::Zero(3, stateDim), matrix_t::Identity(3, inputDim)));
+      [stateDim, inputDim](size_t /*contactIndex*/, absl::string_view /*name*/)
+      -> absl::StatusOr<std::unique_ptr<StateInputConstraint>> {
+    return std::unique_ptr<StateInputConstraint>(new LinearStateInputConstraint(
+        vector_t::Zero(3), matrix_t::Zero(3, stateDim),
+        matrix_t::Identity(3, inputDim)));
   };
 
   OptimalControlProblem problem;
-  const MpcProblemBuilder problemBuilder(problemDef, factory, testingModel.getModelSettings(), std::move(customBuilders));
+  const MpcProblemBuilder problemBuilder(problemDef, factory,
+                                         testingModel.getModelSettings(),
+                                         std::move(customBuilders));
   const absl::Status buildStatus = problemBuilder.buildProblem(problem);
 
   ASSERT_TRUE(buildStatus.ok()) << buildStatus.ToString();

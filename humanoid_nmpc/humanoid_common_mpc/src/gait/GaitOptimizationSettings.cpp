@@ -35,37 +35,46 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-absl::StatusOr<GaitOptimizationSettings> loadGaitOptimizationSettings(const std::string& filename,
-                                                                      const std::string& fieldName,
-                                                                      bool verbose) {
+absl::StatusOr<GaitOptimizationSettings> loadGaitOptimizationSettings(
+    const std::string& filename, const std::string& fieldName, bool verbose) {
   loadData::PropertyTree pt;
   try {
     loadData::readPropertyTree(filename, pt);
   } catch (const std::exception& e) {
-    return absl::NotFoundError("Failed to read property tree from file: " + filename + " (" + e.what() + ")");
+    return absl::NotFoundError("Failed to read property tree from file: " +
+                               filename + " (" + e.what() + ")");
   }
 
   GaitOptimizationSettings settings;
   const bool hasField = loadData::containsPtreeValueFind(pt, fieldName);
   if (!hasField) {
     if (verbose) {
-      std::cout << " #### GaitOptimizationSettings: [" << fieldName << "] not found in " << filename << ". Using defaults (enabled=false)."
-                << std::endl;
+      std::cout << " #### GaitOptimizationSettings: [" << fieldName
+                << "] not found in " << filename
+                << ". Using defaults (enabled=false)." << std::endl;
     }
     return settings;
   }
 
   const std::string prefix = fieldName + ".";
   loadData::loadPtreeValue(pt, settings.enabled, prefix + "enabled", verbose);
-  loadData::loadPtreeValue(pt, settings.enableTrajectorySensitivity, prefix + "enableTrajectorySensitivity", verbose);
-  loadData::loadPtreeValue(pt, settings.enableContactFeedback, prefix + "enableContactFeedback", verbose);
-  loadData::loadPtreeValue(pt, settings.minSingleSupportDuration, prefix + "minSingleSupportDuration", verbose);
-  loadData::loadPtreeValue(pt, settings.maxSingleSupportDuration, prefix + "maxSingleSupportDuration", verbose);
-  loadData::loadPtreeValue(pt, settings.minDoubleSupportDuration, prefix + "minDoubleSupportDuration", verbose);
-  loadData::loadPtreeValue(pt, settings.maxDoubleSupportDuration, prefix + "maxDoubleSupportDuration", verbose);
-  loadData::loadPtreeValue(pt, settings.earlyTouchDownTimeWindow, prefix + "earlyTouchDownTimeWindow", verbose);
+  loadData::loadPtreeValue(pt, settings.enableTrajectorySensitivity,
+                           prefix + "enableTrajectorySensitivity", verbose);
+  loadData::loadPtreeValue(pt, settings.enableContactFeedback,
+                           prefix + "enableContactFeedback", verbose);
+  loadData::loadPtreeValue(pt, settings.minSingleSupportDuration,
+                           prefix + "minSingleSupportDuration", verbose);
+  loadData::loadPtreeValue(pt, settings.maxSingleSupportDuration,
+                           prefix + "maxSingleSupportDuration", verbose);
+  loadData::loadPtreeValue(pt, settings.minDoubleSupportDuration,
+                           prefix + "minDoubleSupportDuration", verbose);
+  loadData::loadPtreeValue(pt, settings.maxDoubleSupportDuration,
+                           prefix + "maxDoubleSupportDuration", verbose);
+  loadData::loadPtreeValue(pt, settings.earlyTouchDownTimeWindow,
+                           prefix + "earlyTouchDownTimeWindow", verbose);
   loadData::loadPtreeValue(pt, settings.stepSize, prefix + "stepSize", verbose);
-  loadData::loadPtreeValue(pt, settings.maxIterations, prefix + "maxIterations", verbose);
+  loadData::loadPtreeValue(pt, settings.maxIterations, prefix + "maxIterations",
+                           verbose);
 
   return settings;
 }

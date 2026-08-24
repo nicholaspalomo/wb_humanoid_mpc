@@ -35,15 +35,17 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-ExternalTorqueQuadraticCostAD::ExternalTorqueQuadraticCostAD(size_t endEffectorIndex,
-                                                             Config config,
-                                                             const SwitchedModelReferenceManager& referenceManager,
-                                                             const PinocchioInterface& pinocchioInterface,
-                                                             const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
-                                                             const ModelSettings& modelSettings)
+ExternalTorqueQuadraticCostAD::ExternalTorqueQuadraticCostAD(
+    size_t endEffectorIndex,
+    Config config,
+    const SwitchedModelReferenceManager& referenceManager,
+    const PinocchioInterface& pinocchioInterface,
+    const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
+    const ModelSettings& modelSettings)
     : StateInputCostGaussNewtonAd(),
       contactPointIndex_(endEffectorIndex),
-      frameID_(pinocchioInterface.getModel().getFrameId(modelSettings.contactNames[endEffectorIndex])),
+      frameID_(pinocchioInterface.getModel().getFrameId(
+          modelSettings.contactNames[endEffectorIndex])),
       n_parameters_(1 + config.weights.size()),
       sqrtWeights_(config.weights.cwiseSqrt()),
       activeJointNames_(config.activeJointNames),
@@ -51,8 +53,10 @@ ExternalTorqueQuadraticCostAD::ExternalTorqueQuadraticCostAD(size_t endEffectorI
       pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
       mpcRobotModelADPtr(mpcRobotModelAD.clone()) {
   assert(config.weights.size() == config.activeJointNames.size());
-  std::cout << "Initialized ExternalTorqueQuadraticCostAD with weights: " << config.weights.cwiseSqrt() << std::endl;
-  const std::string endEffectorName = modelSettings.contactNames[endEffectorIndex];
+  std::cout << "Initialized ExternalTorqueQuadraticCostAD with weights: "
+            << config.weights.cwiseSqrt() << std::endl;
+  const std::string endEffectorName =
+      modelSettings.contactNames[endEffectorIndex];
   std::cout << "Frame name: " << endEffectorName << std::endl;
 
   std::cout << "Frame ID: " << frameID_ << std::endl;
@@ -60,16 +64,19 @@ ExternalTorqueQuadraticCostAD::ExternalTorqueQuadraticCostAD(size_t endEffectorI
   std::cout << "Input dim: " << mpcRobotModelADPtr->getInputDim() << std::endl;
   std::cout << "Parameters dim: " << n_parameters_ << std::endl;
 
-  initialize(mpcRobotModelADPtr->getStateDim(), mpcRobotModelADPtr->getInputDim(), n_parameters_,
-             endEffectorName + "_ExternalTorqueQuadraticCost", modelSettings.modelFolderCppAd, modelSettings.recompileLibrariesCppAd,
-             modelSettings.verboseCppAd);
+  initialize(mpcRobotModelADPtr->getStateDim(),
+             mpcRobotModelADPtr->getInputDim(), n_parameters_,
+             endEffectorName + "_ExternalTorqueQuadraticCost",
+             modelSettings.modelFolderCppAd,
+             modelSettings.recompileLibrariesCppAd, modelSettings.verboseCppAd);
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-ExternalTorqueQuadraticCostAD::ExternalTorqueQuadraticCostAD(const ExternalTorqueQuadraticCostAD& other)
+ExternalTorqueQuadraticCostAD::ExternalTorqueQuadraticCostAD(
+    const ExternalTorqueQuadraticCostAD& other)
     : StateInputCostGaussNewtonAd(other),
       contactPointIndex_(other.contactPointIndex_),
       frameID_(other.frameID_),
@@ -93,12 +100,16 @@ bool ExternalTorqueQuadraticCostAD::isActive(scalar_t time) const {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-vector_t ExternalTorqueQuadraticCostAD::getParameters(scalar_t time,
-                                                      const TargetTrajectories& targetTrajectories,
-                                                      const PreComputation& preComputation) const {
+vector_t ExternalTorqueQuadraticCostAD::getParameters(
+    scalar_t time,
+    const TargetTrajectories& targetTrajectories,
+    const PreComputation& preComputation) const {
   vector_t params(n_parameters_);
-  const scalar_t impactProximityScaler = referenceManagerPtr_->getSwingTrajectoryPlanner()->getImpactProximityFactor(
-      (1 - contactPointIndex_), time);  // Get impactproximity scaler from swing foot.
+  const scalar_t impactProximityScaler =
+      referenceManagerPtr_->getSwingTrajectoryPlanner()
+          ->getImpactProximityFactor(
+              (1 - contactPointIndex_),
+              time);  // Get impactproximity scaler from swing foot.
   params << sqrtWeights_, impactProximityScaler;
   return params;
 }
@@ -107,40 +118,51 @@ vector_t ExternalTorqueQuadraticCostAD::getParameters(scalar_t time,
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-ad_vector_t ExternalTorqueQuadraticCostAD::costVectorFunction(ad_scalar_t time,
-                                                              const ad_vector_t& state,
-                                                              const ad_vector_t& input,
-                                                              const ad_vector_t& parameters) {
-  const pinocchio::ReferenceFrame rf = pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED;
+ad_vector_t ExternalTorqueQuadraticCostAD::costVectorFunction(
+    ad_scalar_t time,
+    const ad_vector_t& state,
+    const ad_vector_t& input,
+    const ad_vector_t& parameters) {
+  const pinocchio::ReferenceFrame rf =
+      pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED;
 
   const auto& model = pinocchioInterfaceCppAd_.getModel();
   auto& data = pinocchioInterfaceCppAd_.getData();
 
   const ad_vector_t q = mpcRobotModelADPtr->getGeneralizedCoordinates(state);
-  ad_matrix_t J_ee = ad_matrix_t::Zero(6, mpcRobotModelADPtr->getGenCoordinatesDim());
-  pinocchio::computeFrameJacobian(model, data, q, frameID_, pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED, J_ee);
+  ad_matrix_t J_ee =
+      ad_matrix_t::Zero(6, mpcRobotModelADPtr->getGenCoordinatesDim());
+  pinocchio::computeFrameJacobian(
+      model, data, q, frameID_, pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED,
+      J_ee);
 
-  ad_vector_t tauExt = J_ee.transpose() * mpcRobotModelADPtr->getContactWrench(input, contactPointIndex_);
+  ad_vector_t tauExt = J_ee.transpose() * mpcRobotModelADPtr->getContactWrench(
+                                              input, contactPointIndex_);
 
   ad_vector_t tauExtActive = ad_vector_t::Zero(sqrtWeights_.size());
   for (size_t i = 0; i < sqrtWeights_.size(); i++) {
-    tauExtActive[i] = tauExt[6 + mpcRobotModelADPtr->getJointIndex(activeJointNames_[i])];
+    tauExtActive[i] =
+        tauExt[6 + mpcRobotModelADPtr->getJointIndex(activeJointNames_[i])];
   }
 
   const ad_vector_t sqrtWeightsAD = parameters.head(sqrtWeights_.size());
   const ad_scalar_t midSwingScaler =
-      1 - parameters[sqrtWeights_.size()];  // large when in the middle of the swing phase, close when close to impact.
+      1 -
+      parameters[sqrtWeights_.size()];  // large when in the middle of the swing
+                                        // phase, close when close to impact.
 
-  return tauExtActive.cwiseProduct(sqrtWeightsAD) * midSwingScaler;  // multiply with weights
+  return tauExtActive.cwiseProduct(sqrtWeightsAD) *
+         midSwingScaler;  // multiply with weights
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 #include <ocs2_core/misc/LoadData.h>
 
-ExternalTorqueQuadraticCostAD::Config ExternalTorqueQuadraticCostAD::loadConfigFromFile(const std::string& filename,
-                                                                                        const std::string& fieldname,
-                                                                                        bool verbose) {
+ExternalTorqueQuadraticCostAD::Config
+ExternalTorqueQuadraticCostAD::loadConfigFromFile(const std::string& filename,
+                                                  const std::string& fieldname,
+                                                  bool verbose) {
   loadData::PropertyTree pt;
   loadData::readPropertyTree(filename, pt);
 
@@ -149,16 +171,21 @@ ExternalTorqueQuadraticCostAD::Config ExternalTorqueQuadraticCostAD::loadConfigF
   if (verbose) {
     std::cerr << "\n #### External Torque Quadratic Cost Weights: ";
     std::cerr << "Loading weigths from: " << fieldname;
-    std::cerr << "\n #### =============================================================================\n";
+    std::cerr << "\n #### "
+                 "============================================================="
+                 "================\n";
   }
-  loadData::loadStdVector(filename, fieldname + "activeJointNames", config.activeJointNames, verbose);
+  loadData::loadStdVector(filename, fieldname + "activeJointNames",
+                          config.activeJointNames, verbose);
 
   vector_t weights(config.activeJointNames.size());
   loadData::loadEigenMatrix(filename, fieldname + "weights", weights);
 
   if (verbose) {
     std::cerr << "weights: " << weights.transpose() << "\n";
-    std::cerr << " #### =============================================================================\n";
+    std::cerr << " #### "
+                 "============================================================="
+                 "================\n";
   }
 
   config.weights = weights;

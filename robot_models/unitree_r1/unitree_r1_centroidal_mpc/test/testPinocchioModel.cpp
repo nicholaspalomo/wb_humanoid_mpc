@@ -44,12 +44,15 @@ void printModelDimensionality(PinocchioInterface pin_interface) {
 
 void printJointNames(PinocchioInterface pin_interface) {
   pinocchio::Model model = pin_interface.getModel();
-  for (pinocchio::JointIndex joint_id = 0; joint_id < (pinocchio::JointIndex)model.njoints; ++joint_id) {
-    std::cout << std::setw(28) << std::left << model.names[joint_id] << std::endl;
+  for (pinocchio::JointIndex joint_id = 0;
+       joint_id < (pinocchio::JointIndex)model.njoints; ++joint_id) {
+    std::cout << std::setw(28) << std::left << model.names[joint_id]
+              << std::endl;
   }
 }
 
-void computeForwardKinematics(PinocchioInterface pin_interface, Eigen::VectorXd q) {
+void computeForwardKinematics(PinocchioInterface pin_interface,
+                              Eigen::VectorXd q) {
   pinocchio::Model model = pin_interface.getModel();
   pinocchio::Data data = pin_interface.getData();
 
@@ -59,16 +62,22 @@ void computeForwardKinematics(PinocchioInterface pin_interface, Eigen::VectorXd 
   std::cout << "###########################################" << std::endl;
   std::cout << "############### Model Joints ##############" << std::endl;
   std::cout << "###########################################" << std::endl;
-  for (pinocchio::JointIndex joint_id = 0; joint_id < (pinocchio::JointIndex)model.njoints; ++joint_id) {
-    std::cout << std::setw(5) << std::left << "ID: " << joint_id << ", " << std::setw(28) << model.names[joint_id] << ": " << std::fixed
-              << std::setprecision(5) << data.oMi[joint_id].translation().transpose() << std::endl;
+  for (pinocchio::JointIndex joint_id = 0;
+       joint_id < (pinocchio::JointIndex)model.njoints; ++joint_id) {
+    std::cout << std::setw(5) << std::left << "ID: " << joint_id << ", "
+              << std::setw(28) << model.names[joint_id] << ": " << std::fixed
+              << std::setprecision(5)
+              << data.oMi[joint_id].translation().transpose() << std::endl;
   }
   std::cout << "###########################################" << std::endl;
   std::cout << "############### Model Frames ##############" << std::endl;
   std::cout << "###########################################" << std::endl;
-  for (pinocchio::FrameIndex frame_id = 0; frame_id < (pinocchio::FrameIndex)model.nframes; ++frame_id) {
-    std::cout << std::setw(10) << std::left << "ID: " << frame_id << ", name: " << std::setw(28) << model.frames[frame_id].name
-              << " : Pos: " << std::setprecision(5) << data.oMf[frame_id].translation().transpose() << std::endl;
+  for (pinocchio::FrameIndex frame_id = 0;
+       frame_id < (pinocchio::FrameIndex)model.nframes; ++frame_id) {
+    std::cout << std::setw(10) << std::left << "ID: " << frame_id
+              << ", name: " << std::setw(28) << model.frames[frame_id].name
+              << " : Pos: " << std::setprecision(5)
+              << data.oMf[frame_id].translation().transpose() << std::endl;
   }
 }
 
@@ -80,23 +89,31 @@ int main(int argc, char** argv) {
 
   std::string urdfFile;
   try {
-    urdfFile = ament_index_cpp::get_package_share_directory("unitree_r1_description") + "/urdf/R1.urdf";
+    urdfFile =
+        ament_index_cpp::get_package_share_directory("unitree_r1_description") +
+        "/urdf/R1.urdf";
   } catch (const std::exception& e) {
-    throw std::runtime_error("Failed to get package share directory: unitree_r1_description. Error: " + std::string(e.what()));
+    throw std::runtime_error(
+        "Failed to get package share directory: unitree_r1_description. "
+        "Error: " +
+        std::string(e.what()));
   }
 
   const std::string taskFile = dir + "/../config/mpc/task.yaml";
 
   std::cout << "urdf filename: " << urdfFile << std::endl;
 
-  std::cout << "\n=== Testing Default PinocchioInterface for Unitree R1 ===" << std::endl;
+  std::cout << "\n=== Testing Default PinocchioInterface for Unitree R1 ==="
+            << std::endl;
   PinocchioInterface pin_interface = createDefaultPinocchioInterface(urdfFile);
   printModelDimensionality(pin_interface);
   printJointNames(pin_interface);
 
-  std::cout << "\n=== Testing Custom PinocchioInterface for Unitree R1 ===" << std::endl;
+  std::cout << "\n=== Testing Custom PinocchioInterface for Unitree R1 ==="
+            << std::endl;
   ModelSettings modelSettings(taskFile, urdfFile, "test_pinocchio", "true");
-  PinocchioInterface custom_pin_interface = createCustomPinocchioInterface(taskFile, urdfFile, modelSettings);
+  PinocchioInterface custom_pin_interface =
+      createCustomPinocchioInterface(taskFile, urdfFile, modelSettings);
   printModelDimensionality(custom_pin_interface);
   printJointNames(custom_pin_interface);
 
@@ -104,6 +121,8 @@ int main(int argc, char** argv) {
   q[2] = 0.68;
   computeForwardKinematics(custom_pin_interface, q);
 
-  std::cout << "\n✅ Unitree R1 Pinocchio Interface test completed successfully." << std::endl;
+  std::cout
+      << "\n✅ Unitree R1 Pinocchio Interface test completed successfully."
+      << std::endl;
   return 0;
 }

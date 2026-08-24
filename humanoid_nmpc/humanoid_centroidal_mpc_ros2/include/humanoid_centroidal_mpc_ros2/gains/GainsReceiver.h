@@ -59,10 +59,13 @@ class GainsReceiver : public SolverSynchronizedModule {
 
  private:
   rclcpp::Node::SharedPtr node_;
-  rclcpp::Subscription<ocs2_ros2_msgs::msg::Gains>::SharedPtr gainsSubscription_;
+  rclcpp::Subscription<ocs2_ros2_msgs::msg::Gains>::SharedPtr
+      gainsSubscription_;
   std::mutex gainsMutex_;
   std::optional<ocs2_ros2_msgs::msg::Gains> currentGains_ = std::nullopt;
-  std::vector<std::unordered_map<std::string, std::shared_ptr<GainsUpdaterInterface>>> gainsUpdaters_;
+  std::vector<
+      std::unordered_map<std::string, std::shared_ptr<GainsUpdaterInterface>>>
+      gainsUpdaters_;
 };
 
 }  // namespace ocs2::humanoid

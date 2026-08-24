@@ -35,25 +35,34 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-GaitScheduleUpdater::GaitScheduleUpdater(std::shared_ptr<GaitSchedule> gaitSchedulePtr)
-    : gaitSchedulePtr_(std::move(gaitSchedulePtr)), receivedGait_({0.0, 1.0}, {ModeNumber::STANCE}), gaitUpdated_(false) {}
+GaitScheduleUpdater::GaitScheduleUpdater(
+    std::shared_ptr<GaitSchedule> gaitSchedulePtr)
+    : gaitSchedulePtr_(std::move(gaitSchedulePtr)),
+      receivedGait_({0.0, 1.0}, {ModeNumber::STANCE}),
+      gaitUpdated_(false) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-void GaitScheduleUpdater::updateGaitSchedule(std::shared_ptr<GaitSchedule>& gaitSchedulePtr,
-                                             const ModeSequenceTemplate& updatedGait,
-                                             scalar_t initTime,
-                                             scalar_t finalTime) {
+void GaitScheduleUpdater::updateGaitSchedule(
+    std::shared_ptr<GaitSchedule>& gaitSchedulePtr,
+    const ModeSequenceTemplate& updatedGait,
+    scalar_t initTime,
+    scalar_t finalTime) {
   std::cerr << updatedGait;
   const scalar_t timeHorizon = finalTime - initTime;
-  const scalar_t earliestSwitchingTime = (0.7 * finalTime + 0.3 * initTime);  // This is a heuristic
-  std::cerr << "[GaitScheduleUpdater]: Setting new gait after time " << earliestSwitchingTime << "\n";
+  const scalar_t earliestSwitchingTime =
+      (0.7 * finalTime + 0.3 * initTime);  // This is a heuristic
+  std::cerr << "[GaitScheduleUpdater]: Setting new gait after time "
+            << earliestSwitchingTime << "\n";
   // Find the first time that is greater than current_time
-  const auto& modeSchedule = gaitSchedulePtr->getModeSchedule(initTime, finalTime + timeHorizon);
+  const auto& modeSchedule =
+      gaitSchedulePtr->getModeSchedule(initTime, finalTime + timeHorizon);
 
-  const auto it = std::upper_bound(modeSchedule.eventTimes.begin(), modeSchedule.eventTimes.end(), earliestSwitchingTime);
+  const auto it =
+      std::upper_bound(modeSchedule.eventTimes.begin(),
+                       modeSchedule.eventTimes.end(), earliestSwitchingTime);
   scalar_t nextEventTime;
   if (it == modeSchedule.eventTimes.end()) {
     nextEventTime = finalTime;
@@ -65,17 +74,19 @@ void GaitScheduleUpdater::updateGaitSchedule(std::shared_ptr<GaitSchedule>& gait
     }
   }
 
-  gaitSchedulePtr->insertModeSequenceTemplate(updatedGait, nextEventTime, 1.5 * timeHorizon);
+  gaitSchedulePtr->insertModeSequenceTemplate(updatedGait, nextEventTime,
+                                              1.5 * timeHorizon);
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-void GaitScheduleUpdater::preSolverRun(scalar_t initTime,
-                                       scalar_t finalTime,
-                                       const vector_t& currentState,
-                                       const ReferenceManagerInterface& referenceManager) {
+void GaitScheduleUpdater::preSolverRun(
+    scalar_t initTime,
+    scalar_t finalTime,
+    const vector_t& currentState,
+    const ReferenceManagerInterface& referenceManager) {
   if (gaitUpdated_) {
     updateGaitSchedule(gaitSchedulePtr_, receivedGait_, initTime, finalTime);
     gaitUpdated_ = false;
@@ -85,7 +96,8 @@ void GaitScheduleUpdater::preSolverRun(scalar_t initTime,
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void GaitScheduleUpdater::updateModeSequence(const ModeSequenceTemplate& modeSequenceTemplate) {
+void GaitScheduleUpdater::updateModeSequence(
+    const ModeSequenceTemplate& modeSequenceTemplate) {
   receivedGait_ = modeSequenceTemplate;
   gaitUpdated_ = true;
 }

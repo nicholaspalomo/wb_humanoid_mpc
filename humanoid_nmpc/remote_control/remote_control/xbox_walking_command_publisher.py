@@ -41,7 +41,9 @@ class XBoxWalkingCommandPublisher(Node):
 
         self.publisher_rate = 25  # Hz
 
-        self.xbox_controller_interface = XBoxControllerInterface(self.publisher_rate)
+        self.xbox_controller_interface = XBoxControllerInterface(
+            self.publisher_rate
+        )
 
         # Create a QoS profile with Best Effort reliability
         qos_profile = QoSProfile(
@@ -54,13 +56,17 @@ class XBoxWalkingCommandPublisher(Node):
             "/humanoid/walking_velocity_command",
             qos_profile,
         )
-        self.timer = self.create_timer(1 / self.publisher_rate, self.timer_callback)
+        self.timer = self.create_timer(
+            1 / self.publisher_rate, self.timer_callback
+        )
 
         self.counter = 0
 
     def timer_callback(self):
         if self.xbox_controller_interface.joystick_connected:
-            success, msg = self.xbox_controller_interface.get_walking_command_msg()
+            success, msg = (
+                self.xbox_controller_interface.get_walking_command_msg()
+            )
             if success:
                 self.publisher_.publish(msg)
         else:

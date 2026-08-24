@@ -35,9 +35,10 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-ZeroWrenchConstraint::ZeroWrenchConstraint(const SwitchedModelReferenceManager& referenceManager,
-                                           size_t contactPointIndex,
-                                           const MpcRobotModelBase<scalar_t>& mpcRobotModel)
+ZeroWrenchConstraint::ZeroWrenchConstraint(
+    const SwitchedModelReferenceManager& referenceManager,
+    size_t contactPointIndex,
+    const MpcRobotModelBase<scalar_t>& mpcRobotModel)
     : StateInputConstraint(ConstraintOrder::Linear),
       referenceManagerPtr_(&referenceManager),
       contactPointIndex_(contactPointIndex),
@@ -64,22 +65,27 @@ bool ZeroWrenchConstraint::isActive(scalar_t time) const {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-vector_t ZeroWrenchConstraint::getValue(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) const {
+vector_t ZeroWrenchConstraint::getValue(scalar_t time,
+                                        const vector_t& state,
+                                        const vector_t& input,
+                                        const PreComputation& preComp) const {
   return mpcRobotModelPtr_->getContactWrench(input, contactPointIndex_);
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-VectorFunctionLinearApproximation ZeroWrenchConstraint::getLinearApproximation(scalar_t time,
-                                                                               const vector_t& state,
-                                                                               const vector_t& input,
-                                                                               const PreComputation& preComp) const {
+VectorFunctionLinearApproximation ZeroWrenchConstraint::getLinearApproximation(
+    scalar_t time,
+    const vector_t& state,
+    const vector_t& input,
+    const PreComputation& preComp) const {
   VectorFunctionLinearApproximation approx;
   approx.f = getValue(time, state, input, preComp);
   approx.dfdx = matrix_t::Zero(n_constraints, mpcRobotModelPtr_->getStateDim());
   approx.dfdu = matrix_t::Zero(n_constraints, mpcRobotModelPtr_->getInputDim());
-  approx.dfdu.middleCols<n_constraints>(n_constraints * contactPointIndex_).diagonal() = vector_t::Ones(n_constraints);
+  approx.dfdu.middleCols<n_constraints>(n_constraints * contactPointIndex_)
+      .diagonal() = vector_t::Ones(n_constraints);
   return approx;
 }
 

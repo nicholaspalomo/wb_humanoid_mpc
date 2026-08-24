@@ -39,18 +39,21 @@ namespace ocs2::humanoid {
 
 class SqpBenchmarksPublisher : public SolverSynchronizedModule {
  public:
-  SqpBenchmarksPublisher(rclcpp::Node::SharedPtr node, const SqpSolver* sqpSolver);
+  SqpBenchmarksPublisher(rclcpp::Node::SharedPtr node,
+                         const SqpSolver* sqpSolver);
   ~SqpBenchmarksPublisher() = default;
 
-  void preSolverRun(scalar_t initTime,
-                    scalar_t finalTime,
-                    const vector_t& currentState,
-                    const ReferenceManagerInterface& referenceManager) override {}
+  void preSolverRun(
+      scalar_t initTime,
+      scalar_t finalTime,
+      const vector_t& currentState,
+      const ReferenceManagerInterface& referenceManager) override {}
 
   void postSolverRun(const PrimalSolution& primalSolution) override;
 
  private:
-  rclcpp::Publisher<ocs2_ros2_msgs::msg::Benchmarks>::SharedPtr benchmarksPublisher_;
+  rclcpp::Publisher<ocs2_ros2_msgs::msg::Benchmarks>::SharedPtr
+      benchmarksPublisher_;
   const SqpSolver* sqpSolver_;
 };
 

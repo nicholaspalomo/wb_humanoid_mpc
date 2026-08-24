@@ -49,30 +49,39 @@ class ExternalTorqueQuadraticCostAD : public ocs2::StateInputCostGaussNewtonAd {
     vector_t weights;
   };
 
-  ExternalTorqueQuadraticCostAD(size_t endEffectorIndex,
-                                Config config,
-                                const SwitchedModelReferenceManager& referenceManager,
-                                const PinocchioInterface& pinocchioInterface,
-                                const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
-                                const ModelSettings& modelSettings);
+  ExternalTorqueQuadraticCostAD(
+      size_t endEffectorIndex,
+      Config config,
+      const SwitchedModelReferenceManager& referenceManager,
+      const PinocchioInterface& pinocchioInterface,
+      const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
+      const ModelSettings& modelSettings);
 
   ~ExternalTorqueQuadraticCostAD() override = default;
-  ExternalTorqueQuadraticCostAD* clone() const override { return new ExternalTorqueQuadraticCostAD(*this); }
+  ExternalTorqueQuadraticCostAD* clone() const override {
+    return new ExternalTorqueQuadraticCostAD(*this);
+  }
 
-  virtual vector_t getParameters(scalar_t time,
-                                 const TargetTrajectories& targetTrajectories,
-                                 const PreComputation& preComputation) const override;
+  virtual vector_t getParameters(
+      scalar_t time,
+      const TargetTrajectories& targetTrajectories,
+      const PreComputation& preComputation) const override;
 
   bool isActive(scalar_t time) const override;
   void setActive(bool active) { isActive_ = active; }
   bool getActive() const { return isActive_; }
 
-  void getWeights(vector_t& weights) const { weights = sqrtWeights_.cwiseProduct(sqrtWeights_); }
-  void setWeights(const vector_t& weights) { sqrtWeights_ = weights.cwiseSqrt(); }
+  void getWeights(vector_t& weights) const {
+    weights = sqrtWeights_.cwiseProduct(sqrtWeights_);
+  }
+  void setWeights(const vector_t& weights) {
+    sqrtWeights_ = weights.cwiseSqrt();
+  }
 
-  static ExternalTorqueQuadraticCostAD::Config loadConfigFromFile(const std::string& filename,
-                                                                  const std::string& fieldname,
-                                                                  bool verbose = true);
+  static ExternalTorqueQuadraticCostAD::Config loadConfigFromFile(
+      const std::string& filename,
+      const std::string& fieldname,
+      bool verbose = true);
 
  protected:
   ExternalTorqueQuadraticCostAD(const ExternalTorqueQuadraticCostAD& other);

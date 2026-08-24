@@ -15,12 +15,17 @@ def parse_args():
         description="Behavioral Cloning Pretraining from MPC Demonstrations"
     )
     parser.add_argument(
-        "--demos_path", type=str, default="", help="Path to HDF5 MPC demo dataset"
+        "--demos_path",
+        type=str,
+        default="",
+        help="Path to HDF5 MPC demo dataset",
     )
     parser.add_argument(
         "--epochs", type=int, default=10, help="Number of training epochs"
     )
-    parser.add_argument("--batch_size", type=int, default=256, help="Batch size")
+    parser.add_argument(
+        "--batch_size", type=int, default=256, help="Batch size"
+    )
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
     parser.add_argument(
         "--output_path",
@@ -78,7 +83,9 @@ def main():
     act_jax = jnp.array(actions)
 
     for epoch in range(args.epochs):
-        params, opt_state, loss = train_step(params, opt_state, obs_jax, act_jax)
+        params, opt_state, loss = train_step(
+            params, opt_state, obs_jax, act_jax
+        )
         if (epoch + 1) % max(1, args.epochs // 5) == 0:
             print(f"Epoch {epoch + 1}/{args.epochs} - MSE Loss: {loss:.6f}")
 

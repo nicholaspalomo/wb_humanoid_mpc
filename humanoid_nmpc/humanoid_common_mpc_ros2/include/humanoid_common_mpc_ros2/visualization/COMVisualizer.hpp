@@ -99,7 +99,8 @@ class COMVisualizer : public rclcpp::Node {
   // ROS publishers and subscribers
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr com_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
-  rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_state_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr
+      joint_state_sub_;
 
   // Pinocchio model and data
   pinocchio::Model pinocchio_model_;

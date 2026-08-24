@@ -40,8 +40,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Defines a linear constraint on an end-effector position (xee) and linear velocity (vee).
- * g(xee, vee) = Ax * xee + Av * vee + b
+ * Defines a linear constraint on an end-effector position (xee) and linear
+ * velocity (vee). g(xee, vee) = Ax * xee + Av * vee + b
  * - For defining constraint of type g(xee), set Av to matrix_t(0, 0)
  * - For defining constraint of type g(vee), set Ax to matrix_t(0, 0)
  */
@@ -59,16 +59,21 @@ class EndEffectorKinematicsTwistConstraint final : public StateInputConstraint {
 
   /**
    * Constructor
-   * @param [in] endEffectorKinematics: The kinematic interface to the target end-effector.
+   * @param [in] endEffectorKinematics: The kinematic interface to the target
+   * end-effector.
    * @param [in] numConstraints: The number of constraints {1, 2, 3, 4, 5, 6}
-   * @param [in] config: The constraint coefficients, g(xee, vee) = Ax * xee + Av * vee + b
+   * @param [in] config: The constraint coefficients, g(xee, vee) = Ax * xee +
+   * Av * vee + b
    */
-  EndEffectorKinematicsTwistConstraint(const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
-                                       size_t numConstraints,
-                                       Config config = Config());
+  EndEffectorKinematicsTwistConstraint(
+      const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
+      size_t numConstraints,
+      Config config = Config());
 
   ~EndEffectorKinematicsTwistConstraint() override = default;
-  EndEffectorKinematicsTwistConstraint* clone() const override { return new EndEffectorKinematicsTwistConstraint(*this); }
+  EndEffectorKinematicsTwistConstraint* clone() const override {
+    return new EndEffectorKinematicsTwistConstraint(*this);
+  }
 
   /** Sets a new constraint coefficients. */
   void configure(Config&& config);
@@ -78,17 +83,26 @@ class EndEffectorKinematicsTwistConstraint final : public StateInputConstraint {
   Config& getConfig() { return config_; }
 
   /** Gets the underlying end-effector kinematics interface. */
-  EndEffectorKinematics<scalar_t>& getEndEffectorKinematics() { return *endEffectorKinematicsPtr_; }
+  EndEffectorKinematics<scalar_t>& getEndEffectorKinematics() {
+    return *endEffectorKinematicsPtr_;
+  }
 
-  size_t getNumConstraints(scalar_t time) const override { return numConstraints_; }
-  vector_t getValue(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) const override;
-  VectorFunctionLinearApproximation getLinearApproximation(scalar_t time,
-                                                           const vector_t& state,
-                                                           const vector_t& input,
-                                                           const PreComputation& preComp) const override;
+  size_t getNumConstraints(scalar_t time) const override {
+    return numConstraints_;
+  }
+  vector_t getValue(scalar_t time,
+                    const vector_t& state,
+                    const vector_t& input,
+                    const PreComputation& preComp) const override;
+  VectorFunctionLinearApproximation getLinearApproximation(
+      scalar_t time,
+      const vector_t& state,
+      const vector_t& input,
+      const PreComputation& preComp) const override;
 
  private:
-  EndEffectorKinematicsTwistConstraint(const EndEffectorKinematicsTwistConstraint& rhs);
+  EndEffectorKinematicsTwistConstraint(
+      const EndEffectorKinematicsTwistConstraint& rhs);
   vector3_t ground_plane_normal_;
   std::unique_ptr<EndEffectorKinematics<scalar_t>> endEffectorKinematicsPtr_;
   const size_t numConstraints_;

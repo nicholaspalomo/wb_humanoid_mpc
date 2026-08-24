@@ -48,17 +48,25 @@ class ZeroWrenchConstraint final : public StateInputConstraint {
                        const MpcRobotModelBase<scalar_t>& mpcRobotModel);
 
   ~ZeroWrenchConstraint() override = default;
-  ZeroWrenchConstraint* clone() const override { return new ZeroWrenchConstraint(*this); }
+  ZeroWrenchConstraint* clone() const override {
+    return new ZeroWrenchConstraint(*this);
+  }
 
   bool isActive(scalar_t time) const override;
   void setActive(bool isActive) override { isActive_ = isActive; }
   bool getActive() const override { return isActive_; }
-  size_t getNumConstraints(scalar_t time) const override { return n_constraints; }
-  vector_t getValue(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) const override;
-  VectorFunctionLinearApproximation getLinearApproximation(scalar_t time,
-                                                           const vector_t& state,
-                                                           const vector_t& input,
-                                                           const PreComputation& preComp) const override;
+  size_t getNumConstraints(scalar_t time) const override {
+    return n_constraints;
+  }
+  vector_t getValue(scalar_t time,
+                    const vector_t& state,
+                    const vector_t& input,
+                    const PreComputation& preComp) const override;
+  VectorFunctionLinearApproximation getLinearApproximation(
+      scalar_t time,
+      const vector_t& state,
+      const vector_t& input,
+      const PreComputation& preComp) const override;
 
  private:
   ZeroWrenchConstraint(const ZeroWrenchConstraint& rhs);

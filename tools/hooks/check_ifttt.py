@@ -15,7 +15,9 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 IF_CHANGE_RE = re.compile(
     r"^\s*(?:#|//|<!--|--|;|\*)\s*LINT\.IfChange(?:\(([A-Za-z0-9_\-\.]+)\))?"
 )
-THEN_CHANGE_RE = re.compile(r"^\s*(?:#|//|<!--|--|;|\*)\s*LINT\.ThenChange\(([^)]+)\)")
+THEN_CHANGE_RE = re.compile(
+    r"^\s*(?:#|//|<!--|--|;|\*)\s*LINT\.ThenChange\(([^)]+)\)"
+)
 
 
 def parse_targets(target_str):
@@ -111,7 +113,9 @@ def main():
 
     total_errors = []
     for rel_path in files:
-        if rel_path.startswith("tools/ifttt-lint") or rel_path.startswith(".git"):
+        if rel_path.startswith("tools/ifttt-lint") or rel_path.startswith(
+            ".git"
+        ):
             continue
         errs = check_file(rel_path)
         total_errors.extend(errs)
