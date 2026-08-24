@@ -53,7 +53,7 @@ namespace ocs2::humanoid {
 
 PinocchioEndEffectorDynamicsCppAd::PinocchioEndEffectorDynamicsCppAd(const PinocchioInterface& pinocchioInterface,
                                                                      WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel,
-                                                                     std::vector<std::string> endEffectorIds,
+                                                                     absl::Span<const std::string> endEffectorIds,
                                                                      const std::string& modelName,
                                                                      const std::string& modelFolder,
                                                                      bool recompileLibraries,
@@ -61,7 +61,7 @@ PinocchioEndEffectorDynamicsCppAd::PinocchioEndEffectorDynamicsCppAd(const Pinoc
 
     : PinocchioEndEffectorDynamicsCppAd(pinocchioInterface,
                                         mpcRobotModel,
-                                        std::move(endEffectorIds),
+                                        endEffectorIds,
                                         &defaultUpdatePinocchioInterface,
                                         modelName,
                                         modelFolder,
@@ -74,13 +74,15 @@ PinocchioEndEffectorDynamicsCppAd::PinocchioEndEffectorDynamicsCppAd(const Pinoc
 
 PinocchioEndEffectorDynamicsCppAd::PinocchioEndEffectorDynamicsCppAd(const PinocchioInterface& pinocchioInterface,
                                                                      WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel,
-                                                                     std::vector<std::string> endEffectorIds,
+                                                                     absl::Span<const std::string> endEffectorIds,
                                                                      update_pinocchio_interface_callback updateCallback,
                                                                      const std::string& modelName,
                                                                      const std::string& modelFolder,
                                                                      bool recompileLibraries,
                                                                      bool verbose)
-    : endEffectorIds_(std::move(endEffectorIds)), pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()), mappingPtr_(&mpcRobotModel) {
+    : endEffectorIds_(endEffectorIds.begin(), endEffectorIds.end()),
+      pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
+      mappingPtr_(&mpcRobotModel) {
   for (const auto& bodyName : endEffectorIds_) {
     endEffectorFrameIds_.push_back(pinocchioInterface.getModel().getFrameId(bodyName));
   }

@@ -52,6 +52,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <humanoid_common_mpc/cost/EndEffectorKinematicsQuadraticCost.h>
 #include <humanoid_common_mpc/gait/GaitOptimizationSettings.h>
 #include <humanoid_common_mpc/pinocchio_model/createPinocchioModel.h>
+#include <humanoid_common_mpc/problem/MpcProblemBuilder.h>
+#include <humanoid_common_mpc/problem/MpcProblemDefinition.h>
+#include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/str_format.h"
+#include "absl/strings/string_view.h"
 
 #include "humanoid_centroidal_mpc/constraint/JointMimicKinematicConstraint.h"
 #include "humanoid_centroidal_mpc/constraint/NormalVelocityConstraintCppAd.h"
@@ -83,21 +89,21 @@ CentroidalMpcInterface::CentroidalMpcInterface(const std::string& taskFile,
   if (boost::filesystem::exists(taskFilePath)) {
     std::cerr << "[CentroidalMpcInterface] Loading task file: " << taskFilePath << std::endl;
   } else {
-    throw std::invalid_argument("[CentroidalMpcInterface] Task file not found: " + taskFilePath.string());
+    throw std::invalid_argument(absl::StrCat("[CentroidalMpcInterface] Task file not found: ", taskFilePath.string()));
   }
   // check that urdf file exists
   boost::filesystem::path urdfFilePath(urdfFile);
   if (boost::filesystem::exists(urdfFilePath)) {
     std::cerr << "[CentroidalMpcInterface] Loading Pinocchio model from: " << urdfFilePath << std::endl;
   } else {
-    throw std::invalid_argument("[CentroidalMpcInterface] URDF file not found: " + urdfFilePath.string());
+    throw std::invalid_argument(absl::StrCat("[CentroidalMpcInterface] URDF file not found: ", urdfFilePath.string()));
   }
   // check that targetCommand file exists
   boost::filesystem::path referenceFilePath(referenceFile);
   if (boost::filesystem::exists(referenceFilePath)) {
     std::cerr << "[CentroidalMpcInterface] Loading target command settings from: " << referenceFilePath << std::endl;
   } else {
-    throw std::invalid_argument("[CentroidalMpcInterface] targetCommand file not found: " + referenceFilePath.string());
+    throw std::invalid_argument(absl::StrCat("[CentroidalMpcInterface] targetCommand file not found: ", referenceFilePath.string()));
   }
 
   loadData::loadCppDataType(taskFile, "interface.verbose", verbose_);
@@ -155,9 +161,8 @@ CentroidalMpcInterface::CentroidalMpcInterface(const std::string& taskFile,
 /******************************************************************************************************/
 
 void CentroidalMpcInterface::setupOptimalControlProblem() {
-  HumanoidCostConstraintFactory factory =
-      HumanoidCostConstraintFactory(taskFile_, referenceFile_, *referenceManagerPtr_, *pinocchioInterfacePtr_, *mpcRobotModelPtr_,
-                                    *mpcRobotModelADPtr_, modelSettings_, verbose_);
+  const HumanoidCostConstraintFactory factory(taskFile_, referenceFile_, *referenceManagerPtr_, *pinocchioInterfacePtr_, *mpcRobotModelPtr_,
+                                              *mpcRobotModelADPtr_, modelSettings_, verbose_);
 
   // Optimal control problem
   problemPtr_.reset(new OptimalControlProblem);
@@ -166,14 +171,7 @@ void CentroidalMpcInterface::setupOptimalControlProblem() {
   std::unique_ptr<SystemDynamicsBase> dynamicsPtr;
   const std::string modelName = "dynamics";
   dynamicsPtr.reset(new CentroidalDynamicsAD(*pinocchioInterfacePtr_, centroidalModelInfo_, modelName, modelSettings_));
-
   problemPtr_->dynamicsPtr = std::move(dynamicsPtr);
-
-  // Cost terms
-  problemPtr_->costPtr->add("stateInputQuadraticCost", factory.getStateInputQuadraticCost());
-  problemPtr_->finalCostPtr->add("terminalCost", factory.getTerminalCost());
-
-  std::unique_ptr<EndEffectorKinematics<scalar_t>> eeKinematicsPtr;
 
   const auto infoCppAd = centroidalModelInfo_.toCppAd();
   const CentroidalModelPinocchioMappingCppAd pinocchioMappingCppAd(infoCppAd);
@@ -183,55 +181,72 @@ void CentroidalMpcInterface::setupOptimalControlProblem() {
     updateCentroidalDynamics(pinocchioInterfaceAd, infoCppAd, q);
   };
 
-  addTaskSpaceKinematicsCosts(pinocchioMappingCppAd, velocityUpdateCallback);
-
-  const vector2_t icpWeights = ICPCost::getWeights(taskFile_, "icp_cost_weights.", verbose_);
-  problemPtr_->costPtr->add(
-      "icp_Cost", std::unique_ptr<StateInputCost>(new ICPCost(*referenceManagerPtr_, std::move(icpWeights), *pinocchioInterfacePtr_,
-                                                              *mpcRobotModelADPtr_, "icp_Cost", modelSettings_)));
-
-  // Constraints
-  problemPtr_->stateSoftConstraintPtr->add("jointLimits", factory.getJointLimitsConstraint());
-  problemPtr_->stateSoftConstraintPtr->add("FootCollisionSoftConstraint", factory.getFootCollisionConstraint());
-
-  // Constraint terms
-  EndEffectorKinematicsWeights footTrackingCostWeights =
+  const EndEffectorKinematicsWeights footTrackingCostWeights =
       EndEffectorKinematicsWeights::getWeights(taskFile_, "task_space_foot_cost_weights.", verbose_);
 
-  // check for mimic joints
-  boost::property_tree::ptree pt;
-  loadData::readPropertyTree(taskFile_, pt);
-  bool hasMimicJoints = loadData::containsPtreeValueFind(pt, "mimicJoints");
+  // Cache EE kinematics per foot
+  std::vector<std::shared_ptr<EndEffectorKinematics<scalar_t>>> eeKinematicsList(N_CONTACTS);
+  for (size_t i = 0; i < N_CONTACTS; ++i) {
+    const absl::string_view footName = modelSettings_.contactNames[i];
+    eeKinematicsList[i] = std::make_shared<PinocchioEndEffectorKinematicsCppAd>(
+        *pinocchioInterfacePtr_, pinocchioMappingCppAd, std::vector<std::string>{std::string(footName)}, centroidalModelInfo_.stateDim,
+        centroidalModelInfo_.inputDim, velocityUpdateCallback, std::string(footName), modelSettings_.modelFolderCppAd,
+        modelSettings_.recompileLibrariesCppAd, modelSettings_.verboseCppAd);
+  }
 
-  for (size_t i = 0; i < N_CONTACTS; i++) {
-    const std::string& footName = modelSettings_.contactNames[i];
+  // Define custom builders
+  MpcProblemBuilder::CustomBuilders customBuilders;
+  customBuilders.footTrackingCostBuilder =
+      [this, &footTrackingCostWeights](size_t contactIndex, absl::string_view name) -> absl::StatusOr<std::unique_ptr<StateInputCost>> {
+    return std::unique_ptr<StateInputCost>(new CentroidalMpcEndEffectorFootCost(*referenceManagerPtr_, footTrackingCostWeights,
+                                                                                *pinocchioInterfacePtr_, *mpcRobotModelADPtr_, contactIndex,
+                                                                                std::string(name), modelSettings_));
+  };
 
-    eeKinematicsPtr.reset(new PinocchioEndEffectorKinematicsCppAd(*pinocchioInterfacePtr_, pinocchioMappingCppAd, {footName},
-                                                                  centroidalModelInfo_.stateDim, centroidalModelInfo_.inputDim,
-                                                                  velocityUpdateCallback, footName, modelSettings_.modelFolderCppAd,
-                                                                  modelSettings_.recompileLibrariesCppAd, modelSettings_.verboseCppAd));
-
-    const bool hasContactWrenchCone = loadData::containsPtreeValueFind(pt, "contacts.contactWrenchConeSoftConstraint");
-    if (hasContactWrenchCone) {
-      problemPtr_->softConstraintPtr->add(footName + "_contactWrenchCone", factory.getContactWrenchConeConstraint(i));
-    } else {
-      problemPtr_->softConstraintPtr->add(footName + "_frictionForceCone", factory.getFrictionForceConeConstraint(i));
-      problemPtr_->softConstraintPtr->add(footName + "_contactMomentXY",
-                                          factory.getContactMomentXYConstraint(i, footName + "_contact_moment_XY_constraint"));
+  customBuilders.stanceFootConstraintBuilder =
+      [this, &eeKinematicsList](size_t contactIndex, absl::string_view) -> absl::StatusOr<std::unique_ptr<StateInputConstraint>> {
+    if (contactIndex >= eeKinematicsList.size()) {
+      return absl::OutOfRangeError(absl::StrFormat("Contact index %zu exceeds kinematics list size.", contactIndex));
     }
-    problemPtr_->equalityConstraintPtr->add(footName + "_zeroWrench", factory.getZeroWrenchConstraint(i));
-    problemPtr_->equalityConstraintPtr->add(footName + "_zeroVelocity", getStanceFootConstraint(*eeKinematicsPtr, i));
-    problemPtr_->equalityConstraintPtr->add(footName + "_normalVelocity", getNormalVelocityConstraint(*eeKinematicsPtr, i));
-    if (hasMimicJoints) {
-      problemPtr_->equalityConstraintPtr->add(footName + "_kneeJointMimic", getJointMimicConstraint(i));
+    return getStanceFootConstraint(*eeKinematicsList[contactIndex], contactIndex);
+  };
+
+  customBuilders.normalVelocityConstraintBuilder =
+      [this, &eeKinematicsList](size_t contactIndex, absl::string_view) -> absl::StatusOr<std::unique_ptr<StateInputConstraint>> {
+    if (contactIndex >= eeKinematicsList.size()) {
+      return absl::OutOfRangeError(absl::StrFormat("Contact index %zu exceeds kinematics list size.", contactIndex));
     }
+    return getNormalVelocityConstraint(*eeKinematicsList[contactIndex], contactIndex);
+  };
 
-    std::string footTrackingCostName = footName + "_TaskSpaceKinematicsCost";
+  customBuilders.jointMimicConstraintBuilder = [this](size_t mimicIndex,
+                                                      absl::string_view) -> absl::StatusOr<std::unique_ptr<StateInputConstraint>> {
+    return getJointMimicConstraint(mimicIndex);
+  };
 
-    problemPtr_->costPtr->add(footTrackingCostName, std::unique_ptr<StateInputCost>(new CentroidalMpcEndEffectorFootCost(
-                                                        *referenceManagerPtr_, footTrackingCostWeights, *pinocchioInterfacePtr_,
-                                                        *mpcRobotModelADPtr_, i, footTrackingCostName, modelSettings_)));
-    problemPtr_->costPtr->add(footName + "_ExternalTorqueQuadraticCost", factory.getExternalTorqueQuadraticCost(i));
+  customBuilders.taskSpaceKinematicsCostBuilder = [this, &pinocchioMappingCppAd,
+                                                   &velocityUpdateCallback](OptimalControlProblem&) -> absl::Status {
+    addTaskSpaceKinematicsCosts(pinocchioMappingCppAd, velocityUpdateCallback);
+    return absl::OkStatus();
+  };
+
+  customBuilders.icpCostBuilder = [this]() -> absl::StatusOr<std::unique_ptr<StateInputCost>> {
+    const vector2_t icpWeights = ICPCost::getWeights(taskFile_, "icp_cost_weights.", verbose_);
+    return std::unique_ptr<StateInputCost>(new ICPCost(*referenceManagerPtr_, std::move(icpWeights), *pinocchioInterfacePtr_,
+                                                       *mpcRobotModelADPtr_, "icp_Cost", modelSettings_));
+  };
+
+  // Load problem definition from YAML
+  const absl::StatusOr<MpcProblemDefinition> problemDefStatus = loadMpcProblemDefinition(taskFile_, "problem_definition", verbose_);
+  if (!problemDefStatus.ok()) {
+    throw std::runtime_error(
+        absl::StrCat("Failed to load problem_definition from ", taskFile_, ": ", problemDefStatus.status().ToString()));
+  }
+
+  const MpcProblemBuilder problemBuilder(problemDefStatus.value(), factory, modelSettings_, std::move(customBuilders));
+  const absl::Status buildStatus = problemBuilder.buildProblem(*problemPtr_);
+  if (!buildStatus.ok()) {
+    throw std::runtime_error(absl::StrCat("Failed to build OptimalControlProblem: ", buildStatus.ToString()));
   }
 
   // Pre-computation
@@ -288,13 +303,13 @@ std::unique_ptr<StateInputConstraint> CentroidalMpcInterface::getNormalVelocityC
 std::unique_ptr<StateInputConstraint> CentroidalMpcInterface::getJointMimicConstraint(size_t mimicIndex) {
   boost::property_tree::ptree pt;
   loadData::readPropertyTree(taskFile_, pt);
-  std::string prefix;
+  absl::string_view prefix;
   if (mimicIndex == 0) {
     prefix = "mimicJoints.left_knee.";
   } else if (mimicIndex == 1) {
     prefix = "mimicJoints.right_knee.";
   } else {
-    throw std::runtime_error("No mimic joint for index: " + std::to_string(mimicIndex));
+    throw std::runtime_error(absl::StrCat("No mimic joint for index: ", mimicIndex));
   }
 
   std::string parentJointName;
@@ -308,10 +323,10 @@ std::unique_ptr<StateInputConstraint> CentroidalMpcInterface::getJointMimicConst
                  "============================================================="
                  "================\n";
   }
-  loadData::loadPtreeValue(pt, parentJointName, prefix + "parentJointName", verbose_);
-  loadData::loadPtreeValue(pt, childJointName, prefix + "childJointName", verbose_);
-  loadData::loadPtreeValue(pt, multiplier, prefix + "multiplier", verbose_);
-  loadData::loadPtreeValue(pt, positionGain, prefix + "positionGain", verbose_);
+  loadData::loadPtreeValue(pt, parentJointName, std::string(absl::StrCat(prefix, "parentJointName")), verbose_);
+  loadData::loadPtreeValue(pt, childJointName, std::string(absl::StrCat(prefix, "childJointName")), verbose_);
+  loadData::loadPtreeValue(pt, multiplier, std::string(absl::StrCat(prefix, "multiplier")), verbose_);
+  loadData::loadPtreeValue(pt, positionGain, std::string(absl::StrCat(prefix, "positionGain")), verbose_);
   if (verbose_) {
     std::cerr << " #### "
                  "============================================================="
@@ -335,10 +350,10 @@ void CentroidalMpcInterface::addTaskSpaceKinematicsCosts(
   boost::property_tree::ptree task_space_costs_pt = pt.get_child("task_space_costs");
 
   for (auto& task_space_cost : task_space_costs_pt) {
-    std::string costName = task_space_cost.first;
+    const absl::string_view costName = task_space_cost.first;
     std::string linkName;
 
-    loadData::loadPtreeValue(task_space_costs_pt, linkName, costName + ".link_name", verbose_);
+    loadData::loadPtreeValue(task_space_costs_pt, linkName, std::string(absl::StrCat(costName, ".link_name")), verbose_);
 
     std::unique_ptr<EndEffectorKinematics<scalar_t>> eeKinematicsPtr;
 
@@ -348,12 +363,12 @@ void CentroidalMpcInterface::addTaskSpaceKinematicsCosts(
                                                                   modelSettings_.recompileLibrariesCppAd, modelSettings_.verboseCppAd));
 
     EndEffectorKinematicsWeights weights =
-        EndEffectorKinematicsWeights::getWeights(taskFile_, "task_space_costs." + costName + ".weights.", verbose_);
+        EndEffectorKinematicsWeights::getWeights(taskFile_, absl::StrCat("task_space_costs.", costName, ".weights."), verbose_);
 
     std::unique_ptr<StateInputCost> cost = std::make_unique<EndEffectorKinematicsQuadraticCost>(
         weights, *pinocchioInterfacePtr_, *eeKinematicsPtr, *mpcRobotModelADPtr_, linkName, modelSettings_);
 
-    problemPtr_->costPtr->add(costName + "_TaskSpaceKinematicsCost", std::move(cost));
+    problemPtr_->costPtr->add(absl::StrCat(costName, "_TaskSpaceKinematicsCost"), std::move(cost));
 
     std::cout << "Initialized Task Space Kinematics Cost for link: " << linkName << std::endl;
   }

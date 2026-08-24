@@ -1,5 +1,75 @@
 centroidalModelType: 0  # 0: FullCentroidalDynamics, 1: Single Rigid Body Dynamics
 
+problem_definition:
+  costs:
+    state_input_cost:
+      type: StateInputQuadraticCost
+      config_path: stateInputCost
+      enabled: true
+    task_space_foot_cost:
+      type: FootTrackingCost
+      config_path: task_space_foot_cost_weights
+      per_contact: true
+      enabled: true
+    task_space_kinematics_cost:
+      type: TaskSpaceKinematicsCost
+      config_path: task_space_costs
+      enabled: true
+    icp_cost:
+      type: ICPCost
+      config_path: icp_cost_weights
+      enabled: true
+    external_torque_cost:
+      type: ExternalTorqueQuadraticCost
+      per_contact: true
+      enabled: true
+
+  terminal_costs:
+    terminal_cost:
+      type: TerminalCost
+      config_path: terminalCost
+      enabled: true
+
+  state_soft_constraints:
+    joint_limits:
+      type: JointLimitsConstraint
+      config_path: jointLimits
+      penalty: RelaxedBarrierPenalty
+      enabled: true
+    foot_collision:
+      type: FootCollisionConstraint
+      config_path: collision_constraint
+      penalty: RelaxedBarrierPenalty
+      enabled: true
+
+  soft_constraints:
+    friction_force_cone:
+      type: FrictionForceConeConstraint
+      config_path: contacts.frictionForceConeSoftConstraint
+      penalty: RelaxedBarrierPenalty
+      per_contact: true
+      enabled: true
+    contact_moment_xy:
+      type: ContactMomentXYConstraint
+      config_path: contacts.contactMomentXYSoftConstraint
+      penalty: RelaxedBarrierPenalty
+      per_contact: true
+      enabled: true
+
+  equality_constraints:
+    zero_wrench:
+      type: ZeroWrenchConstraint
+      per_contact: true
+      enabled: true
+    zero_velocity:
+      type: ZeroVelocityConstraint
+      per_contact: true
+      enabled: true
+    normal_velocity:
+      type: NormalVelocityConstraint
+      per_contact: true
+      enabled: true
+
 interface:
   verbose: true  # show the loaded parameters
   useAnalyticalGradientsDynamics: false

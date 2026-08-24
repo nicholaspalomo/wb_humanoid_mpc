@@ -15,6 +15,9 @@ The centroidal MPC optimizes over the **whole-body kinematics** and the center o
 ### Whole-Body Dynamics MPC
 The **whole-body dynamics** MPC optimizes over the contact forces and joint accelerations with the option to compute the joint torques for each step planned across the horizon. The most relevant information on the chosen approach can currently be found in [Galliker et al., Bipedal Locomotion with Nonlinear Model Predictive Control: Online Gait Generation using Whole-Body Dynamics](http://ames.caltech.edu/galliker2022bipedal.pdf).
 
+### Runtime-Configurable MPC Problem Definition
+The optimal control problem (OCP) formulation is fully configurable at runtime from robot-specific YAML files (`task.yaml`). Costs, terminal costs, state soft constraints, soft constraints, and equality constraints can be dynamically added, disabled, or swapped per robot without code modifications. See the [MPC Problem Definition Documentation](humanoid_nmpc/humanoid_common_mpc/src/problem/README.md) for the configuration schema, supported term types, and API usage.
+
 ### Gait Switching Time Optimization & Contact Feedback
 The framework includes online optimization of gait phase switching times using Hamiltonian jump sensitivities from the Pontryagin Maximum Principle, paired with early/late touchdown reactive contact adaptation. See the [Gait Optimization Documentation](humanoid_nmpc/humanoid_common_mpc/src/gait/README.md) for full mathematical derivations and architecture block diagrams.
 
@@ -22,8 +25,9 @@ The framework includes online optimization of gait phase switching times using H
 
 The project supports the following robot examples:
 
-- Unitree G1
-- DRC Atlas
+- Unitree G1 (Centroidal MPC & Whole-Body MPC)
+- DRC Atlas (Centroidal MPC with Contact Wrench Cone)
+- Unitree R1 (Centroidal MPC)
 - 1X Neo (Coming soon)
 
 ![Screencast2024-12-16180254-ezgif com-optimize(3)](https://github.com/user-attachments/assets/d4b1f0da-39ca-4ce1-b53c-e1d040abe1be)
