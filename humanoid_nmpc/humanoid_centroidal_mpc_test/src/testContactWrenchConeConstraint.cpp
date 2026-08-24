@@ -76,8 +76,7 @@ class TestContactWrenchConeConstraint : public ::testing::Test {
     ModeSequenceTemplate initModeSequenceTemplate({0.5, 0.5}, {3, 3});
     std::shared_ptr<GaitSchedule> gaitSchedulePtr = std::make_shared<GaitSchedule>(initModeSchedule, initModeSequenceTemplate, 0.0);
     referenceManager_ = std::make_unique<SwitchedModelReferenceManager>(
-        gaitSchedulePtr, nullptr, testingModelInterface_->getPinocchioInterface(),
-        testingModelInterface_->getMpcRobotModel());
+        gaitSchedulePtr, nullptr, testingModelInterface_->getPinocchioInterface(), testingModelInterface_->getMpcRobotModel());
   }
 
   std::unique_ptr<CentroidalTestingModelInterface> testingModelInterface_;
@@ -90,21 +89,17 @@ TEST_F(TestContactWrenchConeConstraint, NumberOfConstraintsAndBasisVectors) {
 
   // Test with N = 4 basis vectors
   ContactWrenchConeConstraint::Config config4(kFourBasisVectors, 0.7, 0.05, 5.0, 0.0);
-  ContactWrenchConeConstraint constraint4(
-      *referenceManager_, contactRectangle, kContactPointIndex,
-      testingModelInterface_->getPinocchioInterface(),
-      testingModelInterface_->getMpcRobotModel(),
-      config4);
+  ContactWrenchConeConstraint constraint4(*referenceManager_, contactRectangle, kContactPointIndex,
+                                          testingModelInterface_->getPinocchioInterface(), testingModelInterface_->getMpcRobotModel(),
+                                          config4);
 
   EXPECT_EQ(constraint4.getNumConstraints(0.0), kExpectedConstraintsFourBasis);
 
   // Test with N = 8 basis vectors
   ContactWrenchConeConstraint::Config config8(kEightBasisVectors, 0.7, 0.05, 5.0, 0.0);
-  ContactWrenchConeConstraint constraint8(
-      *referenceManager_, contactRectangle, kContactPointIndex,
-      testingModelInterface_->getPinocchioInterface(),
-      testingModelInterface_->getMpcRobotModel(),
-      config8);
+  ContactWrenchConeConstraint constraint8(*referenceManager_, contactRectangle, kContactPointIndex,
+                                          testingModelInterface_->getPinocchioInterface(), testingModelInterface_->getMpcRobotModel(),
+                                          config8);
 
   EXPECT_EQ(constraint8.getNumConstraints(0.0), kExpectedConstraintsEightBasis);
 }
@@ -114,11 +109,9 @@ TEST_F(TestContactWrenchConeConstraint, FrictionConeAndNormalForceValues) {
                                     ContactCenterPoint("foot_l_contact", "left_ankle_roll_joint", vector3_t::Zero()));
 
   ContactWrenchConeConstraint::Config config(kFourBasisVectors, kTestMu, 0.05, kTestMinFz, 0.0);
-  ContactWrenchConeConstraint constraint(
-      *referenceManager_, contactRectangle, kContactPointIndex,
-      testingModelInterface_->getPinocchioInterface(),
-      testingModelInterface_->getMpcRobotModel(),
-      config);
+  ContactWrenchConeConstraint constraint(*referenceManager_, contactRectangle, kContactPointIndex,
+                                         testingModelInterface_->getPinocchioInterface(), testingModelInterface_->getMpcRobotModel(),
+                                         config);
 
   const CentroidalMpcRobotModel<scalar_t>& robotModel = testingModelInterface_->getMpcRobotModel();
   vector_t state = vector_t::Zero(robotModel.getStateDim());
@@ -149,11 +142,9 @@ TEST_F(TestContactWrenchConeConstraint, ContactPatchOffsetMoments) {
 
   vector3_t explicitPatchOffset(0.1, 0.0, 0.0);
   ContactWrenchConeConstraint::Config config(kFourBasisVectors, kTestMu, kTestMuRot, 0.0, 0.0, explicitPatchOffset);
-  ContactWrenchConeConstraint constraint(
-      *referenceManager_, contactRectangle, kContactPointIndex,
-      testingModelInterface_->getPinocchioInterface(),
-      testingModelInterface_->getMpcRobotModel(),
-      config);
+  ContactWrenchConeConstraint constraint(*referenceManager_, contactRectangle, kContactPointIndex,
+                                         testingModelInterface_->getPinocchioInterface(), testingModelInterface_->getMpcRobotModel(),
+                                         config);
 
   const CentroidalMpcRobotModel<scalar_t>& robotModel = testingModelInterface_->getMpcRobotModel();
   vector_t state = vector_t::Zero(robotModel.getStateDim());
@@ -181,11 +172,9 @@ TEST_F(TestContactWrenchConeConstraint, LinearAndQuadraticApproximation) {
                                     ContactCenterPoint("foot_l_contact", "left_ankle_roll_joint", vector3_t::Zero()));
 
   ContactWrenchConeConstraint::Config config(kFourBasisVectors, 0.7, 0.05, 5.0, 0.0);
-  ContactWrenchConeConstraint constraint(
-      *referenceManager_, contactRectangle, kContactPointIndex,
-      testingModelInterface_->getPinocchioInterface(),
-      testingModelInterface_->getMpcRobotModel(),
-      config);
+  ContactWrenchConeConstraint constraint(*referenceManager_, contactRectangle, kContactPointIndex,
+                                         testingModelInterface_->getPinocchioInterface(), testingModelInterface_->getMpcRobotModel(),
+                                         config);
 
   const CentroidalMpcRobotModel<scalar_t>& robotModel = testingModelInterface_->getMpcRobotModel();
   vector_t state = vector_t::Zero(robotModel.getStateDim());

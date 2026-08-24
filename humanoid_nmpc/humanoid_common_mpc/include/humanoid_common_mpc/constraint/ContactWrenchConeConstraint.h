@@ -106,10 +106,7 @@ class ContactWrenchConeConstraint final : public StateInputConstraint {
 
   const Config& getConfig() const { return config_; }
 
-  vector_t getValue(scalar_t time,
-                    const vector_t& state,
-                    const vector_t& input,
-                    const PreComputation& preComp) const override;
+  vector_t getValue(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) const override;
 
   VectorFunctionLinearApproximation getLinearApproximation(scalar_t time,
                                                            const vector_t& state,

@@ -151,9 +151,7 @@ void ContactWrenchConeConstraint::initializeLocalConstraintMatrix() {
   // 4. Torsional yaw friction moment about the contact patch center
   vector3_t offset;
   if (config_.patchOffset.isZero(kPatchOffsetZeroThreshold)) {
-    offset = vector3_t(kHalf * (bounds.x_min + bounds.x_max),
-                       kHalf * (bounds.y_min + bounds.y_max),
-                       0.0);
+    offset = vector3_t(kHalf * (bounds.x_min + bounds.x_max), kHalf * (bounds.y_min + bounds.y_max), 0.0);
   } else {
     offset = config_.patchOffset;
   }
@@ -180,9 +178,9 @@ void ContactWrenchConeConstraint::initializeLocalConstraintMatrix() {
 }
 
 vector_t ContactWrenchConeConstraint::getValue(scalar_t time,
-                                              const vector_t& state,
-                                              const vector_t& input,
-                                              const PreComputation& preComp) const {
+                                               const vector_t& state,
+                                               const vector_t& input,
+                                               const PreComputation& preComp) const {
   const pinocchio::Model& model = pinocchioInterfacePtr_->getModel();
   pinocchio::Data data = pinocchioInterfacePtr_->getData();
   updateFramePlacements(mpcRobotModelPtr_->getGeneralizedCoordinates(state), model, data);
