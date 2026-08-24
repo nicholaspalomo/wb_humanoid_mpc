@@ -50,6 +50,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <humanoid_common_mpc/HumanoidPreComputation.h>
 #include <humanoid_common_mpc/constraint/EndEffectorKinematicsTwistConstraint.h>
 #include <humanoid_common_mpc/cost/EndEffectorKinematicsQuadraticCost.h>
+#include <humanoid_common_mpc/gait/GaitOptimizationSettings.h>
 #include <humanoid_common_mpc/pinocchio_model/createPinocchioModel.h>
 
 #include "humanoid_centroidal_mpc/constraint/JointMimicKinematicConstraint.h"
@@ -130,9 +131,14 @@ CentroidalMpcInterface::CentroidalMpcInterface(const std::string& taskFile,
   std::unique_ptr<SwingTrajectoryPlanner> swingTrajectoryPlanner(
       new SwingTrajectoryPlanner(loadSwingTrajectorySettings(taskFile, "swing_trajectory_config", verbose_), N_CONTACTS));
 
-  referenceManagerPtr_ =
-      std::make_shared<SwitchedModelReferenceManager>(GaitSchedule::loadGaitSchedule(referenceFile, modelSettings_, verbose_),
-                                                      std::move(swingTrajectoryPlanner), *pinocchioInterfacePtr_, *mpcRobotModelPtr_);
+  const absl::StatusOr<GaitOptimizationSettings> gaitOptimizationSettingsStatus =
+      loadGaitOptimizationSettings(taskFile, "gait_optimization", verbose_);
+  const GaitOptimizationSettings gaitOptimizationSettings =
+      gaitOptimizationSettingsStatus.ok() ? gaitOptimizationSettingsStatus.value() : GaitOptimizationSettings();
+
+  referenceManagerPtr_ = std::make_shared<SwitchedModelReferenceManager>(
+      GaitSchedule::loadGaitSchedule(referenceFile, modelSettings_, verbose_), std::move(swingTrajectoryPlanner), *pinocchioInterfacePtr_,
+      *mpcRobotModelPtr_, gaitOptimizationSettings);
   referenceManagerPtr_->setArmSwingReferenceActive(true);
 
   // initial state

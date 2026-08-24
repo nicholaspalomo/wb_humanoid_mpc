@@ -30,12 +30,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <memory>
+
 #include <ocs2_core/thread_support/Synchronized.h>
 #include <ocs2_oc/synchronized_module/ReferenceManager.h>
 #include <ocs2_pinocchio_interface/PinocchioInterface.h>
 
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
+#include "humanoid_common_mpc/gait/GaitOptimizationSettings.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
+#include "humanoid_common_mpc/gait/GaitSwitchingTimeOptimizer.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 
@@ -49,7 +53,8 @@ class SwitchedModelReferenceManager : public ReferenceManager {
   SwitchedModelReferenceManager(std::shared_ptr<GaitSchedule> gaitSchedulePtr,
                                 std::shared_ptr<SwingTrajectoryPlanner> swingTrajectoryPtr,
                                 const PinocchioInterface& pinocchioInterface,
-                                const MpcRobotModelBase<scalar_t>& mpcRobotModel);
+                                const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+                                GaitOptimizationSettings gaitOptimizationSettings = GaitOptimizationSettings());
 
   ~SwitchedModelReferenceManager() override = default;
 
@@ -71,9 +76,22 @@ class SwitchedModelReferenceManager : public ReferenceManager {
 
   const std::shared_ptr<SwingTrajectoryPlanner>& getSwingTrajectoryPlanner() const { return swingTrajectoryPtr_; }
 
+  const GaitOptimizationSettings& getGaitOptimizationSettings() const { return gaitOptimizationSettings_; }
+  void setGaitOptimizationSettings(GaitOptimizationSettings settings);
+
   scalar_t getPhaseVariable(scalar_t time) const;
 
   vector_t getDesiredState(const TargetTrajectories& targetTrajectories, const vector_t& state, scalar_t time) const;
+
+  /**
+   * Optimize gait switching times based on the primal solution trajectory.
+   */
+  bool optimizeSwitchingTimes(const PrimalSolution& primalSolution);
+
+  /**
+   * Adapt gait switching times based on instantaneous measured contact sensor feedback.
+   */
+  bool adaptFromContactFeedback(const contact_flag_t& measuredContactFlags, scalar_t currentTime);
 
  protected:
   virtual void modifyReferences(scalar_t initTime,
@@ -95,6 +113,9 @@ class SwitchedModelReferenceManager : public ReferenceManager {
 
   std::shared_ptr<GaitSchedule> gaitSchedulePtr_;
   std::shared_ptr<SwingTrajectoryPlanner> swingTrajectoryPtr_;
+
+  GaitOptimizationSettings gaitOptimizationSettings_;
+  std::unique_ptr<GaitSwitchingTimeOptimizer> gaitSwitchingTimeOptimizerPtr_;
 };
 
 }  // namespace ocs2::humanoid

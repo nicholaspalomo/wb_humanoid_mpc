@@ -403,3 +403,15 @@ collision_constraint:
   # relaxed log barrier parameters
   mu: 15000
   delta: 0.04
+
+gait_optimization:
+  enabled: false # Set to true to optimize switching times, false to keep fixed
+  enableTrajectorySensitivity: true
+  enableContactFeedback: true
+  minSingleSupportDuration: 0.25
+  maxSingleSupportDuration: 0.50
+  minDoubleSupportDuration: 0.05
+  maxDoubleSupportDuration: 0.20
+  earlyTouchDownTimeWindow: 0.15
+  stepSize: 0.02
+  maxIterations: 2

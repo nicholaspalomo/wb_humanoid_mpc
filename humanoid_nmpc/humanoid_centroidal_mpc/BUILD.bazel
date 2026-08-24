@@ -43,6 +43,8 @@ cc_library(
         "@eigen",
         "@boost",
         "@pinocchio",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
         "@ros2_rclcpp",
         "@ros2_ament_index_cpp",
     ],
