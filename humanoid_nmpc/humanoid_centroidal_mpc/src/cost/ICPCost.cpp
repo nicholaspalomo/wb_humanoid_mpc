@@ -127,12 +127,10 @@ vector_t ICPCost::getParameters(scalar_t time, const TargetTrajectories& targetT
   return parameters;
 }
 
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
+#include <ocs2_core/misc/LoadData.h>
 
 vector2_t ICPCost::getWeights(const std::string& taskFile, const std::string prefix, bool verbose) {
-  boost::property_tree::ptree pt;
+  loadData::PropertyTree pt;
   loadData::readPropertyTree(taskFile, pt);
 
   // Load all weights

@@ -32,9 +32,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <unordered_map>
 
-#include <boost/property_tree/info_parser.hpp>
-#include <boost/property_tree/ptree.hpp>
-
 #include <ocs2_core/misc/LoadData.h>
 
 namespace ocs2 {
@@ -65,7 +62,7 @@ Type fromString(std::string name) {
 namespace line_search {
 
 Settings load(const std::string& filename, const std::string& fieldName, bool verbose) {
-  boost::property_tree::ptree pt;
+  loadData::PropertyTree pt;
   loadData::readPropertyTree(filename, pt);
   if (verbose) {
     std::cerr << " #### LINE_SEARCH Settings: {\n";
@@ -99,7 +96,7 @@ Settings load(const std::string& filename, const std::string& fieldName, bool ve
 namespace levenberg_marquardt {
 
 Settings load(const std::string& filename, const std::string& fieldName, bool verbose) {
-  boost::property_tree::ptree pt;
+  loadData::PropertyTree pt;
   loadData::readPropertyTree(filename, pt);
   if (verbose) {
     std::cerr << " #### LEVENBERG_MARQUARDT Settings: {\n";

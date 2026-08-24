@@ -32,9 +32,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 
-#include <boost/property_tree/info_parser.hpp>
-#include <boost/property_tree/ptree.hpp>
-
 #include <ocs2_core/misc/LoadData.h>
 
 namespace ocs2::humanoid {
@@ -61,7 +58,7 @@ ContactRectangle ContactRectangle::loadContactRectangle(const std::string& taskF
                                                         const ModelSettings& modelSettings,
                                                         int contactIndex,
                                                         bool verbose) {
-  boost::property_tree::ptree pt;
+  loadData::PropertyTree pt;
   loadData::readPropertyTree(taskFile, pt);
   const std::string prefix = "contacts.";
 

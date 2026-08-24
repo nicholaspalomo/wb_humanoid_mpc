@@ -29,7 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_core/automatic_differentiation/CppAdInterface.h>
 
-#include <boost/filesystem.hpp>
+#include <filesystem>
 
 namespace ocs2 {
 
@@ -115,7 +115,7 @@ void CppAdInterface::createModels(ApproximationOrder approximationOrder, bool ve
     std::cerr << "[CppAdInterface] Renaming " << libraryName_ + tmpName_ + CppAD::cg::system::SystemInfo<>::DYNAMIC_LIB_EXTENSION << " to "
               << libraryName_ + CppAD::cg::system::SystemInfo<>::DYNAMIC_LIB_EXTENSION << std::endl;
   }
-  boost::filesystem::rename(libraryName_ + tmpName_ + CppAD::cg::system::SystemInfo<>::DYNAMIC_LIB_EXTENSION,
+  std::filesystem::rename(libraryName_ + tmpName_ + CppAD::cg::system::SystemInfo<>::DYNAMIC_LIB_EXTENSION,
                             libraryName_ + CppAD::cg::system::SystemInfo<>::DYNAMIC_LIB_EXTENSION);
 }
 
@@ -303,15 +303,15 @@ void CppAdInterface::setFolderNames() {
 /******************************************************************************************************/
 /******************************************************************************************************/
 bool CppAdInterface::isLibraryAvailable() const {
-  return boost::filesystem::exists(libraryName_ + CppAD::cg::system::SystemInfo<>::DYNAMIC_LIB_EXTENSION);
+  return std::filesystem::exists(libraryName_ + CppAD::cg::system::SystemInfo<>::DYNAMIC_LIB_EXTENSION);
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 void CppAdInterface::createFolderStructure() const {
-  boost::filesystem::create_directories(libraryFolder_);
-  boost::filesystem::create_directories(tmpFolder_);
+  std::filesystem::create_directories(libraryFolder_);
+  std::filesystem::create_directories(tmpFolder_);
 }
 
 /******************************************************************************************************/

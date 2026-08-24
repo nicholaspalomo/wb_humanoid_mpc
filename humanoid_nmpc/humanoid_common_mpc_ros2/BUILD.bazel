@@ -26,10 +26,6 @@ cc_library(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     data = glob(["rviz/**"], allow_empty = True),
     deps = [
@@ -39,7 +35,6 @@ cc_library(
         "//lib/ocs2:ocs2_ros2_msgs",
         "//lib/ocs2:ocs2_sqp",
         "@eigen",
-        "@boost",
         "@pinocchio",
         "@ros2_rclcpp",
         "@ros2_ament_index_cpp",

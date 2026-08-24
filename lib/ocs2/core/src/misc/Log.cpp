@@ -83,7 +83,7 @@ SeverityLevel fromString(const std::string& severity) {
 /******************************************************************************************************/
 Settings loadSettings(const std::string& fileName, const std::string& fieldName) {
   Settings settings;
-  boost::property_tree::ptree pt;
+  loadData::PropertyTree pt;
   loadData::readPropertyTree(fileName, pt);
 
   loadData::loadPtreeValue(pt, settings.useConsole, fieldName + ".useConsole", false);

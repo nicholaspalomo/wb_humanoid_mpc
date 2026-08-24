@@ -136,12 +136,12 @@ ad_vector_t ExternalTorqueQuadraticCostAD::costVectorFunction(ad_scalar_t time,
 
 /******************************************************************************************************/
 /******************************************************************************************************/
-/******************************************************************************************************/
+#include <ocs2_core/misc/LoadData.h>
 
 ExternalTorqueQuadraticCostAD::Config ExternalTorqueQuadraticCostAD::loadConfigFromFile(const std::string& filename,
                                                                                         const std::string& fieldname,
                                                                                         bool verbose) {
-  boost::property_tree::ptree pt;
+  loadData::PropertyTree pt;
   loadData::readPropertyTree(filename, pt);
 
   Config config;

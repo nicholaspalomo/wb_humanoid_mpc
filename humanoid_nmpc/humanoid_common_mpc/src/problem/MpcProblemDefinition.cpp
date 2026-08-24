@@ -34,7 +34,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include <ocs2_core/misc/LoadData.h>
-#include <boost/property_tree/ptree.hpp>
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
@@ -52,7 +51,7 @@ inline constexpr absl::string_view kStateSoftConstraintsSection = "state_soft_co
 inline constexpr absl::string_view kSoftConstraintsSection = "soft_constraints";
 inline constexpr absl::string_view kEqualityConstraintsSection = "equality_constraints";
 
-absl::StatusOr<std::vector<ProblemTermConfig>> parseSection(const boost::property_tree::ptree& parentTree,
+absl::StatusOr<std::vector<ProblemTermConfig>> parseSection(const loadData::PropertyTree& parentTree,
                                                             absl::string_view sectionName,
                                                             bool verbose) {
   std::vector<ProblemTermConfig> terms;
@@ -61,10 +60,10 @@ absl::StatusOr<std::vector<ProblemTermConfig>> parseSection(const boost::propert
     return terms;
   }
 
-  const boost::property_tree::ptree& sectionTree = optionalSection.value();
+  const loadData::PropertyTree& sectionTree = optionalSection.value();
   for (const auto& entry : sectionTree) {
     const absl::string_view nodeKey = entry.first;
-    const boost::property_tree::ptree& termTree = entry.second;
+    const loadData::PropertyTree& termTree = entry.second;
 
     ProblemTermConfig term;
     if (termTree.count("name") > 0) {
@@ -98,7 +97,7 @@ absl::StatusOr<std::vector<ProblemTermConfig>> parseSection(const boost::propert
 }  // namespace
 
 absl::StatusOr<MpcProblemDefinition> loadMpcProblemDefinition(absl::string_view filename, absl::string_view fieldName, bool verbose) {
-  boost::property_tree::ptree pt;
+  loadData::PropertyTree pt;
   const std::string filenameStr(filename);
   try {
     loadData::readPropertyTree(filenameStr, pt);
@@ -115,7 +114,7 @@ absl::StatusOr<MpcProblemDefinition> loadMpcProblemDefinition(absl::string_view 
     std::cout << absl::StrFormat("\n #### Loading MpcProblemDefinition from '%s' [%s] ####\n", filename, fieldName);
   }
 
-  const boost::property_tree::ptree& problemTree = problemDefOptional.value();
+  const loadData::PropertyTree& problemTree = problemDefOptional.value();
   MpcProblemDefinition problemDefinition;
 
   // 1. Costs

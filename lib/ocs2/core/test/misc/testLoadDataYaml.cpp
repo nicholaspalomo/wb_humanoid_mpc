@@ -14,10 +14,10 @@ to the Boost INFO parser, ensuring backward compatibility.
 
 #include <ocs2_core/misc/LoadData.h>
 
-#include <boost/filesystem.hpp>
+#include <filesystem>
 
 namespace {
-const std::string dataFolder = boost::filesystem::path(__FILE__).parent_path().generic_string() + "/data/";
+const std::string dataFolder = std::filesystem::path(__FILE__).parent_path().generic_string() + "/data/";
 const std::string yamlFile = dataFolder + "testConfig.yaml";
 const std::string infoFile = dataFolder + "testConfig.info";
 const std::string gaitYamlFile = dataFolder + "testGait.yaml";
@@ -54,7 +54,7 @@ TEST(LoadDataYaml, loadCppDataType_NestedScalar) {
 // Test: loadPtreeValue from YAML (via ptree)
 // =============================================================================
 TEST(LoadDataYaml, loadPtreeValue_Double) {
-  boost::property_tree::ptree pt;
+  ocs2::loadData::PropertyTree pt;
   ocs2::loadData::readPropertyTree(yamlFile, pt);
 
   double timeHorizon = 0.0;
@@ -67,7 +67,7 @@ TEST(LoadDataYaml, loadPtreeValue_Double) {
 }
 
 TEST(LoadDataYaml, loadPtreeValue_NestedMap) {
-  boost::property_tree::ptree pt;
+  ocs2::loadData::PropertyTree pt;
   ocs2::loadData::readPropertyTree(yamlFile, pt);
 
   std::string armJointName;
@@ -196,13 +196,13 @@ TEST(LoadDataYaml, CrossFormat_MpcSettings) {
 // Test: readPropertyTree auto-detection
 // =============================================================================
 TEST(LoadDataYaml, ReadPropertyTree_AutoDetectsYaml) {
-  boost::property_tree::ptree pt;
+  ocs2::loadData::PropertyTree pt;
   ocs2::loadData::readPropertyTree(yamlFile, pt);
   EXPECT_EQ(pt.get<int>("centroidalModelType"), 0);
 }
 
 TEST(LoadDataYaml, ReadPropertyTree_AutoDetectsInfo) {
-  boost::property_tree::ptree pt;
+  ocs2::loadData::PropertyTree pt;
   ocs2::loadData::readPropertyTree(infoFile, pt);
   EXPECT_EQ(pt.get<int>("centroidalModelType"), 0);
 }
@@ -211,7 +211,7 @@ TEST(LoadDataYaml, ReadPropertyTree_FallbackForUnknownExtension) {
   // Files with unknown extensions should use INFO parser (backward compat)
   // We can't easily test this without a valid INFO file with a different extension,
   // so just verify the function doesn't crash for .info files
-  boost::property_tree::ptree pt;
+  ocs2::loadData::PropertyTree pt;
   EXPECT_NO_THROW(ocs2::loadData::readPropertyTree(infoFile, pt));
 }
 

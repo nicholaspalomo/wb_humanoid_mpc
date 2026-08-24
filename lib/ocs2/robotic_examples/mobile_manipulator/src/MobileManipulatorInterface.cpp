@@ -59,9 +59,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ocs2_mobile_manipulator/dynamics/FullyActuatedFloatingArmManipulatorDynamics.h"
 #include "ocs2_mobile_manipulator/dynamics/WheelBasedMobileManipulatorDynamics.h"
 
-// Boost
-#include <boost/filesystem/operations.hpp>
-#include <boost/filesystem/path.hpp>
+#include <filesystem>
 
 namespace ocs2 {
 namespace mobile_manipulator {
@@ -72,22 +70,22 @@ namespace mobile_manipulator {
 MobileManipulatorInterface::MobileManipulatorInterface(const std::string& taskFile, const std::string& libraryFolder,
                                                        const std::string& urdfFile) {
   // check that task file exists
-  boost::filesystem::path taskFilePath(taskFile);
-  if (boost::filesystem::exists(taskFilePath)) {
+  std::filesystem::path taskFilePath(taskFile);
+  if (std::filesystem::exists(taskFilePath)) {
     std::cerr << "[MobileManipulatorInterface] Loading task file: " << taskFilePath << std::endl;
   } else {
     throw std::invalid_argument("[MobileManipulatorInterface] Task file not found: " + taskFilePath.string());
   }
   // check that urdf file exists
-  boost::filesystem::path urdfFilePath(urdfFile);
-  if (boost::filesystem::exists(urdfFilePath)) {
+  std::filesystem::path urdfFilePath(urdfFile);
+  if (std::filesystem::exists(urdfFilePath)) {
     std::cerr << "[MobileManipulatorInterface] Loading Pinocchio model from: " << urdfFilePath << std::endl;
   } else {
     throw std::invalid_argument("[MobileManipulatorInterface] URDF file not found: " + urdfFilePath.string());
   }
   // create library folder if it does not exist
-  boost::filesystem::path libraryFolderPath(libraryFolder);
-  boost::filesystem::create_directories(libraryFolderPath);
+  std::filesystem::path libraryFolderPath(libraryFolder);
+  std::filesystem::create_directories(libraryFolderPath);
   std::cerr << "[MobileManipulatorInterface] Generated library path: " << libraryFolderPath << std::endl;
 
   // read the task file

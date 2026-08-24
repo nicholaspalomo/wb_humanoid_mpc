@@ -24,7 +24,6 @@ cc_library(
         "//robot_runtime/robot_core",
         "//robot_runtime/robot_model",
         "@eigen",
-        "@boost",
         "@abseil-cpp//absl/log:check",
         "@abseil-cpp//absl/log:initialize",
         "@urdf",
@@ -39,7 +38,6 @@ cc_binary(
     srcs = ["exe/mujocoSimNoTorques.cpp"],
     deps = [
         ":mujoco_sim_interface",
-        "@boost",
         "@glfw",
     ],
 )

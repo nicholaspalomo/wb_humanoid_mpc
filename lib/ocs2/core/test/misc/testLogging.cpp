@@ -34,7 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <sstream>
 #include <string>
 
-#include <boost/algorithm/string/predicate.hpp>
+#include "absl/strings/match.h"
 
 #include <ocs2_core/misc/Log.h>
 
@@ -80,7 +80,7 @@ TEST(testLogging, canWriteLogFile) {
   for (const auto& end : expected) {
     std::string line;
     std::getline(file, line);
-    EXPECT_TRUE(boost::algorithm::ends_with(line, end));
+    EXPECT_TRUE(absl::EndsWith(line, end));
   }
 }
 

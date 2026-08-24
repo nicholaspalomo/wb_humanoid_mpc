@@ -30,9 +30,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact/ContactCenterPoint.h"
 
-#include <boost/property_tree/info_parser.hpp>
-#include <boost/property_tree/ptree.hpp>
-
 #include <ocs2_core/misc/LoadData.h>
 #include "humanoid_common_mpc/common/ModelSettings.h"
 
@@ -43,7 +40,7 @@ ContactCenterPoint ContactCenterPoint::loadContactCenterPoint(const std::string&
                                                               int contactIndex,
                                                               bool verbose) {
   assert(contactIndex < N_CONTACTS && "Contact index is out of bound!");
-  boost::property_tree::ptree pt;
+  loadData::PropertyTree pt;
   loadData::readPropertyTree(taskFile, pt);
   const std::string prefix = "contacts.";
 

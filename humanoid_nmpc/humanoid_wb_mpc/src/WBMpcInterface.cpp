@@ -66,9 +66,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_wb_mpc/dynamics/WBAccelDynamicsAD.h"
 #include "humanoid_wb_mpc/end_effector/PinocchioEndEffectorDynamicsCppAd.h"
 
-// Boost
-#include <boost/filesystem/operations.hpp>
-#include <boost/filesystem/path.hpp>
+#include <filesystem>
 
 namespace ocs2::humanoid {
 
@@ -78,22 +76,22 @@ namespace ocs2::humanoid {
 WBMpcInterface::WBMpcInterface(const std::string& taskFile, const std::string& urdfFile, const std::string& referenceFile, bool setupOCP)
     : taskFile_(taskFile), urdfFile_(urdfFile), referenceFile_(referenceFile), modelSettings_(taskFile, urdfFile, "wb_mpc_", "true") {
   // check that task file exists
-  boost::filesystem::path taskFilePath(taskFile);
-  if (boost::filesystem::exists(taskFilePath)) {
+  std::filesystem::path taskFilePath(taskFile);
+  if (std::filesystem::exists(taskFilePath)) {
     std::cerr << "[WBMpcInterface] Loading task file: " << taskFilePath << std::endl;
   } else {
     throw std::invalid_argument(absl::StrCat("[WBMpcInterface] Task file not found: ", taskFilePath.string()));
   }
   // check that urdf file exists
-  boost::filesystem::path urdfFilePath(urdfFile);
-  if (boost::filesystem::exists(urdfFilePath)) {
+  std::filesystem::path urdfFilePath(urdfFile);
+  if (std::filesystem::exists(urdfFilePath)) {
     std::cerr << "[WBMpcInterface] Loading Pinocchio model from: " << urdfFilePath << std::endl;
   } else {
     throw std::invalid_argument(absl::StrCat("[WBMpcInterface] URDF file not found: ", urdfFilePath.string()));
   }
   // check that targetCommand file exists
-  boost::filesystem::path referenceFilePath(referenceFile);
-  if (boost::filesystem::exists(referenceFilePath)) {
+  std::filesystem::path referenceFilePath(referenceFile);
+  if (std::filesystem::exists(referenceFilePath)) {
     std::cerr << "[WBMpcInterface] Loading target command settings from: " << referenceFilePath << std::endl;
   } else {
     throw std::invalid_argument(absl::StrCat("[WBMpcInterface] targetCommand file not found: ", referenceFilePath.string()));
@@ -257,7 +255,7 @@ std::unique_ptr<StateInputConstraint> WBMpcInterface::getStanceFootConstraint(co
 /******************************************************************************************************/
 /******************************************************************************************************/
 std::unique_ptr<StateInputConstraint> WBMpcInterface::getJointMimicConstraint(size_t mimicIndex) {
-  boost::property_tree::ptree pt;
+  loadData::PropertyTree pt;
   loadData::readPropertyTree(taskFile_, pt);
   absl::string_view prefix;
   if (mimicIndex == 0) {

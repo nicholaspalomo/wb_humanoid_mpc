@@ -41,9 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_core/misc/LoadData.h>
 #include <ocs2_core/penalties/Penalties.h>
 
-// Boost
-#include <boost/filesystem/operations.hpp>
-#include <boost/filesystem/path.hpp>
+#include <filesystem>
 
 namespace ocs2 {
 namespace cartpole {
@@ -53,15 +51,15 @@ namespace cartpole {
 /******************************************************************************************************/
 CartPoleInterface::CartPoleInterface(const std::string& taskFile, const std::string& libraryFolder, bool verbose) {
   // check that task file exists
-  boost::filesystem::path taskFilePath(taskFile);
-  if (boost::filesystem::exists(taskFilePath)) {
+  std::filesystem::path taskFilePath(taskFile);
+  if (std::filesystem::exists(taskFilePath)) {
     std::cerr << "[CartPoleInterface] Loading task file: " << taskFilePath << "\n";
   } else {
     throw std::invalid_argument("[CartPoleInterface] Task file not found: " + taskFilePath.string());
   }
   // create library folder if it does not exist
-  boost::filesystem::path libraryFolderPath(libraryFolder);
-  boost::filesystem::create_directories(libraryFolderPath);
+  std::filesystem::path libraryFolderPath(libraryFolder);
+  std::filesystem::create_directories(libraryFolderPath);
   std::cerr << "[CartPoleInterface] Generated library path: " << libraryFolderPath << "\n";
 
   // Default initial condition

@@ -30,8 +30,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact/ContactPolygon.h"
 
-#include <boost/property_tree/ptree.hpp>
-
 namespace ocs2::humanoid {
 
 ContactPolygon::ContactPolygon(const std::vector<vector3_t>& polygonPoints,
