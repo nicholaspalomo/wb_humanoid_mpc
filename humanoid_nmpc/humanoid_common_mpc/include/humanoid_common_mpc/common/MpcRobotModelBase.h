@@ -35,7 +35,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
-#include <Eigen/Core>
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -148,12 +149,12 @@ class MpcRobotModelBase {
   /*                                         Joint angle                                                */
   /******************************************************************************************************/
 
-  size_t getJointIndex(const std::string& jointName) const {
-    auto it = modelSettings.jointIndexMap.find(jointName);
+  size_t getJointIndex(absl::string_view jointName) const {
+    auto it = modelSettings.jointIndexMap.find(std::string(jointName));
     if (it != modelSettings.jointIndexMap.end()) {
       return it->second;  // Return the found index
     } else {
-      throw std::runtime_error("Joint name " + jointName + " is not contained in MPC model!");
+      throw std::runtime_error(absl::StrCat("Joint name ", jointName, " is not contained in MPC model!"));
     }
   }
 

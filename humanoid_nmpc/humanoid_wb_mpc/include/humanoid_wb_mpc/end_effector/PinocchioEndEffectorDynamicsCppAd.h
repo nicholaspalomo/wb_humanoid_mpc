@@ -34,6 +34,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/types/span.h"
+
 #include <ocs2_core/Types.h>
 #include <ocs2_pinocchio_interface/PinocchioInterface.h>
 #include <ocs2_pinocchio_interface/PinocchioStateInputMapping.h>
@@ -67,7 +69,7 @@ class PinocchioEndEffectorDynamicsCppAd final : public EndEffectorDynamics<scala
   /** Constructor
    * @param [in] pinocchioInterface pinocchio interface.
    * @param [in] mpcRobotModel mapping from OCS2 to pinocchio state.
-   * @param [in] endEffectorIds array of end effector names.
+   * @param [in] endEffectorIds span of end effector names.
    * @param [in] modelName : name of the generate model library
    * @param [in] modelFolder : folder to save the model library files to
    * @param [in] recompileLibraries : If true, the model library will be newly compiled. If false, an existing library will be loaded if
@@ -76,7 +78,7 @@ class PinocchioEndEffectorDynamicsCppAd final : public EndEffectorDynamics<scala
    */
   PinocchioEndEffectorDynamicsCppAd(const PinocchioInterface& pinocchioInterface,
                                     WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel,
-                                    std::vector<std::string> endEffectorIds,
+                                    absl::Span<const std::string> endEffectorIds,
                                     const std::string& modelName,
                                     const std::string& modelFolder = "/tmp/ocs2",
                                     bool recompileLibraries = true,
@@ -85,7 +87,7 @@ class PinocchioEndEffectorDynamicsCppAd final : public EndEffectorDynamics<scala
   /** Constructor
    * @param [in] pinocchioInterface pinocchio interface.
    * @param [in] mpcRobotModel mapping from OCS2 to pinocchio state.
-   * @param [in] endEffectorIds array of end effector names.
+   * @param [in] endEffectorIds span of end effector names.
    * @param [in] updateCallback : In the cases that PinocchioStateInputMapping requires some additional update calls on PinocchioInterface,
    *                              use this callback.
    * @param [in] modelName : name of the generate model library
@@ -96,7 +98,7 @@ class PinocchioEndEffectorDynamicsCppAd final : public EndEffectorDynamics<scala
    */
   PinocchioEndEffectorDynamicsCppAd(const PinocchioInterface& pinocchioInterface,
                                     WBAccelMpcRobotModel<ad_scalar_t>& mpcRobotModel,
-                                    std::vector<std::string> endEffectorIds,
+                                    absl::Span<const std::string> endEffectorIds,
                                     update_pinocchio_interface_callback updateCallback,
                                     const std::string& modelName,
                                     const std::string& modelFolder = "/tmp/ocs2",

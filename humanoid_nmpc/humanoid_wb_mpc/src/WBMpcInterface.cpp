@@ -1,4 +1,5 @@
 /******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
 Copyright (c) 2024, 1X Technologies. All rights reserved.
 
@@ -46,6 +47,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <humanoid_common_mpc/gait/GaitOptimizationSettings.h>
 #include <humanoid_common_mpc/pinocchio_model/createPinocchioModel.h>
+#include <humanoid_common_mpc/problem/MpcProblemBuilder.h>
+#include <humanoid_common_mpc/problem/MpcProblemDefinition.h>
+#include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/str_format.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "humanoid_common_mpc/HumanoidCostConstraintFactory.h"
 #include "humanoid_common_mpc/initialization/WeightCompInitializer.h"
 
@@ -74,21 +82,21 @@ WBMpcInterface::WBMpcInterface(const std::string& taskFile, const std::string& u
   if (boost::filesystem::exists(taskFilePath)) {
     std::cerr << "[WBMpcInterface] Loading task file: " << taskFilePath << std::endl;
   } else {
-    throw std::invalid_argument("[WBMpcInterface] Task file not found: " + taskFilePath.string());
+    throw std::invalid_argument(absl::StrCat("[WBMpcInterface] Task file not found: ", taskFilePath.string()));
   }
   // check that urdf file exists
   boost::filesystem::path urdfFilePath(urdfFile);
   if (boost::filesystem::exists(urdfFilePath)) {
     std::cerr << "[WBMpcInterface] Loading Pinocchio model from: " << urdfFilePath << std::endl;
   } else {
-    throw std::invalid_argument("[WBMpcInterface] URDF file not found: " + urdfFilePath.string());
+    throw std::invalid_argument(absl::StrCat("[WBMpcInterface] URDF file not found: ", urdfFilePath.string()));
   }
   // check that targetCommand file exists
   boost::filesystem::path referenceFilePath(referenceFile);
   if (boost::filesystem::exists(referenceFilePath)) {
     std::cerr << "[WBMpcInterface] Loading target command settings from: " << referenceFilePath << std::endl;
   } else {
-    throw std::invalid_argument("[WBMpcInterface] targetCommand file not found: " + referenceFilePath.string());
+    throw std::invalid_argument(absl::StrCat("[WBMpcInterface] targetCommand file not found: ", referenceFilePath.string()));
   }
 
   loadData::loadCppDataType(taskFile, "interface.verbose", verbose_);
@@ -135,9 +143,8 @@ WBMpcInterface::WBMpcInterface(const std::string& taskFile, const std::string& u
 /******************************************************************************************************/
 
 void WBMpcInterface::setupOptimalControlProblem() {
-  HumanoidCostConstraintFactory factory =
-      HumanoidCostConstraintFactory(taskFile_, referenceFile_, *referenceManagerPtr_, *pinocchioInterfacePtr_, *mpcRobotModelPtr_,
-                                    *mpcRobotModelADPtr_, modelSettings_, verbose_);
+  const HumanoidCostConstraintFactory factory(taskFile_, referenceFile_, *referenceManagerPtr_, *pinocchioInterfacePtr_, *mpcRobotModelPtr_,
+                                              *mpcRobotModelADPtr_, modelSettings_, verbose_);
 
   // Optimal control problem
   problemPtr_.reset(new OptimalControlProblem);
@@ -146,56 +153,63 @@ void WBMpcInterface::setupOptimalControlProblem() {
   std::unique_ptr<SystemDynamicsBase> dynamicsPtr;
   const std::string modelName = "dynamics";
   dynamicsPtr.reset(new WBAccelDynamicsAD(*pinocchioInterfacePtr_, *mpcRobotModelADPtr_, modelName, modelSettings_));
-
   problemPtr_->dynamicsPtr = std::move(dynamicsPtr);
 
-  // Cost terms
-  problemPtr_->costPtr->add("stateInputQuadraticCost", factory.getStateInputQuadraticCost());
-  // problemPtr_->costPtr->add("jointTorqueCost", getJointTorqueCost(taskFile_));
-  problemPtr_->finalCostPtr->add("terminalCost", factory.getTerminalCost());
-
-  // Constraints
-  problemPtr_->stateSoftConstraintPtr->add("jointLimits", factory.getJointLimitsConstraint());
-  problemPtr_->stateSoftConstraintPtr->add("FootCollisionSoftConstraint", factory.getFootCollisionConstraint());
-  // Constraint terms
-
-  EndEffectorDynamicsWeights footTrackingCostWeights =
+  const EndEffectorDynamicsWeights footTrackingCostWeights =
       EndEffectorDynamicsWeights::getWeights(taskFile_, "task_space_foot_cost_weights.", verbose_);
 
-  // check for mimic joints
-  boost::property_tree::ptree pt;
-  loadData::readPropertyTree(taskFile_, pt);
-  bool hasMimicJoints = loadData::containsPtreeValueFind(pt, "mimicJoints");
-
-  for (size_t i = 0; i < N_CONTACTS; i++) {
+  // Cache EE dynamics per foot
+  std::vector<std::shared_ptr<EndEffectorDynamics<scalar_t>>> eeDynamicsList(N_CONTACTS);
+  for (size_t i = 0; i < N_CONTACTS; ++i) {
     const std::string& footName = modelSettings_.contactNames[i];
+    eeDynamicsList[i] = std::make_shared<PinocchioEndEffectorDynamicsCppAd>(
+        *pinocchioInterfacePtr_, *mpcRobotModelADPtr_, absl::MakeConstSpan(&footName, 1), footName, modelSettings_.modelFolderCppAd,
+        modelSettings_.recompileLibrariesCppAd, modelSettings_.verboseCppAd);
+  }
 
-    std::unique_ptr<EndEffectorDynamics<scalar_t>> eeDynamicsPtr;
-    eeDynamicsPtr.reset(new PinocchioEndEffectorDynamicsCppAd(*pinocchioInterfacePtr_, *mpcRobotModelADPtr_, {footName}, footName,
-                                                              modelSettings_.modelFolderCppAd, modelSettings_.recompileLibrariesCppAd,
-                                                              modelSettings_.verboseCppAd));
-
-    const bool hasContactWrenchCone = loadData::containsPtreeValueFind(pt, "contacts.contactWrenchConeSoftConstraint");
-    if (hasContactWrenchCone) {
-      problemPtr_->softConstraintPtr->add(footName + "_contactWrenchCone", factory.getContactWrenchConeConstraint(i));
-    } else {
-      problemPtr_->softConstraintPtr->add(footName + "_frictionForceCone", factory.getFrictionForceConeConstraint(i));
-      problemPtr_->softConstraintPtr->add(footName + "_contactMomentXY",
-                                          factory.getContactMomentXYConstraint(i, footName + "_contact_moment_XY_constraint"));
+  MpcProblemBuilder::CustomBuilders customBuilders;
+  customBuilders.footTrackingCostBuilder = [this, &footTrackingCostWeights, &eeDynamicsList](
+                                               size_t contactIndex,
+                                               absl::string_view name) -> absl::StatusOr<std::unique_ptr<StateInputCost>> {
+    if (contactIndex >= eeDynamicsList.size()) {
+      return absl::OutOfRangeError(absl::StrFormat("Contact index %zu exceeds dynamics list size.", contactIndex));
     }
-    problemPtr_->equalityConstraintPtr->add(footName + "_zeroWrench", factory.getZeroWrenchConstraint(i));
-    problemPtr_->equalityConstraintPtr->add(footName + "_zeroVelocity", getStanceFootConstraint(*eeDynamicsPtr, i));
-    problemPtr_->equalityConstraintPtr->add(footName + "_normalVelocity", getNormalVelocityConstraint(*eeDynamicsPtr, i));
+    return std::unique_ptr<StateInputCost>(new EndEffectorDynamicsFootCost(
+        *referenceManagerPtr_, footTrackingCostWeights, *pinocchioInterfacePtr_, *eeDynamicsList[contactIndex], *mpcRobotModelADPtr_,
+        contactIndex, std::string(name), modelSettings_));
+  };
 
-    if (hasMimicJoints) {
-      problemPtr_->equalityConstraintPtr->add(footName + "_kneeJointMimic", getJointMimicConstraint(i));
+  customBuilders.stanceFootConstraintBuilder =
+      [this, &eeDynamicsList](size_t contactIndex, absl::string_view) -> absl::StatusOr<std::unique_ptr<StateInputConstraint>> {
+    if (contactIndex >= eeDynamicsList.size()) {
+      return absl::OutOfRangeError(absl::StrFormat("Contact index %zu exceeds dynamics list size.", contactIndex));
     }
+    return getStanceFootConstraint(*eeDynamicsList[contactIndex], contactIndex);
+  };
 
-    std::string footTrackingCostName = footName + "_TaskSpaceTrackingCost";
+  customBuilders.normalVelocityConstraintBuilder =
+      [this, &eeDynamicsList](size_t contactIndex, absl::string_view) -> absl::StatusOr<std::unique_ptr<StateInputConstraint>> {
+    if (contactIndex >= eeDynamicsList.size()) {
+      return absl::OutOfRangeError(absl::StrFormat("Contact index %zu exceeds dynamics list size.", contactIndex));
+    }
+    return getNormalVelocityConstraint(*eeDynamicsList[contactIndex], contactIndex);
+  };
 
-    problemPtr_->costPtr->add(footTrackingCostName, std::unique_ptr<StateInputCost>(new EndEffectorDynamicsFootCost(
-                                                        *referenceManagerPtr_, footTrackingCostWeights, *pinocchioInterfacePtr_,
-                                                        *eeDynamicsPtr, *mpcRobotModelADPtr_, i, footTrackingCostName, modelSettings_)));
+  customBuilders.jointMimicConstraintBuilder = [this](size_t mimicIndex,
+                                                      absl::string_view) -> absl::StatusOr<std::unique_ptr<StateInputConstraint>> {
+    return getJointMimicConstraint(mimicIndex);
+  };
+
+  const absl::StatusOr<MpcProblemDefinition> problemDefStatus = loadMpcProblemDefinition(taskFile_, "problem_definition", verbose_);
+  if (!problemDefStatus.ok()) {
+    throw std::runtime_error(
+        absl::StrCat("Failed to load problem_definition from ", taskFile_, ": ", problemDefStatus.status().ToString()));
+  }
+
+  const MpcProblemBuilder problemBuilder(problemDefStatus.value(), factory, modelSettings_, std::move(customBuilders));
+  const absl::Status buildStatus = problemBuilder.buildProblem(*problemPtr_);
+  if (!buildStatus.ok()) {
+    throw std::runtime_error(absl::StrCat("Failed to build OptimalControlProblem: ", buildStatus.ToString()));
   }
 
   // Pre-computation
@@ -245,13 +259,13 @@ std::unique_ptr<StateInputConstraint> WBMpcInterface::getStanceFootConstraint(co
 std::unique_ptr<StateInputConstraint> WBMpcInterface::getJointMimicConstraint(size_t mimicIndex) {
   boost::property_tree::ptree pt;
   loadData::readPropertyTree(taskFile_, pt);
-  std::string prefix;
+  absl::string_view prefix;
   if (mimicIndex == 0) {
     prefix = "mimicJoints.left_knee.";
   } else if (mimicIndex == 1) {
     prefix = "mimicJoints.right_knee.";
   } else {
-    throw std::runtime_error("No mimic joint for index: " + std::to_string(mimicIndex));
+    throw std::runtime_error(absl::StrCat("No mimic joint for index: ", mimicIndex));
   }
 
   std::string parentJointName;
@@ -266,11 +280,11 @@ std::unique_ptr<StateInputConstraint> WBMpcInterface::getJointMimicConstraint(si
                  "============================================================="
                  "================\n";
   }
-  loadData::loadPtreeValue(pt, parentJointName, prefix + "parentJointName", verbose_);
-  loadData::loadPtreeValue(pt, childJointName, prefix + "childJointName", verbose_);
-  loadData::loadPtreeValue(pt, multiplier, prefix + "multiplier", verbose_);
-  loadData::loadPtreeValue(pt, positionGain, prefix + "positionGain", verbose_);
-  loadData::loadPtreeValue(pt, velocityGain, prefix + "velocityGain", verbose_);
+  loadData::loadPtreeValue(pt, parentJointName, std::string(absl::StrCat(prefix, "parentJointName")), verbose_);
+  loadData::loadPtreeValue(pt, childJointName, std::string(absl::StrCat(prefix, "childJointName")), verbose_);
+  loadData::loadPtreeValue(pt, multiplier, std::string(absl::StrCat(prefix, "multiplier")), verbose_);
+  loadData::loadPtreeValue(pt, positionGain, std::string(absl::StrCat(prefix, "positionGain")), verbose_);
+  loadData::loadPtreeValue(pt, velocityGain, std::string(absl::StrCat(prefix, "velocityGain")), verbose_);
   if (verbose_) {
     std::cerr << " #### "
                  "============================================================="

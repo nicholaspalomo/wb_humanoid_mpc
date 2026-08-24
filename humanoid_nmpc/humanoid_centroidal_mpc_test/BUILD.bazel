@@ -21,6 +21,10 @@ _TEST_DEPS = [
 _TEST_DATA = [
     "//robot_models/unitree_g1/g1_description",
     "//robot_models/unitree_g1/g1_centroidal_mpc",
+    "//robot_models/unitree_r1/unitree_r1_description",
+    "//robot_models/unitree_r1/unitree_r1_centroidal_mpc",
+    "//robot_models/drc_atlas/drc_atlas_description",
+    "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
 ]
 
 _TEST_COPTS = [
@@ -28,7 +32,7 @@ _TEST_COPTS = [
     "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
     "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
     "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+    "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
 ]
 
 cc_test(
@@ -70,6 +74,14 @@ cc_test(
 cc_test(
     name = "test_gait_switching_time_optimization",
     srcs = ["src/testGaitSwitchingTimeOptimization.cpp"],
+    copts = _TEST_COPTS,
+    data = _TEST_DATA,
+    deps = _TEST_DEPS,
+)
+
+cc_test(
+    name = "test_mpc_problem_builder",
+    srcs = ["src/testMpcProblemBuilder.cpp"],
     copts = _TEST_COPTS,
     data = _TEST_DATA,
     deps = _TEST_DEPS,
