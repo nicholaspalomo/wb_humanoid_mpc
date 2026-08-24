@@ -188,8 +188,15 @@ export AMENT_PREFIX_PATH="${_BAZEL_PREFIXES}:${AMENT_PREFIX_PATH}"
 
 # Add Bazel-generated Python message bindings and shared libraries (humanoid_mpc_msgs, ocs2_ros2_msgs)
 _OUTPUT_BASE=""
-if [ -d "${HOME}/.cache/bazel" ]; then
-    _OUTPUT_BASE=$(find "${HOME}/.cache/bazel" -maxdepth 3 -type d -name "external" 2>/dev/null | head -n 1 | sed 's|/external$||')
+if [ -e "${SCRIPT_DIR}/.bazel/output_base" ]; then
+    _OUTPUT_BASE=$(readlink -f "${SCRIPT_DIR}/.bazel/output_base" 2>/dev/null)
+elif [ -e "${SCRIPT_DIR}/bazel-out" ]; then
+    _OUTPUT_BASE=$(readlink -f "${SCRIPT_DIR}/bazel-out/../../" 2>/dev/null)
+fi
+if [ -z "$_OUTPUT_BASE" ] || [ ! -d "$_OUTPUT_BASE" ]; then
+    if [ -d "${HOME}/.cache/bazel" ]; then
+        _OUTPUT_BASE=$(find "${HOME}/.cache/bazel" -maxdepth 3 -type d -name "external" 2>/dev/null | head -n 1 | sed 's|/external$||')
+    fi
 fi
 
 if [ -n "$_OUTPUT_BASE" ] && [ -d "$_OUTPUT_BASE" ]; then
