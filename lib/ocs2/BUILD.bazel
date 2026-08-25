@@ -375,6 +375,7 @@ cc_library(
 
 cc_test(
     name = "test_load_data_yaml",
+    size = "small",
     srcs = ["core/test/misc/testLoadDataYaml.cpp"],
     copts = _OCS2_COPTS,
     data = glob(["core/test/misc/data/**"]),

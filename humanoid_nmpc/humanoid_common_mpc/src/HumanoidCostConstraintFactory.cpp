@@ -1,4 +1,5 @@
 /******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
 Copyright (c) 2024, 1X Technologies. All rights reserved.
 
@@ -35,6 +36,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <boost/property_tree/info_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+
 #include <ocs2_core/constraint/StateInputConstraint.h>
 #include <ocs2_core/cost/QuadraticStateCost.h>
 #include <ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h>
@@ -47,6 +51,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <humanoid_common_mpc/cost/StateInputQuadraticCost.h>
 #include <humanoid_common_mpc/pinocchio_model/pinocchioUtils.h>
 #include "humanoid_common_mpc/constraint/ContactMomentXYConstraintCppAd.h"
+#include "humanoid_common_mpc/constraint/ContactWrenchConeConstraint.h"
 #include "humanoid_common_mpc/constraint/FootCollisionConstraint.h"
 #include "humanoid_common_mpc/constraint/JointLimitsSoftConstraint.h"
 #include "humanoid_common_mpc/cost/ExternalTorqueQuadraticCostAD.h"
@@ -99,13 +104,13 @@ std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getStateInputQuad
 std::unique_ptr<StateCost> HumanoidCostConstraintFactory::getFootCollisionConstraint() const {
   boost::property_tree::ptree pt;
   loadData::readPropertyTree(taskFile_, pt);
-  const std::string prefix = "collision_constraint.";
+  constexpr absl::string_view prefix = "collision_constraint.";
 
   FootCollisionConstraint::Config collisionConfig = FootCollisionConstraint::loadFootCollisionConstraintConfig(taskFile_, verbose_);
   PieceWisePolynomialBarrierPenalty::Config barrierPenaltyConfig;
 
-  loadData::loadPtreeValue(pt, barrierPenaltyConfig.mu, prefix + "mu", verbose_);
-  loadData::loadPtreeValue(pt, barrierPenaltyConfig.delta, prefix + "delta", verbose_);
+  loadData::loadPtreeValue(pt, barrierPenaltyConfig.mu, absl::StrCat(prefix, "mu"), verbose_);
+  loadData::loadPtreeValue(pt, barrierPenaltyConfig.delta, absl::StrCat(prefix, "delta"), verbose_);
 
   std::unique_ptr<PieceWisePolynomialBarrierPenalty> penalty(new PieceWisePolynomialBarrierPenalty(barrierPenaltyConfig));
 
@@ -123,7 +128,7 @@ std::unique_ptr<StateCost> HumanoidCostConstraintFactory::getFootCollisionConstr
 std::unique_ptr<StateCost> HumanoidCostConstraintFactory::getJointLimitsConstraint() const {
   boost::property_tree::ptree pt;
   loadData::readPropertyTree(taskFile_, pt);
-  const std::string prefix = "jointLimits.";
+  constexpr absl::string_view prefix = "jointLimits.";
 
   PieceWisePolynomialBarrierPenalty::Config barrierPenaltyConfig;
 
@@ -133,8 +138,8 @@ std::unique_ptr<StateCost> HumanoidCostConstraintFactory::getJointLimitsConstrai
                  "============================================================="
                  "================\n";
   }
-  loadData::loadPtreeValue(pt, barrierPenaltyConfig.mu, prefix + "mu", verbose_);
-  loadData::loadPtreeValue(pt, barrierPenaltyConfig.delta, prefix + "delta", verbose_);
+  loadData::loadPtreeValue(pt, barrierPenaltyConfig.mu, absl::StrCat(prefix, "mu"), verbose_);
+  loadData::loadPtreeValue(pt, barrierPenaltyConfig.delta, absl::StrCat(prefix, "delta"), verbose_);
   if (verbose_) {
     std::cerr << " #### "
                  "============================================================="
@@ -157,11 +162,11 @@ std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getContactMomentX
                                                                                             const std::string& name) const {
   boost::property_tree::ptree pt;
   loadData::readPropertyTree(taskFile_, pt);
-  const std::string prefix = "contacts.contactMomentXYSoftConstraint.";
+  constexpr absl::string_view prefix = "contacts.contactMomentXYSoftConstraint.";
 
   RelaxedBarrierPenalty::Config barrierPenaltyConfig;
-  loadData::loadPtreeValue(pt, barrierPenaltyConfig.mu, prefix + "mu", verbose_);
-  loadData::loadPtreeValue(pt, barrierPenaltyConfig.delta, prefix + "delta", verbose_);
+  loadData::loadPtreeValue(pt, barrierPenaltyConfig.mu, absl::StrCat(prefix, "mu"), verbose_);
+  loadData::loadPtreeValue(pt, barrierPenaltyConfig.delta, absl::StrCat(prefix, "delta"), verbose_);
 
   std::unique_ptr<ContactMomentXYConstraintCppAd> contactMomentXYConstraintPtr(new ContactMomentXYConstraintCppAd(
       *referenceManagerPtr_, ContactRectangle::loadContactRectangle(taskFile_, mpcRobotModelPtr_->modelSettings, contactPointIndex),
@@ -170,6 +175,36 @@ std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getContactMomentX
   std::unique_ptr<PenaltyBase> penalty(new RelaxedBarrierPenalty(barrierPenaltyConfig));
 
   return std::unique_ptr<StateInputCost>(new StateInputSoftConstraint(std::move(contactMomentXYConstraintPtr), std::move(penalty)));
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getContactWrenchConeConstraint(size_t contactPointIndex,
+                                                                                              size_t numBasisVectors) const {
+  boost::property_tree::ptree pt;
+  loadData::readPropertyTree(taskFile_, pt);
+  constexpr absl::string_view prefix = "contacts.contactWrenchConeSoftConstraint.";
+
+  RelaxedBarrierPenalty::Config barrierPenaltyConfig;
+  loadData::loadPtreeValue(pt, barrierPenaltyConfig.mu, absl::StrCat(prefix, "mu"), verbose_);
+  loadData::loadPtreeValue(pt, barrierPenaltyConfig.delta, absl::StrCat(prefix, "delta"), verbose_);
+
+  ContactWrenchConeConstraint::Config config;
+  config.numBasisVectors = numBasisVectors;
+  loadData::loadPtreeValue(pt, config.frictionCoefficient, absl::StrCat(prefix, "frictionCoefficient"), verbose_);
+  loadData::loadPtreeValue(pt, config.torsionalFrictionCoefficient, absl::StrCat(prefix, "torsionalFrictionCoefficient"), verbose_);
+  loadData::loadPtreeValue(pt, config.minNormalForce, absl::StrCat(prefix, "minNormalForce"), verbose_);
+  loadData::loadPtreeValue(pt, config.gripperForce, absl::StrCat(prefix, "gripperForce"), verbose_);
+
+  std::unique_ptr<ContactWrenchConeConstraint> contactWrenchConeConstraintPtr(new ContactWrenchConeConstraint(
+      *referenceManagerPtr_, ContactRectangle::loadContactRectangle(taskFile_, mpcRobotModelPtr_->modelSettings, contactPointIndex),
+      contactPointIndex, *pinocchioInterfacePtr_, *mpcRobotModelPtr_, config));
+
+  std::unique_ptr<PenaltyBase> penalty(new RelaxedBarrierPenalty(barrierPenaltyConfig));
+
+  return std::unique_ptr<StateInputCost>(new StateInputSoftConstraint(std::move(contactWrenchConeConstraintPtr), std::move(penalty)));
 }
 
 /******************************************************************************************************/
@@ -187,7 +222,7 @@ std::unique_ptr<StateInputConstraint> HumanoidCostConstraintFactory::getZeroWren
 std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getFrictionForceConeConstraint(size_t contactPointIndex) const {
   boost::property_tree::ptree pt;
   loadData::readPropertyTree(taskFile_, pt);
-  const std::string prefix = "contacts.frictionForceConeSoftConstraint.";
+  constexpr absl::string_view prefix = "contacts.frictionForceConeSoftConstraint.";
 
   scalar_t frictionCoefficient = 1.0;
   RelaxedBarrierPenalty::Config barrierPenaltyConfig;
@@ -195,9 +230,9 @@ std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getFrictionForceC
     std::cerr << "\n #### Friction Cone Settings: ";
     std::cerr << "\n #### =============================================================================\n";
   }
-  loadData::loadPtreeValue(pt, frictionCoefficient, prefix + "frictionCoefficient", verbose_);
-  loadData::loadPtreeValue(pt, barrierPenaltyConfig.mu, prefix + "mu", verbose_);
-  loadData::loadPtreeValue(pt, barrierPenaltyConfig.delta, prefix + "delta", verbose_);
+  loadData::loadPtreeValue(pt, frictionCoefficient, absl::StrCat(prefix, "frictionCoefficient"), verbose_);
+  loadData::loadPtreeValue(pt, barrierPenaltyConfig.mu, absl::StrCat(prefix, "mu"), verbose_);
+  loadData::loadPtreeValue(pt, barrierPenaltyConfig.delta, absl::StrCat(prefix, "delta"), verbose_);
   if (verbose_) {
     std::cerr << " #### =============================================================================\n";
   }
