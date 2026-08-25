@@ -1,38 +1,33 @@
 ---
-name: Bug report
-about: Create a report to help us improve
-title: ''
-labels: ''
-assignees: ''
-
+name: Bug Report
+about: Create a report to help us reproduce and fix an issue
+title: '[BUG] '
+labels: bug
 ---
 
-**Describe the bug**
+## Description of the Bug
 A clear and concise description of what the bug is.
 
-**To Reproduce**
-Steps to reproduce the behavior:
-1. Go to '...'
-2. Click on '....'
-3. Scroll down to '....'
-4. See error
+## Environment
+- **OS**: [e.g. Ubuntu 24.04 (Noble), Ubuntu 22.04 (Jammy)]
+- **ROS 2 Distribution**: [e.g. Jazzy, Humble]
+- **Robot Model**: [e.g. Unitree R1, Unitree G1, DRC Atlas]
+- **Compiler / Toolchain**: [e.g. GCC 13, Clang 18, Bazel 9.2]
+- **Hardware / Acceleration**: [e.g. NVIDIA GPU, CPU only]
 
-**Expected behavior**
+## Steps to Reproduce
+Steps to reproduce the behavior:
+1. Run command '...'
+2. Launch node / simulation '....'
+3. See error in terminal / log output
+
+## Expected Behavior
 A clear and concise description of what you expected to happen.
 
-**Screenshots**
-If applicable, add screenshots to help explain your problem.
+## Actual Behavior / Logs / Error Output
+```text
+Paste terminal output, backtraces, or log snippets here.
+```
 
-**Desktop (please complete the following information):**
- - OS: [e.g. iOS]
- - Browser [e.g. chrome, safari]
- - Version [e.g. 22]
-
-**Smartphone (please complete the following information):**
- - Device: [e.g. iPhone6]
- - OS: [e.g. iOS8.1]
- - Browser [e.g. stock browser, safari]
- - Version [e.g. 22]
-
-**Additional context**
-Add any other context about the problem here.
+## Additional Context
+Add any other context, configuration snippets, or screenshots about the problem here.
