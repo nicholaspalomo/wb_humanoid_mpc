@@ -13,8 +13,14 @@ import jax.numpy as jnp
 import mujoco
 from mujoco import mjx
 import numpy as np
-import onnx
 import optax
+
+try:
+    import onnx
+
+    _HAS_ONNX = True
+except ImportError:
+    _HAS_ONNX = False
 
 from humanoid_learning.envs.base_env import HumanoidEnvConfig, HumanoidMpxEnv
 
@@ -87,7 +93,8 @@ class TestRLImportsAndBasics(unittest.TestCase):
         self.assertIsNotNone(brax.__name__)
         self.assertIsNotNone(flax.__name__)
         self.assertIsNotNone(optax.__name__)
-        self.assertIsNotNone(onnx.__name__)
+        if _HAS_ONNX:
+            self.assertIsNotNone(onnx.__name__)
 
 
 if __name__ == "__main__":

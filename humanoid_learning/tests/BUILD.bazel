@@ -22,7 +22,6 @@ py_test(
         requirement("mujoco"),
         requirement("mujoco-mjx"),
         requirement("numpy"),
-        requirement("onnx"),
         requirement("optax"),
         requirement("playground"),
     ],
@@ -44,5 +43,26 @@ py_test(
         requirement("numpy"),
         requirement("optax"),
         requirement("pillow"),
+    ],
+)
+
+py_test(
+    name = "test_jax_wbc",
+    size = "medium",
+    srcs = ["test_jax_wbc.py"],
+    deps = [
+        "//humanoid_learning/envs",
+        "//humanoid_learning/training:training_lib",
+        "//humanoid_learning/wbc",
+        requirement("absl-py"),
+        requirement("brax"),
+        requirement("flax"),
+        requirement("jax"),
+        requirement("jaxlib"),
+        requirement("mujoco"),
+        requirement("mujoco-mjx"),
+        requirement("numpy"),
+        requirement("optax"),
+        requirement("playground"),
     ],
 )

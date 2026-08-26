@@ -15,6 +15,9 @@ The centroidal MPC optimizes over the **whole-body kinematics** and the center o
 ### Whole-Body Dynamics MPC
 The **whole-body dynamics** MPC optimizes over the contact forces and joint accelerations with the option to compute the joint torques for each step planned across the horizon. The most relevant information on the chosen approach can currently be found in [Galliker et al., Bipedal Locomotion with Nonlinear Model Predictive Control: Online Gait Generation using Whole-Body Dynamics](http://ames.caltech.edu/galliker2022bipedal.pdf).
 
+### Policy-Guided Whole-Body Control (GRPO in JAX)
+A GPU/CPU-accelerated RL framework in **JAX / MuJoCo MJX** using **Group Relative Policy Optimization (GRPO)**. The policy is bootstrapped from offline whole-body MPC trajectories via Behavioral Cloning (BC) and outputs joint position residuals that are tracked at high frequency by a **JAX-native QP-based Whole-Body Controller (WBC)**. See the complete architecture and math breakdown in [humanoid_learning/README.md](humanoid_learning/README.md).
+
 ### Robot Examples
 
 The project supports the following robot examples:

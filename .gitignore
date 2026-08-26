@@ -71,3 +71,5 @@ MODULE.bazel.lock
 cppad_code_gen/
 .env
 cartpole_renders/
+checkpoints/
+*.npz

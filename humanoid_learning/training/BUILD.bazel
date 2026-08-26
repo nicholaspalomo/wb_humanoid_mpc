@@ -12,10 +12,15 @@ py_library(
     srcs = [
         "__init__.py",
         "bc_warmstart.py",
+        "bootstrap_bc.py",
+        "offline_dataset.py",
+        "policy_network.py",
+        "train_grpo.py",
         "train_ppo.py",
     ],
     deps = [
         "//humanoid_learning/envs",
+        "//humanoid_learning/wbc",
         requirement("absl-py"),
         requirement("brax"),
         requirement("flax"),
@@ -42,6 +47,22 @@ py_binary(
 py_binary(
     name = "bc_warmstart",
     srcs = ["bc_warmstart.py"],
+    deps = [
+        ":training_lib",
+    ],
+)
+
+py_binary(
+    name = "bootstrap_bc",
+    srcs = ["bootstrap_bc.py"],
+    deps = [
+        ":training_lib",
+    ],
+)
+
+py_binary(
+    name = "train_grpo",
+    srcs = ["train_grpo.py"],
     deps = [
         ":training_lib",
     ],
