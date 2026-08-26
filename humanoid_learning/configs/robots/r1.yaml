@@ -1,0 +1,244 @@
+name: r1
+nq: 33
+nv: 32
+n_act: 26
+joint_names:
+- left_hip_pitch_joint
+- left_hip_roll_joint
+- left_hip_yaw_joint
+- left_knee_joint
+- left_ankle_pitch_joint
+- left_ankle_roll_joint
+- right_hip_pitch_joint
+- right_hip_roll_joint
+- right_hip_yaw_joint
+- right_knee_joint
+- right_ankle_pitch_joint
+- right_ankle_roll_joint
+- waist_roll_joint
+- waist_yaw_joint
+- left_shoulder_pitch_joint
+- left_shoulder_roll_joint
+- left_shoulder_yaw_joint
+- left_elbow_joint
+- left_wrist_roll_joint
+- right_shoulder_pitch_joint
+- right_shoulder_roll_joint
+- right_shoulder_yaw_joint
+- right_elbow_joint
+- right_wrist_roll_joint
+- head_pitch_joint
+- head_yaw_joint
+actuator_names:
+- left_hip_pitch_joint_motor
+- left_hip_roll_joint_motor
+- left_hip_yaw_joint_motor
+- left_knee_joint_motor
+- left_ankle_pitch_joint_motor
+- left_ankle_roll_joint_motor
+- right_hip_pitch_joint_motor
+- right_hip_roll_joint_motor
+- right_hip_yaw_joint_motor
+- right_knee_joint_motor
+- right_ankle_pitch_joint_motor
+- right_ankle_roll_joint_motor
+- waist_roll_joint_motor
+- waist_yaw_joint_motor
+- left_shoulder_pitch_joint_motor
+- left_shoulder_roll_joint_motor
+- left_shoulder_yaw_joint_motor
+- left_elbow_joint_motor
+- left_wrist_roll_joint_motor
+- right_shoulder_pitch_joint_motor
+- right_shoulder_roll_joint_motor
+- right_shoulder_yaw_joint_motor
+- right_elbow_joint_motor
+- right_wrist_roll_joint_motor
+- head_pitch_joint_motor
+- head_yaw_joint_motor
+q_nominal:
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+joint_limits_lower:
+- -2.93215
+- -1.0472
+- -2.7402
+- -0.174533
+- -0.87266
+- -0.2618
+- -2.93215
+- -1.74533
+- -2.7402
+- -0.17453
+- -0.87266
+- -0.261799
+- -0.5236
+- -2.618
+- -3.1416
+- -0.22689
+- -1.9199
+- -0.97564
+- -1.9199
+- -3.1416
+- -2.47849
+- -1.9199
+- -0.97564
+- -1.9199
+- -0.62832
+- -2.0071
+joint_limits_upper:
+- 2.54818
+- 1.74533
+- 2.7402
+- 2.42601
+- 0.57596
+- 0.2618
+- 2.54818
+- 1.0472
+- 2.7402
+- 2.42601
+- 0.57596
+- 0.261799
+- 0.5236
+- 2.618
+- 2.0944
+- 2.4784
+- 1.9199
+- 2.1852
+- 1.9199
+- 2.0944
+- 0.2268
+- 1.9199
+- 2.1852
+- 1.9199
+- 0.62832
+- 2.0071
+torque_limits:
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+total_mass: 29.830270725621666
+body_masses:
+  world: 0.0
+  pelvis: 3.2446217256216587
+  left_hip_pitch_link: 0.935482
+  left_hip_roll_link: 0.207609
+  left_hip_yaw_link: 1.73967
+  left_knee_link: 2.37477
+  left_ankle_pitch_link: 0.071231
+  left_ankle_roll_link: 0.481688
+  right_hip_pitch_link: 0.935482
+  right_hip_roll_link: 0.207609
+  right_hip_yaw_link: 1.73967
+  right_knee_link: 2.37477
+  right_ankle_pitch_link: 0.071231
+  right_ankle_roll_link: 0.481688
+  waist_roll_link: 0.920736
+  waist_yaw_link: 6.0242
+  left_shoulder_pitch_link: 0.83795
+  left_shoulder_roll_link: 0.740212
+  left_shoulder_yaw_link: 0.738441
+  left_elbow_link: 0.759419
+  left_wrist_roll_link: 0.324767
+  right_shoulder_pitch_link: 0.83795
+  right_shoulder_roll_link: 0.740212
+  right_shoulder_yaw_link: 0.738441
+  right_elbow_link: 0.759419
+  right_wrist_roll_link: 0.324767
+  head_pitch_link: 0.503913
+  head_yaw_link: 0.714322
+default_standing_height: 0.75
+contact_body_names:
+- left_ankle_roll_link
+- right_ankle_roll_link
+limb_joint_indices:
+  left_leg:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  right_leg:
+  - 6
+  - 7
+  - 8
+  - 9
+  - 10
+  - 11
+  torso:
+  - 12
+  - 13
+  left_arm:
+  - 14
+  - 15
+  - 16
+  - 17
+  - 18
+  right_arm:
+  - 19
+  - 20
+  - 21
+  - 22
+  - 23
+wbc_config:
+  w_base_acc: 100.0
+  w_posture: 10.0
+  w_contact_acc: 1000.0
+  w_force_reg: 0.0001
+  w_torque_reg: 0.0001
+  kp_posture: 100.0
+  kd_posture: 10.0
+  friction_coef: 0.6
+  f_z_min: 5.0
+  f_z_max: 1500.0
+  tau_max: 100.0
+source_file: /home/nico-palomo/workspace/wb_humanoid_mpc/robot_models/unitree_r1/unitree_r1_description/urdf/r1.xml
+backend: mujoco

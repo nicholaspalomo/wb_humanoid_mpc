@@ -15,15 +15,16 @@ The centroidal MPC optimizes over the **whole-body kinematics** and the center o
 ### Whole-Body Dynamics MPC
 The **whole-body dynamics** MPC optimizes over the contact forces and joint accelerations with the option to compute the joint torques for each step planned across the horizon. The most relevant information on the chosen approach can currently be found in [Galliker et al., Bipedal Locomotion with Nonlinear Model Predictive Control: Online Gait Generation using Whole-Body Dynamics](http://ames.caltech.edu/galliker2022bipedal.pdf).
 
-### Policy-Guided Whole-Body Control (GRPO in JAX)
-A GPU/CPU-accelerated RL framework in **JAX / MuJoCo MJX** using **Group Relative Policy Optimization (GRPO)**. The policy is bootstrapped from offline whole-body MPC trajectories via Behavioral Cloning (BC) and outputs joint position residuals that are tracked at high frequency by a **JAX-native QP-based Whole-Body Controller (WBC)**. See the complete architecture and math breakdown in [humanoid_learning/README.md](humanoid_learning/README.md).
+### Policy-Guided Whole-Body Control & Cross-Robot Retargeting (GRPO in JAX)
+A GPU/CPU-accelerated RL framework in **JAX / MuJoCo MJX** using **Group Relative Policy Optimization (GRPO)**. The policy is bootstrapped from offline whole-body MPC trajectories via Behavioral Cloning (BC) and outputs joint position residuals that are tracked at high frequency by a **JAX-native QP-based Whole-Body Controller (WBC)**, supported by a **Cross-Robot Kinematic & Trajectory Retargeting Framework**. See the complete architecture, system diagrams, and math breakdown in [humanoid_learning/README.md](humanoid_learning/README.md).
 
 ### Robot Examples
 
 The project supports the following robot examples:
 
-- Unitree G1
-- DRC Atlas
+- Unitree G1 (29 DOFs)
+- Unitree R1 (26 DOFs)
+- DRC Atlas (28 DOFs)
 - 1X Neo (Coming soon)
 
 ![Screencast2024-12-16180254-ezgif com-optimize(3)](https://github.com/user-attachments/assets/d4b1f0da-39ca-4ce1-b53c-e1d040abe1be)

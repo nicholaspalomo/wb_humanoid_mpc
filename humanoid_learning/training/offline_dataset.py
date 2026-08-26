@@ -98,8 +98,12 @@ class OfflineTrajectoryDataset:
 
         self.size = len(self.observations)
 
+    def __len__(self) -> int:
+        """Return total number of dataset transitions."""
+        return len(self.observations)
+
     def sample_batch(
-        self, rng: jax.Array, batch_size: int = 128
+        self, rng: jax.Array, batch_size: int = DEFAULT_MINIBATCH_SIZE
     ) -> TrajectoryBatch:
         """Sample random minibatch of transitions."""
         indices = jax.random.randint(
