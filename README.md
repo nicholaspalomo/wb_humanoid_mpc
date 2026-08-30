@@ -246,23 +246,17 @@ To cite Whole-Body Humanoid MPC in your academic research, please use the follow
 
 ```bibtex
 @misc{wholebodyhumanoidmpcweb,
-   author = {Manuel Yves Galliker},
+   author = {Manuel Yves Galliker and Nicholas Palomo},
    title = {Whole-body Humanoid MPC: Realtime Physics-Based Procedural Loco-Manipulation Planning and Control},
-   howpublished = {https://github.com/1x-technologies/wb_humanoid_mpc},
-   year = {2024}
+   howpublished = {https://github.com/nicholaspalomo/wb_humanoid_mpc},
+   year = {2026}
 }
 ```
 
 ## Acknowledgements
-Created and actively maintained by [Manuel Yves Galliker](https://github.com/manumerous).
-
-Special thanks to [Nicholas Palomo](https://github.com/nicholaspalomo) for implementing the Dockerization, Bazel monorepo migration, and CI automation.
+The project was originally started by my friend and colleague, [Manuel Yves Galliker](https://github.com/manumerous) and was open-sourced as part of his work at 1X Technologies. Please check out his profile on Github/LinkedIn.
 
 This project is founded on the great work of many open-source contributors:
 - [ocs2](https://github.com/leggedrobotics/ocs2)
 - [pinocchio](https://github.com/stack-of-tasks/pinocchio)
 - [hpipm](https://github.com/giaf/hpipm)
-
-Part of this work was developed during my time at [1X Technologies](https://www.1x.tech/). I would like to kindly thank Eric Jang and Bernt Børnich for supporting the open sourcing of this project.
-
-Further I would like to thank Michael Purcell, Jesper Smith, Simon Zimmermann, Joel Filho, Paal Arthur Schjelderup Thorseth, Varit (Ohm) Vichathorn, Sjur Grønnevik Wroldsen, Armin Nurkanovic, Charles Khazoom and Farbod Farshidian for the many fruitful discussions, insights, contributions and support.
