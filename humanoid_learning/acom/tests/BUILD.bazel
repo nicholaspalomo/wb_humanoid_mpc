@@ -1,0 +1,21 @@
+# ==============================================================================
+# Humanoid Learning - aCOM Tests
+# ==============================================================================
+
+load("@rl_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_test")
+
+package(default_visibility = ["//visibility:public"])
+
+py_test(
+    name = "test_acom",
+    size = "medium",
+    srcs = ["test_acom.py"],
+    deps = [
+        "//humanoid_learning/acom:acom_lib",
+        requirement("jax"),
+        requirement("jaxlib"),
+        requirement("numpy"),
+        requirement("optax"),
+    ],
+)

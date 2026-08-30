@@ -65,6 +65,15 @@ cc_test(
     deps = _TEST_DEPS,
 )
 
+cc_test(
+    name = "test_angular_center_of_mass",
+    size = "small",
+    srcs = ["src/testAngularCenterOfMass.cpp"],
+    copts = _TEST_COPTS,
+    data = _TEST_DATA,
+    deps = _TEST_DEPS,
+)
+
 cc_library(
     name = "humanoid_centroidal_mpc_test_headers",
     hdrs = glob(["include/**"], allow_empty = True),

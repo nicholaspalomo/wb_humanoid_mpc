@@ -1,0 +1,38 @@
+# ==============================================================================
+# Humanoid Learning - Angular Center of Mass (aCOM)
+# ==============================================================================
+
+load("@rl_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+
+package(default_visibility = ["//visibility:public"])
+
+py_library(
+    name = "acom_lib",
+    srcs = [
+        "__init__.py",
+        "dataset_generator.py",
+        "export_acom.py",
+        "models.py",
+        "train_acom.py",
+    ],
+    deps = [
+        requirement("flax"),
+        requirement("jax"),
+        requirement("jaxlib"),
+        requirement("mujoco"),
+        requirement("numpy"),
+        requirement("optax"),
+    ],
+)
+
+py_binary(
+    name = "train_main",
+    srcs = ["train_main.py"],
+    deps = [
+        ":acom_lib",
+        requirement("jax"),
+        requirement("numpy"),
+        requirement("optax"),
+    ],
+)

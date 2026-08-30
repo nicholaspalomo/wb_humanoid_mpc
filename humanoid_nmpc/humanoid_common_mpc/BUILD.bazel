@@ -38,6 +38,7 @@ cc_library(
         "src/reference_manager/ProceduralMpcMotionManager.cpp",
         "src/HumanoidCostConstraintFactory.cpp",
         "src/HumanoidPreComputation.cpp",
+        "src/acom/AngularCenterOfMass.cpp",
         "src/initialization/WeightCompInitializer.cpp",
     ],
     hdrs = glob(["include/**"], allow_empty = True),
