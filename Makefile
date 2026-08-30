@@ -18,11 +18,11 @@ endef
 .PHONY: build-all build-debug build-release build-relwithdebinfo build \
         test-all test clean clean-all format lint ci-local \
         launch-g1-dummy-sim launch-g1-sim launch-wb-g1-dummy-sim launch-wb-g1-sim \
-        launch-drc-atlas-dummy-sim launch-drc-atlas-sandbox test-pinocchio-model-atlas \
+        launch-drc-atlas-dummy-sim launch-drc-atlas-sim launch-drc-atlas-sandbox test-pinocchio-model-atlas \
         launch-r1-dummy-sim launch-r1-sim launch-r1-sandbox test-pinocchio-model-r1 \
         start-vnc stop-vnc \
         launch-g1-dummy-sim-vnc launch-g1-sim-vnc launch-wb-g1-dummy-sim-vnc launch-wb-g1-sim-vnc \
-        launch-drc-atlas-dummy-sim-vnc launch-drc-atlas-sandbox-vnc \
+        launch-drc-atlas-dummy-sim-vnc launch-drc-atlas-sim-vnc launch-drc-atlas-sandbox-vnc \
         launch-r1-dummy-sim-vnc launch-r1-sim-vnc launch-r1-sandbox-vnc \
         run-ocs2-tests run-mpc-tests test-rl train-rl train-cartpole train-cartpole-vnc train-bc export-rollouts lock-rl-deps echo-packages update-submodules git-lfs install-hooks
 
