@@ -42,8 +42,16 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Robot Base Controller")
-        self.geometry("800x400")
-        self.minsize(800, 400)
+
+        # Position window on the right side of the screen
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+        gui_width = 750
+        gui_height = 420
+        pos_x = max(0, screen_width - gui_width - 30)
+        pos_y = 50
+        self.geometry(f"{gui_width}x{gui_height}+{pos_x}+{pos_y}")
+        self.minsize(650, 380)
 
         # Set window background color
         self.configure(bg="#2c2c2c")
