@@ -1,5 +1,5 @@
 /******************************************************************************
-Copyright (c) 2026, wb_humanoid_mpc contributors. All rights reserved.
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
