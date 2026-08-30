@@ -205,9 +205,14 @@ void CentroidalMpcInterface::setupOptimalControlProblem() {
                                                                   velocityUpdateCallback, footName, modelSettings_.modelFolderCppAd,
                                                                   modelSettings_.recompileLibrariesCppAd, modelSettings_.verboseCppAd));
 
-    problemPtr_->softConstraintPtr->add(footName + "_frictionForceCone", factory.getFrictionForceConeConstraint(i));
-    problemPtr_->softConstraintPtr->add(footName + "_contactMomentXY",
-                                        factory.getContactMomentXYConstraint(i, footName + "_contact_moment_XY_constraint"));
+    const bool hasContactWrenchCone = loadData::containsPtreeValueFind(pt, "contacts.contactWrenchConeSoftConstraint");
+    if (hasContactWrenchCone) {
+      problemPtr_->softConstraintPtr->add(footName + "_contactWrenchCone", factory.getContactWrenchConeConstraint(i));
+    } else {
+      problemPtr_->softConstraintPtr->add(footName + "_frictionForceCone", factory.getFrictionForceConeConstraint(i));
+      problemPtr_->softConstraintPtr->add(footName + "_contactMomentXY",
+                                          factory.getContactMomentXYConstraint(i, footName + "_contact_moment_XY_constraint"));
+    }
     problemPtr_->equalityConstraintPtr->add(footName + "_zeroWrench", factory.getZeroWrenchConstraint(i));
     problemPtr_->equalityConstraintPtr->add(footName + "_zeroVelocity", getStanceFootConstraint(*eeKinematicsPtr, i));
     problemPtr_->equalityConstraintPtr->add(footName + "_normalVelocity", getNormalVelocityConstraint(*eeKinematicsPtr, i));
