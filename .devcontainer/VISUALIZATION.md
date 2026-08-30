@@ -38,7 +38,7 @@ Use the `-vnc` suffixed Make targets to automatically build Bazel targets, start
 | `make launch-wb-g1-dummy-sim-vnc` | G1 whole-body MPC — dummy sim |
 | `make launch-wb-g1-sim-vnc` | G1 whole-body MPC — MuJoCo sim |
 | `make launch-drc-atlas-dummy-sim-vnc` | DRC Atlas centroidal MPC — dummy sim |
-| `make launch-drc-atlas-sim-vnc` | DRC Atlas centroidal MPC — MuJoCo sim (gantry attached) |
+| `make launch-drc-atlas-sim-vnc` | DRC Atlas centroidal MPC — MuJoCo sim |
 | `make launch-drc-atlas-sandbox-vnc` | DRC Atlas URDF viewer |
 | `make launch-r1-dummy-sim-vnc` | Unitree R1 centroidal MPC — dummy sim |
 | `make launch-r1-sim-vnc` | Unitree R1 centroidal MPC — MuJoCo sim |
