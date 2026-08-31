@@ -222,7 +222,9 @@ if [ -d "${BAZEL_BIN}" ]; then
 fi
 
 # LD_LIBRARY_PATH for ROS2 system libs
-export LD_LIBRARY_PATH="/opt/ros/jazzy/lib:/opt/ros/jazzy/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH}"
+if [ -n "${ROS_DISTRO:-}" ]; then
+    export LD_LIBRARY_PATH="/opt/ros/${ROS_DISTRO}/lib:/opt/ros/${ROS_DISTRO}/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH}"
+fi
 
 # Add workspace-built message libs if they exist
 for msg_lib_dir in /wb_humanoid_mpc_ws/install/*/lib; do
@@ -231,6 +233,11 @@ done
 
 # Host IP for browser visualizer connections
 export HOST_IP="${HOST_IP:-192.168.0.3}"
+if [ "${DISPLAY:-}" = ":1" ] || [ -z "${DISPLAY:-}" ]; then
+    export DISPLAY=":99"
+fi
+export LIBGL_ALWAYS_SOFTWARE="${LIBGL_ALWAYS_SOFTWARE:-1}"
+export MESA_LOADER_DRIVER_OVERRIDE="${MESA_LOADER_DRIVER_OVERRIDE:-llvmpipe}"
 
 unset _BAZEL_PREFIXES
 unset -f _setup_package

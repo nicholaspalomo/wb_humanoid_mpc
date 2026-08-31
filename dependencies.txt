@@ -17,6 +17,8 @@ ninja-build
 ccache
 python3-pygame
 python3-tk
+python3-pip
+python3-venv
 black
 libgtest-dev
 google-mock

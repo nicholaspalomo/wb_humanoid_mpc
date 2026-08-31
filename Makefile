@@ -24,7 +24,11 @@ endef
         launch-g1-dummy-sim-vnc launch-g1-sim-vnc launch-wb-g1-dummy-sim-vnc launch-wb-g1-sim-vnc \
         launch-drc-atlas-dummy-sim-vnc launch-drc-atlas-sim-vnc launch-drc-atlas-sandbox-vnc \
         launch-r1-dummy-sim-vnc launch-r1-sim-vnc launch-r1-sandbox-vnc \
-        run-ocs2-tests run-mpc-tests test-rl train-rl train-cartpole train-cartpole-vnc train-bc export-rollouts lock-rl-deps echo-packages update-submodules git-lfs install-hooks
+        run-ocs2-tests run-mpc-tests test-rl train-rl train-cartpole train-cartpole-vnc train-bc export-rollouts lock-rl-deps echo-packages update-submodules git-lfs install-hooks jupyter
+
+## Launch interactive Jupyter notebook dashboard
+jupyter:
+	@tools/launch_jupyter.sh
 
 ## Build everything
 build-all:
@@ -154,43 +158,49 @@ git-lfs:
 
 # LINT.IfChange(launch_targets)
 launch-g1-dummy-sim:
-	@bazel build //... && \
-	$(source_env) && ros2 launch g1_centroidal_mpc dummy_sim.launch.py
+	$(source_env) && \
+	bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_dummy_sim_node && \
+	ros2 launch g1_centroidal_mpc dummy_sim.launch.py
 
 launch-g1-sim:
-	@bazel build //... && \
-	$(source_env) && ros2 launch g1_centroidal_mpc mujoco_sim.launch.py
+	$(source_env) && \
+	bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sim && \
+	ros2 launch g1_centroidal_mpc mujoco_sim.launch.py
 
 launch-wb-g1-dummy-sim:
-	@bazel build //... && \
-	$(source_env) && ros2 launch g1_wb_mpc dummy_sim.launch.py
+	$(source_env) && \
+	bazel build //humanoid_nmpc/humanoid_wb_mpc_ros2:humanoid_wb_mpc_sqp_node //humanoid_nmpc/humanoid_wb_mpc_ros2:humanoid_wb_mpc_dummy_sim_node && \
+	ros2 launch g1_wb_mpc dummy_sim.launch.py
 
 launch-wb-g1-sim:
-	@bazel build //... && \
-	$(source_env) && ros2 launch g1_wb_mpc mujoco_sim.launch.py
+	$(source_env) && \
+	bazel build //humanoid_nmpc/humanoid_wb_mpc_ros2:humanoid_wb_mpc_sqp_node //humanoid_nmpc/humanoid_wb_mpc_ros2:humanoid_wb_mpc_sim && \
+	ros2 launch g1_wb_mpc mujoco_sim.launch.py
 
 launch-drc-atlas-dummy-sim:
-	@bazel build //... && \
-	$(source_env) && ros2 launch drc_atlas_centroidal_mpc dummy_sim.launch.py
+	$(source_env) && \
+	bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_dummy_sim_node && \
+	ros2 launch drc_atlas_centroidal_mpc dummy_sim.launch.py
 
 launch-drc-atlas-sim:
-	@bazel build //... && \
-	$(source_env) && ros2 launch drc_atlas_centroidal_mpc mujoco_sim.launch.py
+	$(source_env) && \
+	bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sim && \
+	ros2 launch drc_atlas_centroidal_mpc mujoco_sim.launch.py
 
 launch-drc-atlas-sandbox:
-	@bazel build //... && \
 	$(source_env) && ros2 launch drc_atlas_description display.launch.py
 
 launch-r1-dummy-sim:
-	@bazel build //... && \
-	$(source_env) && ros2 launch unitree_r1_centroidal_mpc dummy_sim.launch.py
+	$(source_env) && \
+	bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_dummy_sim_node && \
+	ros2 launch unitree_r1_centroidal_mpc dummy_sim.launch.py
 
 launch-r1-sim:
-	@bazel build //... && \
-	$(source_env) && ros2 launch unitree_r1_centroidal_mpc mujoco_sim.launch.py
+	$(source_env) && \
+	bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sim && \
+	ros2 launch unitree_r1_centroidal_mpc mujoco_sim.launch.py
 
 launch-r1-sandbox:
-	@bazel build //... && \
 	$(source_env) && ros2 launch unitree_r1_description display.launch.py
 
 ############################################################

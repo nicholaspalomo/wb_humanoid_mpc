@@ -250,6 +250,7 @@ class RosJoystickApp(Node):
         self.ros_thread.start()
 
         self.counter = 0
+        self._gui_active = False
 
     def timer_callback(self):
 
@@ -262,7 +263,15 @@ class RosJoystickApp(Node):
 
         else:
             self.app.set_joystick_connected(False)
-            self.publisher_.publish(self.app.get_walking_command_msg())
+            cmd_msg = self.app.get_walking_command_msg()
+            is_nonzero = (
+                abs(cmd_msg.linear_velocity_x) > 1e-4
+                or abs(cmd_msg.linear_velocity_y) > 1e-4
+                or abs(cmd_msg.angular_velocity_z) > 1e-4
+            )
+            if is_nonzero or self._gui_active:
+                self.publisher_.publish(cmd_msg)
+                self._gui_active = is_nonzero
             # check for connection every 2 seconds
             if self.counter >= (2 * self.publisher_rate):
                 self.xbox_controller_interface.get_joystick_connection()

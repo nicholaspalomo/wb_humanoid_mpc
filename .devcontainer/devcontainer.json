@@ -25,7 +25,8 @@
         },
         "[c]": {
           "editor.defaultFormatter": "xaver.clang-format"
-        }
+        },
+        "python.defaultInterpreterPath": "/usr/bin/python3"
       },
       "extensions": [
         "ms-vscode.cpptools",
@@ -34,6 +35,9 @@
         "ms-azuretools.vscode-docker",
         "ms-python.python",
         "ms-python.vscode-pylance",
+        "ms-toolsai.jupyter",
+        "ms-toolsai.jupyter-renderers",
+        "ms-toolsai.jupyter-keymap",
         "xaver.clang-format",
         "eamodio.gitlens",
         "GitHub.copilot",
@@ -67,7 +71,8 @@
   },
   "forwardPorts": [
     5901,
-    6080
+    6080,
+    8888
   ],
   "portsAttributes": {
     "6080": {
@@ -77,6 +82,10 @@
     "5901": {
       "label": "VNC",
       "onAutoForward": "silent"
+    },
+    "8888": {
+      "label": "Jupyter Notebook Dashboard",
+      "onAutoForward": "notify"
     }
   },
   "postCreateCommand": "bash -c 'chmod +x ${containerWorkspaceFolder}/.devcontainer/post_create.sh && ${containerWorkspaceFolder}/.devcontainer/post_create.sh'"

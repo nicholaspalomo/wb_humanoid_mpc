@@ -39,7 +39,7 @@ services:
 
     environment:
       # VNC display (start with `make start-vnc`, view at http://localhost:6080/vnc.html)
-      DISPLAY: ":1"
+      DISPLAY: ":99"
       QT_X11_NO_MITSHM: "1"
       # Mesa software rendering (llvmpipe) for RViz2/OGRE inside Xvfb
       LIBGL_ALWAYS_SOFTWARE: "1"
@@ -61,6 +61,8 @@ services:
       # VNC and noVNC ports for GUI visualization on macOS
       - "5901:5901"
       - "6080:6080"
+      # Jupyter Notebook Dashboard port
+      - "8888:8888"
 
     dns:
       - 8.8.8.8

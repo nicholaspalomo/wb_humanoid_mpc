@@ -152,6 +152,37 @@ Command a desired base velocity and root link height via the **Robot Base Contro
 
 ![robot_remote_control](https://github.com/user-attachments/assets/779be1da-97a1-4d0c-8f9b-b9d2df88384f)
 
+---
+
+## 🎮 Interactive Jupyter / Colab Control Dashboard
+
+We provide an interactive Jupyter Notebook dashboard located at [`notebooks/humanoid_control_dashboard.ipynb`](notebooks/humanoid_control_dashboard.ipynb) that unifies simulation execution, real-time humanoid teleoperation, and neural representation training into a single web-based GUI.
+
+### Launching the Dashboard
+
+```bash
+# Launch Jupyter server from the terminal
+make jupyter
+```
+Open **[http://localhost:8888](http://localhost:8888)** and open `notebooks/humanoid_control_dashboard.ipynb`. Pair with the **[noVNC 3D Viewer](http://localhost:6080/vnc.html)** to view the 3D robot simulation side-by-side.
+
+### Dashboard Features:
+1. **Simulation Process Manager**:
+   - One-click launch, restart, and termination of **Unitree G1** and **DRC Atlas** simulations (Centroidal NMPC & Whole-Body NMPC) in both Dummy Sim (RViz) and MuJoCo Physics Sim.
+   - Real-time scrollable terminal log output with PID tracking.
+2. **Interactive Virtual Joystick**:
+   - Real-time locomotion teleoperation with continuous sliders for $v_x, v_y, \omega_z$, and pelvis height.
+   - Directional D-pad buttons (`Forward`, `Backward`, `Strafe Left/Right`, `Turn Left/Right`, `Emergency Stop`).
+   - Streams `WalkingVelocityCommand` at 25 Hz directly to the MPC reference manager over ROS 2.
+3. **Angular Center of Mass (aCOM) Neural Studio**:
+   - Interactive SIREN network training on ground truth Centroidal Momentum Matrices in JAX.
+   - Live loss curves, gradient $L_2$ norm telemetry, and 3-panel comparative Jacobian error heatmaps.
+   - One-click export of zero-overhead static C++ weights headers (`AngularCenterOfMassWeights.h`) for real-time MPC tracking.
+4. **Live Telemetry & Diagnostics**:
+   - Real-time visualization comparing whole-body Angular Center of Mass $\boldsymbol{\theta}_{\text{aCOM}}(\mathbf{q})$ against base Euler angles to verify oscillation decoupling, alongside foot contact normal forces $F_z$.
+
+---
+
 ## Reinforcement Learning with MuJoCo Playground (`humanoid_learning`)
 
 The repository includes a GPU-accelerated Reinforcement Learning pipeline built on **Google DeepMind's [MuJoCo Playground](https://github.com/google-deepmind/mujoco_playground)**, **MuJoCo MJX**, **JAX**, and **Brax**.
