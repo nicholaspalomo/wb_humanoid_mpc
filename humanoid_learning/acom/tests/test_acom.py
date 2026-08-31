@@ -97,6 +97,49 @@ class TestAcomPipeline(unittest.TestCase):
         # Loss should decrease across epochs
         self.assertLess(history["train_loss"][-1], history["train_loss"][0])
 
+    def test_tensorboard_logging(self):
+        """Verifies that TensorBoard SummaryWriter logs scalars, histograms, and figures."""
+        import tempfile
+        import os
+
+        num_samples = 100
+        rng = np.random.default_rng(42)
+        q_samples = rng.uniform(-1.0, 1.0, size=(num_samples, self.in_dim)).astype(
+            np.float32
+        )
+        w_true = rng.standard_normal((3, self.in_dim)).astype(np.float32)
+        A_bar_samples = np.stack([w_true + 0.1 * np.sin(q) for q in q_samples], axis=0)
+        dataset = {
+            "q_joints": q_samples,
+            "A_bar_omega": A_bar_samples,
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_dir = os.path.join(tmpdir, "tb_logs")
+            _, _, history = train_acom(
+                dataset=dataset,
+                in_dim=self.in_dim,
+                hidden_dim=16,
+                num_layers=2,
+                num_epochs=3,
+                batch_size=32,
+                learning_rate=1e-3,
+                verbose=False,
+                log_dir=log_dir,
+                log_histograms=True,
+                histogram_freq=1,
+                log_figures=True,
+            )
+
+            self.assertTrue(os.path.exists(log_dir))
+            # Verify event file was generated
+            event_files = [f for f in os.listdir(log_dir) if "events.out.tfevents" in f]
+            self.assertGreater(len(event_files), 0)
+            self.assertIn("val_rmse", history)
+            self.assertIn("train_frob", history)
+            self.assertIn("grad_norm", history)
+            self.assertGreater(history["grad_norm"][0], 0.0)
+
     def test_export_utilities(self):
         """Verifies JSON and C++ header generation."""
         import tempfile

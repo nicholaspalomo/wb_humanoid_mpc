@@ -31,9 +31,30 @@ locked-inertia normalized centroidal angular momentum matrix:
 using MuJoCo rigid-body dynamics.
 """
 
+import os
 from typing import Dict, Optional, Tuple
-import numpy as np
 import mujoco
+import numpy as np
+
+
+def resolve_xml_path(path: str) -> str:
+    """Resolves XML path whether run directly or via Bazel runfiles."""
+    if os.path.isabs(path) and os.path.exists(path):
+        return path
+    if os.path.exists(path):
+        return os.path.abspath(path)
+
+    ws = os.environ.get("BUILD_WORKSPACE_DIRECTORY", "")
+    if ws and os.path.exists(os.path.join(ws, path)):
+        return os.path.join(ws, path)
+
+    runfiles = os.environ.get("PYTHON_RUNFILES", "")
+    if runfiles:
+        p = os.path.join(runfiles, "_main", path)
+        if os.path.exists(p):
+            return p
+
+    return path
 
 
 class AcomDatasetGenerator:
@@ -41,7 +62,8 @@ class AcomDatasetGenerator:
 
     def __init__(self, xml_path: str):
         """Initializes generator from a MuJoCo XML file."""
-        self.model = mujoco.MjModel.from_xml_path(xml_path)
+        resolved_path = resolve_xml_path(xml_path)
+        self.model = mujoco.MjModel.from_xml_path(resolved_path)
         self.data = mujoco.MjData(self.model)
 
         # Determine floating base DoFs and joint DoFs

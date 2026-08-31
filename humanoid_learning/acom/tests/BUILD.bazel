@@ -17,5 +17,6 @@ py_test(
         requirement("jaxlib"),
         requirement("numpy"),
         requirement("optax"),
+        requirement("tensorboardx"),
     ],
 )

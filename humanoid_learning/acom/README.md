@@ -110,7 +110,41 @@ bazel run //humanoid_learning/acom:train_main -- --robot g1 --num_samples 10000 
 bazel run //humanoid_learning/acom:train_main -- --robot atlas --num_samples 10000 --epochs 50 --output_dir /tmp/acom_atlas
 ```
 
-### 4.3 C++ Real-Time Integration
+### 4.3 Monitoring Training in TensorBoard
+Training automatically streams live scalars, histograms, and diagnostic heatmap comparisons to TensorBoard.
+
+```bash
+# Launch TensorBoard server
+tensorboard --logdir /tmp/acom_g1/tb_logs
+```
+
+#### TensorBoard Visualizations & Telemetry Reference:
+
+| Dashboard Category | Metric Tag | Description |
+| :--- | :--- | :--- |
+| **Loss Curves** | `loss/train_total`, `loss/val_total` | Total scalar objective $\mathcal{L}_{\text{total}} = \mathcal{L}_{\text{frob}} + \lambda_{\text{reg}} \|\Delta\boldsymbol{\theta}\|^2$ |
+| | `loss/train_frobenius`, `loss/val_frobenius` | Frobenius error $\|\mathbf{J}_{\Delta\theta}(\mathbf{q}_j) - \bar{\mathbf{A}}_{\omega, j}(\mathbf{q})\|_F^2$ |
+| | `loss/train_regularization`, `loss/val_regularization` | Offset centering penalty $\lambda_{\text{reg}} \|\Delta\boldsymbol{\theta}(\mathbf{q}_j)\|^2$ |
+| | `loss/val_rmse_rad_per_rad` | Root-mean-square error per Jacobian matrix element: $\sqrt{\frac{\mathcal{L}_{\text{frob}}}{3 \cdot n_j}}$ |
+| **Per-Axis Error** | `error_axes/roll_x_frob_loss` | Frobenius fitting error for Roll angular momentum ($X$-axis) |
+| | `error_axes/pitch_y_frob_loss` | Frobenius fitting error for Pitch angular momentum ($Y$-axis) |
+| | `error_axes/yaw_z_frob_loss` | Frobenius fitting error for Yaw angular momentum ($Z$-axis) |
+| **Optimization & Gradients** | `optim/learning_rate` | Cosine learning rate decay schedule across training steps |
+| | `gradients/global_l2_norm` | Global $L_2$ gradient norm across all network parameters: $\|\nabla \mathcal{L}\|_2 = \sqrt{\sum_l (\|\nabla_{\mathbf{W}_l} \mathcal{L}\|_F^2 + \|\nabla_{\mathbf{b}_l} \mathcal{L}\|_2^2)}$ |
+| | `gradients/layer_{l}_weight_norm` | Frobenius norm of weight gradient for layer $l$: $\|\nabla_{\mathbf{W}_l} \mathcal{L}\|_F$ |
+| | `gradients/layer_{l}_bias_norm` | $L_2$ norm of bias gradient for layer $l$: $\|\nabla_{\mathbf{b}_l} \mathcal{L}\|_2$ |
+| **Output Statistics** | `stats/mean_acom_offset_deg` | Average whole-body orientation internal shift $\|\Delta\boldsymbol{\theta}\|$ (in degrees) |
+| | `stats/max_acom_offset_deg` | Maximum orientation internal shift $\|\Delta\boldsymbol{\theta}\|$ (in degrees) |
+| **Performance** | `perf/epoch_time_ms` | Compute duration per training epoch in milliseconds |
+| | `perf/throughput_samples_per_sec` | Training data throughput (samples/second) |
+| **Histograms** | `weights/layer_{l}_weight`, `bias` | Weight and bias parameter distributions for each SIREN layer |
+| | `gradients/layer_{l}_weight`, `bias` | Weight and bias gradient distributions for each SIREN layer |
+| | `activations/val_offset_{roll,pitch,yaw}_deg` | Histograms of predicted Roll, Pitch, and Yaw orientation offsets |
+| **Diagnostic Images** | `diagnostics/jacobian_heatmap` | 3-panel comparative heatmaps displaying $\bar{\mathbf{A}}_{\omega, j}(\mathbf{q})$, $\mathbf{J}_{\Delta\theta}(\mathbf{q}_j)$, and absolute error $|\mathbf{J}_{\Delta\theta} - \bar{\mathbf{A}}_{\omega, j}|$ across all robot joints |
+
+---
+
+### 4.4 C++ Real-Time Integration
 Include the zero-dependency C++ header and evaluate whole-body aCOM in microseconds:
 
 ```cpp

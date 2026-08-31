@@ -54,6 +54,17 @@ def main():
     parser.add_argument(
         "--output_dir", type=str, default="/tmp/acom_export", help="Output directory"
     )
+    parser.add_argument(
+        "--log_dir",
+        type=str,
+        default=None,
+        help="TensorBoard log directory (defaults to <output_dir>/tb_logs)",
+    )
+    parser.add_argument(
+        "--no_tb",
+        action="store_true",
+        help="Disable TensorBoard logging",
+    )
     args = parser.parse_args()
 
     # Determine XML path
@@ -62,6 +73,14 @@ def main():
             args.xml = "robot_models/unitree_g1/g1_description/urdf/g1_29dof.xml"
         elif args.robot == "atlas":
             args.xml = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.xml"
+
+    log_dir = None
+    if not args.no_tb:
+        log_dir = (
+            args.log_dir
+            if args.log_dir is not None
+            else os.path.join(args.output_dir, "tb_logs", args.robot)
+        )
 
     print(f"🤖 Generating aCOM dataset for {args.robot.upper()} from {args.xml}...")
     generator = AcomDatasetGenerator(args.xml)
@@ -80,6 +99,7 @@ def main():
         num_layers=args.num_layers,
         num_epochs=args.epochs,
         verbose=True,
+        log_dir=log_dir,
     )
 
     os.makedirs(args.output_dir, exist_ok=True)
