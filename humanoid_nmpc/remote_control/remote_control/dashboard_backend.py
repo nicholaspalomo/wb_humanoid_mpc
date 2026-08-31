@@ -448,6 +448,11 @@ class VirtualJoystickROS2:
     def shutdown(self):
         """Destroys the ROS2 node and releases resources."""
         self._is_active = False
+        if self._ros_thread and self._ros_thread.is_alive():
+            try:
+                self._ros_thread.join(timeout=0.2)
+            except Exception:
+                pass
         self.stop()
         if self._node is not None:
             try:
