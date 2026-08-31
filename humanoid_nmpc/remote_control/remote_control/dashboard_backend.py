@@ -134,6 +134,7 @@ class SimProcessManager:
         self.log_queue: queue.Queue = queue.Queue(maxsize=1000)
         self.is_running = False
         self._reader_thread: Optional[threading.Thread] = None
+        self.stop()
 
     def launch(
         self,
@@ -146,7 +147,7 @@ class SimProcessManager:
 
         if target_key not in self.TARGETS:
             raise ValueError(
-                f"Unknown target key: {target_key}. Available: {list(self.TARGETS.keys())}"
+                f"Unknown target '{target_key}'. Available: {list(self.TARGETS.keys())}"
             )
 
         target_info = self.TARGETS[target_key]
@@ -227,23 +228,19 @@ class SimProcessManager:
 
     def stop(self) -> bool:
         """Stops the active simulation process cleanly."""
-        if not self.process:
-            self.is_running = False
-            self.active_target_key = None
-            return True
-
-        try:
-            import signal
-
-            os.killpg(os.getpgid(self.process.pid), signal.SIGTERM)
-            self.process.wait(timeout=2.0)
-        except Exception:
+        if self.process:
             try:
                 import signal
 
-                os.killpg(os.getpgid(self.process.pid), signal.SIGKILL)
+                os.killpg(os.getpgid(self.process.pid), signal.SIGTERM)
+                self.process.wait(timeout=1.0)
             except Exception:
-                pass
+                try:
+                    import signal
+
+                    os.killpg(os.getpgid(self.process.pid), signal.SIGKILL)
+                except Exception:
+                    pass
 
         self.process = None
         self.is_running = False
@@ -256,7 +253,7 @@ class SimProcessManager:
                     "pkill",
                     "-9",
                     "-f",
-                    "humanoid_.*_node|rviz2|robot_state_publisher|base_velocity_controller_gui",
+                    "humanoid_.*_node|drc_atlas_.*|g1_.*|rviz2|robot_state_publisher|base_velocity_controller_gui|ros2 launch",
                 ],
                 check=False,
                 stdout=subprocess.DEVNULL,
@@ -289,11 +286,21 @@ class SimProcessManager:
 class VirtualJoystickROS2:
     """Virtual Joystick Teleoperation publisher over ROS2."""
 
+    _ACTIVE_INSTANCES = []
+
     def __init__(
         self,
         topic: str = "/humanoid/walking_velocity_command",
         publish_rate: float = 25.0,
     ):
+        # Shutdown any previous active joystick instances in the same process
+        while VirtualJoystickROS2._ACTIVE_INSTANCES:
+            prev = VirtualJoystickROS2._ACTIVE_INSTANCES.pop()
+            try:
+                prev.shutdown()
+            except Exception:
+                pass
+
         self.topic = topic
         self.publish_rate = publish_rate
         self.v_x = 0.0
@@ -308,8 +315,10 @@ class VirtualJoystickROS2:
         self._is_active = False
         self._ros_available = False
         self._init_error = None
+        self._publish_active = False
 
         self._init_ros2()
+        VirtualJoystickROS2._ACTIVE_INSTANCES.append(self)
 
     def _init_ros2(self):
         """Initializes ROS2 node and publisher in background thread."""
@@ -338,12 +347,19 @@ class VirtualJoystickROS2:
                     self.timer = self.create_timer(1.0 / outer.publish_rate, self._tick)
 
                 def _tick(self):
-                    msg = WalkingVelocityCommand()
-                    msg.linear_velocity_x = float(self.outer.v_x)
-                    msg.linear_velocity_y = float(self.outer.v_y)
-                    msg.angular_velocity_z = float(self.outer.v_yaw)
-                    msg.desired_pelvis_height = float(self.outer.desired_height)
-                    self.pub.publish(msg)
+                    is_nonzero = (
+                        abs(self.outer.v_x) > 1e-4
+                        or abs(self.outer.v_y) > 1e-4
+                        or abs(self.outer.v_yaw) > 1e-4
+                    )
+                    if is_nonzero or self.outer._publish_active:
+                        msg = WalkingVelocityCommand()
+                        msg.linear_velocity_x = float(self.outer.v_x)
+                        msg.linear_velocity_y = float(self.outer.v_y)
+                        msg.angular_velocity_z = float(self.outer.v_yaw)
+                        msg.desired_pelvis_height = float(self.outer.desired_height)
+                        self.pub.publish(msg)
+                        self.outer._publish_active = is_nonzero
 
             self._node = _JoyNode(self)
             self._ros_available = True
@@ -398,6 +414,7 @@ class VirtualJoystickROS2:
         self.v_y = float(linear_y)
         self.v_yaw = float(angular_z)
         self.desired_height = float(desired_height)
+        self._publish_active = True
         self.publish_now()
 
     def stop(self):
@@ -405,6 +422,7 @@ class VirtualJoystickROS2:
         self.v_x = 0.0
         self.v_y = 0.0
         self.v_yaw = 0.0
+        self._publish_active = True
         self.publish_now()
 
     def step(self, direction: str, delta_v: float = 0.1, delta_yaw: float = 0.15):
@@ -424,6 +442,7 @@ class VirtualJoystickROS2:
         elif direction == "stop":
             self.stop()
             return
+        self._publish_active = True
         self.publish_now()
 
     def shutdown(self):
