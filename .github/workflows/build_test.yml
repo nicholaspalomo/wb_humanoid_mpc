@@ -32,7 +32,7 @@ jobs:
         run: |
           apt-get update && apt-get install -y --no-install-recommends \
           curl gnupg2 lsb-release software-properties-common \
-          locales git gettext-base sudo wget build-essential
+          locales git gettext-base sudo wget build-essential python3-pip python3-venv
       # LINT.ThenChange(//dependencies.txt:system_dependencies, //docker/Dockerfile:system_dependencies)
 
       - name: Install Bazel (via Bazelisk)

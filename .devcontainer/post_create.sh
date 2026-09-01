@@ -97,6 +97,11 @@ if [ -f "${WORKSPACE_DIR}/Makefile" ]; then
   cd "${WORKSPACE_DIR}" && make install-hooks 2>/dev/null || true
 fi
 
+# Register Jupyter kernel for VS Code / Antigravity
+if command -v python3 &>/dev/null; then
+  python3 -m ipykernel install --user --name "wb_humanoid_mpc" --display-name "Python 3 (Humanoid MPC)" 2>/dev/null || true
+fi
+
 echo "Container environment setup complete."
 echo "- SSH authentication configured: $([ -d /tmp/host_ssh ] && echo "Yes" || echo "No")"
 echo "- HTTPS credential helper: $(git config --global credential.helper)"

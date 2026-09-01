@@ -71,3 +71,6 @@ MODULE.bazel.lock
 cppad_code_gen/
 .env
 cartpole_renders/
+
+# Jupyter notebook checkpoints
+notebooks/.ipynb_checkpoints/
