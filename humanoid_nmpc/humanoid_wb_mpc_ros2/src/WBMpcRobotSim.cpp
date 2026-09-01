@@ -117,9 +117,14 @@ int main(int argc, char** argv) {
 
   robot::mujoco_sim_interface::MujocoSimInterface robotInterface(config, urdfFile);
 
+  std::filesystem::path configDir = std::filesystem::path(taskFile).parent_path().parent_path();
+  std::string pdGainsFile = (configDir / "controller" / "joint_pd_gains.yaml").string();
+
   WBMpcMrtJointController mpcJointController(robotInterface.getRobotDescription(), interface.modelSettings(), mpc,
                                              interface.getPinocchioInterface(), interface.mpcSettings().mpcDesiredFrequency_,
-                                             humanoidVisualizer);
+                                             humanoidVisualizer, pdGainsFile);
+
+  std::cout << "MPC MRT joint controller is set up with PD gains from: " << pdGainsFile << std::endl;
 
   // size_t mrtDeltaTMicroSeconds_ = 1000000 / (interface.mpcSettings().mrtDesiredFrequency_);
   size_t mrtDeltaTMicroSeconds_ = 1000000 / (500);

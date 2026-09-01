@@ -52,7 +52,8 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
                           MPC_BASE& mpc,
                           PinocchioInterface pinocchioInterface,
                           scalar_t mpcDesiredFrequency = -1,
-                          std::shared_ptr<DummyObserver> rVizVisualizerPtr = nullptr);
+                          std::shared_ptr<DummyObserver> rVizVisualizerPtr = nullptr,
+                          const std::string& pdGainsFile = "");
 
   /**
    * Destructor.
@@ -70,6 +71,8 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
                                  ::robot::model::RobotJointAction& robotJointAction) override;
 
   void startMpcThread(const ::robot::model::RobotState& initRobotState);
+
+  void loadPdGains(const std::string& pdGainsFile, const ModelSettings& modelSettings);
 
  private:
   /**
@@ -103,6 +106,11 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
   std::jthread solver_worker_;
 
   std::shared_ptr<DummyObserver> visualizerPtr_;
+
+  vector_t mpcJointKp_;
+  vector_t mpcJointKd_;
+  vector_t otherJointKp_;
+  vector_t otherJointKd_;
 };
 
 }  // namespace ocs2::humanoid

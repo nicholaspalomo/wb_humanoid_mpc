@@ -40,6 +40,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h>
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 
+#include <yaml-cpp/yaml.h>
+#include <filesystem>
+
 namespace ocs2::humanoid {
 
 CentroidalMpcMrtJointController::CentroidalMpcMrtJointController(const ::robot::model::RobotDescription& robotDescription,
@@ -48,7 +51,8 @@ CentroidalMpcMrtJointController::CentroidalMpcMrtJointController(const ::robot::
                                                                  MPC_BASE& mpc,
                                                                  PinocchioInterface pinocchioInterface,
                                                                  scalar_t mpcDesiredFrequency,
-                                                                 std::shared_ptr<DummyObserver> rVizVisualizerPtr)
+                                                                 std::shared_ptr<DummyObserver> rVizVisualizerPtr,
+                                                                 const std::string& pdGainsFile)
     : mcpMrtInterface_(mpc),
       pinocchioInterface_(pinocchioInterface),
       mpcRobotModelPtr_(mpcRobotModel.clone()),
@@ -65,6 +69,66 @@ CentroidalMpcMrtJointController::CentroidalMpcMrtJointController(const ::robot::
   // Currently set to 0. There is still a bug in the momentum computation of the inverse dynamics.
   inverse_dynamics_kp_.fill(0.0);
   inverse_dynamics_kd_.fill(0.0);
+
+  loadPdGains(pdGainsFile, modelSettings);
+}
+
+void CentroidalMpcMrtJointController::loadPdGains(const std::string& pdGainsFile, const ModelSettings& modelSettings) {
+  mpcJointKp_.resize(mpcJointIndices_.size());
+  mpcJointKd_.resize(mpcJointIndices_.size());
+  otherJointKp_.resize(otherJointIndices_.size());
+  otherJointKd_.resize(otherJointIndices_.size());
+
+  scalar_t defaultKp = 250.0;
+  scalar_t defaultKd = 15.0;
+  std::unordered_map<std::string, std::pair<scalar_t, scalar_t>> jointGainsMap;
+
+  if (!pdGainsFile.empty() && std::filesystem::exists(pdGainsFile)) {
+    try {
+      YAML::Node root = YAML::LoadFile(pdGainsFile);
+      if (root["default_gains"]) {
+        if (root["default_gains"]["kp"]) defaultKp = root["default_gains"]["kp"].as<scalar_t>();
+        if (root["default_gains"]["kd"]) defaultKd = root["default_gains"]["kd"].as<scalar_t>();
+      }
+      if (root["joint_gains"]) {
+        for (const auto& kv : root["joint_gains"]) {
+          std::string jname = kv.first.as<std::string>();
+          scalar_t kp = defaultKp;
+          scalar_t kd = defaultKd;
+          if (kv.second["kp"]) kp = kv.second["kp"].as<scalar_t>();
+          if (kv.second["kd"]) kd = kv.second["kd"].as<scalar_t>();
+          jointGainsMap[jname] = {kp, kd};
+        }
+      }
+      std::cout << "[CentroidalMpcMrtJointController] Loaded joint PD gains from " << pdGainsFile << std::endl;
+    } catch (const std::exception& e) {
+      std::cerr << "[CentroidalMpcMrtJointController] Warning: Failed to parse " << pdGainsFile << ": " << e.what() << std::endl;
+    }
+  }
+
+  for (size_t i = 0; i < mpcJointIndices_.size(); ++i) {
+    const std::string& jname = modelSettings.mpcModelJointNames[i];
+    auto it = jointGainsMap.find(jname);
+    if (it != jointGainsMap.end()) {
+      mpcJointKp_[i] = it->second.first;
+      mpcJointKd_[i] = it->second.second;
+    } else {
+      mpcJointKp_[i] = defaultKp;
+      mpcJointKd_[i] = defaultKd;
+    }
+  }
+
+  for (size_t i = 0; i < otherJointIndices_.size(); ++i) {
+    const std::string& jname = modelSettings.fixedJointNames[i];
+    auto it = jointGainsMap.find(jname);
+    if (it != jointGainsMap.end()) {
+      otherJointKp_[i] = it->second.first;
+      otherJointKd_[i] = it->second.second;
+    } else {
+      otherJointKp_[i] = defaultKp * 0.3;
+      otherJointKd_[i] = defaultKd * 0.3;
+    }
+  }
 }
 
 /******************************************************************************************************/
@@ -182,8 +246,8 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
 
       action.q_des = mpc_q_j_des[i];
       action.qd_des = mpc_qd_j_des[i];
-      action.kp = 1200.0;
-      action.kd = 10.0;
+      action.kp = mpcJointKp_[i];
+      action.kd = mpcJointKd_[i];
       action.feed_forward_effort = mpcJointTorques[i];
 
       // std::cerr << "MPCtorque!: " << mpcJointTorques[i] << std::endl;
@@ -212,8 +276,8 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
 
       action.q_des = 0;
       action.qd_des = 0;
-      action.kp = 1200;
-      action.kd = 10;
+      action.kp = mpcJointKp_[i];
+      action.kd = mpcJointKd_[i];
       action.feed_forward_effort = weightCompensatingTorques[i];
     };
   }
@@ -224,8 +288,8 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
 
     action.q_des = 0;
     action.qd_des = 0;
-    action.kp = 100;
-    action.kd = 1.0;
+    action.kp = otherJointKp_[i];
+    action.kd = otherJointKd_[i];
     action.feed_forward_effort = 0.0;
   };
 }
