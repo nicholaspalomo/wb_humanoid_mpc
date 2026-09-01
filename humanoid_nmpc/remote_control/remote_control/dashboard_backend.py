@@ -74,6 +74,7 @@ def ensure_ros2_paths():
             sys.path.append(ros_path)
 
     # 2. Bazel-generated message packages (humanoid_mpc_msgs, ocs2_ros2_msgs)
+    py_ver = f"python{sys.version_info.major}.{sys.version_info.minor}"
     candidates = [
         os.path.expanduser("~/.cache/bazel"),
         os.path.join(os.getcwd(), ".bazel"),
@@ -82,12 +83,10 @@ def ensure_ros2_paths():
     ]
     for c_dir in candidates:
         if os.path.exists(c_dir):
-            for lib in glob.glob(f"{c_dir}/**/install/*/lib/lib*.so", recursive=True):
-                try:
-                    ctypes.CDLL(lib, mode=ctypes.RTLD_GLOBAL)
-                except Exception:
-                    pass
-            for match in glob.glob(f"{c_dir}/**/site-packages", recursive=True):
+            for match in glob.glob(
+                f"{c_dir}/**/install/*/lib/{py_ver}/site-packages",
+                recursive=True,
+            ):
                 if match not in sys.path:
                     sys.path.append(match)
 
@@ -144,7 +143,6 @@ class SimProcessManager:
         self.log_queue: queue.Queue = queue.Queue(maxsize=1000)
         self.is_running = False
         self._reader_thread: Optional[threading.Thread] = None
-        self.stop()
 
     def launch(
         self,
@@ -238,40 +236,30 @@ class SimProcessManager:
 
     def stop(self) -> bool:
         """Stops the active simulation process cleanly."""
-        if self.process:
+        if self.process is not None:
             try:
                 import signal
 
-                os.killpg(os.getpgid(self.process.pid), signal.SIGTERM)
-                self.process.wait(timeout=1.0)
-            except Exception:
                 try:
-                    import signal
-
-                    os.killpg(os.getpgid(self.process.pid), signal.SIGKILL)
+                    pgid = os.getpgid(self.process.pid)
+                    os.killpg(pgid, signal.SIGTERM)
                 except Exception:
-                    pass
+                    self.process.terminate()
+
+                try:
+                    self.process.wait(timeout=1.0)
+                except Exception:
+                    try:
+                        pgid = os.getpgid(self.process.pid)
+                        os.killpg(pgid, signal.SIGKILL)
+                    except Exception:
+                        self.process.kill()
+            except Exception:
+                pass
 
         self.process = None
         self.is_running = False
         self.active_target_key = None
-
-        # Clean up any remaining ROS2 / simulation child processes
-        try:
-            subprocess.run(
-                [
-                    "pkill",
-                    "-9",
-                    "-f",
-                    "humanoid_.*_node|drc_atlas_.*|g1_.*|rviz2|robot_state_publisher|base_velocity_controller_gui|ros2 launch",
-                ],
-                check=False,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-        except Exception:
-            pass
-
         return True
 
     def get_status(self) -> Dict[str, str]:
@@ -302,6 +290,7 @@ class VirtualJoystickROS2:
         self,
         topic: str = "/humanoid/walking_velocity_command",
         publish_rate: float = 25.0,
+        auto_connect: bool = False,
     ):
         # Shutdown any previous active joystick instances in the same process
         while VirtualJoystickROS2._ACTIVE_INSTANCES:
@@ -327,11 +316,14 @@ class VirtualJoystickROS2:
         self._init_error = None
         self._publish_active = False
 
-        self._init_ros2()
+        if auto_connect:
+            self.connect()
         VirtualJoystickROS2._ACTIVE_INSTANCES.append(self)
 
-    def _init_ros2(self):
-        """Initializes ROS2 node and publisher in background thread."""
+    def connect(self) -> bool:
+        """Initializes ROS2 node and publisher safely without background spin."""
+        if self._is_active and self._publisher is not None:
+            return True
         try:
             ensure_ros2_paths()
             import rclpy
@@ -340,55 +332,30 @@ class VirtualJoystickROS2:
             from humanoid_mpc_msgs.msg import WalkingVelocityCommand
 
             if not rclpy.ok():
-                rclpy.init()
+                try:
+                    from rclpy.signals import SignalHandlerOptions
 
-            class _JoyNode(Node):
-                def __init__(self, outer):
-                    super().__init__(
-                        f"jupyter_virtual_joystick_{int(time.time()*1000) % 100000}"
-                    )
-                    self.outer = outer
-                    qos = QoSProfile(
-                        reliability=ReliabilityPolicy.BEST_EFFORT, depth=10
-                    )
-                    self.pub = self.create_publisher(
-                        WalkingVelocityCommand, outer.topic, qos
-                    )
-                    self.timer = self.create_timer(1.0 / outer.publish_rate, self._tick)
+                    rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
+                except Exception:
+                    try:
+                        rclpy.init()
+                    except Exception:
+                        pass
 
-                def _tick(self):
-                    is_nonzero = (
-                        abs(self.outer.v_x) > 1e-4
-                        or abs(self.outer.v_y) > 1e-4
-                        or abs(self.outer.v_yaw) > 1e-4
-                    )
-                    if is_nonzero or self.outer._publish_active:
-                        msg = WalkingVelocityCommand()
-                        msg.linear_velocity_x = float(self.outer.v_x)
-                        msg.linear_velocity_y = float(self.outer.v_y)
-                        msg.angular_velocity_z = float(self.outer.v_yaw)
-                        msg.desired_pelvis_height = float(self.outer.desired_height)
-                        self.pub.publish(msg)
-                        self.outer._publish_active = is_nonzero
-
-            self._node = _JoyNode(self)
+            node_name = f"jupyter_virtual_joystick_{int(time.time()*1000) % 100000}"
+            self._node = rclpy.create_node(node_name)
+            qos = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, depth=10)
+            self._publisher = self._node.create_publisher(
+                WalkingVelocityCommand, self.topic, qos
+            )
             self._ros_available = True
             self._is_active = True
-
-            def _spin():
-                try:
-                    while self._is_active and rclpy.ok() and self._node is not None:
-                        rclpy.spin_once(self._node, timeout_sec=0.1)
-                except Exception:
-                    pass
-
-            self._ros_thread = threading.Thread(target=_spin, daemon=True)
-            self._ros_thread.start()
-
+            return True
         except Exception as e:
             self._ros_available = False
             self._is_active = False
             self._init_error = str(e)
+            return False
 
     @property
     def is_ros_connected(self) -> bool:
@@ -398,8 +365,8 @@ class VirtualJoystickROS2:
     def publish_now(self):
         """Publishes the current velocity command immediately to ROS2."""
         if not self.is_ros_connected:
-            self._init_ros2()
-        if self._node and hasattr(self._node, "pub") and self._node.pub:
+            self.connect()
+        if self._publisher is not None:
             try:
                 from humanoid_mpc_msgs.msg import WalkingVelocityCommand
 
@@ -408,7 +375,7 @@ class VirtualJoystickROS2:
                 msg.linear_velocity_y = float(self.v_y)
                 msg.angular_velocity_z = float(self.v_yaw)
                 msg.desired_pelvis_height = float(self.desired_height)
-                self._node.pub.publish(msg)
+                self._publisher.publish(msg)
             except Exception:
                 pass
 
@@ -458,22 +425,13 @@ class VirtualJoystickROS2:
     def shutdown(self):
         """Destroys the ROS2 node and releases resources."""
         self._is_active = False
-        if self._ros_thread and self._ros_thread.is_alive():
-            try:
-                self._ros_thread.join(timeout=0.2)
-            except Exception:
-                pass
-        self.stop()
         if self._node is not None:
             try:
-                import rclpy
-
-                if hasattr(self._node, "timer") and self._node.timer is not None:
-                    self._node.timer.cancel()
                 self._node.destroy_node()
             except Exception:
                 pass
             self._node = None
+            self._publisher = None
 
     @property
     def is_ros_connected(self) -> bool:

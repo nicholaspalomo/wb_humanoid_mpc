@@ -150,7 +150,7 @@ _ROBOT_CONFIG_CACHE: Dict[str, Dict[str, Any]] = {}
 def load_robot_config(
     robot_name: Optional[str] = None,
     workspace_dir: Optional[str] = None,
-    use_pinocchio: bool = True,
+    use_pinocchio: bool = False,
     force_reload: bool = False,
 ) -> Dict[str, Any]:
     """Dynamically loads robot joints, limits, and nominal configuration from URDF/Pinocchio & YAML files."""
@@ -205,14 +205,18 @@ def load_robot_config(
 
     if use_pinocchio and urdf_path and os.path.exists(urdf_path):
         try:
-            import pinocchio as pin
+            import numpy as _np
 
-            pinocchio_model = pin.buildModelFromUrdf(urdf_path)
-            for i in range(1, pinocchio_model.njoints):
-                jname = pinocchio_model.names[i]
-                if jname not in ("root_joint", "universe", "root"):
-                    all_joint_names.append(jname)
-            total_mass = sum(inertial.mass for inertial in pinocchio_model.inertias)
+            # Only import pinocchio if numpy is not 2.x (pinocchio_pywrap requires numpy 1.x ABI)
+            if not _np.__version__.startswith("2."):
+                import pinocchio as pin
+
+                pinocchio_model = pin.buildModelFromUrdf(urdf_path)
+                for i in range(1, pinocchio_model.njoints):
+                    jname = pinocchio_model.names[i]
+                    if jname not in ("root_joint", "universe", "root"):
+                        all_joint_names.append(jname)
+                total_mass = sum(inertial.mass for inertial in pinocchio_model.inertias)
         except Exception:
             pinocchio_model = None
 
