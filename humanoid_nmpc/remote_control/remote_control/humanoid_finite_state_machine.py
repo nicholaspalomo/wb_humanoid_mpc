@@ -484,7 +484,7 @@ class VirtualGantry:
         self.height = max(self.min_height, min(self.max_height, float(height)))
         return self.height
 
-    def auto_calibrate_ground_touch(self, foot_clearance: float = 0.005) -> float:
+    def auto_calibrate_ground_touch(self, foot_clearance: float = 0.0) -> float:
         """Calibrates gantry height so nominal stance feet barely touch the ground."""
         self.height = self.cfg["nominal_pelvis_height_bent"] + foot_clearance
         self.is_locked = True

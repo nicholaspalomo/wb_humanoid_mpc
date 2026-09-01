@@ -60,6 +60,9 @@ struct MujocoSimConfig {
   double renderFrequencyHz{60.0};
   bool headless{false};
   bool verbose{false};
+  bool enableGantry{true};
+  bool isGantryLocked{true};
+  double gantryHeight{0.0};
 };
 
 class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
@@ -77,6 +80,21 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
 
   // Todo Manu also reset environment
   void reset();
+
+  // Virtual Gantry Controls
+  void lockGantry() { isGantryLocked_ = true; }
+  void releaseGantry() { isGantryLocked_ = false; }
+  bool toggleGantry() {
+    isGantryLocked_ = !isGantryLocked_;
+    return isGantryLocked_;
+  }
+  double stepGantry(double delta) {
+    gantryHeight_ = gantryHeight_.load() + delta;
+    return gantryHeight_.load();
+  }
+  void setGantryHeight(double height) { gantryHeight_ = height; }
+  bool isGantryLocked() const { return isGantryLocked_.load(); }
+  double getGantryHeight() const { return gantryHeight_.load(); }
 
   // Allows the renderer to make a thread safe copy of the state at it's own frequency.
   void copyMjState(MjState& state) const;
@@ -138,6 +156,9 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
 
   size_t right_foot_touch_sensor_addr_;
   size_t left_foot_touch_sensor_addr_;
+
+  std::atomic<bool> isGantryLocked_{true};
+  std::atomic<double> gantryHeight_{0.0};
 };
 
 }  // namespace robot::mujoco_sim_interface

@@ -118,6 +118,15 @@ MujocoSimInterface::MujocoSimInterface(const MujocoSimConfig& config, const std:
   qpos_init_ = new mjtNum[mujocoModel_->nq];
   qvel_init_ = new mjtNum[mujocoModel_->nv];
 
+  if (config_.gantryHeight > 0.0) {
+    gantryHeight_ = config_.gantryHeight;
+  } else if (config_.initStatePtr_) {
+    gantryHeight_ = config_.initStatePtr_->getRootPositionInWorldFrame().z();
+  } else {
+    gantryHeight_ = mujocoData_->qpos[2];
+  }
+  isGantryLocked_ = config_.isGantryLocked;
+
   // Safe init state for resets
   memcpy(qpos_init_, mujocoData_->qpos, mujocoModel_->nq * sizeof(mjtNum));
   memcpy(qvel_init_, mujocoData_->qvel, mujocoModel_->nv * sizeof(mjtNum));
@@ -364,6 +373,25 @@ void MujocoSimInterface::simulationStep() {
   }
 
   mujocoMutex_.lock();
+
+  // Apply virtual gantry constraint if locked to suspend robot at ground-touch stance height
+  if (config_.enableGantry && isGantryLocked_.load()) {
+    mujocoData_->qpos[0] = 0.0;
+    mujocoData_->qpos[1] = 0.0;
+    mujocoData_->qpos[2] = gantryHeight_.load();
+    mujocoData_->qpos[3] = 1.0;
+    mujocoData_->qpos[4] = 0.0;
+    mujocoData_->qpos[5] = 0.0;
+    mujocoData_->qpos[6] = 0.0;
+
+    mujocoData_->qvel[0] = 0.0;
+    mujocoData_->qvel[1] = 0.0;
+    mujocoData_->qvel[2] = 0.0;
+    mujocoData_->qvel[3] = 0.0;
+    mujocoData_->qvel[4] = 0.0;
+    mujocoData_->qvel[5] = 0.0;
+  }
+
   mj_step(mujocoModel_, mujocoData_);
   updateThreadSafeRobotState();
   updateMetrics();
