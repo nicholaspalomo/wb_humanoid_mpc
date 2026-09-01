@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <humanoid_centroidal_mpc/CentroidalMpcInterface.h>
 #include <mujoco_sim_interface/MujocoSimInterface.h>
+#include <ocs2_robotic_tools/common/RotationTransforms.h>
 
 #include <humanoid_centroidal_mpc/command/CentroidalMpcTargetTrajectoriesCalculator.h>
 #include <humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h>
@@ -98,9 +99,10 @@ int main(int argc, char** argv) {
   const vector_t& initMpcState = interface.getInitialState();
   const auto& mpcModel = interface.getMpcRobotModel();
   initState.setRootPositionInWorldFrame(mpcModel.getBasePosition(initMpcState));
+  vector3_t baseOriEulerZyx = mpcModel.getBaseOrientationEulerZYX(initMpcState);
+  initState.setRootRotationLocalToWorldFrame(ocs2::getQuaternionFromEulerAnglesZyx(baseOriEulerZyx));
 
   vector_t mpcJointAngles = mpcModel.getJointAngles(initMpcState);
-  // Todo set non zero orientation;
   std::vector<robot::joint_index_t> mpcJointIndices = robotDescription.getJointIndices(interface.modelSettings().mpcModelJointNames);
   for (size_t i = 0; i < mpcJointIndices.size(); i++) {
     initState.setJointPosition(mpcJointIndices[i], mpcJointAngles[i]);
@@ -116,11 +118,14 @@ int main(int argc, char** argv) {
 
   robot::mujoco_sim_interface::MujocoSimInterface robotInterface(config, urdfFile);
 
+  std::filesystem::path configDir = std::filesystem::path(taskFile).parent_path().parent_path();
+  std::string pdGainsFile = (configDir / "controller" / "joint_pd_gains.yaml").string();
+
   CentroidalMpcMrtJointController mpcJointController(robotInterface.getRobotDescription(), interface.modelSettings(),
                                                      interface.getMpcRobotModel(), mpc, interface.getPinocchioInterface(),
-                                                     interface.mpcSettings().mpcDesiredFrequency_, humanoidVisualizer);
+                                                     interface.mpcSettings().mpcDesiredFrequency_, humanoidVisualizer, pdGainsFile);
 
-  std::cout << "MPC MRT joint controller is set up. " << std::endl;
+  std::cout << "MPC MRT joint controller is set up with PD gains from: " << pdGainsFile << std::endl;
 
   // size_t mrtDeltaTMicroSeconds_ = 1000000 / (interface.mpcSettings().mrtDesiredFrequency_);
   size_t mrtDeltaTMicroSeconds_ = 1000000 / (500);

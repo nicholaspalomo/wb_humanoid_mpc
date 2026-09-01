@@ -43,6 +43,16 @@ from typing import Callable, Dict, List, Optional
 
 import ctypes
 
+from .humanoid_finite_state_machine import (
+    ControlMode,
+    HumanoidFSM,
+    VirtualGantry,
+    MODE_METADATA,
+    CYCLE_MODES,
+    load_robot_config,
+    get_available_robots,
+)
+
 
 def ensure_ros2_paths():
     """Auto-detects and adds ROS2 and Bazel-generated message bindings to sys.path."""

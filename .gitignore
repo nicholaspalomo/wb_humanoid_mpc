@@ -74,3 +74,5 @@ cartpole_renders/
 
 # Jupyter notebook checkpoints
 notebooks/.ipynb_checkpoints/
+
+MUJOCO_LOG.TXT
