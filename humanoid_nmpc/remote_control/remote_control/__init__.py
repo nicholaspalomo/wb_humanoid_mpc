@@ -28,6 +28,15 @@ from .dashboard_backend import (
     VirtualJoystickROS2,
     ensure_ros2_paths,
 )
+from .humanoid_finite_state_machine import (
+    ControlMode,
+    HumanoidFSM,
+    VirtualGantry,
+    MODE_METADATA,
+    CYCLE_MODES,
+    load_robot_config,
+    get_available_robots,
+)
 
 ensure_ros2_paths()
 
@@ -44,4 +53,11 @@ __all__ = [
     "ensure_ros2_paths",
     "XBoxControllerInterface",
     "xbox_walking_command_publisher",
+    "ControlMode",
+    "HumanoidFSM",
+    "VirtualGantry",
+    "MODE_METADATA",
+    "CYCLE_MODES",
+    "load_robot_config",
+    "get_available_robots",
 ]

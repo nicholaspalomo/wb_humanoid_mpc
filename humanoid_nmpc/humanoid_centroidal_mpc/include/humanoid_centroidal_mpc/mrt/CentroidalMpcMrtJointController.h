@@ -53,7 +53,8 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
                                   MPC_BASE& mpc,
                                   PinocchioInterface pinocchioInterface,
                                   scalar_t mpcDesiredFrequency = -1,
-                                  std::shared_ptr<DummyObserver> rVizVisualizerPtr = nullptr);
+                                  std::shared_ptr<DummyObserver> rVizVisualizerPtr = nullptr,
+                                  const std::string& pdGainsFile = "");
 
   /**
    * Destructor.
@@ -71,6 +72,8 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
                                  ::robot::model::RobotJointAction& robotJointAction) override;
 
   void startMpcThread(const ::robot::model::RobotState& initRobotState);
+
+  void loadPdGains(const std::string& pdGainsFile, const ModelSettings& modelSettings);
 
  private:
   /**
@@ -107,6 +110,11 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
 
   vector_t inverse_dynamics_kp_;
   vector_t inverse_dynamics_kd_;
+
+  vector_t mpcJointKp_;
+  vector_t mpcJointKd_;
+  vector_t otherJointKp_;
+  vector_t otherJointKd_;
 };
 
 }  // namespace ocs2::humanoid

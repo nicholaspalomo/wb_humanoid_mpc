@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <humanoid_wb_mpc/WBMpcInterface.h>
 #include <mujoco_sim_interface/MujocoSimInterface.h>
+#include <ocs2_robotic_tools/common/RotationTransforms.h>
 
 #include <humanoid_wb_mpc/command/WBMpcTargetTrajectoriesCalculator.h>
 #include <humanoid_wb_mpc/mrt/WBMpcMrtJointController.h>
@@ -97,9 +98,10 @@ int main(int argc, char** argv) {
   const vector_t& initMpcState = interface.getInitialState();
   const auto& mpcModel = interface.getMpcRobotModel();
   initState.setRootPositionInWorldFrame(mpcModel.getBasePosition(initMpcState));
+  vector3_t baseOriEulerZyx = mpcModel.getBaseOrientationEulerZYX(initMpcState);
+  initState.setRootRotationLocalToWorldFrame(ocs2::getQuaternionFromEulerAnglesZyx(baseOriEulerZyx));
 
   vector_t mpcJointAngles = mpcModel.getJointAngles(initMpcState);
-  // Todo set non zero orientation;
   std::vector<robot::joint_index_t> mpcJointIndices = robotDescription.getJointIndices(interface.modelSettings().mpcModelJointNames);
   for (size_t i = 0; i < mpcJointIndices.size(); i++) {
     initState.setJointPosition(mpcJointIndices[i], mpcJointAngles[i]);
