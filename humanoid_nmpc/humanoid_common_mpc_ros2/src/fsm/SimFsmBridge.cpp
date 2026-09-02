@@ -62,6 +62,15 @@ SimFsmBridge::SimFsmBridge(const robot::model::RobotDescription& robotDescriptio
       "/humanoid/fsm_command", cmdQos,
       [this](const std_msgs::msg::String::ConstSharedPtr& msg) { fsmCommandCallback(msg); });
 
+  // Subscribe to walking velocity command for gantry height control
+  rclcpp::QoS velQos(1);
+  velQos.best_effort();
+  walkingVelSub_ = nodeHandle_->create_subscription<humanoid_mpc_msgs::msg::WalkingVelocityCommand>(
+      "/humanoid/walking_velocity_command", velQos,
+      [this](const humanoid_mpc_msgs::msg::WalkingVelocityCommand::ConstSharedPtr& msg) {
+        walkingVelocityCallback(msg);
+      });
+
   // Publish initial zero-torque + locked state
   publishFsmState("ZERO_TORQUE", true);
 }
@@ -120,6 +129,10 @@ bool SimFsmBridge::processCommands(std::string& currentModeName,
   }
 
   if (!cmdOpt.has_value() || cmdOpt->empty()) {
+    // No FSM command pending, but still update gantry height from slider if locked
+    if (robotInterface.isGantryLocked()) {
+      robotInterface.setGantryHeight(desiredGantryHeight_.load());
+    }
     return false;
   }
 
@@ -164,6 +177,14 @@ bool SimFsmBridge::processCommands(std::string& currentModeName,
   }
 
   return false;
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+void SimFsmBridge::walkingVelocityCallback(
+    const humanoid_mpc_msgs::msg::WalkingVelocityCommand::ConstSharedPtr& msg) {
+  desiredGantryHeight_ = std::clamp(static_cast<double>(msg->desired_pelvis_height), 0.2, 1.5);
 }
 
 /******************************************************************************************************/

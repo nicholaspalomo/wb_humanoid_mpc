@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <atomic>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -37,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string_view>
 #include <humanoid_common_mpc/common/ModelSettings.h>
 #include <humanoid_common_mpc/common/MpcRobotModelBase.h>
+#include <humanoid_mpc_msgs/msg/walking_velocity_command.hpp>
 #include <mujoco_sim_interface/MujocoSimInterface.h>
 #include <rclcpp/rclcpp.hpp>
 #include <robot_model/RobotDescription.h>
@@ -101,14 +103,17 @@ class SimFsmBridge {
 
  private:
   void fsmCommandCallback(const std_msgs::msg::String::ConstSharedPtr& msg);
+  void walkingVelocityCallback(const humanoid_mpc_msgs::msg::WalkingVelocityCommand::ConstSharedPtr& msg);
 
   rclcpp::Node::SharedPtr nodeHandle_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr fsmCommandSub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr fsmStatePub_;
+  rclcpp::Subscription<humanoid_mpc_msgs::msg::WalkingVelocityCommand>::SharedPtr walkingVelSub_;
 
   std::vector<scalar_t> nominalJointPositions_;
   std::mutex commandMutex_;
   std::optional<std::string> pendingCommand_;
+  std::atomic<double> desiredGantryHeight_{0.0};  ///< Desired gantry height from walking velocity command slider.
 };
 
 /**
