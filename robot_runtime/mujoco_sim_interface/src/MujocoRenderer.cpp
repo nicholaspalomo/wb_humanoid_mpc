@@ -88,16 +88,23 @@ void MujocoRenderer::keyboard(GLFWwindow* window, int key, int, int act, int mod
     renderer->mujocoOptions_.flags[mjVIS_CONVEXHULL] = !renderer->mujocoOptions_.flags[mjVIS_CONVEXHULL];
   }
 
+  // Number keys '0'-'5': toggle geom groups (Group 1 = Visual, Group 2 = Collision, Group 0 = Floor)
+  if (act == GLFW_PRESS && key >= GLFW_KEY_0 && key <= GLFW_KEY_5) {
+    int group = key - GLFW_KEY_0;
+    renderer->mujocoOptions_.geomgroup[group] = !renderer->mujocoOptions_.geomgroup[group];
+  }
+
   // 'p' key: print hotkeys
   if (act == GLFW_PRESS && key == GLFW_KEY_P) {
     std::cerr << "\n\n==========================================================="
               << "\nHotkeys\n===========================================================\n"
-              << "c => toggle contact point visualization\n"
-              << "f => toggle contact force visualization\n"
-              << "m => toggle center of mass visualization\n"
-              << "t => toggle model transparency\n"
-              << "i => toggle interia visualization\n"
-              << "h => toggle hull visualization\n";
+              << "0-5 => toggle geom groups (0: Floor, 1: Visual Mesh, 2: Collision)\n"
+              << "c   => toggle contact point visualization\n"
+              << "f   => toggle contact force visualization\n"
+              << "m   => toggle center of mass visualization\n"
+              << "t   => toggle model transparency\n"
+              << "i   => toggle inertia visualization\n"
+              << "h   => toggle hull visualization\n";
   }
 }
 

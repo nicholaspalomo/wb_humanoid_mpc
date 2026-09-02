@@ -305,6 +305,7 @@ void CentroidalMpcMrtJointController::solverWorker() {
   mcpMrtInterface_.resetMpcNode(currentObservationToResetTrajectory(mcpMrtInterface_.getCurrentObservation()));
   std::cerr << "MPC is reset. NMPC solver started!" << std::endl;
 
+  size_t slowWarningCount = 0;
   while (true) {
     auto targetTimeForNextIteration = std::chrono::steady_clock::now() + std::chrono::microseconds(mpcDeltaTMicroSeconds_);
 
@@ -322,8 +323,9 @@ void CentroidalMpcMrtJointController::solverWorker() {
       auto currentTime = std::chrono::steady_clock::now();
       if (currentTime > targetTimeForNextIteration) {
         auto delay = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - targetTimeForNextIteration).count();
-
-        std::cerr << "Warning: MPC loop running slow by " << delay << " microseconds." << std::endl;
+        if (delay > 1000 && (++slowWarningCount % 10 == 0)) {
+          std::cerr << "Warning: MPC loop running slow by " << delay << " microseconds (showing 1 in 10)." << std::endl;
+        }
       } else {
         // Sleep in case sim loop is faster than specified
         std::this_thread::sleep_until(targetTimeForNextIteration);

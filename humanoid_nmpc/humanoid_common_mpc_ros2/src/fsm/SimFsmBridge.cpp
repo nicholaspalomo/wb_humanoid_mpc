@@ -47,6 +47,9 @@ SimFsmBridge::SimFsmBridge(const robot::model::RobotDescription& robotDescriptio
     nominalJointPositions_[i] = initState.getJointPosition(i);
   }
 
+  // Initialize gantry height from the robot's spawn Z position
+  desiredGantryHeight_ = initState.getRootPositionInWorldFrame().z();
+
   // Latched / Transient-local QoS for state topic so subscribers get current state immediately
   rclcpp::QoS stateQos(1);
   stateQos.reliable();
@@ -130,7 +133,8 @@ bool SimFsmBridge::processCommands(std::string& currentModeName,
 
   if (!cmdOpt.has_value() || cmdOpt->empty()) {
     // No FSM command pending, but still update gantry height from slider if locked
-    if (robotInterface.isGantryLocked()) {
+    // Only override if we've actually received a height command from the GUI
+    if (robotInterface.isGantryLocked() && hasReceivedGantryHeight_.load()) {
       robotInterface.setGantryHeight(desiredGantryHeight_.load());
     }
     return false;
@@ -185,6 +189,7 @@ bool SimFsmBridge::processCommands(std::string& currentModeName,
 void SimFsmBridge::walkingVelocityCallback(
     const humanoid_mpc_msgs::msg::WalkingVelocityCommand::ConstSharedPtr& msg) {
   desiredGantryHeight_ = std::clamp(static_cast<double>(msg->desired_pelvis_height), 0.2, 1.5);
+  hasReceivedGantryHeight_.store(true);
 }
 
 /******************************************************************************************************/

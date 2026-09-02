@@ -114,6 +114,7 @@ class SimFsmBridge {
   std::mutex commandMutex_;
   std::optional<std::string> pendingCommand_;
   std::atomic<double> desiredGantryHeight_{0.0};  ///< Desired gantry height from walking velocity command slider.
+  std::atomic<bool> hasReceivedGantryHeight_{false};  ///< True once a walking velocity message has set the height.
 };
 
 /**

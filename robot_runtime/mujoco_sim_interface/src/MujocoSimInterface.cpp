@@ -482,8 +482,17 @@ void MujocoSimInterface::simulationStep() {
     for (size_t i = 0; i < nActuators_; ++i) {
       joint_index_t idx = activeRobotActuatorIndices_[i];
       const robot::model::JointAction& jointAction = robotJointActionInternal_.at(idx).value();
-      mujocoData_->ctrl[i] =
+      double pdTorque =
           jointAction.getTotalFeedbackTorque(robotStateInternal_.getJointPosition(idx), robotStateInternal_.getJointVelocity(idx));
+
+      // Add gravity + Coriolis compensation from MuJoCo's qfrc_bias.
+      // For motor actuators, actuator i drives joint model->actuator_trnid[2*i],
+      // whose DOF index is model->jnt_dofadr[jointId].
+      int mjJointId = mujocoModel_->actuator_trnid[2 * i];
+      int dofIdx = mujocoModel_->jnt_dofadr[mjJointId];
+      double gravCompTorque = mujocoData_->qfrc_bias[dofIdx];
+
+      mujocoData_->ctrl[i] = pdTorque + gravCompTorque;
     }
   }
 

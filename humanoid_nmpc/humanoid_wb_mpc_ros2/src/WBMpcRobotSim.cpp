@@ -142,6 +142,7 @@ int main(int argc, char** argv) {
 
   // Unified control loop: processes /humanoid/fsm_command ROS 2 topics for mode transitions.
   std::string currentModeName = "ZERO_TORQUE";
+  size_t mrtSlowCount = 0;
   while (true) {
     auto targetTimeForNextIteration = std::chrono::steady_clock::now() + std::chrono::microseconds(mrtDeltaTMicroSeconds_);
 
@@ -167,8 +168,8 @@ int main(int argc, char** argv) {
       // Sub-millisecond overruns are normal OS scheduling jitter.
       if (!robotInterface.isZeroTorqueMode()) {
         auto delay = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - targetTimeForNextIteration).count();
-        if (delay > 1000) {
-          LOG(WARNING) << "MRT loop running slow by " << delay << " microseconds.";
+        if (delay > 1000 && (++mrtSlowCount % 10 == 0)) {
+          LOG(WARNING) << "MRT loop running slow by " << delay << " microseconds (showing 1 in 10).";
         }
       }
     } else {

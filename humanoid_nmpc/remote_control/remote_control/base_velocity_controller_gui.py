@@ -359,14 +359,9 @@ class RosJoystickApp(Node):
         else:
             self.app.set_joystick_connected(False)
             cmd_msg = self.app.get_walking_command_msg()
-            is_nonzero = (
-                abs(cmd_msg.linear_velocity_x) > 1e-4
-                or abs(cmd_msg.linear_velocity_y) > 1e-4
-                or abs(cmd_msg.angular_velocity_z) > 1e-4
-            )
-            if is_nonzero or self._gui_active:
-                self.publisher_.publish(cmd_msg)
-                self._gui_active = is_nonzero
+            # Always publish so the height slider value is transmitted for gantry control,
+            # even when all velocity components are zero.
+            self.publisher_.publish(cmd_msg)
             # check for connection every 2 seconds
             if self.counter >= (2 * self.publisher_rate):
                 self.xbox_controller_interface.get_joystick_connection()
