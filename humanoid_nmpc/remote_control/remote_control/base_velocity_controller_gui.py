@@ -46,12 +46,12 @@ class App(tk.Tk):
         # Position window on the right side of the screen
         screen_width = self.winfo_screenwidth()
         screen_height = self.winfo_screenheight()
-        gui_width = 750
+        gui_width = 850
         gui_height = 420
         pos_x = max(0, screen_width - gui_width - 30)
         pos_y = 50
         self.geometry(f"{gui_width}x{gui_height}+{pos_x}+{pos_y}")
-        self.minsize(650, 380)
+        self.minsize(750, 380)
 
         # Set window background color
         self.configure(bg="#2c2c2c")
@@ -162,6 +162,39 @@ class App(tk.Tk):
         control_frame = ttk.Frame(main_frame)
         control_frame.grid(row=1, column=0, columnspan=5, pady=(10, 0))
 
+        # --- FSM Mode Dropdown ---
+        fsm_frame = ttk.Frame(control_frame)
+        fsm_frame.pack(side="left", padx=10)
+        ttk.Label(fsm_frame, text="Mode:", font=("Helvetica", 10)).pack(
+            side="left", padx=(0, 4)
+        )
+
+        self.fsm_mode_var = tk.StringVar(value="ZERO_TORQUE")
+        self.fsm_dropdown = ttk.Combobox(
+            fsm_frame,
+            textvariable=self.fsm_mode_var,
+            values=["ZERO_TORQUE", "JOINT_PD", "GRAVITY_COMP", "WB_MPC", "SAFETY"],
+            state="readonly",
+            width=14,
+        )
+        self.fsm_dropdown.pack(side="left")
+        self.fsm_dropdown.bind("<<ComboboxSelected>>", self._on_fsm_change)
+
+        # --- Gantry Lock Toggle ---
+        self.gantry_var = tk.BooleanVar(value=True)  # Locked by default
+        self.gantry_toggle = ttk.Checkbutton(
+            control_frame,
+            text="Gantry Lock",
+            variable=self.gantry_var,
+            command=self._on_gantry_toggle,
+        )
+        self.gantry_toggle.pack(side="left", padx=10)
+
+        # Separator
+        ttk.Separator(control_frame, orient="vertical").pack(
+            side="left", fill="y", padx=5
+        )
+
         # Create LED
         self.joystick_connected_indicator = LEDIndicatorGui(
             control_frame, "Joystick Connection", size=30
@@ -181,12 +214,59 @@ class App(tk.Tk):
         )
         self.auto_center_checkbox.pack(side="left")
 
+        # Poll FSM state from the C++ sim every 500ms to stay synced
+        self._poll_fsm_state()
+
         main_frame.rowconfigure(0, weight=1)
         main_frame.columnconfigure(0, weight=1)
         main_frame.columnconfigure(1, weight=1)
 
     def slider_callback(self, value):
         pass
+
+    def _on_fsm_change(self, event):
+        """Handle FSM dropdown selection change."""
+        mode = self.fsm_mode_var.get()
+        try:
+            with open("/tmp/humanoid_fsm_command", "w") as f:
+                f.write(mode + "\n")
+        except OSError:
+            pass
+
+    def _on_gantry_toggle(self):
+        """Handle gantry lock checkbox toggle."""
+        cmd = "LOCK_GANTRY" if self.gantry_var.get() else "UNLOCK_GANTRY"
+        try:
+            with open("/tmp/humanoid_fsm_command", "w") as f:
+                f.write(cmd + "\n")
+        except OSError:
+            pass
+
+    def _poll_fsm_state(self):
+        """Poll /tmp/humanoid_fsm_state every 500ms to keep GUI synced with the C++ sim."""
+        try:
+            with open("/tmp/humanoid_fsm_state", "r") as f:
+                state_line = f.read().strip()
+            # Format: "MODE,GANTRY_STATE" e.g. "JOINT_PD,GANTRY_LOCKED"
+            parts = [p.strip() for p in state_line.split(",")]
+            if len(parts) >= 1:
+                fsm_state = parts[0]
+                valid_modes = (
+                    "ZERO_TORQUE",
+                    "JOINT_PD",
+                    "GRAVITY_COMP",
+                    "WB_MPC",
+                    "SAFETY",
+                )
+                if fsm_state in valid_modes:
+                    self.fsm_mode_var.set(fsm_state)
+            if len(parts) >= 2:
+                gantry_state = parts[1]
+                self.gantry_var.set(gantry_state == "GANTRY_LOCKED")
+        except (OSError, IndexError):
+            pass
+        # Re-schedule
+        self.after(500, self._poll_fsm_state)
 
     def set_joystick_connected(self, is_connected):
         self.joystick_connected_indicator.set_state(is_connected)

@@ -29,8 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <ocs2_sqp/SqpMpc.h>
-#include <rclcpp/rclcpp.hpp>
 #include <fstream>
+#include <rclcpp/rclcpp.hpp>
 
 #include <humanoid_centroidal_mpc/CentroidalMpcInterface.h>
 #include <mujoco_sim_interface/MujocoSimInterface.h>
@@ -149,23 +149,25 @@ int main(int argc, char** argv) {
   rclcpp::spin_some(nodeHandle);
   std::cout << "Zero-torque mode: robot spawned. Waiting for FSM command to enable torques..." << std::endl;
 
-  // Write initial FSM state file so the notebook knows the sim is ready
+  // Write initial FSM state file so the notebook/GUI knows the sim is ready
   {
     std::ofstream f("/tmp/humanoid_fsm_state");
-    f << "ZERO_TORQUE" << std::endl;
+    f << "ZERO_TORQUE,GANTRY_LOCKED" << std::endl;
   }
 
   // Unified control loop: polls /tmp/humanoid_fsm_command for mode transitions.
   // The Python FSM writes "ENABLE_TORQUES" or "DISABLE_TORQUES" to this file.
   size_t pollCounter = 0;
+  std::string currentModeName = "ZERO_TORQUE";
   while (true) {
     auto targetTimeForNextIteration = std::chrono::steady_clock::now() + std::chrono::microseconds(mrtDeltaTMicroSeconds_);
 
-    // In zero-torque mode, skip state publishing and MPC computation to keep
-    // the MPC background solver idle (otherwise it consumes CPU with diverging states).
+    // Always publish state to MPC so the solver's plan stays current.
+    // In zero-torque mode, we still compute the control action but don't apply it,
+    // keeping the MPC solver warm for instant transitions back to active mode.
+    robotInterface.updateInterfaceStateFromRobot();
+    mpcJointController.computeJointControlAction(0.0, robotInterface.getRobotState(), robotInterface.getRobotJointAction());
     if (!robotInterface.isZeroTorqueMode()) {
-      robotInterface.updateInterfaceStateFromRobot();
-      mpcJointController.computeJointControlAction(0.0, robotInterface.getRobotState(), robotInterface.getRobotJointAction());
       robotInterface.applyJointAction();
     }
 
@@ -178,16 +180,38 @@ int main(int argc, char** argv) {
         std::string cmd;
         std::getline(cmdFile, cmd);
         cmdFile.close();
-        if (cmd == "ENABLE_TORQUES" && robotInterface.isZeroTorqueMode()) {
-          std::cout << "FSM command received: Enabling torques — MPC active control." << std::endl;
-          robotInterface.enableTorques();
+
+        auto writeState = [&]() {
           std::ofstream f("/tmp/humanoid_fsm_state");
-          f << "MPC_ACTIVE" << std::endl;
-        } else if (cmd == "DISABLE_TORQUES" && !robotInterface.isZeroTorqueMode()) {
-          std::cout << "FSM command received: Disabling torques — zero-torque mode." << std::endl;
-          robotInterface.disableTorques();
-          std::ofstream f("/tmp/humanoid_fsm_state");
-          f << "ZERO_TORQUE" << std::endl;
+          f << currentModeName << "," << (robotInterface.isGantryLocked() ? "GANTRY_LOCKED" : "GANTRY_UNLOCKED") << std::endl;
+        };
+
+        // Handle mode commands: ZERO_TORQUE disables torques, all others enable.
+        // The mode name is preserved in the state file for the GUI to read back.
+        if (cmd == "ZERO_TORQUE" || cmd == "DISABLE_TORQUES") {
+          if (!robotInterface.isZeroTorqueMode()) {
+            std::cout << "FSM command received: " << cmd << " — zero-torque mode." << std::endl;
+            robotInterface.disableTorques();
+          }
+          currentModeName = "ZERO_TORQUE";
+          writeState();
+        } else if (cmd == "JOINT_PD" || cmd == "GRAVITY_COMP" || cmd == "WB_MPC" || cmd == "SAFETY" || cmd == "MPC_ACTIVE" ||
+                   cmd == "ENABLE_TORQUES") {
+          if (robotInterface.isZeroTorqueMode()) {
+            std::cout << "FSM command received: " << cmd << " — enabling torques." << std::endl;
+            robotInterface.enableTorques();
+          }
+          // Preserve the actual mode name (map legacy commands to WB_MPC)
+          currentModeName = (cmd == "ENABLE_TORQUES" || cmd == "MPC_ACTIVE") ? "WB_MPC" : cmd;
+          writeState();
+        } else if (cmd == "LOCK_GANTRY" && !robotInterface.isGantryLocked()) {
+          std::cout << "FSM command received: Locking gantry." << std::endl;
+          robotInterface.lockGantry();
+          writeState();
+        } else if (cmd == "UNLOCK_GANTRY" && robotInterface.isGantryLocked()) {
+          std::cout << "FSM command received: Unlocking gantry." << std::endl;
+          robotInterface.unlockGantry();
+          writeState();
         }
       }
     }
