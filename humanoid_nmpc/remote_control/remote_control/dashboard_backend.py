@@ -100,39 +100,51 @@ class SimProcessManager:
     TARGETS: Dict[str, Dict[str, str]] = {
         "g1_centroidal_dummy": {
             "name": "Unitree G1 Centroidal — Dummy Sim (RViz)",
-            "command": "make launch-g1-dummy-sim",
+            "command": "make launch-g1-dummy-sim-vnc",
             "type": "dummy",
             "robot": "g1",
         },
         "g1_centroidal_sim": {
             "name": "Unitree G1 Centroidal — MuJoCo Physics Sim",
-            "command": "make launch-g1-sim",
+            "command": "make launch-g1-sim-vnc",
             "type": "mujoco",
             "robot": "g1",
         },
         "g1_wb_dummy": {
             "name": "Unitree G1 Whole-Body — Dummy Sim (RViz)",
-            "command": "make launch-wb-g1-dummy-sim",
+            "command": "make launch-wb-g1-dummy-sim-vnc",
             "type": "dummy",
             "robot": "g1",
         },
         "g1_wb_sim": {
             "name": "Unitree G1 Whole-Body — MuJoCo Physics Sim",
-            "command": "make launch-wb-g1-sim",
+            "command": "make launch-wb-g1-sim-vnc",
             "type": "mujoco",
             "robot": "g1",
         },
         "atlas_centroidal_dummy": {
             "name": "DRC Atlas Centroidal — Dummy Sim (RViz)",
-            "command": "make launch-drc-atlas-dummy-sim",
+            "command": "make launch-drc-atlas-dummy-sim-vnc",
             "type": "dummy",
             "robot": "atlas",
         },
         "atlas_centroidal_sim": {
             "name": "DRC Atlas Centroidal — MuJoCo Ground Sim",
-            "command": "make launch-drc-atlas-sim",
+            "command": "make launch-drc-atlas-sim-vnc",
             "type": "mujoco",
             "robot": "atlas",
+        },
+        "r1_centroidal_dummy": {
+            "name": "Unitree R1 Centroidal — Dummy Sim (RViz)",
+            "command": "make launch-r1-dummy-sim-vnc",
+            "type": "dummy",
+            "robot": "r1",
+        },
+        "r1_centroidal_sim": {
+            "name": "Unitree R1 Centroidal — MuJoCo Physics Sim",
+            "command": "make launch-r1-sim-vnc",
+            "type": "mujoco",
+            "robot": "r1",
         },
     }
 
@@ -195,6 +207,8 @@ class SimProcessManager:
             self.active_target_key = target_key
 
             def _reader():
+                buffer = []
+                last_flush = time.time()
                 try:
                     while self.is_running:
                         proc = self.process
@@ -208,9 +222,17 @@ class SimProcessManager:
                             if proc.poll() is not None:
                                 break
                             time.sleep(0.01)
+                            # Periodically flush if idle
+                            now = time.time()
+                            if buffer and (now - last_flush >= 0.1):
+                                chunk = "".join(buffer)
+                                buffer.clear()
+                                last_flush = now
+                                if on_output:
+                                    on_output(chunk)
                             continue
-                        if on_output:
-                            on_output(line)
+
+                        buffer.append(line)
                         try:
                             self.log_queue.put_nowait(line)
                         except queue.Full:
@@ -219,6 +241,19 @@ class SimProcessManager:
                                 self.log_queue.put_nowait(line)
                             except Exception:
                                 pass
+
+                        now = time.time()
+                        if now - last_flush >= 0.1 or len(buffer) >= 15:
+                            chunk = "".join(buffer)
+                            buffer.clear()
+                            last_flush = now
+                            if on_output:
+                                on_output(chunk)
+
+                    if buffer:
+                        chunk = "".join(buffer)
+                        if on_output:
+                            on_output(chunk)
                 except Exception:
                     pass
                 finally:
@@ -277,8 +312,26 @@ class SimProcessManager:
     def get_status(self) -> Dict[str, str]:
         """Returns the current simulation execution status."""
         if self.is_running and self.process and self.process.poll() is None:
+            # Check if simulation/visualization node binaries are actively executing
+            is_node_active = False
+            try:
+                pcheck = subprocess.run(
+                    [
+                        "pgrep",
+                        "-f",
+                        r"/tmp/\.bazel_ros_install/(humanoid_centroidal_mpc_ros2|humanoid_wb_mpc_ros2)/lib/|/opt/ros/jazzy/lib/rviz2/rviz2",
+                    ],
+                    capture_output=True,
+                    text=True,
+                )
+                if pcheck.returncode == 0 and pcheck.stdout.strip():
+                    is_node_active = True
+            except Exception:
+                is_node_active = True
+
+            status_str = "RUNNING" if is_node_active else "BUILDING"
             return {
-                "status": "RUNNING",
+                "status": status_str,
                 "target": self.active_target_key or "Unknown",
                 "name": self.TARGETS.get(self.active_target_key, {}).get("name", ""),
                 "pid": str(self.process.pid),

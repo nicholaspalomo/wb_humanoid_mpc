@@ -8,9 +8,7 @@ mkfile_path := $(abspath $(lastword $(MAKEFILE_LIST)))
 current_path := $(dir $(mkfile_path))
 
 # Source the Bazel+ROS2 environment
-define source_env
-	source $(current_path)/setup_env.sh
-endef
+source_env := source $(current_path)/setup_env.sh
 
 ############################################################
 # Build targets
@@ -224,51 +222,49 @@ VNC_GL_ENV := export DISPLAY=:99 && \
 
 launch-g1-dummy-sim-vnc: start-vnc
 	@echo "🚀 Building targets and launching G1 Centroidal MPC Dummy Simulation..."
-	@bazel build //... && \
+	@bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_dummy_sim_node && \
 	$(source_env) && $(VNC_GL_ENV) && ros2 launch g1_centroidal_mpc dummy_sim.launch.py
 
 launch-g1-sim-vnc: start-vnc
 	@echo "🚀 Building targets and launching G1 Centroidal MPC MuJoCo Simulation..."
-	@bazel build //... && \
+	@bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sim && \
 	$(source_env) && $(VNC_GL_ENV) && ros2 launch g1_centroidal_mpc mujoco_sim.launch.py
 
 launch-wb-g1-dummy-sim-vnc: start-vnc
 	@echo "🚀 Building targets and launching G1 Whole-Body MPC Dummy Simulation..."
-	@bazel build //... && \
+	@bazel build //humanoid_nmpc/humanoid_wb_mpc_ros2:humanoid_wb_mpc_sqp_node //humanoid_nmpc/humanoid_wb_mpc_ros2:humanoid_wb_mpc_dummy_sim_node && \
 	$(source_env) && $(VNC_GL_ENV) && ros2 launch g1_wb_mpc dummy_sim.launch.py
 
 launch-wb-g1-sim-vnc: start-vnc
 	@echo "🚀 Building targets and launching G1 Whole-Body MPC MuJoCo Simulation..."
-	@bazel build //... && \
+	@bazel build //humanoid_nmpc/humanoid_wb_mpc_ros2:humanoid_wb_mpc_sqp_node //humanoid_nmpc/humanoid_wb_mpc_ros2:humanoid_wb_mpc_sim && \
 	$(source_env) && $(VNC_GL_ENV) && ros2 launch g1_wb_mpc mujoco_sim.launch.py
 
 launch-drc-atlas-dummy-sim-vnc: start-vnc
 	@echo "🚀 Building targets and launching DRC Atlas Dummy Simulation..."
-	@bazel build //... && \
+	@bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_dummy_sim_node && \
 	$(source_env) && $(VNC_GL_ENV) && ros2 launch drc_atlas_centroidal_mpc dummy_sim.launch.py
 
 launch-drc-atlas-sim-vnc: start-vnc
 	@echo "🚀 Building targets and launching DRC Atlas MuJoCo Simulation..."
-	@bazel build //... && \
+	@bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sim && \
 	$(source_env) && $(VNC_GL_ENV) && ros2 launch drc_atlas_centroidal_mpc mujoco_sim.launch.py
 
 launch-drc-atlas-sandbox-vnc: start-vnc
 	@echo "🚀 Building targets and launching DRC Atlas URDF Viewer..."
-	@bazel build //... && \
 	$(source_env) && $(VNC_GL_ENV) && ros2 launch drc_atlas_description display.launch.py
 
 launch-r1-dummy-sim-vnc: start-vnc
 	@echo "🚀 Building targets and launching Unitree R1 Centroidal MPC Dummy Simulation..."
-	@bazel build //... && \
+	@bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_dummy_sim_node && \
 	$(source_env) && $(VNC_GL_ENV) && ros2 launch unitree_r1_centroidal_mpc dummy_sim.launch.py
 
 launch-r1-sim-vnc: start-vnc
 	@echo "🚀 Building targets and launching Unitree R1 Centroidal MPC MuJoCo Simulation..."
-	@bazel build //... && \
+	@bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sim && \
 	$(source_env) && $(VNC_GL_ENV) && ros2 launch unitree_r1_centroidal_mpc mujoco_sim.launch.py
 
 launch-r1-sandbox-vnc: start-vnc
 	@echo "🚀 Building targets and launching Unitree R1 URDF Viewer..."
-	@bazel build //... && \
 	$(source_env) && $(VNC_GL_ENV) && ros2 launch unitree_r1_description display.launch.py
 # LINT.ThenChange(//setup_env.sh:registered_packages, //.devcontainer/VISUALIZATION.md:launch_targets)
