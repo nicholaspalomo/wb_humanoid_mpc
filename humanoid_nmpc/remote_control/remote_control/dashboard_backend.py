@@ -243,21 +243,33 @@ class SimProcessManager:
                 try:
                     pgid = os.getpgid(self.process.pid)
                     os.killpg(pgid, signal.SIGTERM)
+                    time.sleep(0.1)
+                    os.killpg(pgid, signal.SIGKILL)
                 except Exception:
-                    self.process.terminate()
-
-                try:
-                    self.process.wait(timeout=1.0)
-                except Exception:
-                    try:
-                        pgid = os.getpgid(self.process.pid)
-                        os.killpg(pgid, signal.SIGKILL)
-                    except Exception:
-                        self.process.kill()
+                    self.process.kill()
             except Exception:
                 pass
+            self.process = None
 
-        self.process = None
+        # Clean up spawned ROS nodes specifically by binary name or bazel install path
+        # (Targeted commands ensure Jupyter/Python kernels are never matched)
+        try:
+            cleanup_cmds = [
+                ["pkill", "-9", "-f", "/tmp/.bazel_ros_install"],
+                ["pkill", "-9", "-f", "base_velocity_controller_gui"],
+                ["pkill", "-9", "-f", "ros2 launch"],
+                ["pkill", "-9", "-x", "rviz2"],
+                ["pkill", "-9", "-x", "humanoid_centroidal_mpc_sqp_node"],
+                ["pkill", "-9", "-x", "humanoid_centroidal_mpc_dummy_sim_node"],
+                ["pkill", "-9", "-x", "humanoid_centroidal_mpc_sim"],
+                ["pkill", "-9", "-x", "humanoid_wb_mpc_sqp_node"],
+                ["pkill", "-9", "-x", "humanoid_wb_mpc_sim"],
+            ]
+            for c in cleanup_cmds:
+                subprocess.run(c, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+
         self.is_running = False
         self.active_target_key = None
         return True
@@ -290,7 +302,10 @@ class VirtualJoystickROS2:
         self,
         topic: str = "/humanoid/walking_velocity_command",
         publish_rate: float = 25.0,
+        robot_name: Optional[str] = None,
+        workspace_dir: Optional[str] = None,
         auto_connect: bool = False,
+        auto_stream: bool = True,
     ):
         # Shutdown any previous active joystick instances in the same process
         while VirtualJoystickROS2._ACTIVE_INSTANCES:
@@ -302,22 +317,34 @@ class VirtualJoystickROS2:
 
         self.topic = topic
         self.publish_rate = publish_rate
+        self.robot_name = robot_name
+        self.workspace_dir = workspace_dir
+
+        # Determine nominal height from robot config
+        try:
+            cfg = load_robot_config(robot_name=robot_name, workspace_dir=workspace_dir)
+            self.desired_height = float(cfg.get("nominal_pelvis_height_bent", 0.70))
+        except Exception:
+            self.desired_height = 0.70
+
         self.v_x = 0.0
         self.v_y = 0.0
         self.v_yaw = 0.0
-        self.desired_height = 0.80
 
         self._node = None
         self._publisher = None
-        self._timer = None
-        self._ros_thread = None
+        self._stream_thread = None
+        self._is_streaming = False
         self._is_active = False
         self._ros_available = False
         self._init_error = None
         self._publish_active = False
+        self.auto_stream = auto_stream
 
         if auto_connect:
             self.connect()
+            if self.auto_stream:
+                self.start_streaming()
         VirtualJoystickROS2._ACTIVE_INSTANCES.append(self)
 
     def connect(self) -> bool:
@@ -362,10 +389,46 @@ class VirtualJoystickROS2:
         """Returns True if the ROS2 node and publisher are actively connected."""
         return self._ros_available and self._is_active
 
+    def start_streaming(self):
+        """Starts 25 Hz background streaming of WalkingVelocityCommand to ROS2."""
+        if not self.is_ros_connected:
+            self.connect()
+        if not self.is_ros_connected:
+            return
+        if self._stream_thread is not None and self._stream_thread.is_alive():
+            return
+        self._is_streaming = True
+
+        def _stream_loop():
+            period = 1.0 / max(1.0, float(self.publish_rate))
+            while self._is_streaming and self._is_active:
+                if self._publisher is not None:
+                    try:
+                        from humanoid_mpc_msgs.msg import WalkingVelocityCommand
+
+                        msg = WalkingVelocityCommand()
+                        msg.linear_velocity_x = float(self.v_x)
+                        msg.linear_velocity_y = float(self.v_y)
+                        msg.angular_velocity_z = float(self.v_yaw)
+                        msg.desired_pelvis_height = float(self.desired_height)
+                        self._publisher.publish(msg)
+                    except Exception:
+                        pass
+                time.sleep(period)
+
+        self._stream_thread = threading.Thread(target=_stream_loop, daemon=True)
+        self._stream_thread.start()
+
+    def stop_streaming(self):
+        """Stops background streaming."""
+        self._is_streaming = False
+
     def publish_now(self):
         """Publishes the current velocity command immediately to ROS2."""
         if not self.is_ros_connected:
             self.connect()
+        if self.auto_stream and not self._is_streaming:
+            self.start_streaming()
         if self._publisher is not None:
             try:
                 from humanoid_mpc_msgs.msg import WalkingVelocityCommand
@@ -384,13 +447,14 @@ class VirtualJoystickROS2:
         linear_x: float = 0.0,
         linear_y: float = 0.0,
         angular_z: float = 0.0,
-        desired_height: float = 0.80,
+        desired_height: Optional[float] = None,
     ):
         """Sets the active commanded walking velocity."""
         self.v_x = float(linear_x)
         self.v_y = float(linear_y)
         self.v_yaw = float(angular_z)
-        self.desired_height = float(desired_height)
+        if desired_height is not None:
+            self.desired_height = float(desired_height)
         self._publish_active = True
         self.publish_now()
 
@@ -402,7 +466,7 @@ class VirtualJoystickROS2:
         self._publish_active = True
         self.publish_now()
 
-    def step(self, direction: str, delta_v: float = 0.1, delta_yaw: float = 0.15):
+    def step(self, direction: str, delta_v: float = 0.2, delta_yaw: float = 0.2):
         """Applies directional incremental velocity steps."""
         if direction == "forward":
             self.v_x = min(1.0, self.v_x + delta_v)
@@ -424,6 +488,7 @@ class VirtualJoystickROS2:
 
     def shutdown(self):
         """Destroys the ROS2 node and releases resources."""
+        self.stop_streaming()
         self._is_active = False
         if self._node is not None:
             try:
