@@ -39,7 +39,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <atomic>
 #include <chrono>
 #include <ctime>
-#include <mutex>
 #include <thread>
 
 #include <Eigen/Dense>
@@ -48,6 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "mujoco_sim_interface/MujocoRenderer.h"
 #include "mujoco_sim_interface/MujocoUtils.h"
 #include "robot_core/FPSTracker.h"
+#include "robot_core/TripleBuffer.h"
 #include "robot_core/Types.h"
 #include "robot_model/RobotHWInterfaceBase.h"
 
@@ -82,12 +82,10 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   void reset();
 
   // Virtual Gantry Controls
-  void lockGantry() { isGantryLocked_ = true; }
-  void releaseGantry() { isGantryLocked_ = false; }
-  bool toggleGantry() {
-    isGantryLocked_ = !isGantryLocked_;
-    return isGantryLocked_;
+  void lockGantry() {
+    isGantryLocked_ = true;
   }
+  void unlockGantry() { isGantryLocked_ = false; }
   double stepGantry(double delta) {
     gantryHeight_ = gantryHeight_.load() + delta;
     return gantryHeight_.load();
@@ -96,8 +94,16 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   bool isGantryLocked() const { return isGantryLocked_.load(); }
   double getGantryHeight() const { return gantryHeight_.load(); }
 
-  // Allows the renderer to make a thread safe copy of the state at it's own frequency.
-  void copyMjState(MjState& state) const;
+  /// Zero-torque mode: when enabled, all actuator commands are zeroed in simulationStep().
+  /// The sim starts in zero-torque mode by default to allow the MPC solver to warm up.
+  /// enableTorques/disableTorques also swap MuJoCo's dof_damping for smooth ragdoll behavior.
+  bool isZeroTorqueMode() const { return zeroTorqueMode_.load(); }
+  void enableTorques();
+  void disableTorques();
+
+  // Allows the renderer to read the latest sim state without blocking the sim thread.
+  // Uses a lock-free triple buffer internally.
+  void readLatestMjState(MjState& state) const;
 
   const mjModel* getModel() const { return mujocoModel_; }
 
@@ -143,7 +149,6 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   std::atomic<bool> terminate_{false};
   std::atomic<bool> guiInitialized_{false};
 
-  mutable std::mutex mujocoMutex_;  // Used to access mujoco model and data accross simulation and render threads.
   std::thread simulate_thread_;
   std::unique_ptr<MujocoRenderer> renderer_;
 
@@ -159,6 +164,12 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
 
   std::atomic<bool> isGantryLocked_{true};
   std::atomic<double> gantryHeight_{0.0};
+  std::atomic<bool> zeroTorqueMode_{true};  // Start in zero-torque mode by default
+  std::vector<mjtNum> originalDofDamping_;   // Saved dof_damping values for restore on enableTorques
+
+  /// Lock-free triple buffer for sim→render state transfer.
+  /// Initialized lazily after MuJoCo model is loaded (requires mjModel* for MjState allocation).
+  std::unique_ptr<TripleBuffer<MjState>> renderStateBuffer_;
 };
 
 }  // namespace robot::mujoco_sim_interface

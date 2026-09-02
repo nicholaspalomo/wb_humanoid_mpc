@@ -635,6 +635,16 @@ class HumanoidFSM:
             except Exception:
                 pass
 
+        # Bridge to C++ sim: write torque enable/disable command to shared file.
+        # The C++ sim (CentroidalMpcRobotSim / WBMpcRobotSim) polls this file
+        # every ~100ms and toggles MujocoSimInterface zero-torque mode accordingly.
+        try:
+            cmd = "DISABLE_TORQUES" if new_mode == ControlMode.ZERO_TORQUE else "ENABLE_TORQUES"
+            with open("/tmp/humanoid_fsm_command", "w") as f:
+                f.write(cmd + "\n")
+        except OSError:
+            pass
+
         return self.current_mode
 
     def cycle_next_mode(self, current_q: Optional[np.ndarray] = None) -> ControlMode:

@@ -291,7 +291,7 @@ void MujocoRenderer::renderLoop() {
     glfwGetFramebufferSize(window_, &viewport_.width, &viewport_.height);
 
     // Copy physics data to render data
-    simInterface_->copyMjState(simState_);
+    simInterface_->readLatestMjState(simState_);
     mj_forward(simInterface_->getModel(), simState_.data);
 
     mjv_updateScene(simInterface_->getModel(), simState_.data, &mujocoOptions_, nullptr, nullptr, mjCAT_ALL, &mujocoScene_);
@@ -371,7 +371,7 @@ void MujocoRenderer::initialize() {
   mujocoCam_.lookat[1] = arr_view[4];
   mujocoCam_.lookat[2] = arr_view[5];
 
-  simInterface_->copyMjState(simState_);
+  simInterface_->readLatestMjState(simState_);
 
   // get framebuffer viewport
   // We don't want to step the actual simulation here, as it screws up the initialization of the IMU's

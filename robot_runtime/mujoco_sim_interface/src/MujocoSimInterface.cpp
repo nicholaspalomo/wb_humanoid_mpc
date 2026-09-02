@@ -35,7 +35,54 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace robot::mujoco_sim_interface {
 
-MjState::MjState(const mjModel* mujocoModel_) : data(mj_makeData(mujocoModel_)) {}
+MjState::MjState(const mjModel* model) : model(model), data(mj_makeData(model)) {}
+
+MjState::MjState(const MjState& other)
+    : model(other.model),
+      timestamp(other.timestamp),
+      data(other.model ? mj_makeData(other.model) : nullptr),
+      metrics(other.metrics) {
+  if (data && other.data && model) {
+    mj_copyData(data, model, other.data);
+  }
+}
+
+MjState& MjState::operator=(const MjState& other) {
+  if (this != &other) {
+    if (data) mj_deleteData(data);
+    model = other.model;
+    timestamp = other.timestamp;
+    data = other.model ? mj_makeData(other.model) : nullptr;
+    metrics = other.metrics;
+    if (data && other.data && model) {
+      mj_copyData(data, model, other.data);
+    }
+  }
+  return *this;
+}
+
+MjState::MjState(MjState&& other) noexcept
+    : model(other.model), timestamp(other.timestamp), data(other.data), metrics(other.metrics) {
+  other.data = nullptr;
+  other.model = nullptr;
+}
+
+MjState& MjState::operator=(MjState&& other) noexcept {
+  if (this != &other) {
+    if (data) mj_deleteData(data);
+    model = other.model;
+    timestamp = other.timestamp;
+    data = other.data;
+    metrics = other.metrics;
+    other.data = nullptr;
+    other.model = nullptr;
+  }
+  return *this;
+}
+
+MjState::~MjState() {
+  if (data) mj_deleteData(data);
+}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -134,10 +181,47 @@ MujocoSimInterface::MujocoSimInterface(const MujocoSimConfig& config, const std:
   // Make sure the init state is propagated throughout the RobotInterface.
   updateThreadSafeRobotState();
   updateInterfaceStateFromRobot();
+
+  // Save original dof_damping and boost for zero-torque ragdoll mode at startup.
+  originalDofDamping_.assign(mujocoModel_->dof_damping, mujocoModel_->dof_damping + mujocoModel_->nv);
+  // Boost damping for smooth ragdoll settling (skip root 6 DOFs)
+  for (int i = 6; i < mujocoModel_->nv; ++i) {
+    mujocoModel_->dof_damping[i] = 20.0;
+  }
+
+  // Initialize lock-free triple buffer for sim→render state transfer.
+  // Each slot holds an MjState with its own mjData copy.
+  MjState initState(mujocoModel_);
+  mj_copyData(initState.data, mujocoModel_, mujocoData_);
+  initState.timestamp = mujocoData_->time;
+  initState.metrics = metrics_;
+  renderStateBuffer_ = std::make_unique<TripleBuffer<MjState>>(initState);
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
+
+void MujocoSimInterface::enableTorques() {
+  // Restore original dof_damping for MPC active control
+  if (!originalDofDamping_.empty()) {
+    for (int i = 0; i < mujocoModel_->nv; ++i) {
+      mujocoModel_->dof_damping[i] = originalDofDamping_[i];
+    }
+  }
+  zeroTorqueMode_ = false;
+}
+
+void MujocoSimInterface::disableTorques() {
+  // Boost joint damping for smooth ragdoll settling
+  if (originalDofDamping_.empty()) {
+    originalDofDamping_.assign(mujocoModel_->dof_damping, mujocoModel_->dof_damping + mujocoModel_->nv);
+  }
+  for (int i = 6; i < mujocoModel_->nv; ++i) {
+    mujocoModel_->dof_damping[i] = 20.0;
+  }
+  zeroTorqueMode_ = true;
+}
+
 /******************************************************************************************************/
 
 MujocoSimInterface::~MujocoSimInterface() {
@@ -158,15 +242,15 @@ void MujocoSimInterface::reset() {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-void MujocoSimInterface::copyMjState(MjState& state) const {
-  {
-    std::lock_guard<std::mutex> guard(mujocoMutex_);
-
-    state.timestamp = mujocoData_->time;
-    mj_copyData(state.data, mujocoModel_, mujocoData_);
-
-    state.metrics = metrics_;
-  }
+void MujocoSimInterface::readLatestMjState(MjState& state) const {
+  // Lock-free: acquire the latest published state from the triple buffer.
+  // If new data is available, the internal read↔clean swap happens atomically.
+  // Either way, copy from the current read slot into the caller's state.
+  renderStateBuffer_->acquireRead();
+  const MjState& latest = renderStateBuffer_->readSlot();
+  state.timestamp = latest.timestamp;
+  mj_copyData(state.data, mujocoModel_, latest.data);
+  state.metrics = latest.metrics;
 }
 
 /******************************************************************************************************/
@@ -380,15 +464,21 @@ void MujocoSimInterface::updateMetrics() {
 /******************************************************************************************************/
 
 void MujocoSimInterface::simulationStep() {
-  threadSafeRobotJointAction_.copy_value(robotJointActionInternal_);
-  for (size_t i = 0; i < nActuators_; ++i) {
-    joint_index_t idx = activeRobotActuatorIndices_[i];
-    const robot::model::JointAction& jointAction = robotJointActionInternal_.at(idx).value();
-    mujocoData_->ctrl[i] =
-        jointAction.getTotalFeedbackTorque(robotStateInternal_.getJointPosition(idx), robotStateInternal_.getJointVelocity(idx));
+  if (zeroTorqueMode_.load()) {
+    // Zero-torque / ragdoll mode: zero all actuator commands.
+    // Joint damping is handled by MuJoCo's native dof_damping (boosted on entry).
+    for (int i = 0; i < mujocoModel_->nu; ++i) {
+      mujocoData_->ctrl[i] = 0.0;
+    }
+  } else {
+    threadSafeRobotJointAction_.copy_value(robotJointActionInternal_);
+    for (size_t i = 0; i < nActuators_; ++i) {
+      joint_index_t idx = activeRobotActuatorIndices_[i];
+      const robot::model::JointAction& jointAction = robotJointActionInternal_.at(idx).value();
+      mujocoData_->ctrl[i] =
+          jointAction.getTotalFeedbackTorque(robotStateInternal_.getJointPosition(idx), robotStateInternal_.getJointVelocity(idx));
+    }
   }
-
-  mujocoMutex_.lock();
 
   // Apply virtual gantry constraint if locked to suspend robot at ground-touch stance height
   if (config_.enableGantry && isGantryLocked_.load()) {
@@ -412,6 +502,15 @@ void MujocoSimInterface::simulationStep() {
   updateThreadSafeRobotState();
   updateMetrics();
 
+  // Publish state to the lock-free triple buffer for the render thread.
+  {
+    MjState& writeSlot = renderStateBuffer_->writeSlot();
+    writeSlot.timestamp = mujocoData_->time;
+    mj_copyData(writeSlot.data, mujocoModel_, mujocoData_);
+    writeSlot.metrics = metrics_;
+    renderStateBuffer_->publishWrite();
+  }
+
   // Auto reset logic.
   if (mujocoData_->qpos[2] < 0.2) {
     reset();
@@ -423,11 +522,19 @@ void MujocoSimInterface::simulationStep() {
     simFps_.reset();
     metrics_.reset();
     updateMetrics();
-    mujocoMutex_.unlock();
+
+    // Publish reset state to triple buffer
+    {
+      MjState& writeSlot = renderStateBuffer_->writeSlot();
+      writeSlot.timestamp = mujocoData_->time;
+      mj_copyData(writeSlot.data, mujocoModel_, mujocoData_);
+      writeSlot.metrics = metrics_;
+      renderStateBuffer_->publishWrite();
+    }
+
     // Sleep to let controller update and adjust;
     std::this_thread::sleep_until(std::chrono::steady_clock::now() + std::chrono::microseconds(1000000));
   }
-  mujocoMutex_.unlock();
 }
 
 /******************************************************************************************************/

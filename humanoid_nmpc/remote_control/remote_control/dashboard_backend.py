@@ -294,6 +294,7 @@ class SimProcessManager:
                 ["pkill", "-9", "-f", "base_velocity_controller_gui"],
                 ["pkill", "-9", "-f", "ros2 launch"],
                 ["pkill", "-9", "-x", "rviz2"],
+                ["pkill", "-9", "-x", "robot_state_publisher"],
                 ["pkill", "-9", "-x", "humanoid_centroidal_mpc_sqp_node"],
                 ["pkill", "-9", "-x", "humanoid_centroidal_mpc_dummy_sim_node"],
                 ["pkill", "-9", "-x", "humanoid_centroidal_mpc_sim"],
@@ -302,6 +303,8 @@ class SimProcessManager:
             ]
             for c in cleanup_cmds:
                 subprocess.run(c, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            # Allow processes to actually terminate before launching a new sim
+            time.sleep(0.5)
         except Exception:
             pass
 
@@ -313,23 +316,32 @@ class SimProcessManager:
         """Returns the current simulation execution status."""
         active_pids = []
         try:
+            # Use pgrep -a to get full command lines so we can filter out
+            # build wrappers (bash -c "bazel build ... && ros2 launch ...")
+            # that mention sim target names but aren't the actual running sim.
             pcheck = subprocess.run(
                 [
                     "pgrep",
+                    "-a",
                     "-f",
-                    r"/tmp/\.bazel_ros_install/(humanoid_centroidal_mpc_ros2|humanoid_wb_mpc_ros2)/lib/|/opt/ros/jazzy/lib/rviz2/rviz2|humanoid_centroidal_mpc_sim|humanoid_wb_mpc_sim",
+                    r"/tmp/\.bazel_ros_install/(humanoid_centroidal_mpc_ros2|humanoid_wb_mpc_ros2)/lib/|/opt/ros/jazzy/lib/rviz2/rviz2",
                 ],
                 capture_output=True,
                 text=True,
             )
             if pcheck.returncode == 0 and pcheck.stdout.strip():
-                # Filter out pgrep's own PID if any
                 current_pid = str(os.getpid())
-                active_pids = [
-                    p.strip()
-                    for p in pcheck.stdout.strip().splitlines()
-                    if p.strip() and p.strip() != current_pid
-                ]
+                for line in pcheck.stdout.strip().splitlines():
+                    parts = line.strip().split(None, 1)
+                    if len(parts) < 2:
+                        continue
+                    pid_s, cmdline = parts
+                    if pid_s == current_pid:
+                        continue
+                    # Skip wrapper commands that contain "bazel build" or "make launch"
+                    if "bazel build" in cmdline or "make launch" in cmdline:
+                        continue
+                    active_pids.append(pid_s)
         except Exception:
             pass
 

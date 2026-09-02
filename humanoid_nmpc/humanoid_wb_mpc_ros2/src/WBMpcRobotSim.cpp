@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_sqp/SqpMpc.h>
 #include <rclcpp/rclcpp.hpp>
+#include <fstream>
 
 #include <humanoid_wb_mpc/WBMpcInterface.h>
 #include <mujoco_sim_interface/MujocoSimInterface.h>
@@ -139,18 +140,56 @@ int main(int argc, char** argv) {
 
   // Wait to allow MPC policy to initialize
   std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+  // Start sim loop in zero-torque mode: the robot spawns passively held by the gantry.
+  // The MPC solver continues to receive state feedback and refine its policy.
   robotInterface.startSim();
 
   rclcpp::spin_some(nodeHandle);
+  std::cout << "Zero-torque mode: robot spawned. Waiting for FSM command to enable torques..." << std::endl;
 
+  // Write initial FSM state file so the notebook knows the sim is ready
+  {
+    std::ofstream f("/tmp/humanoid_fsm_state");
+    f << "ZERO_TORQUE" << std::endl;
+  }
+
+  // Unified control loop: polls /tmp/humanoid_fsm_command for mode transitions.
+  // The Python FSM writes "ENABLE_TORQUES" or "DISABLE_TORQUES" to this file.
+  size_t pollCounter = 0;
   while (true) {
     auto targetTimeForNextIteration = std::chrono::steady_clock::now() + std::chrono::microseconds(mrtDeltaTMicroSeconds_);
 
-    robotInterface.updateInterfaceStateFromRobot();
-    mpcJointController.computeJointControlAction(0.0, robotInterface.getRobotState(), robotInterface.getRobotJointAction());
-    robotInterface.applyJointAction();
+    // In zero-torque mode, skip state publishing and MPC computation to keep
+    // the MPC background solver idle (otherwise it consumes CPU with diverging states).
+    if (!robotInterface.isZeroTorqueMode()) {
+      robotInterface.updateInterfaceStateFromRobot();
+      mpcJointController.computeJointControlAction(0.0, robotInterface.getRobotState(), robotInterface.getRobotJointAction());
+      robotInterface.applyJointAction();
+    }
 
     rclcpp::spin_some(nodeHandle);
+
+    // Poll for FSM commands every ~100ms (every 50 iterations at 500 Hz)
+    if (++pollCounter % 50 == 0) {
+      std::ifstream cmdFile("/tmp/humanoid_fsm_command");
+      if (cmdFile.is_open()) {
+        std::string cmd;
+        std::getline(cmdFile, cmd);
+        cmdFile.close();
+        if (cmd == "ENABLE_TORQUES" && robotInterface.isZeroTorqueMode()) {
+          std::cout << "FSM command received: Enabling torques — MPC active control." << std::endl;
+          robotInterface.enableTorques();
+          std::ofstream f("/tmp/humanoid_fsm_state");
+          f << "MPC_ACTIVE" << std::endl;
+        } else if (cmd == "DISABLE_TORQUES" && !robotInterface.isZeroTorqueMode()) {
+          std::cout << "FSM command received: Disabling torques — zero-torque mode." << std::endl;
+          robotInterface.disableTorques();
+          std::ofstream f("/tmp/humanoid_fsm_state");
+          f << "ZERO_TORQUE" << std::endl;
+        }
+      }
+    }
 
     auto currentTime = std::chrono::steady_clock::now();
     if (currentTime > targetTimeForNextIteration) {

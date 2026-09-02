@@ -52,10 +52,21 @@ struct Metrics {
 };
 
 struct MjState {
-  explicit MjState(const mjModel* mujocoModel_);
+  explicit MjState(const mjModel* model);
 
+  // Deep-copy: allocate new mjData and copy contents
+  MjState(const MjState& other);
+  MjState& operator=(const MjState& other);
+
+  // Move: transfer ownership of mjData
+  MjState(MjState&& other) noexcept;
+  MjState& operator=(MjState&& other) noexcept;
+
+  ~MjState();
+
+  const mjModel* model{nullptr};
   int64_t timestamp{0};
-  mjData* data;
+  mjData* data{nullptr};
   Metrics metrics;
 };
 }  // namespace robot::mujoco_sim_interface
