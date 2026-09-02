@@ -159,13 +159,19 @@ class TestHumanoidFSM(unittest.TestCase):
         np.testing.assert_allclose(tau_0, np.zeros(fsm.num_actuators), atol=1e-5)
 
         # At t = 1.0s (50% progress), alpha = 0.5, target is halfway
-        alpha_half, is_snapping_half, target_q_half = fsm.get_joint_pd_progress(now=t0 + 1.0)
+        alpha_half, is_snapping_half, target_q_half = fsm.get_joint_pd_progress(
+            now=t0 + 1.0
+        )
         self.assertTrue(is_snapping_half)
         self.assertAlmostEqual(alpha_half, 0.5, places=4)
-        np.testing.assert_allclose(target_q_half, 0.5 * (q_start + fsm.nominal_q), atol=1e-5)
+        np.testing.assert_allclose(
+            target_q_half, 0.5 * (q_start + fsm.nominal_q), atol=1e-5
+        )
 
         # At t = 2.0s (100% progress), alpha = 1.0, target is nominal_q
-        alpha_end, is_snapping_end, target_q_end = fsm.get_joint_pd_progress(now=t0 + 2.0)
+        alpha_end, is_snapping_end, target_q_end = fsm.get_joint_pd_progress(
+            now=t0 + 2.0
+        )
         self.assertFalse(is_snapping_end)
         self.assertAlmostEqual(alpha_end, 1.0)
         np.testing.assert_allclose(target_q_end, fsm.nominal_q, atol=1e-5)

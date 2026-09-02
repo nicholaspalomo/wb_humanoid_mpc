@@ -622,9 +622,7 @@ class HumanoidFSM:
 
         if new_mode == ControlMode.JOINT_PD:
             self._joint_pd_start_time = time.time()
-            self._joint_pd_start_q = (
-                current_q.copy() if current_q is not None else None
-            )
+            self._joint_pd_start_q = current_q.copy() if current_q is not None else None
         else:
             self._joint_pd_start_time = None
             self._joint_pd_start_q = None
@@ -639,7 +637,11 @@ class HumanoidFSM:
         # The C++ sim (CentroidalMpcRobotSim / WBMpcRobotSim) polls this file
         # every ~100ms and toggles MujocoSimInterface zero-torque mode accordingly.
         try:
-            cmd = "DISABLE_TORQUES" if new_mode == ControlMode.ZERO_TORQUE else "ENABLE_TORQUES"
+            cmd = (
+                "DISABLE_TORQUES"
+                if new_mode == ControlMode.ZERO_TORQUE
+                else "ENABLE_TORQUES"
+            )
             with open("/tmp/humanoid_fsm_command", "w") as f:
                 f.write(cmd + "\n")
         except OSError:
@@ -753,18 +755,16 @@ class HumanoidFSM:
                     min(1.0, elapsed / max(1e-4, self.joint_pd_snap_duration)),
                 )
                 alpha = s * s * s * (s * (s * 6.0 - 15.0) + 10.0)
-                d_alpha = (
-                    30.0 * s**4 - 60.0 * s**3 + 30.0 * s**2
-                ) / max(1e-4, self.joint_pd_snap_duration)
+                d_alpha = (30.0 * s**4 - 60.0 * s**3 + 30.0 * s**2) / max(
+                    1e-4, self.joint_pd_snap_duration
+                )
 
                 target_q = (1.0 - alpha) * start_q + alpha * self.nominal_q
                 target_qd = d_alpha * (self.nominal_q - start_q)
 
                 # Softly ramp effective proportional gain (30% -> 100%)
                 kp_eff = (0.3 + 0.7 * alpha) * self.kp_vector
-                tau = kp_eff * (target_q - q) + self.kd_vector * (
-                    target_qd - v
-                )
+                tau = kp_eff * (target_q - q) + self.kd_vector * (target_qd - v)
                 return tau
             else:
                 error = self.nominal_q - q

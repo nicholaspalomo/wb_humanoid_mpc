@@ -82,9 +82,7 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   void reset();
 
   // Virtual Gantry Controls
-  void lockGantry() {
-    isGantryLocked_ = true;
-  }
+  void lockGantry() { isGantryLocked_ = true; }
   void unlockGantry() { isGantryLocked_ = false; }
   double stepGantry(double delta) {
     gantryHeight_ = gantryHeight_.load() + delta;
@@ -167,7 +165,7 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   std::atomic<bool> isGantryLocked_{true};
   std::atomic<double> gantryHeight_{0.0};
   std::atomic<bool> zeroTorqueMode_{true};  // Start in zero-torque mode by default
-  std::vector<mjtNum> originalDofDamping_;   // Saved dof_damping values for restore on enableTorques
+  std::vector<mjtNum> originalDofDamping_;  // Saved dof_damping values for restore on enableTorques
 
   /// Lock-free triple buffer for sim→render state transfer.
   /// Initialized lazily after MuJoCo model is loaded (requires mjModel* for MjState allocation).

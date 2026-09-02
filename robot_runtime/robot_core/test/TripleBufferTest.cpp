@@ -186,8 +186,7 @@ TEST(TripleBufferTest, ConcurrentSPSC_NoDataRace_ConsistentStruct) {
   while (!done.load(std::memory_order_acquire) || buf.hasNewData()) {
     if (buf.acquireRead()) {
       ASSERT_TRUE(buf.readSlot().isConsistent())
-          << "Torn read detected at read " << readCount << ", header=" << buf.readSlot().header
-          << ", footer=" << buf.readSlot().footer;
+          << "Torn read detected at read " << readCount << ", header=" << buf.readSlot().header << ", footer=" << buf.readSlot().footer;
       ++readCount;
     }
   }

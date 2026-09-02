@@ -347,9 +347,15 @@ class SimProcessManager:
 
         if active_pids:
             self.is_running = True
-            pid_str = str(self.process.pid) if (self.process and self.process.poll() is None) else active_pids[0]
+            pid_str = (
+                str(self.process.pid)
+                if (self.process and self.process.poll() is None)
+                else active_pids[0]
+            )
             target_key = self.active_target_key or "atlas_centroidal_sim"
-            target_name = self.TARGETS.get(target_key, {}).get("name", "Humanoid Simulation & Visualizer")
+            target_name = self.TARGETS.get(target_key, {}).get(
+                "name", "Humanoid Simulation & Visualizer"
+            )
             return {
                 "status": "RUNNING",
                 "target": target_key,
@@ -360,7 +366,9 @@ class SimProcessManager:
             return {
                 "status": "BUILDING",
                 "target": self.active_target_key or "Unknown",
-                "name": self.TARGETS.get(self.active_target_key, {}).get("name", "Compiling targets..."),
+                "name": self.TARGETS.get(self.active_target_key, {}).get(
+                    "name", "Compiling targets..."
+                ),
                 "pid": str(self.process.pid),
             }
         else:

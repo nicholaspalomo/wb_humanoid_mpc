@@ -38,10 +38,7 @@ namespace robot::mujoco_sim_interface {
 MjState::MjState(const mjModel* model) : model(model), data(mj_makeData(model)) {}
 
 MjState::MjState(const MjState& other)
-    : model(other.model),
-      timestamp(other.timestamp),
-      data(other.model ? mj_makeData(other.model) : nullptr),
-      metrics(other.metrics) {
+    : model(other.model), timestamp(other.timestamp), data(other.model ? mj_makeData(other.model) : nullptr), metrics(other.metrics) {
   if (data && other.data && model) {
     mj_copyData(data, model, other.data);
   }
@@ -61,8 +58,7 @@ MjState& MjState::operator=(const MjState& other) {
   return *this;
 }
 
-MjState::MjState(MjState&& other) noexcept
-    : model(other.model), timestamp(other.timestamp), data(other.data), metrics(other.metrics) {
+MjState::MjState(MjState&& other) noexcept : model(other.model), timestamp(other.timestamp), data(other.data), metrics(other.metrics) {
   other.data = nullptr;
   other.model = nullptr;
 }
@@ -200,8 +196,7 @@ MujocoSimInterface::MujocoSimInterface(const MujocoSimConfig& config, const std:
   // Throttle: publish to triple buffer at render frequency, not every sim step.
   // E.g. dt=0.0005 (2000 Hz sim), renderFrequencyHz=60 → publish every ~33 steps.
   if (config_.renderFrequencyHz > 0.0 && config_.dt > 0.0) {
-    renderPublishInterval_ = std::max(static_cast<size_t>(1),
-        static_cast<size_t>(1.0 / (config_.renderFrequencyHz * config_.dt)));
+    renderPublishInterval_ = std::max(static_cast<size_t>(1), static_cast<size_t>(1.0 / (config_.renderFrequencyHz * config_.dt)));
   }
 }
 
@@ -313,7 +308,6 @@ void MujocoSimInterface::setupJointIndexMaps() {
     std::cerr << "Initialized " << nActuators_ << " active Actuators" << std::endl;
   }
 }
-
 
 /******************************************************************************************************/
 /******************************************************************************************************/
