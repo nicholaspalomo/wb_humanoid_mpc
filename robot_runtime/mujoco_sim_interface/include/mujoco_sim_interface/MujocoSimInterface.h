@@ -152,8 +152,10 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   std::thread simulate_thread_;
   std::unique_ptr<MujocoRenderer> renderer_;
 
-  FPSTracker simFps_{"mujoco_sim"};
-  std::chrono::high_resolution_clock::time_point lastRealTime_;
+  FPSTracker simFps_{"mujoco_sim", 0.02};
+  std::chrono::steady_clock::time_point lastRealTime_;
+  std::chrono::steady_clock::time_point loopStartTime_;
+  double simTimeAtLoopStart_{0.0};
   Metrics metrics_{};
 
   size_t right_foot_sensor_addr_;
@@ -170,6 +172,10 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   /// Lock-free triple buffer for sim→render state transfer.
   /// Initialized lazily after MuJoCo model is loaded (requires mjModel* for MjState allocation).
   std::unique_ptr<TripleBuffer<MjState>> renderStateBuffer_;
+
+  /// Throttle: only publish to the triple buffer every N sim steps (matches render Hz).
+  size_t renderPublishInterval_{1};
+  size_t renderPublishCounter_{0};
 };
 
 }  // namespace robot::mujoco_sim_interface

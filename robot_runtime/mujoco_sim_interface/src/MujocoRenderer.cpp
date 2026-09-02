@@ -204,7 +204,7 @@ void renderMetrics(const mjrContext* con, const mjrRect& viewport, const MjState
   metrics << "Sim  Time[s]: " << std::fixed << std::setprecision(3) << state.data->time << "\n\n";
 
   // Real-time tracking
-  metrics << "RTF: " << std::fixed << std::setprecision(3) << state.metrics.rtfTick << "\n";
+  metrics << "RTF: " << std::fixed << std::setprecision(3) << state.metrics.rtfSmoothed << "\n";
   metrics << "Drift[ms]: " << std::fixed << std::setprecision(3) << state.metrics.driftTick * 1e3 << "\n";
   metrics << "Cummulative Drift[ms]: " << std::fixed << std::setprecision(3) << state.metrics.driftCumulative * 1e3;
 

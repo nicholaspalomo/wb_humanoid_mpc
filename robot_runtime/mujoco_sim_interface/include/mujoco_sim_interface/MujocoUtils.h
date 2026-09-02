@@ -38,6 +38,8 @@ struct Metrics {
   double fpsSim;
   /// Real time factor for current sim step: RTF = dt_sim / dt_real
   double rtfTick;
+  /// Smoothed RTF (exponential moving average)
+  double rtfSmoothed;
   /// Time drift per-tick.
   double driftTick;
   /// Total time drift since starting the sim.
@@ -46,6 +48,7 @@ struct Metrics {
   void reset() {
     fpsSim = 0.0;
     rtfTick = 0.0;
+    rtfSmoothed = 1.0;  // Start at ideal value
     driftTick = 0.0;
     driftCumulative = 0.0;
   }

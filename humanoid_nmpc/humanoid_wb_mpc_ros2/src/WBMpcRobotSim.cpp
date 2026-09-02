@@ -193,9 +193,14 @@ int main(int argc, char** argv) {
 
     auto currentTime = std::chrono::steady_clock::now();
     if (currentTime > targetTimeForNextIteration) {
-      auto delay = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - targetTimeForNextIteration).count();
-
-      std::cerr << "Warning: MRT loop running slow by " << delay << " microseconds." << std::endl;
+      // Only warn in MPC-active mode and for significant delays (>1ms).
+      // Sub-millisecond overruns are normal OS scheduling jitter.
+      if (!robotInterface.isZeroTorqueMode()) {
+        auto delay = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - targetTimeForNextIteration).count();
+        if (delay > 1000) {
+          std::cerr << "Warning: MRT loop running slow by " << delay << " microseconds." << std::endl;
+        }
+      }
     } else {
       // Sleep in case sim loop is faster than specified
       std::this_thread::sleep_until(targetTimeForNextIteration);

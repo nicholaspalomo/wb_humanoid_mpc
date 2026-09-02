@@ -95,7 +95,7 @@ MujocoSimInterface::MujocoSimInterface(const MujocoSimConfig& config, const std:
       robotJointActionInternal_(model::RobotJointAction(this->getRobotDescription())),
       headless_(config.headless),
       verbose_(config.verbose) {
-  lastRealTime_ = std::chrono::high_resolution_clock::now();
+  lastRealTime_ = std::chrono::steady_clock::now();
   const int errstr_sz = 1000;  // Define the size of the error buffer
   char errstr[errstr_sz];      // Declare the error string buffer
 
@@ -196,6 +196,13 @@ MujocoSimInterface::MujocoSimInterface(const MujocoSimConfig& config, const std:
   initState.timestamp = mujocoData_->time;
   initState.metrics = metrics_;
   renderStateBuffer_ = std::make_unique<TripleBuffer<MjState>>(initState);
+
+  // Throttle: publish to triple buffer at render frequency, not every sim step.
+  // E.g. dt=0.0005 (2000 Hz sim), renderFrequencyHz=60 → publish every ~33 steps.
+  if (config_.renderFrequencyHz > 0.0 && config_.dt > 0.0) {
+    renderPublishInterval_ = std::max(static_cast<size_t>(1),
+        static_cast<size_t>(1.0 / (config_.renderFrequencyHz * config_.dt)));
+  }
 }
 
 /******************************************************************************************************/
@@ -449,14 +456,20 @@ void MujocoSimInterface::updateMetrics() {
 
   metrics_.fpsSim = simFps_.fps();
 
-  auto nowRealTime = std::chrono::high_resolution_clock::now();
+  auto nowRealTime = std::chrono::steady_clock::now();
   auto realElapsedTime = std::chrono::duration<double>(nowRealTime - lastRealTime_).count();
   lastRealTime_ = nowRealTime;
 
   metrics_.driftTick = config_.dt - realElapsedTime;
   metrics_.driftCumulative += metrics_.driftTick;
 
-  metrics_.rtfTick = config_.dt / realElapsedTime;
+  metrics_.rtfTick = (realElapsedTime > 1e-7) ? (config_.dt / realElapsedTime) : 1.0;
+
+  // Window-based RTF: total sim time elapsed / total wall time elapsed.
+  // This is the true real-time factor, immune to per-tick scheduling noise.
+  double wallElapsed = std::chrono::duration<double>(nowRealTime - loopStartTime_).count();
+  double simElapsed = mujocoData_->time - simTimeAtLoopStart_;
+  metrics_.rtfSmoothed = (wallElapsed > 0.1) ? (simElapsed / wallElapsed) : 1.0;
 }
 
 /******************************************************************************************************/
@@ -503,7 +516,9 @@ void MujocoSimInterface::simulationStep() {
   updateMetrics();
 
   // Publish state to the lock-free triple buffer for the render thread.
-  {
+  // Throttled to render frequency to avoid unnecessary mj_copyData overhead.
+  if (++renderPublishCounter_ >= renderPublishInterval_) {
+    renderPublishCounter_ = 0;
     MjState& writeSlot = renderStateBuffer_->writeSlot();
     writeSlot.timestamp = mujocoData_->time;
     mj_copyData(writeSlot.data, mujocoModel_, mujocoData_);
@@ -521,6 +536,10 @@ void MujocoSimInterface::simulationStep() {
     updateThreadSafeRobotState();
     simFps_.reset();
     metrics_.reset();
+    auto resetNow = std::chrono::steady_clock::now();
+    lastRealTime_ = resetNow;
+    loopStartTime_ = resetNow;
+    simTimeAtLoopStart_ = mujocoData_->time;
     updateMetrics();
 
     // Publish reset state to triple buffer
@@ -544,13 +563,32 @@ void MujocoSimInterface::simulationStep() {
 void MujocoSimInterface::simulationLoop() {
   simFps_.reset();
   metrics_.reset();
-  auto nextWakeup = std::chrono::steady_clock::now();
+  auto now = std::chrono::steady_clock::now();
+  lastRealTime_ = now;
+  loopStartTime_ = now;
+  simTimeAtLoopStart_ = mujocoData_->time;
+  auto nextWakeup = now;
   while (!terminate_.load()) {
     simulationStep();
 
-    // Sleep in case sim loop is faster than specified sim rate.
+    // Advance the wakeup target by one sim timestep.
     nextWakeup += std::chrono::microseconds(timeStepMicro_);
-    std::this_thread::sleep_until(nextWakeup);
+
+    auto now = std::chrono::steady_clock::now();
+    // Allow up to 10ms of catchup budget for minor OS scheduling jitter.
+    // If we fell behind by more than 10ms (e.g. auto-reset sleep), rebase nextWakeup.
+    if (now - nextWakeup > std::chrono::milliseconds(10)) {
+      nextWakeup = now;
+    } else if (nextWakeup > now) {
+      // Sleep until 50µs before target, then busy-spin for sub-microsecond precision.
+      auto spinThreshold = nextWakeup - std::chrono::microseconds(50);
+      if (std::chrono::steady_clock::now() < spinThreshold) {
+        std::this_thread::sleep_until(spinThreshold);
+      }
+      while (std::chrono::steady_clock::now() < nextWakeup) {
+        // Busy spin
+      }
+    }
   }
 }
 
