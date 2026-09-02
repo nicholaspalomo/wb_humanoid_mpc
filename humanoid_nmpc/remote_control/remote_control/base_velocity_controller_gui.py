@@ -33,7 +33,8 @@ import threading
 import rclpy
 from rclpy.node import Node
 from humanoid_mpc_msgs.msg import WalkingVelocityCommand
-from rclpy.qos import QoSProfile, ReliabilityPolicy
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
+from std_msgs.msg import String
 from remote_control import XBoxControllerInterface
 from remote_control.tk_app import JoystickGui, LEDIndicatorGui
 
@@ -162,12 +163,15 @@ class App(tk.Tk):
         control_frame = ttk.Frame(main_frame)
         control_frame.grid(row=1, column=0, columnspan=5, pady=(10, 0))
 
-        # --- FSM Mode Dropdown ---
+        # --- FSM Mode Selector ---
         fsm_frame = ttk.Frame(control_frame)
-        fsm_frame.pack(side="left", padx=10)
-        ttk.Label(fsm_frame, text="Mode:", font=("Helvetica", 10)).pack(
-            side="left", padx=(0, 4)
-        )
+        fsm_frame.pack(side="left", padx=5)
+
+        ttk.Label(
+            fsm_frame,
+            text="FSM Mode:",
+            font=("Helvetica", 9, "bold"),
+        ).pack(side="left", padx=(0, 4))
 
         self.fsm_mode_var = tk.StringVar(value="ZERO_TORQUE")
         self.fsm_dropdown = ttk.Combobox(
@@ -214,9 +218,6 @@ class App(tk.Tk):
         )
         self.auto_center_checkbox.pack(side="left")
 
-        # Poll FSM state from the C++ sim every 500ms to stay synced
-        self._poll_fsm_state()
-
         main_frame.rowconfigure(0, weight=1)
         main_frame.columnconfigure(0, weight=1)
         main_frame.columnconfigure(1, weight=1)
@@ -227,28 +228,19 @@ class App(tk.Tk):
     def _on_fsm_change(self, event):
         """Handle FSM dropdown selection change."""
         mode = self.fsm_mode_var.get()
-        try:
-            with open("/tmp/humanoid_fsm_command", "w") as f:
-                f.write(mode + "\n")
-        except OSError:
-            pass
+        if self._fsm_command_callback:
+            self._fsm_command_callback(mode)
 
     def _on_gantry_toggle(self):
         """Handle gantry lock checkbox toggle."""
         cmd = "LOCK_GANTRY" if self.gantry_var.get() else "UNLOCK_GANTRY"
-        try:
-            with open("/tmp/humanoid_fsm_command", "w") as f:
-                f.write(cmd + "\n")
-        except OSError:
-            pass
+        if self._fsm_command_callback:
+            self._fsm_command_callback(cmd)
 
-    def _poll_fsm_state(self):
-        """Poll /tmp/humanoid_fsm_state every 500ms to keep GUI synced with the C++ sim."""
+    def update_fsm_state(self, state_str: str):
+        """Update GUI from ROS 2 state message: 'MODE,GANTRY_STATE'."""
         try:
-            with open("/tmp/humanoid_fsm_state", "r") as f:
-                state_line = f.read().strip()
-            # Format: "MODE,GANTRY_STATE" e.g. "JOINT_PD,GANTRY_LOCKED"
-            parts = [p.strip() for p in state_line.split(",")]
+            parts = [p.strip() for p in state_str.split(",")]
             if len(parts) >= 1:
                 fsm_state = parts[0]
                 valid_modes = (
@@ -263,10 +255,8 @@ class App(tk.Tk):
             if len(parts) >= 2:
                 gantry_state = parts[1]
                 self.gantry_var.set(gantry_state == "GANTRY_LOCKED")
-        except (OSError, IndexError):
+        except Exception:
             pass
-        # Re-schedule
-        self.after(500, self._poll_fsm_state)
 
     def set_joystick_connected(self, is_connected):
         self.joystick_connected_indicator.set_state(is_connected)
@@ -321,9 +311,26 @@ class RosJoystickApp(Node):
         self.publisher_ = self.create_publisher(
             WalkingVelocityCommand, "/humanoid/walking_velocity_command", qos_profile
         )
-        self.timer = self.create_timer(1 / self.publisher_rate, self.timer_callback)
+
+        # FSM command publisher & state subscriber
+        cmd_qos = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, depth=10)
+        self.fsm_cmd_pub = self.create_publisher(
+            String, "/humanoid/fsm_command", cmd_qos
+        )
+
+        state_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            depth=1,
+        )
+        self.fsm_state_sub = self.create_subscription(
+            String, "/humanoid/fsm_state", self._fsm_state_callback, state_qos
+        )
 
         self.app = App()
+        self.app._fsm_command_callback = self._send_fsm_command
+
+        self.timer = self.create_timer(1 / self.publisher_rate, self.timer_callback)
 
         self.ros_thread = threading.Thread(target=self.ros_spin)
         self.ros_thread.daemon = True
@@ -331,6 +338,14 @@ class RosJoystickApp(Node):
 
         self.counter = 0
         self._gui_active = False
+
+    def _send_fsm_command(self, cmd_text: str):
+        msg = String()
+        msg.data = cmd_text
+        self.fsm_cmd_pub.publish(msg)
+
+    def _fsm_state_callback(self, msg: String):
+        self.app.after(0, self.app.update_fsm_state, msg.data)
 
     def timer_callback(self):
 

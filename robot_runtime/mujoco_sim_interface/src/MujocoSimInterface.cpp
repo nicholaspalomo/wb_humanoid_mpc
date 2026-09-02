@@ -98,8 +98,8 @@ MujocoSimInterface::MujocoSimInterface(const MujocoSimConfig& config, const std:
   // option 1: parse and compile XML from file
   mujocoModel_ = mj_loadXML(config.scenePath.c_str(), NULL, errstr, errstr_sz);
   if (!mujocoModel_) {
-    std::cerr << "Could not load MuJoCo model: " << config.scenePath << ". Error: " << std::strerror(errno) << std::endl;
-    throw std::runtime_error("Could not load MuJoCo: " + std::string(std::strerror(errno)));
+    std::cerr << "Could not load MuJoCo model: " << config.scenePath << ". Error: " << errstr << std::endl;
+    throw std::runtime_error("Could not load MuJoCo: " + std::string(errstr));
   }
 
   // Create data

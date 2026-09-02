@@ -65,7 +65,6 @@ cc_library(
         "@abseil-cpp//absl/log:check",
         "@abseil-cpp//absl/log:absl_check",
         "@abseil-cpp//absl/log:log",
-        "@abseil-cpp//absl/strings",
         "@ros2_rclcpp",
         "@ros2_ament_index_cpp",
     ],

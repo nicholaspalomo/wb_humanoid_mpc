@@ -25,6 +25,7 @@ def generate_launch_description():
     cfg.ld.add_action(cfg.declare_gait_command_file)
     cfg.ld.add_action(cfg.declare_urdf_path)
     cfg.ld.add_action(cfg.declare_rviz_config_path)
+    cfg.ld.add_action(cfg.declare_xml_path)
 
     # Add nodes
     cfg.ld.add_action(cfg.mpc_sim)

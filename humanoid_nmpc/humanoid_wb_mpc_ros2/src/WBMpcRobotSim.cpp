@@ -38,6 +38,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <humanoid_wb_mpc/command/WBMpcTargetTrajectoriesCalculator.h>
 #include <humanoid_wb_mpc/mrt/WBMpcMrtJointController.h>
+#include <absl/log/log.h>
+#include "humanoid_common_mpc_ros2/fsm/SimFsmBridge.h"
 #include "humanoid_common_mpc_ros2/ros_comm/Ros2ProceduralMpcMotionManager.h"
 #include "humanoid_common_mpc_ros2/visualization/HumanoidVisualizer.h"
 
@@ -93,22 +95,12 @@ int main(int argc, char** argv) {
 
   // Init Sim state
   robot::model::RobotDescription robotDescription(urdfFile);
-  robot::model::RobotState initState(robotDescription, 2);
-  initState.setConfigurationToZero();
+  robot::model::RobotState initState =
+      createInitialSimState(robotDescription, interface.modelSettings(), interface.getMpcRobotModel(), interface.getInitialState());
 
-  const vector_t& initMpcState = interface.getInitialState();
-  const auto& mpcModel = interface.getMpcRobotModel();
-  initState.setRootPositionInWorldFrame(mpcModel.getBasePosition(initMpcState));
-  vector3_t baseOriEulerZyx = mpcModel.getBaseOrientationEulerZYX(initMpcState);
-  initState.setRootRotationLocalToWorldFrame(ocs2::getQuaternionFromEulerAnglesZyx(baseOriEulerZyx));
+  LOG(INFO) << "initState: " << initState.getRootPositionInWorldFrame().transpose();
 
-  vector_t mpcJointAngles = mpcModel.getJointAngles(initMpcState);
-  std::vector<robot::joint_index_t> mpcJointIndices = robotDescription.getJointIndices(interface.modelSettings().mpcModelJointNames);
-  for (size_t i = 0; i < mpcJointIndices.size(); i++) {
-    initState.setJointPosition(mpcJointIndices[i], mpcJointAngles[i]);
-  }
-
-  std::cerr << "initState: " << initState.getRootPositionInWorldFrame().transpose() << std::endl;
+  SimFsmBridge fsmBridge(robotDescription, initState, nodeHandle);
 
   robot::mujoco_sim_interface::MujocoSimConfig config;
 
@@ -125,7 +117,7 @@ int main(int argc, char** argv) {
                                              interface.getPinocchioInterface(), interface.mpcSettings().mpcDesiredFrequency_,
                                              humanoidVisualizer, pdGainsFile);
 
-  std::cout << "MPC MRT joint controller is set up with PD gains from: " << pdGainsFile << std::endl;
+  LOG(INFO) << "MPC MRT joint controller is set up with PD gains from: " << pdGainsFile;
 
   // size_t mrtDeltaTMicroSeconds_ = 1000000 / (interface.mpcSettings().mrtDesiredFrequency_);
   size_t mrtDeltaTMicroSeconds_ = 1000000 / (500);
@@ -136,7 +128,7 @@ int main(int argc, char** argv) {
   while (!mpcJointController.ready()) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
-  std::cout << "Initial MPC policy received. " << std::endl;
+  LOG(INFO) << "Initial MPC policy received.";
 
   // Wait to allow MPC policy to initialize
   std::this_thread::sleep_for(std::chrono::milliseconds(200));
@@ -146,17 +138,9 @@ int main(int argc, char** argv) {
   robotInterface.startSim();
 
   rclcpp::spin_some(nodeHandle);
-  std::cout << "Zero-torque mode: robot spawned. Waiting for FSM command to enable torques..." << std::endl;
+  LOG(INFO) << "Zero-torque mode: robot spawned. Waiting for FSM command to enable torques...";
 
-  // Write initial FSM state file so the notebook/GUI knows the sim is ready
-  {
-    std::ofstream f("/tmp/humanoid_fsm_state");
-    f << "ZERO_TORQUE,GANTRY_LOCKED" << std::endl;
-  }
-
-  // Unified control loop: polls /tmp/humanoid_fsm_command for mode transitions.
-  // The Python FSM writes "ENABLE_TORQUES" or "DISABLE_TORQUES" to this file.
-  size_t pollCounter = 0;
+  // Unified control loop: processes /humanoid/fsm_command ROS 2 topics for mode transitions.
   std::string currentModeName = "ZERO_TORQUE";
   while (true) {
     auto targetTimeForNextIteration = std::chrono::steady_clock::now() + std::chrono::microseconds(mrtDeltaTMicroSeconds_);
@@ -166,54 +150,16 @@ int main(int argc, char** argv) {
     // keeping the MPC solver warm for instant transitions back to active mode.
     robotInterface.updateInterfaceStateFromRobot();
     mpcJointController.computeJointControlAction(0.0, robotInterface.getRobotState(), robotInterface.getRobotJointAction());
+
+    // Apply mode-specific overrides (e.g. pure nominal position tracking in JOINT_PD mode)
+    fsmBridge.applyModeAction(currentModeName, robotDescription, robotInterface.getRobotJointAction());
+
     if (!robotInterface.isZeroTorqueMode()) {
       robotInterface.applyJointAction();
     }
 
     rclcpp::spin_some(nodeHandle);
-
-    // Poll for FSM commands every ~100ms (every 50 iterations at 500 Hz)
-    if (++pollCounter % 50 == 0) {
-      std::ifstream cmdFile("/tmp/humanoid_fsm_command");
-      if (cmdFile.is_open()) {
-        std::string cmd;
-        std::getline(cmdFile, cmd);
-        cmdFile.close();
-
-        auto writeState = [&]() {
-          std::ofstream f("/tmp/humanoid_fsm_state");
-          f << currentModeName << "," << (robotInterface.isGantryLocked() ? "GANTRY_LOCKED" : "GANTRY_UNLOCKED") << std::endl;
-        };
-
-        // Handle mode commands: ZERO_TORQUE disables torques, all others enable.
-        // The mode name is preserved in the state file for the GUI to read back.
-        if (cmd == "ZERO_TORQUE" || cmd == "DISABLE_TORQUES") {
-          if (!robotInterface.isZeroTorqueMode()) {
-            std::cout << "FSM command received: " << cmd << " — zero-torque mode." << std::endl;
-            robotInterface.disableTorques();
-          }
-          currentModeName = "ZERO_TORQUE";
-          writeState();
-        } else if (cmd == "JOINT_PD" || cmd == "GRAVITY_COMP" || cmd == "WB_MPC" || cmd == "SAFETY" || cmd == "MPC_ACTIVE" ||
-                   cmd == "ENABLE_TORQUES") {
-          if (robotInterface.isZeroTorqueMode()) {
-            std::cout << "FSM command received: " << cmd << " — enabling torques." << std::endl;
-            robotInterface.enableTorques();
-          }
-          // Preserve the actual mode name (map legacy commands to WB_MPC)
-          currentModeName = (cmd == "ENABLE_TORQUES" || cmd == "MPC_ACTIVE") ? "WB_MPC" : cmd;
-          writeState();
-        } else if (cmd == "LOCK_GANTRY" && !robotInterface.isGantryLocked()) {
-          std::cout << "FSM command received: Locking gantry." << std::endl;
-          robotInterface.lockGantry();
-          writeState();
-        } else if (cmd == "UNLOCK_GANTRY" && robotInterface.isGantryLocked()) {
-          std::cout << "FSM command received: Unlocking gantry." << std::endl;
-          robotInterface.unlockGantry();
-          writeState();
-        }
-      }
-    }
+    fsmBridge.processCommands(currentModeName, robotInterface);
 
     auto currentTime = std::chrono::steady_clock::now();
     if (currentTime > targetTimeForNextIteration) {
@@ -222,7 +168,7 @@ int main(int argc, char** argv) {
       if (!robotInterface.isZeroTorqueMode()) {
         auto delay = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - targetTimeForNextIteration).count();
         if (delay > 1000) {
-          std::cerr << "Warning: MRT loop running slow by " << delay << " microseconds." << std::endl;
+          LOG(WARNING) << "MRT loop running slow by " << delay << " microseconds.";
         }
       }
     } else {
