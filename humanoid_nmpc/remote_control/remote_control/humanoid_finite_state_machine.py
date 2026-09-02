@@ -563,6 +563,11 @@ class HumanoidFSM:
         self._safety_initial_kp_vec = self.kp_vector.copy()
         self._safety_initial_kd_vec = self.kd_vector.copy()
 
+        # Joint PD gradual snap transition parameters
+        self.joint_pd_snap_duration = 2.0
+        self._joint_pd_start_time: Optional[float] = None
+        self._joint_pd_start_q: Optional[np.ndarray] = None
+
         # State transition listeners
         self._listeners: List[Callable[[ControlMode, ControlMode], None]] = []
 
@@ -615,6 +620,15 @@ class HumanoidFSM:
             self._safety_start_time = None
             self._safety_hold_q = None
 
+        if new_mode == ControlMode.JOINT_PD:
+            self._joint_pd_start_time = time.time()
+            self._joint_pd_start_q = (
+                current_q.copy() if current_q is not None else None
+            )
+        else:
+            self._joint_pd_start_time = None
+            self._joint_pd_start_q = None
+
         for cb in self._listeners:
             try:
                 cb(old_mode, new_mode)
@@ -661,6 +675,32 @@ class HumanoidFSM:
 
         return fraction, current_kp, current_kd
 
+    def get_joint_pd_progress(
+        self, now: Optional[float] = None
+    ) -> Tuple[float, bool, np.ndarray]:
+        """Returns (snap_progress_fraction, is_snapping, target_q_interpolated) during JOINT_PD transition."""
+        if (
+            self.current_mode != ControlMode.JOINT_PD
+            or self._joint_pd_start_time is None
+        ):
+            return 1.0, False, self.nominal_q.copy()
+
+        current_time = now if now is not None else time.time()
+        elapsed = current_time - self._joint_pd_start_time
+        if elapsed >= self.joint_pd_snap_duration:
+            return 1.0, False, self.nominal_q.copy()
+
+        s = max(0.0, min(1.0, elapsed / max(1e-4, self.joint_pd_snap_duration)))
+        # Minimum-jerk quintic blending polynomial: 6s^5 - 15s^4 + 10s^3
+        alpha = s * s * s * (s * (s * 6.0 - 15.0) + 10.0)
+        start_q = (
+            self._joint_pd_start_q
+            if self._joint_pd_start_q is not None
+            else np.zeros_like(self.nominal_q)
+        )
+        target_q = (1.0 - alpha) * start_q + alpha * self.nominal_q
+        return alpha, True, target_q
+
     def compute_torques(
         self,
         q: Optional[np.ndarray] = None,
@@ -684,15 +724,42 @@ class HumanoidFSM:
         if v is None:
             v = np.zeros(self.num_actuators, dtype=np.float64)
 
-        # 1. ZERO_TORQUE Mode
+        # 1. ZERO_TORQUE Mode (All de-energized, passive freewheeling)
         if self.current_mode == ControlMode.ZERO_TORQUE:
             return np.zeros(self.num_actuators, dtype=np.float64)
 
-        # 2. JOINT_PD Mode
+        # 2. JOINT_PD Mode (Gradual minimum-jerk snap to nominal stance)
         elif self.current_mode == ControlMode.JOINT_PD:
-            error = self.nominal_q - q
-            tau = self.kp_vector * error - self.kd_vector * v
-            return tau
+            alpha, is_snapping, target_q = self.get_joint_pd_progress(now=now)
+            if is_snapping:
+                if self._joint_pd_start_q is None:
+                    self._joint_pd_start_q = q.copy()
+
+                start_q = self._joint_pd_start_q
+                current_time = now if now is not None else time.time()
+                elapsed = current_time - self._joint_pd_start_time
+                s = max(
+                    0.0,
+                    min(1.0, elapsed / max(1e-4, self.joint_pd_snap_duration)),
+                )
+                alpha = s * s * s * (s * (s * 6.0 - 15.0) + 10.0)
+                d_alpha = (
+                    30.0 * s**4 - 60.0 * s**3 + 30.0 * s**2
+                ) / max(1e-4, self.joint_pd_snap_duration)
+
+                target_q = (1.0 - alpha) * start_q + alpha * self.nominal_q
+                target_qd = d_alpha * (self.nominal_q - start_q)
+
+                # Softly ramp effective proportional gain (30% -> 100%)
+                kp_eff = (0.3 + 0.7 * alpha) * self.kp_vector
+                tau = kp_eff * (target_q - q) + self.kd_vector * (
+                    target_qd - v
+                )
+                return tau
+            else:
+                error = self.nominal_q - q
+                tau = self.kp_vector * error - self.kd_vector * v
+                return tau
 
         # 3. GRAVITY_COMP Mode
         elif self.current_mode == ControlMode.GRAVITY_COMP:

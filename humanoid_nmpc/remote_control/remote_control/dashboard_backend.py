@@ -311,29 +311,44 @@ class SimProcessManager:
 
     def get_status(self) -> Dict[str, str]:
         """Returns the current simulation execution status."""
-        if self.is_running and self.process and self.process.poll() is None:
-            # Check if simulation/visualization node binaries are actively executing
-            is_node_active = False
-            try:
-                pcheck = subprocess.run(
-                    [
-                        "pgrep",
-                        "-f",
-                        r"/tmp/\.bazel_ros_install/(humanoid_centroidal_mpc_ros2|humanoid_wb_mpc_ros2)/lib/|/opt/ros/jazzy/lib/rviz2/rviz2",
-                    ],
-                    capture_output=True,
-                    text=True,
-                )
-                if pcheck.returncode == 0 and pcheck.stdout.strip():
-                    is_node_active = True
-            except Exception:
-                is_node_active = True
+        active_pids = []
+        try:
+            pcheck = subprocess.run(
+                [
+                    "pgrep",
+                    "-f",
+                    r"/tmp/\.bazel_ros_install/(humanoid_centroidal_mpc_ros2|humanoid_wb_mpc_ros2)/lib/|/opt/ros/jazzy/lib/rviz2/rviz2|humanoid_centroidal_mpc_sim|humanoid_wb_mpc_sim",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            if pcheck.returncode == 0 and pcheck.stdout.strip():
+                # Filter out pgrep's own PID if any
+                current_pid = str(os.getpid())
+                active_pids = [
+                    p.strip()
+                    for p in pcheck.stdout.strip().splitlines()
+                    if p.strip() and p.strip() != current_pid
+                ]
+        except Exception:
+            pass
 
-            status_str = "RUNNING" if is_node_active else "BUILDING"
+        if active_pids:
+            self.is_running = True
+            pid_str = str(self.process.pid) if (self.process and self.process.poll() is None) else active_pids[0]
+            target_key = self.active_target_key or "atlas_centroidal_sim"
+            target_name = self.TARGETS.get(target_key, {}).get("name", "Humanoid Simulation & Visualizer")
             return {
-                "status": status_str,
+                "status": "RUNNING",
+                "target": target_key,
+                "name": target_name,
+                "pid": pid_str,
+            }
+        elif self.is_running and self.process and self.process.poll() is None:
+            return {
+                "status": "BUILDING",
                 "target": self.active_target_key or "Unknown",
-                "name": self.TARGETS.get(self.active_target_key, {}).get("name", ""),
+                "name": self.TARGETS.get(self.active_target_key, {}).get("name", "Compiling targets..."),
                 "pid": str(self.process.pid),
             }
         else:

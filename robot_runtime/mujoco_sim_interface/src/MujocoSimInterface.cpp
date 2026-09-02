@@ -188,11 +188,26 @@ void MujocoSimInterface::setupJointIndexMaps() {
   activeRobotJointStateIndices_ = getRobotDescription().getJointIndices(activeMuJoCoJointNames_);
 
   // Mujoco to robot actuators
+  // NOTE: MuJoCo actuator names (e.g. "back_bkz_motor") do NOT match robot description joint
+  // names (e.g. "back_bkz"). We resolve the joint driven by each actuator via actuator_trnid
+  // so that the robot description lookup succeeds. Only joint-type actuators (trntype == mjTRN_JOINT)
+  // are considered; slide/site actuators are skipped.
   for (int i = 0; i < mujocoModel_->nu; ++i) {
     const std::string actuator_name = mj_id2name(mujocoModel_, mjOBJ_ACTUATOR, i);
 
-    if (getRobotDescription().containsJoint(actuator_name)) {
-      activeMuJoCoActuatorNames_.emplace_back(actuator_name);
+    // Resolve the joint name driven by this actuator.
+    std::string driven_joint_name;
+    if (mujocoModel_->actuator_trntype[i] == mjTRN_JOINT) {
+      const int jnt_id = mujocoModel_->actuator_trnid[2 * i];  // (nu x 2): [2*i]=primary target id, [2*i+1]=secondary
+      const char* jnt_name_cstr = mj_id2name(mujocoModel_, mjOBJ_JOINT, jnt_id);
+      if (jnt_name_cstr != nullptr) {
+        driven_joint_name = jnt_name_cstr;
+      }
+    }
+
+    if (!driven_joint_name.empty() && getRobotDescription().containsJoint(driven_joint_name)) {
+      // Store the driven joint name so getJointIndices resolves correctly.
+      activeMuJoCoActuatorNames_.emplace_back(driven_joint_name);
     } else {
       std::cerr << "WARNING: Actuator contained in mujoco xml not be commanded through RobotHWInterface: " << actuator_name << std::endl;
     }
@@ -207,6 +222,7 @@ void MujocoSimInterface::setupJointIndexMaps() {
     std::cerr << "Initialized " << nActuators_ << " active Actuators" << std::endl;
   }
 }
+
 
 /******************************************************************************************************/
 /******************************************************************************************************/

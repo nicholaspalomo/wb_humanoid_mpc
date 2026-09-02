@@ -126,22 +126,49 @@ class TestHumanoidFSM(unittest.TestCase):
         np.testing.assert_array_equal(tau, np.zeros(fsm.num_actuators))
 
     def test_joint_pd_torque_computation(self):
-        """Verifies JOINT_PD outputs proportional-derivative restoring torques."""
+        """Verifies JOINT_PD outputs proportional-derivative restoring torques after snap completes."""
         fsm = self.fsm_atlas
         fsm.set_mode(ControlMode.JOINT_PD)
+        # Advance time past snap duration for steady-state verification
+        t_steady = fsm._joint_pd_start_time + fsm.joint_pd_snap_duration + 0.1
 
         # At nominal posture with zero velocity, torque is zero
         q_nom = fsm.nominal_q.copy()
         v_zero = np.zeros(fsm.num_actuators)
-        tau_at_nom = fsm.compute_torques(q=q_nom, v=v_zero)
+        tau_at_nom = fsm.compute_torques(q=q_nom, v=v_zero, now=t_steady)
         np.testing.assert_allclose(tau_at_nom, np.zeros(fsm.num_actuators), atol=1e-5)
 
         # Offset joint by -0.1 rad -> positive restoring torque
         q_offset = q_nom.copy()
         q_offset[0] -= 0.1
-        tau = fsm.compute_torques(q=q_offset, v=v_zero)
+        tau = fsm.compute_torques(q=q_offset, v=v_zero, now=t_steady)
         expected_tau_0 = fsm.kp_vector[0] * 0.1
         self.assertAlmostEqual(tau[0], expected_tau_0)
+
+    def test_joint_pd_gradual_snap_transition(self):
+        """Verifies that transitioning to JOINT_PD smoothly interpolates from starting posture to nominal posture."""
+        fsm = self.fsm_atlas
+        fsm.joint_pd_snap_duration = 2.0
+        q_start = np.zeros(fsm.num_actuators)
+        fsm.set_mode(ControlMode.JOINT_PD, current_q=q_start)
+
+        t0 = fsm._joint_pd_start_time
+
+        # At t = 0 (0% progress), target is q_start, error is 0, velocity is 0 -> torque near 0
+        tau_0 = fsm.compute_torques(q=q_start, v=np.zeros(fsm.num_actuators), now=t0)
+        np.testing.assert_allclose(tau_0, np.zeros(fsm.num_actuators), atol=1e-5)
+
+        # At t = 1.0s (50% progress), alpha = 0.5, target is halfway
+        alpha_half, is_snapping_half, target_q_half = fsm.get_joint_pd_progress(now=t0 + 1.0)
+        self.assertTrue(is_snapping_half)
+        self.assertAlmostEqual(alpha_half, 0.5, places=4)
+        np.testing.assert_allclose(target_q_half, 0.5 * (q_start + fsm.nominal_q), atol=1e-5)
+
+        # At t = 2.0s (100% progress), alpha = 1.0, target is nominal_q
+        alpha_end, is_snapping_end, target_q_end = fsm.get_joint_pd_progress(now=t0 + 2.0)
+        self.assertFalse(is_snapping_end)
+        self.assertAlmostEqual(alpha_end, 1.0)
+        np.testing.assert_allclose(target_q_end, fsm.nominal_q, atol=1e-5)
 
     def test_controller_yaml_gains_loading(self):
         """Verifies that per-joint PD gains YAML files are correctly loaded into kp_vector and kd_vector."""
