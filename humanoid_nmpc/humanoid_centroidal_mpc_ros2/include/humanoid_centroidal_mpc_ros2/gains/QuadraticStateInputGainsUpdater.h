@@ -1,4 +1,5 @@
 /******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
 Copyright (c) 2024, 1X Technologies. All rights reserved.
 
@@ -30,9 +31,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <ocs2_core/cost/QuadraticStateInputCost.h>
 #include <humanoid_centroidal_mpc_ros2/gains/GainsUpdaterInterface.h>
 #include <humanoid_centroidal_mpc_ros2/gains/GainsUpdaterUtils.h>
-#include <humanoid_common_mpc/cost/StateInputQuadraticCost.h>
 
 namespace ocs2::humanoid {
 
@@ -47,7 +48,7 @@ class QuadraticStateInputGainsUpdater : public GainsUpdaterInterface {
   bool initialize(ocs2::OptimalControlProblem& optimalControlProblem, const std::string& description) override {
     try {
       auto& generic = optimalControlProblem.costPtr->get(description);
-      auto& custom = dynamic_cast<ocs2::humanoid::StateInputQuadraticCost&>(generic);
+      auto& custom = dynamic_cast<ocs2::QuadraticStateInputCost&>(generic);
 
       auto getMatrixEntries = [](std::vector<std::pair<int, int>>& matrixEntries, const ocs2::matrix_t& matrix) -> void {
         matrixEntries.clear();
@@ -147,7 +148,7 @@ class QuadraticStateInputGainsUpdater : public GainsUpdaterInterface {
   }
 
  private:
-  ocs2::humanoid::StateInputQuadraticCost* component_;
+  ocs2::QuadraticStateInputCost* component_;
   std::vector<std::pair<int, int>> qIndices_, rIndices_;  // Keep a list of matrix indices that are non-zero at initialization time
   const CentroidalMpcRobotModel<scalar_t>& mpcRobotModel_;
   const ocs2::humanoid::ModelSettings& modelSettings_;

@@ -1,5 +1,26 @@
 centroidalModelType: 0  # 0: FullCentroidalDynamics, 1: Single Rigid Body Dynamics
 
+# MPC Problem Formulation Tasks
+hard_constraints:
+  - zero_wrench
+  - zero_velocity
+  - normal_velocity
+
+soft_constraints:
+  - joint_limits
+  - foot_collision
+  - friction_force_cone
+  - contact_moment_xy
+
+costs:
+  - state_quadratic_cost
+  - input_quadratic_cost
+  - terminal_cost
+  - icp_cost
+  - task_space_foot_cost
+  - task_space_torso_cost
+  - external_torque_cost
+
 interface:
   verbose: true  # show the loaded parameters
   useAnalyticalGradientsDynamics: false

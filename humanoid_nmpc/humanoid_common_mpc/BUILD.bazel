@@ -14,6 +14,7 @@ cc_library(
         "src/pinocchio_model/createPinocchioModel.cpp",
         "src/pinocchio_model/DynamicsHelperFunctions.cpp",
         "src/common/ModelSettings.cpp",
+        "src/common/MpcFormulationConfig.cpp",
         "src/constraint/JointLimitsSoftConstraint.cpp",
         "src/constraint/FootCollisionConstraint.cpp",
         "src/constraint/ZeroWrenchConstraint.cpp",
@@ -23,6 +24,8 @@ cc_library(
         "src/constraint/ContactWrenchConeConstraint.cpp",
         "src/constraint/EndEffectorKinematicsLinearVelConstraint.cpp",
         "src/cost/StateInputQuadraticCost.cpp",
+        "src/cost/StateQuadraticCost.cpp",
+        "src/cost/InputQuadraticCost.cpp",
         "src/cost/EndEffectorKinematicCostHelpers.cpp",
         "src/cost/EndEffectorKinematicsQuadraticCost.cpp",
         "src/cost/ExternalTorqueQuadraticCostAD.cpp",
@@ -62,11 +65,18 @@ cc_library(
         "@eigen",
         "@boost",
         "@pinocchio",
+        "@abseil-cpp//absl/container:flat_hash_map",
+        "@abseil-cpp//absl/container:flat_hash_set",
         "@abseil-cpp//absl/log:check",
         "@abseil-cpp//absl/log:absl_check",
         "@abseil-cpp//absl/log:log",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
         "@ros2_rclcpp",
         "@ros2_ament_index_cpp",
+        "@yaml_cpp",
     ],
     # Config data files
     data = glob(["config/**"], allow_empty = True),
@@ -77,5 +87,18 @@ cc_binary(
     srcs = ["test/testEndEffectorKinematicsCostElement.cpp"],
     deps = [
         ":humanoid_common_mpc",
+    ],
+)
+
+cc_binary(
+    name = "test_mpc_formulation_config",
+    srcs = ["test/testMpcFormulationConfig.cpp"],
+    deps = [
+        ":humanoid_common_mpc",
+        "@abseil-cpp//absl/log:globals",
+        "@abseil-cpp//absl/log:initialize",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
     ],
 )
