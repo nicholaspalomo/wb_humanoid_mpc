@@ -229,28 +229,30 @@ void HumanoidVisualizer::publishCartesianMarkers(const contact_flag_t& contactFl
 /******************************************************************************************************/
 
 void HumanoidVisualizer::publishSelfCollisionMarkers(const contact_flag_t& contactFlags, const vector_t& state) const {
-  std::vector<std::string> collisionFrameNames = {collisionConfig_.leftAnkleFrame,      collisionConfig_.rightAnkleFrame,
-                                                  collisionConfig_.leftFootCenterFrame, collisionConfig_.rightFootCenterFrame,
-                                                  collisionConfig_.leftFootFrame1,      collisionConfig_.rightFootFrame1,
-                                                  collisionConfig_.leftFootFrame2,      collisionConfig_.rightFootFrame2,
-                                                  collisionConfig_.leftKneeFrame,       collisionConfig_.rightKneeFrame};
+  const auto& model = pinocchioInterface_.getModel();
+  const auto& data = pinocchioInterface_.getData();
 
-  // Reserve message
-  const size_t numberOfCollisionMarkers = collisionFrameNames.size();
+  const std::vector<std::pair<std::string, scalar_t>> candidateFrames = {
+      {collisionConfig_.leftAnkleFrame, collisionConfig_.footCollisionSphereRadius},
+      {collisionConfig_.rightAnkleFrame, collisionConfig_.footCollisionSphereRadius},
+      {collisionConfig_.leftFootCenterFrame, collisionConfig_.footCollisionSphereRadius},
+      {collisionConfig_.rightFootCenterFrame, collisionConfig_.footCollisionSphereRadius},
+      {collisionConfig_.leftFootFrame1, collisionConfig_.footCollisionSphereRadius},
+      {collisionConfig_.rightFootFrame1, collisionConfig_.footCollisionSphereRadius},
+      {collisionConfig_.leftFootFrame2, collisionConfig_.footCollisionSphereRadius},
+      {collisionConfig_.rightFootFrame2, collisionConfig_.footCollisionSphereRadius},
+      {collisionConfig_.leftKneeFrame, collisionConfig_.kneeCollisionSphereRadius},
+      {collisionConfig_.rightKneeFrame, collisionConfig_.kneeCollisionSphereRadius}};
+
   visualization_msgs::msg::MarkerArray markerArray;
-  markerArray.markers.reserve(numberOfCollisionMarkers);
 
-  std::vector<scalar_t> collisionSphereRadius = {collisionConfig_.footCollisionSphereRadius, collisionConfig_.footCollisionSphereRadius,
-                                                 collisionConfig_.footCollisionSphereRadius, collisionConfig_.footCollisionSphereRadius,
-                                                 collisionConfig_.footCollisionSphereRadius, collisionConfig_.footCollisionSphereRadius,
-                                                 collisionConfig_.footCollisionSphereRadius, collisionConfig_.footCollisionSphereRadius,
-                                                 collisionConfig_.kneeCollisionSphereRadius, collisionConfig_.kneeCollisionSphereRadius};
-
-  std::vector<vector3_t> collisionPositions = getFramePositions<scalar_t>(pinocchioInterface_, collisionFrameNames);
-
-  for (size_t i = 0; i < numberOfCollisionMarkers; ++i) {
-    markerArray.markers.emplace_back(getSphereMsg(collisionPositions[i], Color::red, 2 * collisionSphereRadius[i]));
-    markerArray.markers.back().color.a = 0.5;
+  for (const auto& [frameName, radius] : candidateFrames) {
+    if (!frameName.empty() && model.existFrame(frameName)) {
+      const pinocchio::FrameIndex frameIndex = model.getFrameId(frameName);
+      const vector3_t& position = data.oMf[frameIndex].translation();
+      markerArray.markers.emplace_back(getSphereMsg(position, Color::red, 2 * radius));
+      markerArray.markers.back().color.a = 0.5;
+    }
   }
 
   // Give markers an id and a frame
@@ -327,15 +329,18 @@ void HumanoidVisualizer::publishOptimizedStateTrajectory(const scalar_array_t& m
   publishBaseTransform(mpcRobotModelPtr_->getBasePose(terminalState), "terminal_state/");
 
   // Publish Terminal Target State
-  vector_t targetTerminalState = targetTrajectories.getDesiredState(mpcTimeTrajectory.back());
-  publishJointTransforms(mpcRobotModelPtr_->getJointAngles(targetTerminalState), terminalJointTargetPublisherPtr_);
-  publishBaseTransform(mpcRobotModelPtr_->getBasePose(targetTerminalState), "terminal_target/");
+  if (!targetTrajectories.empty()) {
+    vector_t targetTerminalState = targetTrajectories.getDesiredState(mpcTimeTrajectory.back());
+    publishJointTransforms(mpcRobotModelPtr_->getJointAngles(targetTerminalState), terminalJointTargetPublisherPtr_);
+    publishBaseTransform(mpcRobotModelPtr_->getBasePose(targetTerminalState), "terminal_target/");
+  }
 
   // Convert feet msgs to Array message
   visualization_msgs::msg::MarkerArray markerArray;
   markerArray.markers.reserve(frameMsgs.size() + 1);  // + 1 for the pelvis trajectory
   for (size_t i = 0; i < frameMsgs.size(); i++) {
-    markerArray.markers.emplace_back(getLineMsg(std::move(frameMsgs[i]), contactColorMap_[i], trajectoryLineWidth_));
+    Color col = contactColorMap_.empty() ? Color::red : contactColorMap_[i % contactColorMap_.size()];
+    markerArray.markers.emplace_back(getLineMsg(std::move(frameMsgs[i]), col, trajectoryLineWidth_));
     markerArray.markers.back().ns = "Frame EE Trajectories";
   }
 

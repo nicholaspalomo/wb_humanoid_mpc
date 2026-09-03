@@ -482,8 +482,25 @@ void MujocoSimInterface::simulationStep() {
     for (size_t i = 0; i < nActuators_; ++i) {
       joint_index_t idx = activeRobotActuatorIndices_[i];
       const robot::model::JointAction& jointAction = robotJointActionInternal_.at(idx).value();
-      mujocoData_->ctrl[i] =
+      double totalTorque =
           jointAction.getTotalFeedbackTorque(robotStateInternal_.getJointPosition(idx), robotStateInternal_.getJointVelocity(idx));
+
+      // Clamp total torque to the actuator force range from the MuJoCo model.
+      // This enforces physical actuator limits on the combined PD + feedforward torque,
+      // preventing the unclamped PD term from exceeding actuator capabilities.
+      if (mujocoModel_->actuator_forcelimited[i]) {
+        totalTorque = std::clamp(totalTorque, (double)mujocoModel_->actuator_forcerange[2 * i],
+                                 (double)mujocoModel_->actuator_forcerange[2 * i + 1]);
+      } else {
+        // Fallback: use the joint's actuatorfrcrange if the actuator itself isn't force-limited.
+        // Look up the joint index from the actuator's transmission target.
+        int mj_joint_id = mujocoModel_->actuator_trnid[2 * i];
+        if (mj_joint_id >= 0 && mujocoModel_->jnt_actfrclimited[mj_joint_id]) {
+          totalTorque = std::clamp(totalTorque, (double)mujocoModel_->jnt_actfrcrange[2 * mj_joint_id],
+                                   (double)mujocoModel_->jnt_actfrcrange[2 * mj_joint_id + 1]);
+        }
+      }
+      mujocoData_->ctrl[i] = totalTorque;
     }
   }
 

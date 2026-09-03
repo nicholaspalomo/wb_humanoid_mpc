@@ -1,110 +1,141 @@
 # DRC Atlas Joint Proportional and Derivative (PD) Controller Gains
-# Units: Kp in [N*m/rad], Kd in [N*m*s/rad]
+# Units: Kp in [N*m/rad], Kd in [N*m*s/rad], torque_limit in [N*m]
 #
 # Gravity compensation is now applied in the sim via MuJoCo's qfrc_bias,
 # so PD gains only need to handle TRACKING error, not fight gravity.
 # This allows moderate, stable gains without saturation or flutter.
 #
 # Kd rule of thumb: Kd ≈ 0.06-0.08 * Kp for near-critical damping.
+# torque_limit: matches actuatorfrcrange from the URDF/MJCF model.
 
 default_gains:
   kp: 200.0
   kd: 15.0
+  torque_limit: 500.0
 
 joint_gains:
   # Torso / Spine
   back_bkz:
     kp: 250.0      # 106 N·m limit
     kd: 18.0
+    torque_limit: 106.0
   back_bky:
     kp: 400.0      # 445 N·m limit — sagittal posture
     kd: 30.0
+    torque_limit: 445.0
   back_bkx:
     kp: 350.0      # 300 N·m limit
     kd: 25.0
+    torque_limit: 300.0
 
   # Neck & Head
   neck_ry:
     kp: 40.0       # 5 N·m limit
     kd: 3.0
+    torque_limit: 5.0
 
   # Left Arm
   l_arm_shz:
     kp: 150.0      # 87 N·m limit
     kd: 10.0
+    torque_limit: 87.0
   l_arm_shx:
     kp: 180.0      # 99 N·m limit
     kd: 12.0
+    torque_limit: 99.0
   l_arm_ely:
     kp: 120.0      # 63 N·m limit
     kd: 8.0
+    torque_limit: 63.0
   l_arm_elx:
     kp: 200.0      # 112 N·m limit
     kd: 14.0
+    torque_limit: 112.0
   l_arm_wry:
     kp: 40.0       # 25 N·m limit
     kd: 3.0
+    torque_limit: 25.0
   l_arm_wrx:
     kp: 40.0       # 25 N·m limit
     kd: 3.0
+    torque_limit: 25.0
 
   # Right Arm (symmetric)
   r_arm_shz:
     kp: 150.0
     kd: 10.0
+    torque_limit: 87.0
   r_arm_shx:
     kp: 180.0
     kd: 12.0
+    torque_limit: 99.0
   r_arm_ely:
     kp: 120.0
     kd: 8.0
+    torque_limit: 63.0
   r_arm_elx:
     kp: 200.0
     kd: 14.0
+    torque_limit: 112.0
   r_arm_wry:
     kp: 40.0
     kd: 3.0
+    torque_limit: 25.0
   r_arm_wrx:
     kp: 40.0
     kd: 3.0
+    torque_limit: 25.0
 
   # Left Leg
   l_leg_hpz:
     kp: 800.0      # 275 N·m limit
     kd: 40.0
+    torque_limit: 275.0
   l_leg_hpx:
     kp: 1000.0     # 530 N·m limit
     kd: 60.0
+    torque_limit: 530.0
   l_leg_hpy:
     kp: 1200.0     # 840 N·m limit — main sagittal driver
     kd: 70.0
+    torque_limit: 840.0
   l_leg_kny:
     kp: 1000.0     # 890 N·m limit — weight bearing
     kd: 60.0
+    torque_limit: 890.0
   l_leg_aky:
     kp: 600.0      # 740 N·m limit — ankle pitch
     kd: 40.0
+    torque_limit: 740.0
   l_leg_akx:
     kp: 400.0      # 360 N·m limit — ankle roll
     kd: 28.0
+    torque_limit: 360.0
 
   # Right Leg (symmetric)
   r_leg_hpz:
     kp: 800.0      # 275 N·m limit
     kd: 40.0
+    torque_limit: 275.0
   r_leg_hpx:
     kp: 1000.0     # 530 N·m limit
     kd: 60.0
+    torque_limit: 530.0
   r_leg_hpy:
     kp: 1200.0     # 840 N·m limit — main sagittal driver
     kd: 70.0
+    torque_limit: 840.0
   r_leg_kny:
     kp: 1000.0     # 890 N·m limit
     kd: 60.0
+    torque_limit: 890.0
   r_leg_aky:
     kp: 600.0      # 740 N·m limit
     kd: 40.0
+    torque_limit: 740.0
   r_leg_akx:
     kp: 400.0      # 360 N·m limit
     kd: 28.0
+    torque_limit: 360.0
+
 

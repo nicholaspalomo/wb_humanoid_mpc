@@ -83,7 +83,7 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
     std::string newMode(mode);
     if (newMode != controlMode_) {
       if ((newMode == "WB_MPC" || newMode == "MPC_ACTIVE" || newMode == "CENTROIDAL_MPC") &&
-          (controlMode_ == "JOINT_PD" || controlMode_ == "ZERO_TORQUE")) {
+          (controlMode_ == "JOINT_PD" || controlMode_ == "ZERO_TORQUE" || controlMode_ == "GRAVITY_COMP")) {
         resetMpcRequested_.store(true);
       }
       controlMode_ = newMode;
@@ -135,8 +135,10 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
 
   vector_t mpcJointKp_;
   vector_t mpcJointKd_;
+  vector_t mpcJointTorqueLimit_;
   vector_t otherJointKp_;
   vector_t otherJointKd_;
+  vector_t otherJointTorqueLimit_;
 
   std::string controlMode_{"WB_MPC"};  ///< Active control mode (JOINT_PD, WB_MPC, etc.)
   std::vector<scalar_t> nominalJointPositions_;  ///< Nominal positions for JOINT_PD mode

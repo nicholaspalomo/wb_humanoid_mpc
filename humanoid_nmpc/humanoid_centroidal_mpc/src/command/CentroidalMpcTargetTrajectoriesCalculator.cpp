@@ -124,9 +124,10 @@ TargetTrajectories CentroidalMpcTargetTrajectoriesCalculator::commandedVelocityT
   averageVel(1) = (baseVel[1] + commVelTargetGlobal[1]) / 2;
   averageVel(2) = (baseVel[5] + commVelTargetGlobal[3]) / 2;
 
-  currentPoseTarget[2] = commVelTargetGlobal[2];
+  scalar_t targetHeight = (commVelTargetGlobal[2] > 0.1) ? commVelTargetGlobal[2] : defaultBaseHeight_;
+  currentPoseTarget[2] = targetHeight;
   scalar_t intermediateTargetTime = 0.7 * mpcHorizon_;
-  vector6_t intermediateTargetPose = integrateTargetBasePose(currentPoseTarget, averageVel, commVelTargetGlobal(2), intermediateTargetTime);
+  vector6_t intermediateTargetPose = integrateTargetBasePose(currentPoseTarget, averageVel, targetHeight, intermediateTargetTime);
 
   //////////////////
   // Final Target //
@@ -137,7 +138,7 @@ TargetTrajectories CentroidalMpcTargetTrajectoriesCalculator::commandedVelocityT
   averageVel(2) = (commVelTargetGlobal[3]);
 
   vector6_t finalTargetPose =
-      integrateTargetBasePose(intermediateTargetPose, averageVel, commVelTargetGlobal(2), (mpcHorizon_ - intermediateTargetTime));
+      integrateTargetBasePose(intermediateTargetPose, averageVel, targetHeight, (mpcHorizon_ - intermediateTargetTime));
 
   // desired time trajectory
   const scalar_array_t timeTrajectory{initTime, initTime + intermediateTargetTime, initTime + mpcHorizon_};

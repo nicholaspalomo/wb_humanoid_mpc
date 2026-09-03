@@ -22,7 +22,7 @@ model_settings:
 
   verboseCppAd: true
   recompileLibrariesCppAd: false
-  modelFolderCppAd: build/wb_mpc_cppad_autocode_gen
+  modelFolderCppAd: build/centroidal_mpc_cppad_autocode_gen
 
   # Exclude these joints from MPC model
   fixedJointNames:
@@ -107,7 +107,7 @@ initialState:
   # ; Base Pose: [position, orientation] ;;
   "(6,0)": 0.0  # p_base_x
   "(7,0)": 0.0  # p_base_y
-  "(8,0)": 0.895  # p_base_z
+  "(8,0)": 0.88  # p_base_z
   "(9,0)": 0.0  # theta_base_z
   "(10,0)": 0.0  # theta_base_y
   "(11,0)": 0.0  # theta_base_x
@@ -172,18 +172,18 @@ Q:
   "(21,21)": 0.1  # r_arm_shx
   "(22,22)": 0.1  # r_arm_ely
   "(23,23)": 0.1  # r_arm_elx
-  "(24,24)": 2.0  # l_leg_hpz
-  "(25,25)": 2.0  # l_leg_hpx
-  "(26,26)": 2.0  # l_leg_hpy
-  "(27,27)": 0.4  # l_leg_kny
-  "(28,28)": 4.0  # l_leg_aky
-  "(29,29)": 4.0  # l_leg_akx
-  "(30,30)": 2.0  # r_leg_hpz
-  "(31,31)": 2.0  # r_leg_hpx
-  "(32,32)": 2.0  # r_leg_hpy
-  "(33,33)": 0.4  # r_leg_kny
-  "(34,34)": 4.0  # r_leg_aky
-  "(35,35)": 4.0  # r_leg_akx
+  "(24,24)": 0.06  # l_leg_hpz
+  "(25,25)": 0.06  # l_leg_hpx
+  "(26,26)": 0.02  # l_leg_hpy
+  "(27,27)": 0.02  # l_leg_kny
+  "(28,28)": 0.01  # l_leg_aky
+  "(29,29)": 0.01  # l_leg_akx
+  "(30,30)": 0.06  # r_leg_hpz
+  "(31,31)": 0.06  # r_leg_hpx
+  "(32,32)": 0.02  # r_leg_hpy
+  "(33,33)": 0.02  # r_leg_kny
+  "(34,34)": 0.01  # r_leg_aky
+  "(35,35)": 0.01  # r_leg_akx
 
 # control weight matrix
 R:
@@ -264,18 +264,18 @@ Q_final:
   "(21,21)": 0.1  # r_arm_shx
   "(22,22)": 0.1  # r_arm_ely
   "(23,23)": 0.1  # r_arm_elx
-  "(24,24)": 2.0  # l_leg_hpz
-  "(25,25)": 2.0  # l_leg_hpx
-  "(26,26)": 2.0  # l_leg_hpy
-  "(27,27)": 0.4  # l_leg_kny
-  "(28,28)": 4.0  # l_leg_aky
-  "(29,29)": 4.0  # l_leg_akx
-  "(30,30)": 2.0  # r_leg_hpz
-  "(31,31)": 2.0  # r_leg_hpx
-  "(32,32)": 2.0  # r_leg_hpy
-  "(33,33)": 0.4  # r_leg_kny
-  "(34,34)": 4.0  # r_leg_aky
-  "(35,35)": 4.0  # r_leg_akx
+  "(24,24)": 0.06  # l_leg_hpz
+  "(25,25)": 0.06  # l_leg_hpx
+  "(26,26)": 0.02  # l_leg_hpy
+  "(27,27)": 0.02  # l_leg_kny
+  "(28,28)": 0.01  # l_leg_aky
+  "(29,29)": 0.01  # l_leg_akx
+  "(30,30)": 0.06  # r_leg_hpz
+  "(31,31)": 0.06  # r_leg_hpx
+  "(32,32)": 0.02  # r_leg_hpy
+  "(33,33)": 0.02  # r_leg_kny
+  "(34,34)": 0.01  # r_leg_aky
+  "(35,35)": 0.01  # r_leg_akx
 
 icp_cost_weights:
   icpErrorWeight: 500.0
