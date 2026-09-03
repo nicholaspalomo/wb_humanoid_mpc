@@ -14,8 +14,8 @@ build --copt=-DPINOCCHIO_URDFDOM_USE_STD_SHARED_PTR
 # --- Parallelism & Resource Limits ---
 # Prevent OOM kills: C++ compilations can use 1-2GB each.
 # Limit concurrent jobs so peak RAM stays within system capacity.
-# On heavy C++ template builds (Eigen, Pinocchio, Boost, CppAd), cap parallel jobs to 8.
-build --jobs=8
+# On heavy C++ template builds (Eigen, Pinocchio, Boost, CppAd), cap parallel jobs to 12.
+build --jobs=12
 
 # --- Default Compilation Mode (Release) ---
 # Override with: bazel build -c dbg //...

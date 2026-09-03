@@ -27,6 +27,8 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include <pinocchio/fwd.hpp>
+
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h"
 
 #include <ocs2_robotic_tools/common/RotationDerivativesTransforms.h>
@@ -42,6 +44,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <yaml-cpp/yaml.h>
 #include <filesystem>
+
+// Pinocchio algorithm headers (must come after pinocchio/fwd.hpp)
+#include <pinocchio/algorithm/rnea.hpp>
 
 namespace ocs2::humanoid {
 
@@ -206,9 +211,56 @@ void CentroidalMpcMrtJointController::updateMpcObservation(ocs2::SystemObservati
 void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
                                                                 const ::robot::model::RobotState& robotState,
                                                                 ::robot::model::RobotJointAction& robotJointAction) {
+  // Always update MPC observation so the solver continues tracking robot state and time in all modes.
   updateMpcObservation(currentMpcObservation_, robotState);
-  // Set observation to MPC
   mcpMrtInterface_.setCurrentObservation(currentMpcObservation_);
+
+  // JOINT_PD mode: PD tracking to nominal positions + Pinocchio gravity compensation.
+  // This code path is shared between sim and real hardware.
+  if (controlMode_ == "JOINT_PD") {
+    vector_t gravTorques = computeGravityCompensation(robotState);
+
+    for (size_t i = 0; i < mpcJointIndices_.size(); i++) {
+      size_t index = mpcJointIndices_[i];
+      robot::model::JointAction& action = robotJointAction.at(index).value();
+      action.q_des = nominalJointPositions_.empty() ? 0.0 : nominalJointPositions_[index];
+      action.qd_des = 0.0;
+      action.kp = mpcJointKp_[i];
+      action.kd = mpcJointKd_[i];
+      action.feed_forward_effort = gravTorques[i];
+    }
+
+    for (size_t i = 0; i < otherJointIndices_.size(); i++) {
+      size_t index = otherJointIndices_[i];
+      robot::model::JointAction& action = robotJointAction.at(index).value();
+      action.q_des = nominalJointPositions_.empty() ? 0.0 : nominalJointPositions_[index];
+      action.qd_des = 0.0;
+      action.kp = otherJointKp_[i];
+      action.kd = otherJointKd_[i];
+      action.feed_forward_effort = 0.0;  // Non-MPC joints don't get gravity comp
+    }
+
+    // Debug: print gravity comp torques and position errors (throttled)
+    static size_t debugCount = 0;
+    if (++debugCount % 500 == 1) {
+      std::cerr << "[JOINT_PD] gravTorques: " << gravTorques.transpose() << std::endl;
+      for (size_t i = 0; i < mpcJointIndices_.size(); i++) {
+        size_t index = mpcJointIndices_[i];
+        double q_cur = robotState.getJointPosition(index);
+        double q_des = nominalJointPositions_.empty() ? 0.0 : nominalJointPositions_[index];
+        if (std::abs(q_des - q_cur) > 0.05) {
+          std::cerr << "  joint[" << index << "] err=" << (q_des - q_cur)
+                    << " q_cur=" << q_cur << " q_des=" << q_des
+                    << " kp=" << mpcJointKp_[i] << " gravFF=" << gravTorques[i] << std::endl;
+        }
+      }
+    }
+
+    return;
+  }
+
+  // Active MPC control path
+  mcpMrtInterface_.updatePolicy();
 
   vector_t mpcPolicyState;
   vector_t mpcPolicyInput;
@@ -298,33 +350,30 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
 /******************************************************************************************************/
 /******************************************************************************************************/
 void CentroidalMpcMrtJointController::solverWorker() {
-  // while (!isInitialized_.load()) {
-  //   std::this_thread::sleep_for(std::chrono::milliseconds(100));
-  // }
-
   mcpMrtInterface_.resetMpcNode(currentObservationToResetTrajectory(mcpMrtInterface_.getCurrentObservation()));
   std::cerr << "MPC is reset. NMPC solver started!" << std::endl;
 
   size_t slowWarningCount = 0;
-  while (true) {
+  while (!terminateThread_.load()) {
     auto targetTimeForNextIteration = std::chrono::steady_clock::now() + std::chrono::microseconds(mpcDeltaTMicroSeconds_);
+
+    // Handle on-the-fly MPC reset when transitioning to active MPC mode
+    if (resetMpcRequested_.exchange(false)) {
+      mcpMrtInterface_.resetMpcNode(currentObservationToResetTrajectory(mcpMrtInterface_.getCurrentObservation()));
+      std::cerr << "MPC reset to current observation on mode switch to " << controlMode_ << "!" << std::endl;
+    }
 
     mcpMrtInterface_.advanceMpc();
 
-    // Publish if Policy has been updated
-    if (!mcpMrtInterface_.updatePolicy()) {
-      std::cerr << "The solver has failed to update!!" << std::endl;
-      return;
-    }
-
-    // std::cerr << "MPC policy computed!" << std::endl;
+    // Update the active policy buffer; if a solve didn't finish this iteration, continue looping
+    mcpMrtInterface_.updatePolicy();
 
     if (!realtime_) {
       auto currentTime = std::chrono::steady_clock::now();
       if (currentTime > targetTimeForNextIteration) {
         auto delay = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - targetTimeForNextIteration).count();
-        if (delay > 1000 && (++slowWarningCount % 10 == 0)) {
-          std::cerr << "Warning: MPC loop running slow by " << delay << " microseconds (showing 1 in 10)." << std::endl;
+        if (delay > 1000 && (++slowWarningCount % 20 == 0)) {
+          std::cerr << "Warning: MPC loop running slow by " << delay << " microseconds." << std::endl;
         }
       } else {
         // Sleep in case sim loop is faster than specified
@@ -352,6 +401,30 @@ TargetTrajectories CentroidalMpcMrtJointController::currentObservationToResetTra
 
   std::cerr << "Resetting MPC to current state: \n" << targetState << std::endl;
   return resetTargetTrajectories;
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+vector_t CentroidalMpcMrtJointController::computeGravityCompensation(const ::robot::model::RobotState& robotState) {
+  const auto& info = mpcRobotModelPtr_->getCentroidalModelInfo();
+  const auto& model = pinocchioInterface_.getModel();
+  auto& data = pinocchioInterface_.getData();
+
+  // Build Pinocchio generalized coordinates from robot state
+  const vector3_t euler_zyx = quaternionToEulerZYX(robotState.getRootRotationLocalToWorldFrame());
+  vector_t q(info.generalizedCoordinatesNum);
+  q.head<3>() = robotState.getRootPositionInWorldFrame();
+  q.segment<3>(3) = euler_zyx;
+  q.tail(mpcRobotModelPtr_->getJointDim()) = robotState.getJointPositions(mpcJointIndices_);
+
+  // Compute gravity torques: nonLinearEffects with zero velocity gives pure gravity terms
+  vector_t zeroVelocity = vector_t::Zero(info.generalizedCoordinatesNum);
+  pinocchio::nonLinearEffects(model, data, q, zeroVelocity);
+
+  // data.nle now contains gravity torques for all generalized coordinates.
+  // Return only the joint portion (skip the 6 floating-base DOFs).
+  return data.nle.tail(mpcRobotModelPtr_->getJointDim());
 }
 
 }  // namespace ocs2::humanoid

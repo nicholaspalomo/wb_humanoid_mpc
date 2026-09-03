@@ -151,9 +151,13 @@ int main(int argc, char** argv) {
     // In zero-torque mode, we still compute the control action but don't apply it,
     // keeping the MPC solver warm for instant transitions back to active mode.
     robotInterface.updateInterfaceStateFromRobot();
+
+    // Propagate FSM mode to the controller so it can handle JOINT_PD with gravity comp internally.
+    mpcJointController.setControlMode(currentModeName);
+    mpcJointController.setNominalJointPositions(fsmBridge.getNominalJointPositions());
     mpcJointController.computeJointControlAction(0.0, robotInterface.getRobotState(), robotInterface.getRobotJointAction());
 
-    // Apply mode-specific overrides (e.g. pure nominal position tracking in JOINT_PD mode)
+    // Apply mode-specific overrides for modes other than JOINT_PD (which is handled by the controller)
     fsmBridge.applyModeAction(currentModeName, robotDescription, robotInterface.getRobotJointAction());
 
     if (!robotInterface.isZeroTorqueMode()) {
@@ -170,7 +174,7 @@ int main(int argc, char** argv) {
       if (!robotInterface.isZeroTorqueMode()) {
         auto delay = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - targetTimeForNextIteration).count();
         if (delay > 1000 && (++mrtSlowCount % 20 == 0)) {
-          LOG(WARNING) << "MRT loop running slow by " << delay << " microseconds (showing 1 in 20).";
+          LOG(WARNING) << "MRT loop running slow by " << delay << " microseconds.";
         }
       }
     } else {

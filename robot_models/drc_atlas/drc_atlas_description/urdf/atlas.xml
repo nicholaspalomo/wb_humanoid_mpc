@@ -291,18 +291,31 @@
     <exclude body1="utorso" body2="head"/>
     <!-- Left leg chain -->
     <exclude body1="pelvis" body2="l_uglut"/>
+    <exclude body1="pelvis" body2="l_lglut"/>
+    <exclude body1="pelvis" body2="l_uleg"/>
+    <exclude body1="ltorso" body2="l_uglut"/>
+    <exclude body1="ltorso" body2="l_lglut"/>
     <exclude body1="l_uglut" body2="l_lglut"/>
+    <exclude body1="l_uglut" body2="l_uleg"/>
     <exclude body1="l_lglut" body2="l_uleg"/>
     <exclude body1="l_uleg" body2="l_lleg"/>
     <exclude body1="l_lleg" body2="l_talus"/>
     <exclude body1="l_talus" body2="l_foot"/>
     <!-- Right leg chain -->
     <exclude body1="pelvis" body2="r_uglut"/>
+    <exclude body1="pelvis" body2="r_lglut"/>
+    <exclude body1="pelvis" body2="r_uleg"/>
+    <exclude body1="ltorso" body2="r_uglut"/>
+    <exclude body1="ltorso" body2="r_lglut"/>
     <exclude body1="r_uglut" body2="r_lglut"/>
+    <exclude body1="r_uglut" body2="r_uleg"/>
     <exclude body1="r_lglut" body2="r_uleg"/>
     <exclude body1="r_uleg" body2="r_lleg"/>
     <exclude body1="r_lleg" body2="r_talus"/>
     <exclude body1="r_talus" body2="r_foot"/>
+    <!-- Torso overlaps -->
+    <exclude body1="ltorso" body2="utorso"/>
+    <exclude body1="pelvis" body2="mtorso"/>
   </contact>
 
   <!-- Actuators for all joints -->

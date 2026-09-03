@@ -105,16 +105,6 @@ void SimFsmBridge::publishFsmState(std::string_view modeName, bool gantryLocked)
 void SimFsmBridge::applyModeAction(std::string_view modeName,
                                    const robot::model::RobotDescription& robotDescription,
                                    robot::model::RobotJointAction& robotJointAction) const {
-  if (modeName == "JOINT_PD") {
-    for (size_t i = 0; i < robotDescription.getNumJoints(); ++i) {
-      if (robotJointAction.at(i).has_value()) {
-        auto& action = robotJointAction.at(i).value();
-        action.q_des = nominalJointPositions_[i];
-        action.qd_des = 0.0;
-        action.feed_forward_effort = 0.0;
-      }
-    }
-  }
 }
 
 /******************************************************************************************************/

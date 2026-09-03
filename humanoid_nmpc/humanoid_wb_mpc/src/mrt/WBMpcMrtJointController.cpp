@@ -271,11 +271,8 @@ void WBMpcMrtJointController::solverWorker() {
 
     mcpMrtInterface_.advanceMpc();
 
-    // Publish if Policy has been updated
-    if (!mcpMrtInterface_.updatePolicy()) {
-      std::cerr << "The solver has failed to update!!" << std::endl;
-      return;
-    }
+    // Update active policy buffer
+    mcpMrtInterface_.updatePolicy();
 
     // std::cerr << "MPC policy computed!" << std::endl;
 
@@ -283,8 +280,8 @@ void WBMpcMrtJointController::solverWorker() {
       auto currentTime = std::chrono::steady_clock::now();
       if (currentTime > targetTimeForNextIteration) {
         auto delay = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - targetTimeForNextIteration).count();
-        if (delay > 1000 && (++slowWarningCount % 10 == 0)) {
-          std::cerr << "Warning: MPC loop running slow by " << delay << " microseconds (showing 1 in 10)." << std::endl;
+        if (delay > 1000 && (++slowWarningCount % 20 == 0)) {
+          std::cerr << "Warning: MPC loop running slow by " << delay << " microseconds." << std::endl;
         }
       } else {
         // Sleep in case sim loop is faster than specified

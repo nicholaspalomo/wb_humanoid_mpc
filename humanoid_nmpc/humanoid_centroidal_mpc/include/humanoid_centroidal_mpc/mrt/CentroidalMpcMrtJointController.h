@@ -75,6 +75,27 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
 
   void loadPdGains(const std::string& pdGainsFile, const ModelSettings& modelSettings);
 
+  /**
+   * @brief Set the active control mode. When set to "JOINT_PD", the controller
+   *        computes Pinocchio-based gravity compensation + PD tracking to nominal positions.
+   */
+  void setControlMode(std::string_view mode) {
+    std::string newMode(mode);
+    if (newMode != controlMode_) {
+      if ((newMode == "WB_MPC" || newMode == "MPC_ACTIVE" || newMode == "CENTROIDAL_MPC") &&
+          (controlMode_ == "JOINT_PD" || controlMode_ == "ZERO_TORQUE")) {
+        resetMpcRequested_.store(true);
+      }
+      controlMode_ = newMode;
+    }
+  }
+  const std::string& getControlMode() const { return controlMode_; }
+
+  /**
+   * @brief Set nominal joint positions for JOINT_PD mode.
+   */
+  void setNominalJointPositions(const std::vector<scalar_t>& positions) { nominalJointPositions_ = positions; }
+
  private:
   /**
    * Handles the MPC solver thread.
@@ -104,6 +125,7 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   bool realtime_;  // True if MPC is to be run as fast as possible
 
   std::atomic_bool terminateThread_{false};
+  std::atomic_bool resetMpcRequested_{false};
   std::jthread solver_worker_;
 
   std::shared_ptr<DummyObserver> visualizerPtr_;
@@ -115,6 +137,15 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   vector_t mpcJointKd_;
   vector_t otherJointKp_;
   vector_t otherJointKd_;
+
+  std::string controlMode_{"WB_MPC"};  ///< Active control mode (JOINT_PD, WB_MPC, etc.)
+  std::vector<scalar_t> nominalJointPositions_;  ///< Nominal positions for JOINT_PD mode
+
+  /**
+   * @brief Compute per-joint gravity compensation torques via Pinocchio.
+   * Uses nonLinearEffects with zero velocity for pure gravity torques.
+   */
+  vector_t computeGravityCompensation(const ::robot::model::RobotState& robotState);
 };
 
 }  // namespace ocs2::humanoid

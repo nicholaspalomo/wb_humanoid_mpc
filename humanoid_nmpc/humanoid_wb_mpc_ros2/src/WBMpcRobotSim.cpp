@@ -168,8 +168,8 @@ int main(int argc, char** argv) {
       // Sub-millisecond overruns are normal OS scheduling jitter.
       if (!robotInterface.isZeroTorqueMode()) {
         auto delay = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - targetTimeForNextIteration).count();
-        if (delay > 1000 && (++mrtSlowCount % 10 == 0)) {
-          LOG(WARNING) << "MRT loop running slow by " << delay << " microseconds (showing 1 in 10).";
+        if (delay > 1000 && (++mrtSlowCount % 20 == 0)) {
+          LOG(WARNING) << "MRT loop running slow by " << delay << " microseconds.";
         }
       }
     } else {

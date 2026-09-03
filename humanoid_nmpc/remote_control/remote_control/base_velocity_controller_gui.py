@@ -27,6 +27,8 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ****************************************************************************"""
 
+import os
+import yaml
 import tkinter as tk
 from tkinter import ttk
 import threading
@@ -141,7 +143,10 @@ class App(tk.Tk):
         self.joystick_right.pack(pady=(5, 5))
 
         # Slider frame
-        self.slider_default_value = 75
+        self.min_height = 0.2
+        self.max_height = 1.3
+        self.height_scale = (self.max_height - self.min_height) / 100.0
+        self.slider_default_value = (0.8 - self.min_height) / self.height_scale
         self.slider_frame = ttk.Frame(main_frame)
         self.slider_frame.grid(row=0, column=2, padx=15, pady=10, sticky="ns")
 
@@ -283,10 +288,16 @@ class App(tk.Tk):
         self.joystick_right.set_position()
         self.slider.set(self.slider_default_value)
 
+    def set_default_pelvis_height(self, height: float):
+        self.max_height = max(1.3, height + 0.3)
+        self.height_scale = (self.max_height - self.min_height) / 100.0
+        self.slider_default_value = (height - self.min_height) / self.height_scale
+        self.slider.set(self.slider_default_value)
+
     def set_knob_positions(self, msg: WalkingVelocityCommand):
         self.joystick_left.set_position(msg.linear_velocity_x, msg.linear_velocity_y)
         self.joystick_right.set_position(0.0, msg.angular_velocity_z)
-        self.slider.set((msg.desired_pelvis_height - 0.2) / 0.008)
+        self.slider.set((msg.desired_pelvis_height - self.min_height) / self.height_scale)
 
     def get_walking_command_msg(self):
         msg = WalkingVelocityCommand()
@@ -295,7 +306,7 @@ class App(tk.Tk):
         msg.linear_velocity_y = self.joystick_left.y_norm
         msg.angular_velocity_z = self.joystick_right.y_norm
 
-        msg.desired_pelvis_height = self.slider.get() * 0.008 + 0.2
+        msg.desired_pelvis_height = self.slider.get() * self.height_scale + self.min_height
         return msg
 
 
@@ -305,6 +316,26 @@ class RosJoystickApp(Node):
 
         self.publisher_rate = 25  # Hz
         self.xbox_controller_interface = XBoxControllerInterface(self.publisher_rate)
+
+        # Declare parameters for robot-specific height configuration
+        self.declare_parameter("default_pelvis_height", 0.8)
+        self.declare_parameter("target_command_file", "")
+
+        default_height = float(self.get_parameter("default_pelvis_height").value)
+        cmd_file = str(self.get_parameter("target_command_file").value)
+        if cmd_file and os.path.exists(cmd_file):
+            try:
+                with open(cmd_file, "r") as f:
+                    data = yaml.safe_load(f)
+                    if data and "defaultBaseHeight" in data:
+                        default_height = float(data["defaultBaseHeight"])
+                        self.get_logger().info(
+                            f"Loaded defaultBaseHeight={default_height} from {cmd_file}"
+                        )
+            except Exception as e:
+                self.get_logger().warn(
+                    f"Failed to read defaultBaseHeight from {cmd_file}: {e}"
+                )
 
         qos_profile = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, depth=25)
 
@@ -328,6 +359,7 @@ class RosJoystickApp(Node):
         )
 
         self.app = App()
+        self.app.set_default_pelvis_height(default_height)
         self.app._fsm_command_callback = self._send_fsm_command
 
         self.timer = self.create_timer(1 / self.publisher_rate, self.timer_callback)

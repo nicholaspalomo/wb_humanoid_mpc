@@ -68,19 +68,19 @@ joint_gains:
     kp: 40.0
     kd: 3.0
 
-  # Left Leg — moderate gains, gravity comp handles the heavy lifting
+  # Left Leg
   l_leg_hpz:
-    kp: 400.0      # 275 N·m limit
-    kd: 28.0
-  l_leg_hpx:
-    kp: 600.0      # 530 N·m limit
+    kp: 800.0      # 275 N·m limit
     kd: 40.0
+  l_leg_hpx:
+    kp: 1000.0     # 530 N·m limit
+    kd: 60.0
   l_leg_hpy:
-    kp: 800.0      # 840 N·m limit — main sagittal driver
-    kd: 55.0
+    kp: 1200.0     # 840 N·m limit — main sagittal driver
+    kd: 70.0
   l_leg_kny:
-    kp: 800.0      # 890 N·m limit — weight bearing
-    kd: 55.0
+    kp: 1000.0     # 890 N·m limit — weight bearing
+    kd: 60.0
   l_leg_aky:
     kp: 600.0      # 740 N·m limit — ankle pitch
     kd: 40.0
@@ -90,20 +90,21 @@ joint_gains:
 
   # Right Leg (symmetric)
   r_leg_hpz:
-    kp: 400.0
-    kd: 28.0
-  r_leg_hpx:
-    kp: 600.0
+    kp: 800.0      # 275 N·m limit
     kd: 40.0
+  r_leg_hpx:
+    kp: 1000.0     # 530 N·m limit
+    kd: 60.0
   r_leg_hpy:
-    kp: 800.0
-    kd: 55.0
+    kp: 1200.0     # 840 N·m limit — main sagittal driver
+    kd: 70.0
   r_leg_kny:
-    kp: 800.0
-    kd: 55.0
+    kp: 1000.0     # 890 N·m limit
+    kd: 60.0
   r_leg_aky:
-    kp: 600.0
+    kp: 600.0      # 740 N·m limit
     kd: 40.0
   r_leg_akx:
-    kp: 400.0
+    kp: 400.0      # 360 N·m limit
     kd: 28.0
+
