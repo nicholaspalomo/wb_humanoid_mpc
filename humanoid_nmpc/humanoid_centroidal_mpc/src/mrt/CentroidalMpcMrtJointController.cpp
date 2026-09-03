@@ -282,7 +282,7 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
       action.qd_des = 0.0;
       action.kp = 0.0;
       action.kd = mpcJointKd_[i] * 0.2;  // Soft damping to prevent free-fall oscillation
-      action.feed_forward_effort = gravTorques[i];
+      action.feed_forward_effort = std::clamp(gravTorques[i], -mpcJointTorqueLimit_[i], mpcJointTorqueLimit_[i]);
     }
 
     for (size_t i = 0; i < otherJointIndices_.size(); i++) {
@@ -320,12 +320,9 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
     std::array<vector6_t, 2> footWrenches{mpcRobotModelPtr_->getContactWrench(mpcPolicyInput, 0),
                                           mpcRobotModelPtr_->getContactWrench(mpcPolicyInput, 1)};
 
-    vector_t q = mpcRobotModelPtr_->getGeneralizedCoordinates(currentMpcObservation_.state);
-    vector_t qd = mpcRobotModelPtr_->getGeneralizedVelocities(currentMpcObservation_.state, currentMpcObservation_.input);
-    // std::cerr << qd.head(6).transpose() << std::endl;
-
-    // This did not help.
-    // qd.head(6) = vector6_t::Zero();
+    // Evaluate inverse dynamics using MPC planned state and input for dynamical consistency with footWrenches
+    vector_t q = mpcRobotModelPtr_->getGeneralizedCoordinates(mpcPolicyState);
+    vector_t qd = mpcRobotModelPtr_->getGeneralizedVelocities(mpcPolicyState, mpcPolicyInput);
 
     vector_t mpcJointTorques = computeJointTorques<scalar_t>(q, qd, qdd_j_des, footWrenches, pinocchioInterface_);
 

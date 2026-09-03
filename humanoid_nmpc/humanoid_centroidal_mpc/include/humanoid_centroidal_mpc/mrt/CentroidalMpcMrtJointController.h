@@ -82,10 +82,6 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   void setControlMode(std::string_view mode) {
     std::string newMode(mode);
     if (newMode != controlMode_) {
-      if ((newMode == "WB_MPC" || newMode == "MPC_ACTIVE" || newMode == "CENTROIDAL_MPC") &&
-          (controlMode_ == "JOINT_PD" || controlMode_ == "ZERO_TORQUE" || controlMode_ == "GRAVITY_COMP")) {
-        resetMpcRequested_.store(true);
-      }
       controlMode_ = newMode;
     }
   }

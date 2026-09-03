@@ -69,7 +69,7 @@
           solref="0.004 1.0"/>
 
     <!-- Atlas robot - pelvis is the floating base body -->
-    <body name="pelvis" pos="0 0 0.88">
+    <body name="pelvis" pos="0 0 0.895">
       <freejoint name="root"/>
       <inertial pos="-0.0346 0.00 0.02" mass="17.882" diaginertia="0.126 0.099 0.117"/>
       <geom class="visual" type="mesh" mesh="pelvis_mesh"/>
