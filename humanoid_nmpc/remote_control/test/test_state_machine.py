@@ -48,7 +48,7 @@ class TestHumanoidFSM(unittest.TestCase):
         self.assertIn("task_path", atlas_cfg)
         self.assertIsNotNone(atlas_cfg["task_path"])
         self.assertEqual(len(atlas_cfg["nominal_q"]), len(atlas_cfg["joint_names"]))
-        self.assertAlmostEqual(atlas_cfg["nominal_pelvis_height_bent"], 0.70)
+        self.assertAlmostEqual(atlas_cfg["nominal_pelvis_height_bent"], 0.895)
         self.assertIn("r_leg_kny", atlas_cfg["joint_names"])
         self.assertIn("l_leg_kny", atlas_cfg["joint_names"])
 
@@ -112,7 +112,7 @@ class TestHumanoidFSM(unittest.TestCase):
 
         # Auto-calibrate ground touch
         cal_h = gantry.auto_calibrate_ground_touch(foot_clearance=0.005)
-        self.assertAlmostEqual(cal_h, 0.705)
+        self.assertAlmostEqual(cal_h, 0.900)
         self.assertTrue(gantry.is_locked)
 
     def test_zero_torque_computation(self):
@@ -183,10 +183,10 @@ class TestHumanoidFSM(unittest.TestCase):
         self.assertIsNotNone(atlas_cfg["controller_path"])
         self.assertEqual(len(atlas_cfg["kp_vector"]), len(atlas_cfg["joint_names"]))
         self.assertEqual(len(atlas_cfg["kd_vector"]), len(atlas_cfg["joint_names"]))
-        # Atlas knee gain from joint_pd_gains.yaml is 500.0
+        # Atlas knee gain from joint_pd_gains.yaml is 1000.0 / 60.0
         kny_idx = atlas_cfg["joint_names"].index("r_leg_kny")
-        self.assertEqual(atlas_cfg["kp_vector"][kny_idx], 500.0)
-        self.assertEqual(atlas_cfg["kd_vector"][kny_idx], 35.0)
+        self.assertEqual(atlas_cfg["kp_vector"][kny_idx], 1000.0)
+        self.assertEqual(atlas_cfg["kd_vector"][kny_idx], 60.0)
 
     def test_safety_damped_pd_decay(self):
         """Verifies SAFETY mode decays PD gains smoothly and transitions to ZERO_TORQUE."""

@@ -1,4 +1,5 @@
 /******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -33,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_robotic_tools/common/RotationTransforms.h>
 
 #include <humanoid_common_mpc/gait/MotionPhaseDefinition.h>
+#include <humanoid_common_mpc/common/ThreadAffinity.h>
 #include <humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h>
 #include <humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h>
 #include "humanoid_wb_mpc/dynamics/DynamicsHelperFunctions.h"
@@ -262,6 +264,9 @@ void WBMpcMrtJointController::computeJointControlAction(scalar_t time,
 /******************************************************************************************************/
 
 void WBMpcMrtJointController::solverWorker() {
+  const auto coreAlloc = ocs2::humanoid::getDefaultCoreAllocation();
+  ocs2::humanoid::setThreadCpuAffinity(coreAlloc.mpcCores, pthread_self(), "WB MPC Solver Thread");
+
   mcpMrtInterface_.resetMpcNode(currentObservationToResetTrajectory(mcpMrtInterface_.getCurrentObservation()));
   std::cerr << "MPC is reset. NMPC solver started!" << std::endl;
 

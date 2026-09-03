@@ -1,4 +1,5 @@
 /******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -75,6 +76,8 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   void initSim();
 
   void startSim();
+
+  std::thread& getSimulationThread() { return simulate_thread_; }
 
   void simulationStep();
 

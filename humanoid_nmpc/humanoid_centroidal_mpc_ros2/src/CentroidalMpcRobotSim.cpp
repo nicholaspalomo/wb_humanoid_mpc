@@ -1,4 +1,5 @@
 /******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
 Copyright (c) 2024, 1X Technologies. All rights reserved.
 
@@ -38,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <humanoid_centroidal_mpc/command/CentroidalMpcTargetTrajectoriesCalculator.h>
 #include <humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h>
+#include <humanoid_common_mpc/common/ThreadAffinity.h>
 #include <absl/log/log.h>
 #include "humanoid_common_mpc_ros2/fsm/SimFsmBridge.h"
 #include "humanoid_common_mpc_ros2/ros_comm/Ros2ProceduralMpcMotionManager.h"
@@ -136,7 +138,10 @@ int main(int argc, char** argv) {
 
   // Start sim loop in zero-torque mode: the robot spawns passively held by the gantry.
   // The MPC solver continues to receive state feedback and refine its policy.
+  const auto coreAlloc = ocs2::humanoid::getDefaultCoreAllocation();
   robotInterface.startSim();
+  ocs2::humanoid::setThreadCpuAffinity(coreAlloc.simCores, robotInterface.getSimulationThread().native_handle(), "MuJoCo Simulation");
+  ocs2::humanoid::setThreadCpuAffinity(coreAlloc.mrtCores, pthread_self(), "MRT Joint Control Loop");
 
   rclcpp::spin_some(nodeHandle);
   LOG(INFO) << "Zero-torque mode: robot spawned. Waiting for FSM command to enable torques...";

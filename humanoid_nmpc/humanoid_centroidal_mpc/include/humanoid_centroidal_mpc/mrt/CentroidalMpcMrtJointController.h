@@ -1,4 +1,5 @@
 /******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -86,9 +87,6 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   void setControlMode(std::string_view mode) {
     std::string newMode(mode);
     if (newMode != controlMode_) {
-      if (newMode == "WB_MPC" || newMode == "MPC_ACTIVE") {
-        resetMpcRequested_.store(true);
-      }
       controlMode_ = newMode;
     }
   }
@@ -143,7 +141,7 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   vector_t otherJointKd_;
   vector_t otherJointTorqueLimit_;
 
-  std::string controlMode_{"WB_MPC"};  ///< Active control mode (JOINT_PD, WB_MPC, etc.)
+  std::string controlMode_{"WB_MPC"};            ///< Active control mode (JOINT_PD, WB_MPC, etc.)
   std::vector<scalar_t> nominalJointPositions_;  ///< Nominal positions for JOINT_PD mode
 
   /**
