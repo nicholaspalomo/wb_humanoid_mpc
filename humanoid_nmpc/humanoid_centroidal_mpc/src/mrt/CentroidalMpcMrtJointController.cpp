@@ -419,9 +419,6 @@ void CentroidalMpcMrtJointController::solverWorker() {
 
     mcpMrtInterface_.advanceMpc();
 
-    // Update the active policy buffer; if a solve didn't finish this iteration, continue looping
-    mcpMrtInterface_.updatePolicy();
-
     if (!realtime_) {
       auto currentTime = std::chrono::steady_clock::now();
       if (currentTime > targetTimeForNextIteration) {

@@ -61,6 +61,10 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
    */
   ~CentroidalMpcMrtJointController();
 
+  bool ready() {
+    mcpMrtInterface_.updatePolicy();
+    return mcpMrtInterface_.initialPolicyReceived();
+  }
   bool ready() const { return mcpMrtInterface_.initialPolicyReceived(); }
 
   /**
@@ -82,6 +86,9 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   void setControlMode(std::string_view mode) {
     std::string newMode(mode);
     if (newMode != controlMode_) {
+      if (newMode == "WB_MPC" || newMode == "MPC_ACTIVE") {
+        resetMpcRequested_.store(true);
+      }
       controlMode_ = newMode;
     }
   }

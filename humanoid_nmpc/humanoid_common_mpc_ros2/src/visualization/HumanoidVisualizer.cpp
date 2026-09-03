@@ -130,6 +130,9 @@ void HumanoidVisualizer::publishObservation(const SystemObservation& observation
 
 void HumanoidVisualizer::publishJointTransforms(const vector_t& jointAngles,
                                                 rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr jointPublisherPtr) const {
+  if (jointPublisherPtr == nullptr || jointAngles.size() != mpcRobotModelPtr_->getJointDim()) {
+    return;
+  }
   sensor_msgs::msg::JointState joint_state;
   joint_state.header.stamp = node_handle_->now();
   joint_state.name.resize(mpcRobotModelPtr_->getFullModelJointDim());
@@ -324,15 +327,23 @@ void HumanoidVisualizer::publishOptimizedStateTrajectory(const scalar_array_t& m
   });
 
   // Publish Terminal MPC State
-  vector_t terminalState = mpcStateTrajectory.back();
-  publishJointTransforms(mpcRobotModelPtr_->getJointAngles(terminalState), terminalJointPublisherPtr_);
-  publishBaseTransform(mpcRobotModelPtr_->getBasePose(terminalState), "terminal_state/");
+  if (!mpcStateTrajectory.empty() && mpcStateTrajectory.back().size() == mpcRobotModelPtr_->getStateDim()) {
+    vector_t terminalState = mpcStateTrajectory.back();
+    publishJointTransforms(mpcRobotModelPtr_->getJointAngles(terminalState), terminalJointPublisherPtr_);
+    publishBaseTransform(mpcRobotModelPtr_->getBasePose(terminalState), "terminal_state/");
+  }
 
   // Publish Terminal Target State
-  if (!targetTrajectories.empty()) {
-    vector_t targetTerminalState = targetTrajectories.getDesiredState(mpcTimeTrajectory.back());
-    publishJointTransforms(mpcRobotModelPtr_->getJointAngles(targetTerminalState), terminalJointTargetPublisherPtr_);
-    publishBaseTransform(mpcRobotModelPtr_->getBasePose(targetTerminalState), "terminal_target/");
+  if (!targetTrajectories.empty() && !targetTrajectories.stateTrajectory.empty() && !mpcTimeTrajectory.empty()) {
+    try {
+      vector_t targetTerminalState = targetTrajectories.getDesiredState(mpcTimeTrajectory.back());
+      if (targetTerminalState.size() == mpcRobotModelPtr_->getStateDim()) {
+        publishJointTransforms(mpcRobotModelPtr_->getJointAngles(targetTerminalState), terminalJointTargetPublisherPtr_);
+        publishBaseTransform(mpcRobotModelPtr_->getBasePose(targetTerminalState), "terminal_target/");
+      }
+    } catch (const std::exception& e) {
+      // Suppress transient target interpolation exceptions
+    }
   }
 
   // Convert feet msgs to Array message
@@ -399,7 +410,10 @@ void HumanoidVisualizer::update(const SystemObservation& observation, const Prim
 
     // Publish a new optimized trajectory if it is non-empty and not equal to the previous one
     if (!policy.timeTrajectory_.empty() && !policy.stateTrajectory_.empty() && !policy.inputTrajectory_.empty()) {
-      if (policy.timeTrajectory_.front() != prevPolicyTime || !policy.stateTrajectory_.front().isApprox(prevPolicyState) ||
+      if (prevPolicyState.size() != policy.stateTrajectory_.front().size() ||
+          prevPolicyInput.size() != policy.inputTrajectory_.front().size() ||
+          policy.timeTrajectory_.front() != prevPolicyTime ||
+          !policy.stateTrajectory_.front().isApprox(prevPolicyState) ||
           !policy.inputTrajectory_.front().isApprox(prevPolicyInput)) {
         prevPolicyTime = policy.timeTrajectory_.front();
         prevPolicyState = policy.stateTrajectory_.front();
