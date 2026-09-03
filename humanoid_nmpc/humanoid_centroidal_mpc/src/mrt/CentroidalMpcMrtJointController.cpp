@@ -330,8 +330,6 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
 
     // std::cout << "mpcJointTorques: " << mpcJointTorques.transpose() << std::endl;
 
-    vector_t gravTorques = computeGravityCompensation(robotState);
-
     for (size_t i = 0; i < mpcJointIndices_.size(); i++) {
       size_t index = mpcJointIndices_[i];
       robot::model::JointAction& action = robotJointAction.at(index).value();
@@ -340,21 +338,21 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
       action.qd_des = mpc_qd_j_des[i];
       action.kp = mpcJointKp_[i];
       action.kd = mpcJointKd_[i];
-      action.feed_forward_effort = std::clamp(gravTorques[i], -mpcJointTorqueLimit_[i], mpcJointTorqueLimit_[i]);
+      action.feed_forward_effort = std::clamp(mpcJointTorques[i], -mpcJointTorqueLimit_[i], mpcJointTorqueLimit_[i]);
     };
 
     static size_t mpcDebugCount = 0;
     if (++mpcDebugCount % 200 == 1) {
       std::cerr << "[ACTIVE_MPC] Foot wrenches: L=" << footWrenches[0].transpose()
                 << " R=" << footWrenches[1].transpose() << std::endl;
-      std::cerr << "[ACTIVE_MPC] gravTorques: " << gravTorques.transpose() << std::endl;
+      std::cerr << "[ACTIVE_MPC] Torques: " << mpcJointTorques.transpose() << std::endl;
       for (size_t i = 0; i < mpcJointIndices_.size(); i++) {
         size_t index = mpcJointIndices_[i];
         double q_cur = robotState.getJointPosition(index);
         double q_des = mpc_q_j_des[i];
-        if (std::abs(q_des - q_cur) > 0.05 || std::abs(gravTorques[i]) > 100.0) {
+        if (std::abs(q_des - q_cur) > 0.05 || std::abs(mpcJointTorques[i]) > 100.0) {
           std::cerr << "  mpc_joint[" << index << "] des=" << q_des << " cur=" << q_cur
-                    << " err=" << (q_des - q_cur) << " tau=" << gravTorques[i] << std::endl;
+                    << " err=" << (q_des - q_cur) << " tau=" << mpcJointTorques[i] << std::endl;
         }
       }
     }
@@ -418,13 +416,10 @@ void CentroidalMpcMrtJointController::solverWorker() {
   while (!terminateThread_.load()) {
     auto targetTimeForNextIteration = std::chrono::steady_clock::now() + std::chrono::microseconds(mpcDeltaTMicroSeconds_);
 
-    // Handle on-the-fly MPC reset when transitioning to active MPC mode
-    if (resetMpcRequested_.exchange(false)) {
-      mcpMrtInterface_.resetMpcNode(currentObservationToResetTrajectory(mcpMrtInterface_.getCurrentObservation()));
-      std::cerr << "MPC reset to current observation on mode switch to " << controlMode_ << "!" << std::endl;
-    }
-
     mcpMrtInterface_.advanceMpc();
+
+    // Update active policy buffer immediately after solve finishes
+    mcpMrtInterface_.updatePolicy();
 
     if (!realtime_) {
       auto currentTime = std::chrono::steady_clock::now();

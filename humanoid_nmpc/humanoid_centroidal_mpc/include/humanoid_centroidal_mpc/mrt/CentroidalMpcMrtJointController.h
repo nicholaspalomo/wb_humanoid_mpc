@@ -126,7 +126,6 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   bool realtime_;  // True if MPC is to be run as fast as possible
 
   std::atomic_bool terminateThread_{false};
-  std::atomic_bool resetMpcRequested_{false};
   std::jthread solver_worker_;
 
   std::shared_ptr<DummyObserver> visualizerPtr_;
