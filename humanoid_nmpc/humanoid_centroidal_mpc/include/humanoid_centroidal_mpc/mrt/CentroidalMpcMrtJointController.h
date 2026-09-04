@@ -78,7 +78,7 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
 
   void startMpcThread(const ::robot::model::RobotState& initRobotState);
 
-  void loadPdGains(const std::string& pdGainsFile, const ModelSettings& modelSettings);
+  void loadPdGains(const std::string& pdGainsFile);
 
   /**
    * @brief Set the active control mode. When set to "JOINT_PD", the controller
@@ -159,7 +159,8 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   vector_t latestPolicyInput_;                   ///< Latest MPC policy input (e.g. contact forces, joint accelerations)
 
   std::string pdGainsFile_;
-  ModelSettings modelSettings_;
+  std::vector<std::string> mpcModelJointNames_;
+  std::vector<std::string> fixedJointNames_;
   std::filesystem::file_time_type pdGainsLastWriteTime_;
   size_t fileCheckCounter_{0};
 

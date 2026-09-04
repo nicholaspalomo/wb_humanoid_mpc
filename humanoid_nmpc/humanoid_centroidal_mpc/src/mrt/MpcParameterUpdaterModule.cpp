@@ -75,16 +75,18 @@ void MpcParameterUpdaterModule::preSolverRun(scalar_t initTime,
       auto newOcp = latestInterface_->getOptimalControlProblem();
 
       // Overwrite the solver's thread-local OCP definitions
-      auto* solverBasePtr = mpcPtr_->getSolverPtr();
-      if (solverBasePtr != nullptr) {
-        auto* sqpSolverPtr = dynamic_cast<SqpSolver*>(solverBasePtr);
-        if (sqpSolverPtr) {
-          for (auto& ocp : sqpSolverPtr->getOcpDefinitions()) {
-            ocp = newOcp;
+      if (mpcPtr_ != nullptr) {
+        auto* solverBasePtr = mpcPtr_->getSolverPtr();
+        if (solverBasePtr != nullptr) {
+          auto* sqpSolverPtr = dynamic_cast<SqpSolver*>(solverBasePtr);
+          if (sqpSolverPtr) {
+            for (auto& ocp : sqpSolverPtr->getOcpDefinitions()) {
+              ocp = newOcp;
+            }
+            LOG(INFO) << "[MpcParameterUpdaterModule] Successfully updated OCP definitions in SqpSolver.";
+          } else {
+            LOG(ERROR) << "[MpcParameterUpdaterModule] Underlying solver is not SqpSolver. Cannot update parameters.";
           }
-          LOG(INFO) << "[MpcParameterUpdaterModule] Successfully updated OCP definitions in SqpSolver.";
-        } else {
-          LOG(ERROR) << "[MpcParameterUpdaterModule] Underlying solver is not SqpSolver. Cannot update parameters.";
         }
       }
     }
