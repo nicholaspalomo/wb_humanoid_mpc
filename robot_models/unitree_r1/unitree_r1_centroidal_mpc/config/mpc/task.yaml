@@ -140,7 +140,7 @@ initialState:
   # Base Pose: [position, orientation]
   "(6,0)": 0.0  # p_base_x
   "(7,0)": 0.0  # p_base_y
-  "(8,0)": 0.68  # p_base_z
+  "(8,0)": 0.70  # p_base_z
   "(9,0)": 0.0  # theta_base_z
   "(10,0)": 0.0  # theta_base_y
   "(11,0)": 0.0  # theta_base_x
@@ -387,16 +387,16 @@ right_leg_torque_cost:
 
 contacts:
   contact_frame_translation:
-    # Translation vector from parent joint to contact frame
-    x: 0.03
+    # Translation vector from parent joint to contact frame (center of foot support polygon)
+    x: 0.04
     y: 0.0
-    z: -0.03
+    z: -0.05324
   contact_rectangle:
     # length specified in contact frame
-    x_max: 0.08
-    x_min: -0.08
-    y_max: 0.03
-    y_min: -0.03
+    x_max: 0.095
+    x_min: -0.095
+    y_max: 0.035
+    y_min: -0.035
 
   frictionForceConeSoftConstraint:
     frictionCoefficient: 0.4

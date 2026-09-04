@@ -165,11 +165,11 @@ class JointPdGainsTab(ttk.Frame):
         ).pack(side="left")
 
         btn_state = "normal" if self.enable_online_tuning else "disabled"
-        for factor in [0.5, 0.8, 1.0, 1.2, 1.5, 2.0]:
+        for factor in [0.001, 0.01, 0.1, 0.5, 0.8, 1.0, 1.2, 1.5, 2.0]:
             btn = ttk.Button(
                 kp_sub,
                 text=f"{factor}x",
-                width=5,
+                width=6,
                 command=lambda f=factor: self._scale_all("kp", f),
                 state=btn_state,
             )
@@ -184,11 +184,11 @@ class JointPdGainsTab(ttk.Frame):
             kd_sub, text="Scale Kd:", font=("Helvetica", 9, "bold"), width=10
         ).pack(side="left")
 
-        for factor in [0.5, 0.8, 1.0, 1.2, 1.5, 2.0]:
+        for factor in [0.001, 0.01, 0.1, 0.5, 0.8, 1.0, 1.2, 1.5, 2.0]:
             btn = ttk.Button(
                 kd_sub,
                 text=f"{factor}x",
-                width=5,
+                width=6,
                 command=lambda f=factor: self._scale_all("kd", f),
                 state=btn_state,
             )
