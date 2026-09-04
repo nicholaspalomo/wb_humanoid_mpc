@@ -282,3 +282,7 @@ launch-r1-sandbox-vnc: kill-sims start-vnc
 	@echo "🚀 Building targets and launching Unitree R1 URDF Viewer..."
 	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch unitree_r1_description display.launch.py
 # LINT.ThenChange(//setup_env.sh:registered_packages, //.devcontainer/VISUALIZATION.md:launch_targets)
+
+plotjuggler:
+	@echo "📊 Launching PlotJuggler with Humanoid Telemetry layout..."
+	$(source_env) && ros2 run plotjuggler plotjuggler --buffer_size 60 --layout tools/plotjuggler/humanoid_telemetry.xml

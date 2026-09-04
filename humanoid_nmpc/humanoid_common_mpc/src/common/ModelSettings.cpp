@@ -192,8 +192,7 @@ ModelSettings::ModelSettings(const std::string& configFile, const std::string& u
                            footConstraintPrefix + "linearAccelerationErrorGain_xy", verbose);
   loadData::loadPtreeValue(pt, this->footConstraintConfig.angularAccelerationErrorGain,
                            footConstraintPrefix + "angularAccelerationErrorGain", verbose);
-  loadData::loadPtreeValue(pt, this->footConstraintConfig.softConstraintWeight,
-                           footConstraintPrefix + "softConstraintWeight", verbose);
+  loadData::loadPtreeValue(pt, this->footConstraintConfig.softConstraintWeight, footConstraintPrefix + "softConstraintWeight", verbose);
 
   if (verbose) {
     std::cerr << " #### "

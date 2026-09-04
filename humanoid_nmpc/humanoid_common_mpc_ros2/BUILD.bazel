@@ -18,6 +18,8 @@ cc_library(
         "src/benchmarks/SqpBenchmarksPublisher.cpp",
         "src/benchmarks/DdpBenchmarksPublisher.cpp",
         "src/fsm/SimFsmBridge.cpp",
+        "src/telemetry/HumanoidTelemetryPublisher.cpp",
+        "src/telemetry/PinocchioTelemetryPublisher.cpp",
     ],
     hdrs = glob(["include/**"], allow_empty = True),
     includes = ["include"],

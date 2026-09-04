@@ -489,8 +489,8 @@ void MujocoSimInterface::simulationStep() {
       // This enforces physical actuator limits on the combined PD + feedforward torque,
       // preventing the unclamped PD term from exceeding actuator capabilities.
       if (mujocoModel_->actuator_forcelimited[i]) {
-        totalTorque = std::clamp(totalTorque, (double)mujocoModel_->actuator_forcerange[2 * i],
-                                 (double)mujocoModel_->actuator_forcerange[2 * i + 1]);
+        totalTorque =
+            std::clamp(totalTorque, (double)mujocoModel_->actuator_forcerange[2 * i], (double)mujocoModel_->actuator_forcerange[2 * i + 1]);
       } else {
         // Fallback: use the joint's actuatorfrcrange if the actuator itself isn't force-limited.
         // Look up the joint index from the actuator's transmission target.
@@ -621,6 +621,22 @@ void MujocoSimInterface::startSim() {
   if (!simInit_) initSim();
   // Simulate in simulate_thread thread while rendering in this thread
   simulate_thread_ = std::thread(&MujocoSimInterface::simulationLoop, this);
+}
+
+vector3_t MujocoSimInterface::getLeftFootMeasuredForce() const {
+  if (left_foot_sensor_addr_ != static_cast<size_t>(-1) && mujocoData_ != nullptr) {
+    return vector3_t(mujocoData_->sensordata[left_foot_sensor_addr_], mujocoData_->sensordata[left_foot_sensor_addr_ + 1],
+                     mujocoData_->sensordata[left_foot_sensor_addr_ + 2]);
+  }
+  return vector3_t::Zero();
+}
+
+vector3_t MujocoSimInterface::getRightFootMeasuredForce() const {
+  if (right_foot_sensor_addr_ != static_cast<size_t>(-1) && mujocoData_ != nullptr) {
+    return vector3_t(mujocoData_->sensordata[right_foot_sensor_addr_], mujocoData_->sensordata[right_foot_sensor_addr_ + 1],
+                     mujocoData_->sensordata[right_foot_sensor_addr_ + 2]);
+  }
+  return vector3_t::Zero();
 }
 
 }  // namespace robot::mujoco_sim_interface

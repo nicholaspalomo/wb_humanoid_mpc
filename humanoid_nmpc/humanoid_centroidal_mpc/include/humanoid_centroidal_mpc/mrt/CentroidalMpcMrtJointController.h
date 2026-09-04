@@ -105,6 +105,10 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
    */
   void setNominalJointPositions(const std::vector<scalar_t>& positions) { nominalJointPositions_ = positions; }
 
+  const ocs2::SystemObservation& getCurrentObservation() const { return currentMpcObservation_; }
+  const vector_t& getLatestPolicyInput() const { return latestPolicyInput_; }
+  const CommandData& getCommandData() const { return mcpMrtInterface_.getCommand(); }
+
  private:
   /**
    * Handles the MPC solver thread.
@@ -151,7 +155,8 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
 
   std::string controlMode_{"WB_MPC"};            ///< Active control mode (JOINT_PD, WB_MPC, etc.)
   std::vector<scalar_t> nominalJointPositions_;  ///< Nominal positions for JOINT_PD mode
-  scalar_t previousObservationTime_{0.0};         ///< Previous sim time for computing actual dt
+  scalar_t previousObservationTime_{0.0};        ///< Previous sim time for computing actual dt
+  vector_t latestPolicyInput_;                   ///< Latest MPC policy input (e.g. contact forces, joint accelerations)
 
   /**
    * @brief Compute per-joint gravity compensation torques via Pinocchio.

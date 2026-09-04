@@ -176,6 +176,80 @@ State transitions are managed natively over ROS 2 topics:
 
 ![robot_remote_control](https://github.com/user-attachments/assets/779be1da-97a1-4d0c-8f9b-b9d2df88384f)
 
+### 🎛️ Interactive Controller GUI & Parameter Tuning Tabs
+
+The joystick GUI (`base_velocity_controller_gui`) features a dark-themed tabbed interface organized into three specialized workstations:
+
+1. **🕹️ Base Controller:**
+   - Command planar velocities ($v_x, v_y, \omega_z$) via interactive virtual joysticks or physical Xbox gamepad.
+   - Adjust root pelvis height and virtual gantry suspension.
+   - Switch supervisory FSM modes (`ZERO_TORQUE`, `JOINT_PD`, `GRAVITY_COMP`, `WB_MPC`, `SAFETY`).
+   - Instant-launch **PlotJuggler** pre-configured with telemetry stream tabs.
+
+2. **⚙️ Joint PD Gains Tuning (`joint_pd_gains.yaml`):**
+   - Individual real-time sliders and numeric input boxes for joint proportional ($K_p$) and derivative ($K_d$) feedback gains.
+   - **Limb Grouping:** Organized collapsible accordion categories for Spine, Left Arm, Right Arm, Left Leg, and Right Leg.
+   - **Master Scaling:** Global scale multipliers ($\times 0.5 \dots \times 2.0$) to scale all $K_p$ and $K_d$ gains simultaneously.
+   - **Robot Model Presets:** Instantly switch between Unitree G1, DRC Atlas, and Unitree R1 gain files.
+   - **Comment-Preserving Save:** Saves modifications directly into `joint_pd_gains.yaml` preserving all existing comments, whitespace, and formatting, with automated timestamped `.bak` safety backups.
+
+3. **📈 MPC Parameters Tuning (`task.yaml`):**
+   - Real-time sliders and numeric entry for diagonal state cost weights ($Q$), control input penalties ($R$), and terminal state weights ($Q_{\text{final}}$).
+   - Category filtering across **State Costs (Q)**, **Input Costs (R)**, **Terminal Costs (Q_final)**, **Task-Space Costs** (foot/torso tracking), and **Constraints & Barriers** (friction cone $\mu$, relaxed barrier parameters).
+   - In-place YAML updater preserving all section headers, inline documentation, and matrix layouts with `.bak` safety backups.
+
+---
+
+### ⚙️ Telemetry & Online Tuning Configuration (`task.yaml`)
+
+Each robot model's MPC task configuration file (`task.yaml`) includes runtime flags at the very top:
+
+```yaml
+# Telemetry logging & Online GUI tuning toggles
+enableTelemetry: true     # Enable/disable high-rate telemetry publishing to ROS 2 & PlotJuggler
+enableOnlineTuning: true  # Enable/disable interactive slider adjustments and saving in GUI
+```
+
+- **`enableTelemetry`:** When `false`, the C++ simulation node completely skips instantiating and publishing the telemetry bridge, eliminating overhead on `/joint_states`, `/robot/base_*`, `/mpc/*`, and `/sensors/*`. In the Joystick GUI, the **PlotJuggler** button will also be disabled.
+- **`enableOnlineTuning`:** When `false`, the GUI disables all sliders, quick multipliers, and YAML save buttons in both the **⚙️ Joint PD Gains** and **📈 MPC Parameters** tabs, displaying an orange safety badge `🔒 Online Tuning Disabled`.
+
+---
+
+### 📊 Real-Time Telemetry & PlotJuggler (`make plotjuggler`)
+
+Simulations publish high-rate telemetry topics designed for instant inspection in **PlotJuggler**:
+
+```bash
+# Launch PlotJuggler with pre-configured humanoid telemetry layout
+make plotjuggler
+```
+*(Or click the **📊 PlotJuggler** button in the Base Controller GUI)*.
+
+#### Pre-Configured Telemetry Layout Tabs
+- **Base Pose & Euler Angles:** Robot actual floating-base position and orientation (Roll, Pitch, Yaw in degrees) vs. MPC planned trajectory.
+- **Base Twist:** Actual base linear ($v_x, v_y, v_z$) and angular ($\omega_x, \omega_y, \omega_z$) velocities vs. MPC target velocities.
+- **Contact Forces:** Commanded 3D foot contact forces from MPC vs. simulated sensor forces measured directly from MuJoCo foot force sensors.
+- **Joint Dynamics:** Current joint positions, velocities, applied motor torques, and MPC target position/velocity trajectories.
+
+#### Published ROS 2 Telemetry Topics
+| Topic | Type | Description |
+|---|---|---|
+| `/joint_states` | `sensor_msgs/msg/JointState` | Current robot joint positions, velocities, and applied torques |
+| `/mpc/joint_targets` | `sensor_msgs/msg/JointState` | MPC target joint positions, velocities, and feedforward torques |
+| `/robot/base_pose` | `geometry_msgs/msg/PoseStamped` | Actual floating-base 3D position and orientation (Quaternion) |
+| `/robot/base_euler` | `geometry_msgs/msg/Vector3Stamped` | Actual floating-base Roll, Pitch, and Yaw angles [rad] |
+| `/robot/base_twist` | `geometry_msgs/msg/TwistStamped` | Actual floating-base linear and angular twist in world frame |
+| `/mpc/target_base_pose` | `geometry_msgs/msg/PoseStamped` | MPC optimal reference base position and orientation |
+| `/mpc/target_base_euler` | `geometry_msgs/msg/Vector3Stamped` | MPC optimal reference Roll, Pitch, and Yaw angles [rad] |
+| `/mpc/target_base_twist` | `geometry_msgs/msg/TwistStamped` | MPC optimal reference base linear and angular velocity |
+| `/mpc/contact_wrench/left` | `geometry_msgs/msg/WrenchStamped` | Left foot contact wrench commanded by MPC |
+| `/mpc/contact_wrench/right` | `geometry_msgs/msg/WrenchStamped` | Right foot contact wrench commanded by MPC |
+| `/sensors/contact_wrench/left` | `geometry_msgs/msg/WrenchStamped` | Measured left foot contact force from MuJoCo sensor |
+| `/sensors/contact_wrench/right` | `geometry_msgs/msg/WrenchStamped` | Measured right foot contact force from MuJoCo sensor |
+| `/mpc/observation` | `ocs2_ros2_msgs/msg/MpcObservation` | Latest full system observation tracked by the MPC solver |
+
+---
+
 ### MuJoCo 3D Viewer Hotkeys
 When focused in the MuJoCo simulation viewport, use these keyboard shortcuts:
 

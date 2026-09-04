@@ -39,9 +39,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 
-#include "humanoid_common_mpc/common/StatusMacros.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "humanoid_common_mpc/common/StatusMacros.h"
 
 namespace ocs2::humanoid {
 
@@ -94,14 +94,10 @@ const absl::flat_hash_map<std::string, MpcSoftConstraintType> kSoftConstraintMap
 };
 
 const absl::flat_hash_map<std::string, MpcHardConstraintType> kHardConstraintMap = {
-    {"zerowrench", MpcHardConstraintType::ZeroWrench},
-    {"zerowrenchconstraint", MpcHardConstraintType::ZeroWrench},
-    {"zerovelocity", MpcHardConstraintType::ZeroVelocity},
-    {"zerovelocityconstraint", MpcHardConstraintType::ZeroVelocity},
-    {"normalvelocity", MpcHardConstraintType::NormalVelocity},
-    {"normalvelocityconstraint", MpcHardConstraintType::NormalVelocity},
-    {"kneejointmimic", MpcHardConstraintType::KneeJointMimic},
-    {"kneejointmimicconstraint", MpcHardConstraintType::KneeJointMimic},
+    {"zerowrench", MpcHardConstraintType::ZeroWrench},         {"zerowrenchconstraint", MpcHardConstraintType::ZeroWrench},
+    {"zerovelocity", MpcHardConstraintType::ZeroVelocity},     {"zerovelocityconstraint", MpcHardConstraintType::ZeroVelocity},
+    {"normalvelocity", MpcHardConstraintType::NormalVelocity}, {"normalvelocityconstraint", MpcHardConstraintType::NormalVelocity},
+    {"kneejointmimic", MpcHardConstraintType::KneeJointMimic}, {"kneejointmimicconstraint", MpcHardConstraintType::KneeJointMimic},
     {"mimicjoints", MpcHardConstraintType::KneeJointMimic},
 };
 
@@ -114,8 +110,8 @@ absl::StatusOr<MpcCostType> stringToMpcCostType(absl::string_view name) {
     return it->second;
   }
   return absl::InvalidArgumentError(absl::StrCat(
-      "Unknown MPC cost type: '", name, "'. Supported costs are: ",
-      "state_quadratic_cost, input_quadratic_cost, state_input_quadratic_cost, terminal_cost, icp_cost, ",
+      "Unknown MPC cost type: '", name,
+      "'. Supported costs are: ", "state_quadratic_cost, input_quadratic_cost, state_input_quadratic_cost, terminal_cost, icp_cost, ",
       "task_space_foot_cost, task_space_torso_cost, external_torque_cost, joint_torque_cost."));
 }
 
@@ -150,9 +146,9 @@ absl::StatusOr<MpcSoftConstraintType> stringToMpcSoftConstraintType(absl::string
   if (it != kSoftConstraintMap.end()) {
     return it->second;
   }
-  return absl::InvalidArgumentError(absl::StrCat(
-      "Unknown MPC soft constraint type: '", name, "'. Supported soft constraints are: ",
-      "joint_limits, foot_collision, friction_force_cone, contact_moment_xy, contact_wrench_cone, zero_velocity."));
+  return absl::InvalidArgumentError(
+      absl::StrCat("Unknown MPC soft constraint type: '", name, "'. Supported soft constraints are: ",
+                   "joint_limits, foot_collision, friction_force_cone, contact_moment_xy, contact_wrench_cone, zero_velocity."));
 }
 
 absl::StatusOr<std::string> mpcSoftConstraintTypeToString(MpcSoftConstraintType type) {
@@ -180,9 +176,8 @@ absl::StatusOr<MpcHardConstraintType> stringToMpcHardConstraintType(absl::string
   if (it != kHardConstraintMap.end()) {
     return it->second;
   }
-  return absl::InvalidArgumentError(absl::StrCat(
-      "Unknown MPC hard constraint type: '", name, "'. Supported hard constraints are: ",
-      "zero_wrench, zero_velocity, normal_velocity, knee_joint_mimic."));
+  return absl::InvalidArgumentError(absl::StrCat("Unknown MPC hard constraint type: '", name, "'. Supported hard constraints are: ",
+                                                 "zero_wrench, zero_velocity, normal_velocity, knee_joint_mimic."));
 }
 
 absl::StatusOr<std::string> mpcHardConstraintTypeToString(MpcHardConstraintType type) {
@@ -207,8 +202,7 @@ absl::StatusOr<MpcFormulationTasks> loadMpcFormulationTasks(absl::string_view ta
   try {
     root = YAML::LoadFile(taskFilePath);
   } catch (const std::exception& e) {
-    return absl::NotFoundError(
-        absl::StrCat("[loadMpcFormulationTasks] Failed to load YAML file '", taskFilePath, "': ", e.what()));
+    return absl::NotFoundError(absl::StrCat("[loadMpcFormulationTasks] Failed to load YAML file '", taskFilePath, "': ", e.what()));
   }
 
   // Find the node containing the task lists: check root, mpc_tasks, or tasks

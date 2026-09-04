@@ -27,7 +27,6 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-
 #include "humanoid_common_mpc_ros2/fsm/SimFsmBridge.h"
 
 #include <absl/log/log.h>
@@ -62,17 +61,14 @@ SimFsmBridge::SimFsmBridge(const robot::model::RobotDescription& robotDescriptio
   cmdQos.reliable();
 
   fsmCommandSub_ = nodeHandle_->create_subscription<std_msgs::msg::String>(
-      "/humanoid/fsm_command", cmdQos,
-      [this](const std_msgs::msg::String::ConstSharedPtr& msg) { fsmCommandCallback(msg); });
+      "/humanoid/fsm_command", cmdQos, [this](const std_msgs::msg::String::ConstSharedPtr& msg) { fsmCommandCallback(msg); });
 
   // Subscribe to walking velocity command for gantry height control
   rclcpp::QoS velQos(1);
   velQos.best_effort();
   walkingVelSub_ = nodeHandle_->create_subscription<humanoid_mpc_msgs::msg::WalkingVelocityCommand>(
       "/humanoid/walking_velocity_command", velQos,
-      [this](const humanoid_mpc_msgs::msg::WalkingVelocityCommand::ConstSharedPtr& msg) {
-        walkingVelocityCallback(msg);
-      });
+      [this](const humanoid_mpc_msgs::msg::WalkingVelocityCommand::ConstSharedPtr& msg) { walkingVelocityCallback(msg); });
 
   // Publish initial zero-torque + locked state
   publishFsmState("ZERO_TORQUE", true);
@@ -104,14 +100,12 @@ void SimFsmBridge::publishFsmState(std::string_view modeName, bool gantryLocked)
 /******************************************************************************************************/
 void SimFsmBridge::applyModeAction(std::string_view modeName,
                                    const robot::model::RobotDescription& robotDescription,
-                                   robot::model::RobotJointAction& robotJointAction) const {
-}
+                                   robot::model::RobotJointAction& robotJointAction) const {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-bool SimFsmBridge::processCommands(std::string& currentModeName,
-                                   robot::mujoco_sim_interface::MujocoSimInterface& robotInterface) {
+bool SimFsmBridge::processCommands(std::string& currentModeName, robot::mujoco_sim_interface::MujocoSimInterface& robotInterface) {
   std::optional<std::string> cmdOpt;
   {
     std::lock_guard<std::mutex> lock(commandMutex_);
@@ -144,8 +138,7 @@ bool SimFsmBridge::processCommands(std::string& currentModeName,
   }
 
   // 2. Active torque modes (JOINT_PD, GRAVITY_COMP, WB_MPC, SAFETY, MPC_ACTIVE, ENABLE_TORQUES)
-  if (cmd == "JOINT_PD" || cmd == "GRAVITY_COMP" || cmd == "WB_MPC" || cmd == "SAFETY" || cmd == "MPC_ACTIVE" ||
-      cmd == "ENABLE_TORQUES") {
+  if (cmd == "JOINT_PD" || cmd == "GRAVITY_COMP" || cmd == "WB_MPC" || cmd == "SAFETY" || cmd == "MPC_ACTIVE" || cmd == "ENABLE_TORQUES") {
     if (robotInterface.isZeroTorqueMode()) {
       LOG(INFO) << "FSM command received: " << cmd << " - enabling torques.";
       robotInterface.enableTorques();
@@ -176,8 +169,7 @@ bool SimFsmBridge::processCommands(std::string& currentModeName,
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void SimFsmBridge::walkingVelocityCallback(
-    const humanoid_mpc_msgs::msg::WalkingVelocityCommand::ConstSharedPtr& msg) {
+void SimFsmBridge::walkingVelocityCallback(const humanoid_mpc_msgs::msg::WalkingVelocityCommand::ConstSharedPtr& msg) {
   desiredGantryHeight_ = std::clamp(static_cast<double>(msg->desired_pelvis_height), 0.2, 1.5);
   hasReceivedGantryHeight_.store(true);
 }
@@ -186,9 +178,9 @@ void SimFsmBridge::walkingVelocityCallback(
 /******************************************************************************************************/
 /******************************************************************************************************/
 robot::model::RobotState createInitialSimState(const robot::model::RobotDescription& robotDescription,
-                                              const ModelSettings& modelSettings,
-                                              const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                                              const vector_t& initMpcState) {
+                                               const ModelSettings& modelSettings,
+                                               const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+                                               const vector_t& initMpcState) {
   robot::model::RobotState initState(robotDescription, 2);
   initState.setConfigurationToZero();
 

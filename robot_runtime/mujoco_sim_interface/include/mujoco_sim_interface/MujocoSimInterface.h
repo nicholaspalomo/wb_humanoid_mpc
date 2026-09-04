@@ -110,6 +110,9 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
 
   const MujocoSimConfig& getConfig() const { return config_; }
 
+  vector3_t getLeftFootMeasuredForce() const;
+  vector3_t getRightFootMeasuredForce() const;
+
  private:
   void setupJointIndexMaps();
 

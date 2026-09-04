@@ -1,0 +1,311 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<root>
+ <tabbed_widget parent="main_window" name="Main Window">
+  <!-- TAB 1: Base Pose & Orientation -->
+  <Tab tab_name="Base Pose &amp; Euler" containers="1">
+   <Container>
+    <DockSplitter count="2" orientation="-" sizes="0.5;0.5">
+     <DockSplitter count="3" orientation="|" sizes="0.333;0.333;0.334">
+      <DockArea name="Base Pos X [m]">
+       <plot mode="TimeSeries" time_source="Timestamp">
+        <range top="1.0" bottom="-1.0" left="0" right="10"/>
+        <limitY/>
+        <curve name="/robot/base_pose/pose/position/x" color="#1f77b4"/>
+        <curve name="/mpc/target_base_pose/pose/position/x" color="#d62728"/>
+       </plot>
+      </DockArea>
+      <DockArea name="Base Pos Y [m]">
+       <plot mode="TimeSeries" time_source="Timestamp">
+        <range top="1.0" bottom="-1.0" left="0" right="10"/>
+        <limitY/>
+        <curve name="/robot/base_pose/pose/position/y" color="#1f77b4"/>
+        <curve name="/mpc/target_base_pose/pose/position/y" color="#d62728"/>
+       </plot>
+      </DockArea>
+      <DockArea name="Base Pos Z (Height) [m]">
+       <plot mode="TimeSeries" time_source="Timestamp">
+        <range top="1.5" bottom="0.0" left="0" right="10"/>
+        <limitY/>
+        <curve name="/robot/base_pose/pose/position/z" color="#1f77b4"/>
+        <curve name="/mpc/target_base_pose/pose/position/z" color="#d62728"/>
+       </plot>
+      </DockArea>
+     </DockSplitter>
+     <DockSplitter count="3" orientation="|" sizes="0.333;0.333;0.334">
+      <DockArea name="Base Roll [rad]">
+       <plot mode="TimeSeries" time_source="Timestamp">
+        <range top="0.5" bottom="-0.5" left="0" right="10"/>
+        <limitY/>
+        <curve name="/robot/base_euler/vector/x" color="#2ca02c"/>
+        <curve name="/mpc/target_base_euler/vector/x" color="#ff7f0e"/>
+       </plot>
+      </DockArea>
+      <DockArea name="Base Pitch [rad]">
+       <plot mode="TimeSeries" time_source="Timestamp">
+        <range top="0.5" bottom="-0.5" left="0" right="10"/>
+        <limitY/>
+        <curve name="/robot/base_euler/vector/y" color="#2ca02c"/>
+        <curve name="/mpc/target_base_euler/vector/y" color="#ff7f0e"/>
+       </plot>
+      </DockArea>
+      <DockArea name="Base Yaw [rad]">
+       <plot mode="TimeSeries" time_source="Timestamp">
+        <range top="3.14" bottom="-3.14" left="0" right="10"/>
+        <limitY/>
+        <curve name="/robot/base_euler/vector/z" color="#2ca02c"/>
+        <curve name="/mpc/target_base_euler/vector/z" color="#ff7f0e"/>
+       </plot>
+      </DockArea>
+     </DockSplitter>
+    </DockSplitter>
+   </Container>
+  </Tab>
+
+  <!-- TAB 2: Base Twist -->
+  <Tab tab_name="Base Twist (Linear &amp; Angular)" containers="1">
+   <Container>
+    <DockSplitter count="2" orientation="-" sizes="0.5;0.5">
+     <DockSplitter count="3" orientation="|" sizes="0.333;0.333;0.334">
+      <DockArea name="Linear Vel X [m/s]">
+       <plot mode="TimeSeries" time_source="Timestamp">
+        <range top="1.5" bottom="-1.5" left="0" right="10"/>
+        <limitY/>
+        <curve name="/robot/base_twist/twist/linear/x" color="#1f77b4"/>
+        <curve name="/mpc/target_base_twist/twist/linear/x" color="#d62728"/>
+       </plot>
+      </DockArea>
+      <DockArea name="Linear Vel Y [m/s]">
+       <plot mode="TimeSeries" time_source="Timestamp">
+        <range top="1.0" bottom="-1.0" left="0" right="10"/>
+        <limitY/>
+        <curve name="/robot/base_twist/twist/linear/y" color="#1f77b4"/>
+        <curve name="/mpc/target_base_twist/twist/linear/y" color="#d62728"/>
+       </plot>
+      </DockArea>
+      <DockArea name="Linear Vel Z [m/s]">
+       <plot mode="TimeSeries" time_source="Timestamp">
+        <range top="1.0" bottom="-1.0" left="0" right="10"/>
+        <limitY/>
+        <curve name="/robot/base_twist/twist/linear/z" color="#1f77b4"/>
+        <curve name="/mpc/target_base_twist/twist/linear/z" color="#d62728"/>
+       </plot>
+      </DockArea>
+     </DockSplitter>
+     <DockSplitter count="3" orientation="|" sizes="0.333;0.333;0.334">
+      <DockArea name="Angular Vel X (Roll Rate) [rad/s]">
+       <plot mode="TimeSeries" time_source="Timestamp">
+        <range top="2.0" bottom="-2.0" left="0" right="10"/>
+        <limitY/>
+        <curve name="/robot/base_twist/twist/angular/x" color="#2ca02c"/>
+        <curve name="/mpc/target_base_twist/twist/angular/x" color="#ff7f0e"/>
+       </plot>
+      </DockArea>
+      <DockArea name="Angular Vel Y (Pitch Rate) [rad/s]">
+       <plot mode="TimeSeries" time_source="Timestamp">
+        <range top="2.0" bottom="-2.0" left="0" right="10"/>
+        <limitY/>
+        <curve name="/robot/base_twist/twist/angular/y" color="#2ca02c"/>
+        <curve name="/mpc/target_base_twist/twist/angular/y" color="#ff7f0e"/>
+       </plot>
+      </DockArea>
+      <DockArea name="Angular Vel Z (Yaw Rate) [rad/s]">
+       <plot mode="TimeSeries" time_source="Timestamp">
+        <range top="2.0" bottom="-2.0" left="0" right="10"/>
+        <limitY/>
+        <curve name="/robot/base_twist/twist/angular/z" color="#2ca02c"/>
+        <curve name="/mpc/target_base_twist/twist/angular/z" color="#ff7f0e"/>
+       </plot>
+      </DockArea>
+     </DockSplitter>
+    </DockSplitter>
+   </Container>
+  </Tab>
+
+  <!-- TAB 3: Contact Forces -->
+  <Tab tab_name="Contact Forces (MPC vs Measured)" containers="1">
+   <Container>
+    <DockSplitter count="2" orientation="-" sizes="0.5;0.5">
+     <DockSplitter count="2" orientation="|" sizes="0.5;0.5">
+      <DockArea name="Left Foot Normal Force Fz [N]">
+       <plot mode="TimeSeries" time_source="Timestamp">
+        <range top="1000.0" bottom="-50.0" left="0" right="10"/>
+        <limitY/>
+        <curve name="/mpc/contact_wrench/left/wrench/force/z" color="#d62728"/>
+        <curve name="/sensors/contact_wrench/left/wrench/force/z" color="#1f77b4"/>
+       </plot>
+      </DockArea>
+      <DockArea name="Right Foot Normal Force Fz [N]">
+       <plot mode="TimeSeries" time_source="Timestamp">
+        <range top="1000.0" bottom="-50.0" left="0" right="10"/>
+        <limitY/>
+        <curve name="/mpc/contact_wrench/right/wrench/force/z" color="#d62728"/>
+        <curve name="/sensors/contact_wrench/right/wrench/force/z" color="#1f77b4"/>
+       </plot>
+      </DockArea>
+     </DockSplitter>
+     <DockSplitter count="2" orientation="|" sizes="0.5;0.5">
+      <DockArea name="Left Foot Tangential Force Fx/Fy [N]">
+       <plot mode="TimeSeries" time_source="Timestamp">
+        <range top="200.0" bottom="-200.0" left="0" right="10"/>
+        <limitY/>
+        <curve name="/mpc/contact_wrench/left/wrench/force/x" color="#ff7f0e"/>
+        <curve name="/sensors/contact_wrench/left/wrench/force/x" color="#2ca02c"/>
+        <curve name="/mpc/contact_wrench/left/wrench/force/y" color="#9467bd"/>
+        <curve name="/sensors/contact_wrench/left/wrench/force/y" color="#8c564b"/>
+       </plot>
+      </DockArea>
+      <DockArea name="Right Foot Tangential Force Fx/Fy [N]">
+       <plot mode="TimeSeries" time_source="Timestamp">
+        <range top="200.0" bottom="-200.0" left="0" right="10"/>
+        <limitY/>
+        <curve name="/mpc/contact_wrench/right/wrench/force/x" color="#ff7f0e"/>
+        <curve name="/sensors/contact_wrench/right/wrench/force/x" color="#2ca02c"/>
+        <curve name="/mpc/contact_wrench/right/wrench/force/y" color="#9467bd"/>
+        <curve name="/sensors/contact_wrench/right/wrench/force/y" color="#8c564b"/>
+       </plot>
+      </DockArea>
+     </DockSplitter>
+    </DockSplitter>
+   </Container>
+  </Tab>
+
+  <!-- TAB 4: Joint Dynamics -->
+  <Tab tab_name="Joint Dynamics" containers="1">
+   <Container>
+    <DockSplitter count="3" orientation="-" sizes="0.333;0.333;0.334">
+     <DockArea name="Joint Positions &amp; Targets">
+      <plot mode="TimeSeries" time_source="Timestamp">
+       <range top="3.14" bottom="-3.14" left="0" right="10"/>
+       <limitY/>
+       <curve name="/joint_states/position[0]" color="#1f77b4"/>
+       <curve name="/mpc/joint_targets/position[0]" color="#d62728"/>
+      </plot>
+     </DockArea>
+     <DockArea name="Joint Velocities">
+      <plot mode="TimeSeries" time_source="Timestamp">
+       <range top="10.0" bottom="-10.0" left="0" right="10"/>
+       <limitY/>
+       <curve name="/joint_states/velocity[0]" color="#2ca02c"/>
+      </plot>
+     </DockArea>
+     <DockArea name="Joint Torques / Effort [N*m]">
+      <plot mode="TimeSeries" time_source="Timestamp">
+       <range top="200.0" bottom="-200.0" left="0" right="10"/>
+       <limitY/>
+       <curve name="/joint_states/effort[0]" color="#9467bd"/>
+       <curve name="/mpc/joint_targets/effort[0]" color="#e377c2"/>
+      </plot>
+     </DockArea>
+    </DockSplitter>
+   </Container>
+  </Tab>
+
+  <!-- TAB 5: Generalized Coordinates & Velocities -->
+  <Tab tab_name="Generalized Coordinates (Pinocchio)" containers="1">
+   <Container>
+    <DockSplitter count="2" orientation="-" sizes="0.5;0.5">
+     <DockSplitter count="3" orientation="|" sizes="0.333;0.333;0.334">
+      <DockArea name="Base Z Height [m]">
+       <plot mode="TimeSeries" time_source="Timestamp">
+        <range top="1.5" bottom="0.0" left="0" right="10"/>
+        <limitY/>
+        <curve name="/robot/generalized_coordinates/base_z/data" color="#1f77b4"/>
+        <curve name="/mpc/desired/generalized_coordinates/base_z/data" color="#d62728"/>
+       </plot>
+      </DockArea>
+      <DockArea name="Base Pitch [rad]">
+       <plot mode="TimeSeries" time_source="Timestamp">
+        <range top="0.5" bottom="-0.5" left="0" right="10"/>
+        <limitY/>
+        <curve name="/robot/generalized_coordinates/base_pitch/data" color="#2ca02c"/>
+        <curve name="/mpc/desired/generalized_coordinates/base_pitch/data" color="#ff7f0e"/>
+       </plot>
+      </DockArea>
+      <DockArea name="Base Roll [rad]">
+       <plot mode="TimeSeries" time_source="Timestamp">
+        <range top="0.5" bottom="-0.5" left="0" right="10"/>
+        <limitY/>
+        <curve name="/robot/generalized_coordinates/base_roll/data" color="#2ca02c"/>
+        <curve name="/mpc/desired/generalized_coordinates/base_roll/data" color="#ff7f0e"/>
+       </plot>
+      </DockArea>
+     </DockSplitter>
+     <DockSplitter count="3" orientation="|" sizes="0.333;0.333;0.334">
+      <DockArea name="Base Vz [m/s]">
+       <plot mode="TimeSeries" time_source="Timestamp">
+        <range top="1.0" bottom="-1.0" left="0" right="10"/>
+        <limitY/>
+        <curve name="/robot/generalized_velocities/base_z/data" color="#1f77b4"/>
+        <curve name="/mpc/desired/generalized_velocities/base_z/data" color="#d62728"/>
+       </plot>
+      </DockArea>
+      <DockArea name="Base Pitch Rate [rad/s]">
+       <plot mode="TimeSeries" time_source="Timestamp">
+        <range top="2.0" bottom="-2.0" left="0" right="10"/>
+        <limitY/>
+        <curve name="/robot/generalized_velocities/base_pitch/data" color="#2ca02c"/>
+        <curve name="/mpc/desired/generalized_velocities/base_pitch/data" color="#ff7f0e"/>
+       </plot>
+      </DockArea>
+      <DockArea name="Base Roll Rate [rad/s]">
+       <plot mode="TimeSeries" time_source="Timestamp">
+        <range top="2.0" bottom="-2.0" left="0" right="10"/>
+        <limitY/>
+        <curve name="/robot/generalized_velocities/base_roll/data" color="#2ca02c"/>
+        <curve name="/mpc/desired/generalized_velocities/base_roll/data" color="#ff7f0e"/>
+       </plot>
+      </DockArea>
+     </DockSplitter>
+    </DockSplitter>
+   </Container>
+  </Tab>
+
+  <!-- TAB 6: Frame Kinematics & Accelerations -->
+  <Tab tab_name="Frame Kinematics &amp; Acceleration" containers="1">
+   <Container>
+    <DockSplitter count="2" orientation="-" sizes="0.5;0.5">
+     <DockSplitter count="2" orientation="|" sizes="0.5;0.5">
+      <DockArea name="Left Foot Linear Accel Z [m/s^2]">
+       <plot mode="TimeSeries" time_source="Timestamp">
+        <range top="20.0" bottom="-20.0" left="0" right="10"/>
+        <limitY/>
+        <curve name="/robot/frames/foot_l_contact/accel/accel/linear/z" color="#1f77b4"/>
+        <curve name="/mpc/desired/frames/foot_l_contact/accel/accel/linear/z" color="#d62728"/>
+       </plot>
+      </DockArea>
+      <DockArea name="Right Foot Linear Accel Z [m/s^2]">
+       <plot mode="TimeSeries" time_source="Timestamp">
+        <range top="20.0" bottom="-20.0" left="0" right="10"/>
+        <limitY/>
+        <curve name="/robot/frames/foot_r_contact/accel/accel/linear/z" color="#1f77b4"/>
+        <curve name="/mpc/desired/frames/foot_r_contact/accel/accel/linear/z" color="#d62728"/>
+       </plot>
+      </DockArea>
+     </DockSplitter>
+     <DockSplitter count="2" orientation="|" sizes="0.5;0.5">
+      <DockArea name="Left Foot Twist Z [m/s]">
+       <plot mode="TimeSeries" time_source="Timestamp">
+        <range top="2.0" bottom="-2.0" left="0" right="10"/>
+        <limitY/>
+        <curve name="/robot/frames/foot_l_contact/twist/twist/linear/z" color="#2ca02c"/>
+        <curve name="/mpc/desired/frames/foot_l_contact/twist/twist/linear/z" color="#ff7f0e"/>
+       </plot>
+      </DockArea>
+      <DockArea name="Right Foot Twist Z [m/s]">
+       <plot mode="TimeSeries" time_source="Timestamp">
+        <range top="2.0" bottom="-2.0" left="0" right="10"/>
+        <limitY/>
+        <curve name="/robot/frames/foot_r_contact/twist/twist/linear/z" color="#2ca02c"/>
+        <curve name="/mpc/desired/frames/foot_r_contact/twist/twist/linear/z" color="#ff7f0e"/>
+       </plot>
+      </DockArea>
+     </DockSplitter>
+    </DockSplitter>
+   </Container>
+  </Tab>
+ </tabbed_widget>
+ <previouslyLoaded_Datafiles/>
+ <previouslyLoaded_Streamer name="ROS2 Topic Subscriber"/>
+ <customMathEquations/>
+ <snippets/>
+</root>

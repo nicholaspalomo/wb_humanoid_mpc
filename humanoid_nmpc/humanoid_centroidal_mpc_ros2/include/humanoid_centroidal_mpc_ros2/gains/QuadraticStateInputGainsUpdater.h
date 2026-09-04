@@ -31,9 +31,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <ocs2_core/cost/QuadraticStateInputCost.h>
 #include <humanoid_centroidal_mpc_ros2/gains/GainsUpdaterInterface.h>
 #include <humanoid_centroidal_mpc_ros2/gains/GainsUpdaterUtils.h>
+#include <ocs2_core/cost/QuadraticStateInputCost.h>
 
 namespace ocs2::humanoid {
 

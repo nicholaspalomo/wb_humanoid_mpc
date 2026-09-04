@@ -38,8 +38,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "ocs2_centroidal_model/AccessHelperFunctions.h"
 
-#include <humanoid_common_mpc/gait/MotionPhaseDefinition.h>
 #include <humanoid_common_mpc/common/ThreadAffinity.h>
+#include <humanoid_common_mpc/gait/MotionPhaseDefinition.h>
 #include <humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h>
 #include <humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h>
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
@@ -75,6 +75,7 @@ CentroidalMpcMrtJointController::CentroidalMpcMrtJointController(const ::robot::
   otherJointIndices_ = robotDescription.getJointIndices(modelSettings.fixedJointNames);
   currentMpcObservation_.state = vector_t::Zero(mpcRobotModelPtr_->getStateDim());
   currentMpcObservation_.input = vector_t::Zero(mpcRobotModelPtr_->getInputDim());
+  latestPolicyInput_ = vector_t::Zero(mpcRobotModelPtr_->getInputDim());
 
   // Currently set to 0. There is still a bug in the momentum computation of the inverse dynamics.
   inverse_dynamics_kp_.fill(0.0);
@@ -265,8 +266,7 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
         double q_cur = robotState.getJointPosition(index);
         double q_des = nominalJointPositions_.empty() ? 0.0 : nominalJointPositions_[index];
         if (std::abs(q_des - q_cur) > 0.05) {
-          std::cerr << "  joint[" << index << "] err=" << (q_des - q_cur)
-                    << " q_cur=" << q_cur << " q_des=" << q_des
+          std::cerr << "  joint[" << index << "] err=" << (q_des - q_cur) << " q_cur=" << q_cur << " q_des=" << q_des
                     << " kp=" << mpcJointKp_[i] << " gravFF=" << gravTorques[i] << std::endl;
         }
       }
@@ -319,6 +319,7 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
     // Evaluate policy with feedback if activated in config
     mcpMrtInterface_.evaluatePolicy(currentMpcObservation_.time + simDt, currentMpcObservation_.state, mpcPolicyState, mpcPolicyInput,
                                     mpcPolicyMode);
+    latestPolicyInput_ = mpcPolicyInput;
 
     // TODO something seems wrong with the inverse dynamics. You should correct that.
     vector_t mpc_q_j_des = mpcRobotModelPtr_->getJointAngles(mpcPolicyState);
@@ -371,17 +372,15 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
       vector_t gravTorques = computeGravityCompensation(robotState);
       std::cerr << "[ACTIVE_MPC] gravTorques: " << gravTorques.transpose() << std::endl;
 
-      std::cerr << "[ACTIVE_MPC] Foot wrenches: L=" << footWrenches[0].transpose()
-                << " R=" << footWrenches[1].transpose() << std::endl;
+      std::cerr << "[ACTIVE_MPC] Foot wrenches: L=" << footWrenches[0].transpose() << " R=" << footWrenches[1].transpose() << std::endl;
       std::cerr << "[ACTIVE_MPC] ID Torques:  " << mpcJointTorques.transpose() << std::endl;
       for (size_t i = 0; i < mpcJointIndices_.size(); i++) {
         size_t index = mpcJointIndices_[i];
         double q_cur = robotState.getJointPosition(index);
         double q_des = mpc_q_j_des[i];
         if (std::abs(q_des - q_cur) > 0.05 || std::abs(mpcJointTorques[i]) > 100.0) {
-          std::cerr << "  mpc_joint[" << index << "] des=" << q_des << " cur=" << q_cur
-                    << " err=" << (q_des - q_cur) << " ID_tau=" << mpcJointTorques[i]
-                    << " grav_tau=" << gravTorques[i] << std::endl;
+          std::cerr << "  mpc_joint[" << index << "] des=" << q_des << " cur=" << q_cur << " err=" << (q_des - q_cur)
+                    << " ID_tau=" << mpcJointTorques[i] << " grav_tau=" << gravTorques[i] << std::endl;
         }
       }
     }
@@ -457,8 +456,7 @@ void CentroidalMpcMrtJointController::solverWorker() {
     absl::Status mpcStatus = mcpMrtInterface_.advanceMpc();
     if (!mpcStatus.ok()) {
       // MPC solver failed — log, request reset, and continue with previous solution.
-      LOG(ERROR) << "MPC solver error: " << mpcStatus.message()
-                 << " — requesting reset and retrying.";
+      LOG(ERROR) << "MPC solver error: " << mpcStatus.message() << " — requesting reset and retrying.";
       resetMpcRequested_.store(true);
     } else {
       // Update active policy buffer immediately after solve finishes
@@ -510,11 +508,9 @@ TargetTrajectories CentroidalMpcMrtJointController::currentObservationToResetTra
 
   const TargetTrajectories resetTargetTrajectories({t0, t1}, {targetState, targetState}, {targetInput, targetInput});
 
-  std::cerr << "[CentroidalMPC] Resetting MPC target trajectory. Base pos: "
-            << targetState.segment<3>(6).transpose()
-            << " Base z: " << targetState(8)
-            << " Input forces: " << targetInput.head(3).transpose()
-            << " / " << targetInput.segment<3>(6).transpose() << std::endl;
+  std::cerr << "[CentroidalMPC] Resetting MPC target trajectory. Base pos: " << targetState.segment<3>(6).transpose()
+            << " Base z: " << targetState(8) << " Input forces: " << targetInput.head(3).transpose() << " / "
+            << targetInput.segment<3>(6).transpose() << std::endl;
   return resetTargetTrajectories;
 }
 

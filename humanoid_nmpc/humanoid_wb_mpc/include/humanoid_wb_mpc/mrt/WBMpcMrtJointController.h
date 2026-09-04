@@ -74,6 +74,10 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
 
   void loadPdGains(const std::string& pdGainsFile, const ModelSettings& modelSettings);
 
+  const ocs2::SystemObservation& getCurrentObservation() const { return currentMpcObservation_; }
+  const vector_t& getLatestPolicyInput() const { return latestPolicyInput_; }
+  const CommandData& getCommandData() const { return mcpMrtInterface_.getCommand(); }
+
  private:
   /**
    * Handles the MPC solver thread.
@@ -113,6 +117,7 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
   vector_t otherJointKd_;
 
   scalar_t previousObservationTime_{0.0};  ///< Previous sim time for computing actual dt
+  vector_t latestPolicyInput_;             ///< Latest MPC policy input
 };
 
 }  // namespace ocs2::humanoid

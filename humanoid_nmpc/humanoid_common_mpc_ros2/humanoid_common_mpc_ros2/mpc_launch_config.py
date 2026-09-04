@@ -242,6 +242,8 @@ class MPCLaunchConfig:
             parameters=[
                 {
                     "target_command_file": LaunchConfiguration("target_command_file"),
+                    "task_file": LaunchConfiguration("config_name"),
+                    "robot_name": LaunchConfiguration("robot_name"),
                 }
             ],
         )

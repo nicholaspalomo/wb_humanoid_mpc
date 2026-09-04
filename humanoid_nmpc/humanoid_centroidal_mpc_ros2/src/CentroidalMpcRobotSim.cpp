@@ -34,16 +34,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <rclcpp/rclcpp.hpp>
 
 #include <humanoid_centroidal_mpc/CentroidalMpcInterface.h>
-#include "absl/log/check.h"
 #include <mujoco_sim_interface/MujocoSimInterface.h>
 #include <ocs2_robotic_tools/common/RotationTransforms.h>
+#include "absl/log/check.h"
 
+#include <absl/log/log.h>
 #include <humanoid_centroidal_mpc/command/CentroidalMpcTargetTrajectoriesCalculator.h>
 #include <humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h>
 #include <humanoid_common_mpc/common/ThreadAffinity.h>
-#include <absl/log/log.h>
 #include "humanoid_common_mpc_ros2/fsm/SimFsmBridge.h"
 #include "humanoid_common_mpc_ros2/ros_comm/Ros2ProceduralMpcMotionManager.h"
+#include "humanoid_common_mpc_ros2/telemetry/PinocchioTelemetryPublisher.h"
 #include "humanoid_common_mpc_ros2/visualization/HumanoidVisualizer.h"
 
 using namespace ocs2;
@@ -123,6 +124,32 @@ int main(int argc, char** argv) {
                                                      interface.getMpcRobotModel(), mpc, interface.getPinocchioInterface(),
                                                      interface.mpcSettings().mpcDesiredFrequency_, humanoidVisualizer, pdGainsFile);
 
+  bool enableTelemetry = true;
+  std::vector<std::string> telemetryFrames;
+  try {
+    YAML::Node taskYaml = YAML::LoadFile(taskFile);
+    if (taskYaml["enableTelemetry"]) {
+      enableTelemetry = taskYaml["enableTelemetry"].as<bool>();
+    } else if (taskYaml["enable_telemetry"]) {
+      enableTelemetry = taskYaml["enable_telemetry"].as<bool>();
+    }
+    if (taskYaml["telemetryFrames"]) {
+      telemetryFrames = taskYaml["telemetryFrames"].as<std::vector<std::string>>();
+    }
+  } catch (const std::exception& e) {
+    LOG(WARNING) << "Failed to read telemetry config from " << taskFile << ": " << e.what();
+  }
+
+  std::unique_ptr<PinocchioTelemetryPublisher> telemetryPublisher;
+  if (enableTelemetry) {
+    telemetryPublisher = std::make_unique<PinocchioTelemetryPublisher>(nodeHandle, interface.getPinocchioInterface(),
+                                                                       interface.getMpcRobotModel().modelSettings,
+                                                                       interface.getMpcRobotModel(), robotDescription, telemetryFrames);
+    LOG(INFO) << "Pinocchio telemetry publishing enabled (100 Hz).";
+  } else {
+    LOG(INFO) << "Telemetry publishing disabled in task.yaml.";
+  }
+
   LOG(INFO) << "MPC MRT joint controller is set up with PD gains from: " << pdGainsFile;
 
   // size_t mrtDeltaTMicroSeconds_ = 1000000 / (interface.mpcSettings().mrtDesiredFrequency_);
@@ -152,6 +179,7 @@ int main(int argc, char** argv) {
   // Unified control loop: processes /humanoid/fsm_command ROS 2 topics for mode transitions.
   std::string currentModeName = "ZERO_TORQUE";
   size_t mrtSlowCount = 0;
+  size_t telemetryCounter = 0;
   while (true) {
     auto targetTimeForNextIteration = std::chrono::steady_clock::now() + std::chrono::microseconds(mrtDeltaTMicroSeconds_);
 
@@ -170,6 +198,14 @@ int main(int argc, char** argv) {
 
     if (!robotInterface.isZeroTorqueMode()) {
       robotInterface.applyJointAction();
+    }
+
+    // Publish telemetry for PlotJuggler visualization at ~100 Hz (every 5th 500 Hz iteration)
+    if (telemetryPublisher && (++telemetryCounter % 5 == 0)) {
+      telemetryPublisher->publish(robotInterface.getRobotState(), robotInterface.getRobotJointAction(),
+                                  mpcJointController.getCurrentObservation(), mpcJointController.getLatestPolicyInput(),
+                                  mpcJointController.getCommandData(), robotInterface.getLeftFootMeasuredForce(),
+                                  robotInterface.getRightFootMeasuredForce());
     }
 
     rclcpp::spin_some(nodeHandle);

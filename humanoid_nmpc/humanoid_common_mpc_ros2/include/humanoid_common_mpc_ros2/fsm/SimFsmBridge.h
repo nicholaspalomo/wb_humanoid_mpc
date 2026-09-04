@@ -35,16 +35,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
-#include <string_view>
 #include <humanoid_common_mpc/common/ModelSettings.h>
 #include <humanoid_common_mpc/common/MpcRobotModelBase.h>
-#include <humanoid_mpc_msgs/msg/walking_velocity_command.hpp>
 #include <mujoco_sim_interface/MujocoSimInterface.h>
-#include <rclcpp/rclcpp.hpp>
 #include <robot_model/RobotDescription.h>
 #include <robot_model/RobotJointAction.h>
 #include <robot_model/RobotState.h>
+#include <humanoid_mpc_msgs/msg/walking_velocity_command.hpp>
+#include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/string.hpp>
+#include <string_view>
 
 namespace ocs2::humanoid {
 
@@ -113,7 +113,7 @@ class SimFsmBridge {
   std::vector<scalar_t> nominalJointPositions_;
   std::mutex commandMutex_;
   std::optional<std::string> pendingCommand_;
-  std::atomic<double> desiredGantryHeight_{0.0};  ///< Desired gantry height from walking velocity command slider.
+  std::atomic<double> desiredGantryHeight_{0.0};      ///< Desired gantry height from walking velocity command slider.
   std::atomic<bool> hasReceivedGantryHeight_{false};  ///< True once a walking velocity message has set the height.
 };
 
@@ -126,8 +126,8 @@ class SimFsmBridge {
  * @return Initialized RobotState ready for simulation interface.
  */
 robot::model::RobotState createInitialSimState(const robot::model::RobotDescription& robotDescription,
-                                              const ModelSettings& modelSettings,
-                                              const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                                              const vector_t& initMpcState);
+                                               const ModelSettings& modelSettings,
+                                               const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+                                               const vector_t& initMpcState);
 
 }  // namespace ocs2::humanoid

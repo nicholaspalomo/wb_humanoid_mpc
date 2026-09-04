@@ -64,7 +64,8 @@ class CentroidalMpcInterface final : public RobotInterface {
    * @param [in] referenceFile: The absolute path to the reference configuration file.
    * @return absl::StatusOr<CentroidalMpcInterface> The constructed interface, or error status.
    */
-  static absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> Create(const std::string& taskFile, const std::string& urdfFile,
+  static absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> Create(const std::string& taskFile,
+                                                                        const std::string& urdfFile,
                                                                         const std::string& referenceFile);
 
   ~CentroidalMpcInterface() override = default;
@@ -102,8 +103,7 @@ class CentroidalMpcInterface final : public RobotInterface {
   /**
    * Private constructor — use Create() to construct.
    */
-  CentroidalMpcInterface(const std::string& taskFile, const std::string& urdfFile, const std::string& referenceFile,
-                         bool setupOCP = false);
+  CentroidalMpcInterface(const std::string& taskFile, const std::string& urdfFile, const std::string& referenceFile, bool setupOCP = false);
 
   absl::Status setupOptimalControlProblem();
 

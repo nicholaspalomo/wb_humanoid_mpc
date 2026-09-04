@@ -51,11 +51,10 @@ InputQuadraticCost::InputQuadraticCost(const InputQuadraticCost& rhs)
       pinInterface_(rhs.pinInterface_),
       mpcRobotModelPtr_(rhs.mpcRobotModelPtr_) {}
 
-std::pair<vector_t, vector_t> InputQuadraticCost::getStateInputDeviation(
-    scalar_t time,
-    const vector_t& state,
-    const vector_t& input,
-    const TargetTrajectories& targetTrajectories) const {
+std::pair<vector_t, vector_t> InputQuadraticCost::getStateInputDeviation(scalar_t time,
+                                                                         const vector_t& state,
+                                                                         const vector_t& input,
+                                                                         const TargetTrajectories& targetTrajectories) const {
   const auto contactFlags = referenceManagerPtr_->getContactFlags(time);
   const vector_t uNominal = weightCompensatingInput(pinInterface_, contactFlags, *mpcRobotModelPtr_);
   return {vector_t::Zero(stateDim_), input - uNominal};

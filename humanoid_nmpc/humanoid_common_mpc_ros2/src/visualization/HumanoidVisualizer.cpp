@@ -411,10 +411,8 @@ void HumanoidVisualizer::update(const SystemObservation& observation, const Prim
     // Publish a new optimized trajectory if it is non-empty and not equal to the previous one
     if (!policy.timeTrajectory_.empty() && !policy.stateTrajectory_.empty() && !policy.inputTrajectory_.empty()) {
       if (prevPolicyState.size() != policy.stateTrajectory_.front().size() ||
-          prevPolicyInput.size() != policy.inputTrajectory_.front().size() ||
-          policy.timeTrajectory_.front() != prevPolicyTime ||
-          !policy.stateTrajectory_.front().isApprox(prevPolicyState) ||
-          !policy.inputTrajectory_.front().isApprox(prevPolicyInput)) {
+          prevPolicyInput.size() != policy.inputTrajectory_.front().size() || policy.timeTrajectory_.front() != prevPolicyTime ||
+          !policy.stateTrajectory_.front().isApprox(prevPolicyState) || !policy.inputTrajectory_.front().isApprox(prevPolicyInput)) {
         prevPolicyTime = policy.timeTrajectory_.front();
         prevPolicyState = policy.stateTrajectory_.front();
         prevPolicyInput = policy.inputTrajectory_.front();
