@@ -179,6 +179,7 @@ def _find_repo_model_path(robot_name_or_path: str) -> str:
     curr_dir = os.path.dirname(os.path.abspath(__file__))
     repo_root = os.path.abspath(os.path.join(curr_dir, "..", ".."))
 
+    # LINT.IfChange(supported_robots)
     search_candidates = [
         os.path.join(repo_root, robot_name_or_path),
         os.path.join(
@@ -187,6 +188,14 @@ def _find_repo_model_path(robot_name_or_path: str) -> str:
         ),
         os.path.join(
             repo_root, "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf"
+        ),
+        os.path.join(
+            repo_root,
+            "robot_models/unitree_r1/unitree_r1_description/urdf/r1.xml",
+        ),
+        os.path.join(
+            repo_root,
+            "robot_models/unitree_r1/unitree_r1_description/urdf/R1.urdf",
         ),
         os.path.join(
             repo_root,
@@ -203,6 +212,10 @@ def _find_repo_model_path(robot_name_or_path: str) -> str:
         for p in search_candidates:
             if "g1" in p and os.path.exists(p):
                 return p
+    elif "r1" in clean_name:
+        for p in search_candidates:
+            if ("r1.xml" in p or "R1.urdf" in p) and os.path.exists(p):
+                return p
     elif "atlas" in clean_name:
         for p in search_candidates:
             if "atlas.xml" in p and os.path.exists(p):
@@ -213,12 +226,14 @@ def _find_repo_model_path(robot_name_or_path: str) -> str:
     for p in search_candidates:
         if os.path.exists(p):
             return p
+    # LINT.ThenChange(//humanoid_learning/training/generate_robot_spec.py:supported_robots)
 
     raise FileNotFoundError(
         f"Could not locate robot model file for '{robot_name_or_path}'."
     )
 
 
+# LINT.IfChange(robot_limb_discovery)
 def _discover_limb_groupings(joint_names: List[str]) -> Dict[str, List[int]]:
     """Automatically discover limb joint groups for bipeds, quadrupeds, hexapods, and arms."""
     limbs: Dict[str, List[int]] = {}
@@ -261,6 +276,7 @@ def _discover_limb_groupings(joint_names: List[str]) -> Dict[str, List[int]]:
         limbs["actuators"] = list(range(len(joint_names)))
 
     return limbs
+# LINT.ThenChange(//humanoid_learning/retargeting/joint_mapper.py:robot_limb_discovery)
 
 
 def load_robot_spec_from_pinocchio(urdf_path: str) -> RobotModelSpec:

@@ -14,12 +14,14 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description="Generate robot definition YAML/JSON for WBC and RL from MJCF/URDF"
     )
+    # LINT.IfChange(supported_robots)
     parser.add_argument(
         "--input",
         type=str,
         required=True,
-        help="Path or name of input MJCF XML / URDF model (e.g. 'g1', 'atlas', or path to .xml/.urdf)",
+        help="Path or name of input MJCF XML / URDF model (e.g. 'g1', 'r1', 'atlas', or path to .xml/.urdf)",
     )
+    # LINT.ThenChange(//humanoid_learning/wbc/robot_model_loader.py:supported_robots)
     parser.add_argument(
         "--output",
         type=str,

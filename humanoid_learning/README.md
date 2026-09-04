@@ -1,6 +1,6 @@
-# Policy-Guided Whole-Body Control: Offline Trajectory Bootstrapped GRPO
+# Policy-Guided Whole-Body Control: Offline Trajectory Bootstrapped GRPO & Cross-Robot Retargeting
 
-Implementation of **Group Relative Policy Optimization (GRPO)** for **Residual Whole-Body Control (WBC)** of general robots in **JAX / MuJoCo MJX / Brax**, bootstrapped from **offline whole-body MPC trajectories**.
+Implementation of **Group Relative Policy Optimization (GRPO)** for **Residual Whole-Body Control (WBC)** of general robots in **JAX / MuJoCo MJX / Brax**, bootstrapped from **offline whole-body MPC trajectories**, alongside a **Cross-Robot Kinematic & Trajectory Retargeting Framework**.
 
 ---
 
@@ -10,8 +10,10 @@ Implementation of **Group Relative Policy Optimization (GRPO)** for **Residual W
 +─────────────────────────────────────────────────────────────────────────────────────────────────────────────────+
 │                                           System Architecture & Dataflow                                        │
 │                                                                                                                 │
-│   [Offline Demonstration Dataset]                                                                               │
-│          │ (HDF5/NPZ Whole-Body MPC / MoCap Rollouts: s, q_ref(t), tau_ref)                                     │
+│   [Source Demonstrations (G1 / MoCap)] ──► [Cross-Robot Retargeting Pipeline] ──► [Target Dataset (R1 / Atlas)] │
+│                                                                                           │                     │
+│   [Offline Demonstration Dataset]                                                         │                     │
+│          │ (HDF5/NPZ Whole-Body MPC / MoCap Rollouts: s, q_ref(t), tau_ref) ◄────────────┘                     │
 │          ▼                                                                                                      │
 │   [1. Behavioral Cloning (BC) Bootstrapping] ──► Initializes Policy θ_0 & Frozen Reference Prior π_ref          │
 │                                                                                                                 │
@@ -44,12 +46,20 @@ Implementation of **Group Relative Policy Optimization (GRPO)** for **Residual W
 
 ```mermaid
 flowchart TD
+    subgraph Retargeting ["0. Cross-Robot Retargeting (e.g. G1 / MoCap to R1 / Atlas)"]
+        SRC_DATA["Source Demonstrations<br/>Q_src ∈ R^{T × n_src} (e.g. G1, 29 DOFs)"]
+        MAPPER["Semantic Joint Mapper & DOF Reducer<br/>• Torso 3-DOF → 2-DOF<br/>• Arms 7-DOF → 5-DOF<br/>• Joint Limits Clamping"]
+        IK_OPT["Optimization-Based IK Retargeter<br/>• Cartesian Keypoint Scaling s_k = h_tgt / h_src<br/>• Damped Least-Squares Posture Regularization"]
+        TGT_DATA["Target Demonstrations<br/>Q_tgt ∈ R^{T × n_tgt} (e.g. R1, 26 DOFs)"]
+        SRC_DATA --> MAPPER --> TGT_DATA
+        SRC_DATA --> IK_OPT --> TGT_DATA
+    end
+
     subgraph OfflinePhase ["1. Offline Bootstrapping Phase"]
-        DEMO["Offline Trajectory Dataset<br/>(HDF5/NPZ MPC / MoCap Demonstrations)"]
         BC["Behavioral Cloning (BC) Pretraining<br/>L_BC = E[ ||μ_θ(s) - a*||² - 0.1 log π_θ(a*|s) ]"]
         INIT_P["Bootstrapped Policy θ₀"]
         REF_P["Frozen Reference Prior π_ref"]
-        DEMO --> BC
+        TGT_DATA --> BC
         BC --> INIT_P
         BC --> REF_P
     end
@@ -93,6 +103,50 @@ flowchart TD
         OPT -.-> POLICY
     end
 ```
+
+---
+
+## 🦾 Cross-Robot Kinematic & Trajectory Retargeting
+
+The retargeting framework enables mapping demonstration trajectories across embodiments with differing DOFs, link lengths, and joint limits (e.g. **Unitree G1 with 29 DOFs $\to$ Unitree R1 with 26 DOFs**, or **Human MoCap $\to$ Humanoid Robot**).
+
+```
+                                [Source Robot: G1 (29 DOFs)]
+                                 • Left/Right Leg: 12 DOFs (6+6)
+                                 • Waist: 3 DOFs (Yaw, Roll, Pitch)
+                                 • Arms: 14 DOFs (7+7)
+                                              │
+                                              ▼
+                             [Cross-Robot Retargeting Pipeline]
+                                              │
+                                ┌─────────────┴─────────────┐
+                                ▼                           ▼
+                      [Semantic Joint Mapper]    [Optimization-Based IK]
+                      • 3-DOF Waist → 2-DOF      • Cartesian Keypoints
+                      • 7-DOF Arm → 5-DOF        • Scale Factor s_k = h_tgt / h_src
+                      • Axis Alignment & Clamp   • Damped Least-Squares
+                                └─────────────┬─────────────┘
+                                              │
+                                              ▼
+                                [Target Robot: R1 (26 DOFs)]
+                                 • Left/Right Leg: 12 DOFs (6+6)
+                                 • Waist: 2 DOFs (Roll, Yaw)
+                                 • Arms: 10 DOFs (5+5)
+                                 • Head: 2 DOFs (Pitch, Yaw)
+```
+
+### Mathematical Retargeting Formulation
+
+#### 1. Semantic Anatomical Mapping with DOF Reduction
+Given joint categories $\mathcal{C} = \{\text{leg}_L, \text{leg}_R, \text{torso}, \text{arm}_L, \text{arm}_R, \text{head}\}$:
+$$q_{\text{tgt}, j} = \text{clip}\left( s_j \cdot q_{\text{src}, \sigma(j)}, q_{\min, j}^{\text{tgt}}, q_{\max, j}^{\text{tgt}} \right)$$
+where $\sigma(j)$ is the anatomical mapping index correspondence. When the target has fewer DOFs (e.g. G1 waist pitch or wrist pitch/yaw unactuated in R1), unactuated coordinates are projected into the feasible target subspace.
+
+#### 2. Optimization-Based Inverse Kinematics (IK)
+Matches scaled Cartesian keypoints (hands, feet, pelvis, head) using forward kinematics $p_k(q)$:
+$$\min_{q_{\text{tgt}}} \sum_{k \in \text{keypoints}} w_k \|p_k(q_{\text{tgt}}) - s_{\text{scale}} \cdot p_k^{\text{src}}(q_{\text{src}})\|^2 + w_{\text{prior}} \|q_{\text{tgt}} - q_{\text{prior}}\|^2 + w_{\text{smooth}} \|q_{\text{tgt}} - q_{\text{prev}}\|^2$$
+$$\text{s.t.} \quad q_{\min}^{\text{tgt}} \le q_{\text{tgt}} \le q_{\max}^{\text{tgt}}$$
+where $s_{\text{scale}} = \frac{h_{\text{nom}}^{\text{tgt}}}{h_{\text{nom}}^{\text{src}}}$ scales Cartesian positions proportional to standing height.
 
 ---
 
@@ -154,38 +208,20 @@ $$\mathcal{L}_{\text{GRPO}}(\theta) = -\frac{1}{B \cdot G} \sum_{i=1}^B \sum_{g=
 
 ---
 
-## 🤖 Multi-Robot Support & Config Schema
+## 🔒 IFTTT Cross-File Linter Directives
 
-All robot models, kinematic parameters, and WBC tuning weights are externalized in `humanoid_learning/configs/robots/`:
+To guarantee that adding or updating robot models keeps all search paths, CLI arguments, and retargeting mapping logic synchronized, Google `LINT.IfChange` / `LINT.ThenChange` directives guard key code regions:
 
-```yaml
-name: atlas
-nq: 35
-nv: 34
-n_act: 28
-total_mass: 192.76
-default_standing_height: 0.93
-contact_body_names:
-  - l_foot
-  - r_foot
-limb_joint_indices:
-  left_arm: [3, 4, 5, 6, 7, 8]
-  torso: [9]
-  right_arm: [10, 11, 12, 13, 14, 15]
-  left_leg: [16, 17, 18, 19, 20, 21]
-  right_leg: [22, 23, 24, 25, 26, 27]
-wbc_config:
-  w_base_acc: 100.0
-  w_posture: 10.0
-  w_contact_acc: 1000.0
-  w_force_reg: 0.0001
-  w_torque_reg: 0.0001
-  kp_posture: 100.0
-  kd_posture: 10.0
-  friction_coef: 0.6
-  f_z_min: 5.0
-  f_z_max: 4727.54
-  tau_max: 100.0
+1. **`supported_robots` Directive**:
+   - Guarded in [`humanoid_learning/wbc/robot_model_loader.py`](wbc/robot_model_loader.py) $\leftrightarrow$ [`humanoid_learning/training/generate_robot_spec.py`](training/generate_robot_spec.py).
+   - Guarantees CLI parser options always reflect all available repository robot models.
+2. **`robot_limb_discovery` Directive**:
+   - Guarded in [`humanoid_learning/wbc/robot_model_loader.py`](wbc/robot_model_loader.py) $\leftrightarrow$ [`humanoid_learning/retargeting/joint_mapper.py`](retargeting/joint_mapper.py).
+   - Guarantees anatomical limb classification and cross-robot mapping tables stay in sync.
+
+Run the repository IFTTT validator at any time:
+```bash
+python tools/hooks/check_ifttt.py
 ```
 
 ---
@@ -198,6 +234,7 @@ humanoid_learning/
 │   ├── grpo_residual_wbc.yaml       # Centralized hyperparameters & WBC weights
 │   └── robots/
 │       ├── g1_29dof.yaml            # Unitree G1 robot definition (29 DOFs)
+│       ├── r1.yaml                  # Unitree R1 robot definition (26 DOFs)
 │       └── atlas.yaml               # Standard DRC Atlas definition (28 DOFs)
 ├── envs/
 │   ├── base_env.py                  # Base MJX Humanoid environment
@@ -206,6 +243,12 @@ humanoid_learning/
 │   ├── __init__.py                  # WBC package exports
 │   ├── robot_model_loader.py        # Dynamic MuJoCo / Pinocchio / YAML model parser
 │   └── jax_wbc.py                   # Batched JAX QP Whole-Body Controller
+├── retargeting/
+│   ├── __init__.py                  # Retargeting package exports
+│   ├── joint_mapper.py              # Semantic anatomical joint mapper & DOF reducer
+│   ├── kinematic_retargeter.py      # Optimization-based IK keypoint retargeter
+│   ├── trajectory_retargeter.py     # Batch dataset retargeting pipeline
+│   └── retarget_dataset.py          # CLI dataset retargeting tool
 ├── training/
 │   ├── generate_robot_spec.py       # CLI robot spec generator utility
 │   ├── offline_dataset.py           # Offline HDF5/NPZ demonstration dataset loader
@@ -215,6 +258,7 @@ humanoid_learning/
 │   └── train_ppo.py                 # Baseline Brax PPO pipeline
 └── tests/
     ├── test_jax_wbc.py              # Unit tests for WBC, Multi-Robot, Env, Policy, & GRPO
+    ├── test_retargeting.py          # Unit tests for G1->R1 and G1->Atlas retargeting
     ├── test_cartpole.py             # Cartpole benchmark test
     └── test_rl_imports.py           # JAX/MJX environment smoke tests
 ```
@@ -223,40 +267,58 @@ humanoid_learning/
 
 ## 🚀 Quickstart Guide
 
-### 1. Run Unit Test Suite
+### 1. Run Unit Test Suites
 ```bash
-# Run WBC and GRPO unit tests (12 test cases)
+# Run WBC and GRPO tests (12 tests)
 PYTHONPATH=. python -m unittest humanoid_learning/tests/test_jax_wbc.py
+
+# Run Cross-Robot Retargeting tests (5 tests)
+PYTHONPATH=. python -m unittest humanoid_learning/tests/test_retargeting.py
+
+# Run all unit tests (27 tests)
+PYTHONPATH=. python -m unittest discover humanoid_learning/tests "test_*.py"
 ```
 
 ### 2. Generate / Inspect Robot Specification
 ```bash
-# Generate specification for Unitree G1
+# Generate specification for Unitree G1 (29 DOFs)
 PYTHONPATH=. python humanoid_learning/training/generate_robot_spec.py --input g1
 
-# Generate specification for normal DRC Atlas
+# Generate specification for Unitree R1 (26 DOFs)
+PYTHONPATH=. python humanoid_learning/training/generate_robot_spec.py --input r1
+
+# Generate specification for standard DRC Atlas (28 DOFs)
 PYTHONPATH=. python humanoid_learning/training/generate_robot_spec.py --input atlas
 ```
 
-### 3. Bootstrap Policy from Offline Demonstrations
+### 3. Retarget Offline Demonstrations Between Robots
 ```bash
-PYTHONPATH=. python humanoid_learning/training/bootstrap_bc.py \
-    --epochs 15 \
-    --batch_size 128 \
-    --lr 1e-3 \
-    --output_path checkpoints/bootstrapped_policy.npz
+# Retarget G1 (29 DOFs) offline demonstrations to R1 (26 DOFs)
+PYTHONPATH=. python humanoid_learning/retargeting/retarget_dataset.py \
+    --source g1 \
+    --target r1 \
+    --input checkpoints/g1_demos.npz \
+    --output checkpoints/r1_demos.npz \
+    --method anatomical
 ```
 
-### 4. Launch GRPO Training for Residual WBC
+### 4. Bootstrap Policy on Target Robot
+```bash
+PYTHONPATH=. python humanoid_learning/training/bootstrap_bc.py \
+    --demos_path checkpoints/r1_demos.npz \
+    --obs_dim 70 \
+    --act_dim 26 \
+    --epochs 15 \
+    --output_path checkpoints/bootstrapped_r1_policy.npz
+```
+
+### 5. Launch GRPO Training on Target Robot
 ```bash
 PYTHONPATH=. python humanoid_learning/training/train_grpo.py \
-    --robot g1 \
+    --robot r1 \
     --num_iterations 30 \
     --group_size 4 \
     --num_envs 4 \
     --rollout_horizon 8 \
-    --learning_rate 3e-4 \
-    --beta_kl 0.05 \
-    --bootstrap_epochs 5 \
-    --output_dir checkpoints/humanoid_grpo
+    --output_dir checkpoints/r1_grpo
 ```
