@@ -87,8 +87,14 @@ int main(int argc, char** argv) {
 
   ros2ProceduralMpcMotionManager->subscribe(nodeHandle, qos);
 
+#include <humanoid_centroidal_mpc/mrt/MpcParameterUpdaterModule.h>
+
   mpc.getSolverPtr()->setReferenceManager(interface.getReferenceManagerPtr());
   mpc.getSolverPtr()->addSynchronizedModule(ros2ProceduralMpcMotionManager);
+
+  // Register real-time MPC parameter hot-reloading
+  auto mpcParameterUpdater = std::make_shared<MpcParameterUpdaterModule>(&mpc, taskFile, urdfFile, referenceFile);
+  mpc.getSolverPtr()->addSynchronizedModule(mpcParameterUpdater);
 
   MPC_ROS_Interface mpcNode(mpc, robotName);
   mpcNode.launchNodes(nodeHandle, qos);

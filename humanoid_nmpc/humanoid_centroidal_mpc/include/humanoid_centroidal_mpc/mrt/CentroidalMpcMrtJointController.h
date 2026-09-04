@@ -158,6 +158,11 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   scalar_t previousObservationTime_{0.0};        ///< Previous sim time for computing actual dt
   vector_t latestPolicyInput_;                   ///< Latest MPC policy input (e.g. contact forces, joint accelerations)
 
+  std::string pdGainsFile_;
+  ModelSettings modelSettings_;
+  std::filesystem::file_time_type pdGainsLastWriteTime_;
+  size_t fileCheckCounter_{0};
+
   /**
    * @brief Compute per-joint gravity compensation torques via Pinocchio.
    * Uses nonLinearEffects with zero velocity for pure gravity torques.

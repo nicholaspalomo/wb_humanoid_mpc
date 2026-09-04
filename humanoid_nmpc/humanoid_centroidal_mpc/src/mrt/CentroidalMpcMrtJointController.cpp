@@ -70,7 +70,9 @@ CentroidalMpcMrtJointController::CentroidalMpcMrtJointController(const ::robot::
       realtime_(mpcDesiredFrequency <= 0),
       visualizerPtr_(rVizVisualizerPtr),
       inverse_dynamics_kp_(mpcRobotModel.getJointDim()),
-      inverse_dynamics_kd_(mpcRobotModel.getJointDim()) {
+      inverse_dynamics_kd_(mpcRobotModel.getJointDim()),
+      pdGainsFile_(pdGainsFile),
+      modelSettings_(modelSettings) {
   mpcJointIndices_ = robotDescription.getJointIndices(modelSettings.mpcModelJointNames);
   otherJointIndices_ = robotDescription.getJointIndices(modelSettings.fixedJointNames);
   currentMpcObservation_.state = vector_t::Zero(mpcRobotModelPtr_->getStateDim());
@@ -81,7 +83,16 @@ CentroidalMpcMrtJointController::CentroidalMpcMrtJointController(const ::robot::
   inverse_dynamics_kp_.fill(0.0);
   inverse_dynamics_kd_.fill(0.0);
 
+  if (!pdGainsFile_.empty() && std::filesystem::exists(pdGainsFile_)) {
+    std::error_code ec;
+    pdGainsLastWriteTime_ = std::filesystem::last_write_time(pdGainsFile_, ec);
+  }
+
   loadPdGains(pdGainsFile, modelSettings);
+
+  // Register MPC Parameter Updater Module
+  // We need taskFile, urdfFile, referenceFile. Unfortunately these aren't directly available in the constructor signature.
+  // Wait! The constructor doesn't take taskFile, urdfFile, referenceFile!
 }
 
 void CentroidalMpcMrtJointController::loadPdGains(const std::string& pdGainsFile, const ModelSettings& modelSettings) {
@@ -228,6 +239,16 @@ void CentroidalMpcMrtJointController::updateMpcObservation(ocs2::SystemObservati
 void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
                                                                 const ::robot::model::RobotState& robotState,
                                                                 ::robot::model::RobotJointAction& robotJointAction) {
+  // Hot-reload Joint PD Gains at 1Hz (assuming 500Hz control loop)
+  if (!pdGainsFile_.empty() && fileCheckCounter_++ % 500 == 0) {
+    std::error_code ec;
+    auto last_write = std::filesystem::last_write_time(pdGainsFile_, ec);
+    if (!ec && last_write != pdGainsLastWriteTime_) {
+      pdGainsLastWriteTime_ = last_write;
+      loadPdGains(pdGainsFile_, modelSettings_);
+    }
+  }
+
   // Always update MPC observation so the solver continues tracking robot state and time in all modes.
   updateMpcObservation(currentMpcObservation_, robotState);
   mcpMrtInterface_.setCurrentObservation(currentMpcObservation_);

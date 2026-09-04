@@ -1,3 +1,5 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 # humanoid_centroidal_mpc - Centroidal MPC library
 
@@ -16,6 +18,7 @@ cc_library(
         "src/CentroidalMpcInterface.cpp",
         "src/command/CentroidalMpcTargetTrajectoriesCalculator.cpp",
         "src/mrt/CentroidalMpcMrtJointController.cpp",
+        "src/mrt/MpcParameterUpdaterModule.cpp",
     ],
     hdrs = glob(["include/**"], allow_empty = True),
     includes = ["include"],
