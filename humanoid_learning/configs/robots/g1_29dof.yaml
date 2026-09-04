@@ -1,0 +1,270 @@
+name: g1_29dof
+nq: 36
+nv: 35
+n_act: 29
+joint_names:
+- left_hip_pitch_joint
+- left_hip_roll_joint
+- left_hip_yaw_joint
+- left_knee_joint
+- left_ankle_pitch_joint
+- left_ankle_roll_joint
+- right_hip_pitch_joint
+- right_hip_roll_joint
+- right_hip_yaw_joint
+- right_knee_joint
+- right_ankle_pitch_joint
+- right_ankle_roll_joint
+- waist_yaw_joint
+- waist_roll_joint
+- waist_pitch_joint
+- left_shoulder_pitch_joint
+- left_shoulder_roll_joint
+- left_shoulder_yaw_joint
+- left_elbow_joint
+- left_wrist_roll_joint
+- left_wrist_pitch_joint
+- left_wrist_yaw_joint
+- right_shoulder_pitch_joint
+- right_shoulder_roll_joint
+- right_shoulder_yaw_joint
+- right_elbow_joint
+- right_wrist_roll_joint
+- right_wrist_pitch_joint
+- right_wrist_yaw_joint
+actuator_names:
+- left_hip_pitch_joint
+- left_hip_roll_joint
+- left_hip_yaw_joint
+- left_knee_joint
+- left_ankle_pitch_joint
+- left_ankle_roll_joint
+- right_hip_pitch_joint
+- right_hip_roll_joint
+- right_hip_yaw_joint
+- right_knee_joint
+- right_ankle_pitch_joint
+- right_ankle_roll_joint
+- waist_yaw_joint
+- waist_roll_joint
+- waist_pitch_joint
+- left_shoulder_pitch_joint
+- left_shoulder_roll_joint
+- left_shoulder_yaw_joint
+- left_elbow_joint
+- left_wrist_roll_joint
+- left_wrist_pitch_joint
+- left_wrist_yaw_joint
+- right_shoulder_pitch_joint
+- right_shoulder_roll_joint
+- right_shoulder_yaw_joint
+- right_elbow_joint
+- right_wrist_roll_joint
+- right_wrist_pitch_joint
+- right_wrist_yaw_joint
+q_nominal:
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+joint_limits_lower:
+- -2.5307
+- -0.5236
+- -2.7576
+- -0.087267
+- -0.87267
+- -0.2618
+- -2.5307
+- -2.9671
+- -2.7576
+- -0.087267
+- -0.87267
+- -0.2618
+- -2.618
+- -0.52
+- -0.52
+- -3.0892
+- -1.5882
+- -2.618
+- -1.0472
+- -1.97222
+- -1.61443
+- -1.61443
+- -3.0892
+- -2.2515
+- -2.618
+- -1.0472
+- -1.97222
+- -1.61443
+- -1.61443
+joint_limits_upper:
+- 2.8798
+- 2.9671
+- 2.7576
+- 2.8798
+- 0.5236
+- 0.2618
+- 2.8798
+- 0.5236
+- 2.7576
+- 2.8798
+- 0.5236
+- 0.2618
+- 2.618
+- 0.52
+- 0.52
+- 2.6704
+- 2.2515
+- 2.618
+- 2.0944
+- 1.97222
+- 1.61443
+- 1.61443
+- 2.6704
+- 1.5882
+- 2.618
+- 2.0944
+- 1.97222
+- 1.61443
+- 1.61443
+torque_limits:
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+total_mass: 35.11214200000001
+body_masses:
+  world: 0.0
+  pelvis: 3.813
+  left_hip_pitch_link: 1.35
+  left_hip_roll_link: 1.52
+  left_hip_yaw_link: 1.702
+  left_knee_link: 1.932
+  left_ankle_pitch_link: 0.074
+  left_ankle_roll_link: 0.608
+  right_hip_pitch_link: 1.35
+  right_hip_roll_link: 1.52
+  right_hip_yaw_link: 1.702
+  right_knee_link: 1.932
+  right_ankle_pitch_link: 0.074
+  right_ankle_roll_link: 0.608
+  waist_yaw_link: 0.244
+  waist_roll_link: 0.047
+  torso_link: 9.598
+  left_shoulder_pitch_link: 0.718
+  left_shoulder_roll_link: 0.643
+  left_shoulder_yaw_link: 0.734
+  left_elbow_link: 0.6
+  left_wrist_roll_link: 0.085445
+  left_wrist_pitch_link: 0.48405
+  left_wrist_yaw_link: 0.254576
+  right_shoulder_pitch_link: 0.718
+  right_shoulder_roll_link: 0.643
+  right_shoulder_yaw_link: 0.734
+  right_elbow_link: 0.6
+  right_wrist_roll_link: 0.085445
+  right_wrist_pitch_link: 0.48405
+  right_wrist_yaw_link: 0.254576
+default_standing_height: 0.793
+contact_body_names:
+- left_ankle_roll_link
+- right_ankle_roll_link
+limb_joint_indices:
+  left_leg:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  right_leg:
+  - 6
+  - 7
+  - 8
+  - 9
+  - 10
+  - 11
+  torso:
+  - 12
+  - 13
+  - 14
+  left_arm:
+  - 15
+  - 16
+  - 17
+  - 18
+  - 19
+  - 20
+  - 21
+  right_arm:
+  - 22
+  - 23
+  - 24
+  - 25
+  - 26
+  - 27
+  - 28
+wbc_config:
+  w_base_acc: 100.0
+  w_posture: 10.0
+  w_contact_acc: 1000.0
+  w_force_reg: 0.0001
+  w_torque_reg: 0.0001
+  kp_posture: 100.0
+  kd_posture: 10.0
+  friction_coef: 0.6
+  f_z_min: 5.0
+  f_z_max: 1500.0
+  tau_max: 100.0
+source_file: /home/nico-palomo/workspace/wb_humanoid_mpc/robot_models/unitree_g1/g1_description/urdf/g1_29dof.xml
+backend: mujoco

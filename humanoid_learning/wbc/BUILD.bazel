@@ -1,5 +1,5 @@
 # ==============================================================================
-# Humanoid Learning - Environments
+# Humanoid Learning - JAX Whole-Body Controller
 # ==============================================================================
 
 load("@rl_deps//:requirements.bzl", "requirement")
@@ -8,21 +8,14 @@ load("@rules_python//python:defs.bzl", "py_library")
 package(default_visibility = ["//visibility:public"])
 
 py_library(
-    name = "envs",
+    name = "wbc",
     srcs = [
         "__init__.py",
-        "base_env.py",
-        "humanoid_residual_wbc_env.py",
+        "jax_wbc.py",
     ],
     deps = [
-        "//humanoid_learning/wbc",
-        requirement("absl-py"),
-        requirement("brax"),
         requirement("jax"),
         requirement("jaxlib"),
-        requirement("mujoco"),
-        requirement("mujoco-mjx"),
         requirement("numpy"),
-        requirement("playground"),
     ],
 )

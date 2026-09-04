@@ -1,0 +1,55 @@
+# Configuration for Humanoid Residual WBC with GRPO Training
+
+# Humanoid Robot & Environment
+env:
+  n_act: 12                # 6 DOF per leg
+  nv: 18                   # 6 base + 12 joints
+  nq: 19                   # 3 pos + 4 quat + 12 joints
+  control_dt: 0.02         # 50 Hz control frequency
+  physics_dt: 0.002        # 500 Hz physics simulation frequency
+  action_scale: 0.25       # Maximum residual joint angle (rad)
+  target_velocity: 1.0     # Target forward velocity (m/s)
+  gait_frequency: 1.5      # Stepping frequency (Hz)
+  nominal_height: 0.85     # Target torso height (m)
+
+# Whole-Body Controller (QP / Inverse Dynamics)
+wbc:
+  w_base_acc: 100.0        # Floating base tracking weight
+  w_posture: 10.0          # Joint posture residual tracking weight
+  w_contact_acc: 1000.0    # Stance foot rigidity constraint weight
+  w_force_reg: 0.0001      # Contact force regularization
+  w_torque_reg: 0.0001     # Motor torque regularization
+  kp_posture: 100.0        # Posture PD stiffness (1/s^2)
+  kd_posture: 10.0         # Posture PD damping (1/s)
+  friction_coef: 0.6       # Coulomb friction coefficient mu
+  f_z_min: 5.0             # Minimum contact force (N)
+  f_z_max: 800.0           # Maximum contact force (N)
+  tau_max: 100.0           # Motor torque limit (N*m)
+
+# Residual Policy Network
+policy:
+  obs_dim: 40
+  act_dim: 12
+  hidden_dim: 256
+  num_blocks: 3
+  init_log_std: -1.0
+
+# Offline Behavioral Cloning Bootstrapping
+bootstrapping:
+  enabled: true
+  epochs: 15
+  batch_size: 128
+  lr: 0.001
+  synthetic_samples: 2000
+
+# Group Relative Policy Optimization (GRPO)
+grpo:
+  group_size: 4            # Candidates G sampled per state
+  num_envs: 4              # Parallel environments B
+  rollout_horizon: 8       # Steps H per candidate rollout
+  num_iterations: 30       # Outer GRPO iterations
+  num_epochs_per_iter: 2   # Mini-epochs per iteration
+  learning_rate: 0.0003    # AdamW learning rate
+  clip_eps: 0.2            # PPO ratio clip parameter
+  beta_kl: 0.05            # KL penalty weight vs reference policy
+  gamma: 0.99              # Reward discount factor

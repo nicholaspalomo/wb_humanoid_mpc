@@ -1,0 +1,259 @@
+name: atlas
+nq: 35
+nv: 34
+n_act: 28
+joint_names:
+- back_bkz
+- back_bky
+- back_bkx
+- l_arm_shz
+- l_arm_shx
+- l_arm_ely
+- l_arm_elx
+- l_arm_wry
+- l_arm_wrx
+- neck_ry
+- r_arm_shz
+- r_arm_shx
+- r_arm_ely
+- r_arm_elx
+- r_arm_wry
+- r_arm_wrx
+- l_leg_hpz
+- l_leg_hpx
+- l_leg_hpy
+- l_leg_kny
+- l_leg_aky
+- l_leg_akx
+- r_leg_hpz
+- r_leg_hpx
+- r_leg_hpy
+- r_leg_kny
+- r_leg_aky
+- r_leg_akx
+actuator_names:
+- back_bkz_motor
+- back_bky_motor
+- back_bkx_motor
+- l_arm_shz_motor
+- l_arm_shx_motor
+- l_arm_ely_motor
+- l_arm_elx_motor
+- l_arm_wry_motor
+- l_arm_wrx_motor
+- neck_ry_motor
+- r_arm_shz_motor
+- r_arm_shx_motor
+- r_arm_ely_motor
+- r_arm_elx_motor
+- r_arm_wry_motor
+- r_arm_wrx_motor
+- l_leg_hpz_motor
+- l_leg_hpx_motor
+- l_leg_hpy_motor
+- l_leg_kny_motor
+- l_leg_aky_motor
+- l_leg_akx_motor
+- r_leg_hpz_motor
+- r_leg_hpx_motor
+- r_leg_hpy_motor
+- r_leg_kny_motor
+- r_leg_aky_motor
+- r_leg_akx_motor
+q_nominal:
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+joint_limits_lower:
+- -0.663225
+- -0.219
+- -0.523599
+- -1.5708
+- -1.5708
+- 0.0
+- 0.0
+- -0.785398
+- -1.0472
+- -0.6
+- -0.785398
+- -1.5708
+- -3.14159
+- -2.35619
+- -0.785398
+- -1.0472
+- -0.872665
+- -0.523599
+- -1.5708
+- 0.0
+- -1.0
+- -0.8
+- -0.174533
+- -0.523599
+- -1.5708
+- 0.0
+- -1.0
+- -0.8
+joint_limits_upper:
+- 0.663225
+- 0.538
+- 0.523599
+- 0.785398
+- 1.5708
+- 3.14159
+- 2.35619
+- 0.785398
+- 1.0472
+- 1.14
+- 1.5708
+- 1.5708
+- 0.0
+- 0.0
+- 0.785398
+- 1.0472
+- 0.174533
+- 0.523599
+- 0.523599
+- 2.35619
+- 0.7
+- 0.8
+- 0.872665
+- 0.523599
+- 0.523599
+- 2.35619
+- 0.7
+- 0.8
+torque_limits:
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+- 100.0
+total_mass: 192.76399999999995
+body_masses:
+  world: 0.0
+  pelvis: 17.882
+  ltorso: 2.409
+  mtorso: 0.69
+  utorso: 84.409
+  l_clav: 4.466
+  l_scap: 3.899
+  l_uarm: 4.486
+  l_larm: 2.476
+  l_farm: 2.428
+  l_hand: 0.877
+  head: 3.5
+  r_clav: 4.466
+  r_scap: 3.899
+  r_uarm: 4.486
+  r_larm: 2.476
+  r_farm: 2.428
+  r_hand: 0.877
+  l_uglut: 1.879
+  l_lglut: 4.869
+  l_uleg: 7.712
+  l_lleg: 5.795
+  l_talus: 1.0
+  l_foot: 2.05
+  r_uglut: 1.879
+  r_lglut: 4.869
+  r_uleg: 7.712
+  r_lleg: 5.795
+  r_talus: 1.0
+  r_foot: 2.05
+default_standing_height: 0.93
+contact_body_names:
+- l_foot
+- r_foot
+limb_joint_indices:
+  left_arm:
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  - 8
+  torso:
+  - 9
+  right_arm:
+  - 10
+  - 11
+  - 12
+  - 13
+  - 14
+  - 15
+  left_leg:
+  - 16
+  - 17
+  - 18
+  - 19
+  - 20
+  - 21
+  right_leg:
+  - 22
+  - 23
+  - 24
+  - 25
+  - 26
+  - 27
+wbc_config:
+  w_base_acc: 100.0
+  w_posture: 10.0
+  w_contact_acc: 1000.0
+  w_force_reg: 0.0001
+  w_torque_reg: 0.0001
+  kp_posture: 100.0
+  kd_posture: 10.0
+  friction_coef: 0.6
+  f_z_min: 5.0
+  f_z_max: 4727.537099999999
+  tau_max: 100.0
+source_file: /home/nico-palomo/workspace/wb_humanoid_mpc/robot_models/drc_atlas/drc_atlas_description/urdf/atlas.xml
+backend: mujoco
