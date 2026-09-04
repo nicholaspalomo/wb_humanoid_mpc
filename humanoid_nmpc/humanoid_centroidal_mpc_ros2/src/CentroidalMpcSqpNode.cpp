@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/log/check.h"
 
 #include <humanoid_centroidal_mpc/command/CentroidalMpcTargetTrajectoriesCalculator.h>
+#include <humanoid_centroidal_mpc/mrt/MpcParameterUpdaterModule.h>
 #include "humanoid_common_mpc_ros2/ros_comm/Ros2ProceduralMpcMotionManager.h"
 
 using namespace ocs2;
@@ -86,8 +87,6 @@ int main(int argc, char** argv) {
       gaitFile, referenceFile, interface.getSwitchedModelReferenceManagerPtr(), interface.getMpcRobotModel(), targetTrajectoriesFunc);
 
   ros2ProceduralMpcMotionManager->subscribe(nodeHandle, qos);
-
-#include <humanoid_centroidal_mpc/mrt/MpcParameterUpdaterModule.h>
 
   mpc.getSolverPtr()->setReferenceManager(interface.getReferenceManagerPtr());
   mpc.getSolverPtr()->addSynchronizedModule(ros2ProceduralMpcMotionManager);
