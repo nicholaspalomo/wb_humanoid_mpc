@@ -27,7 +27,9 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ****************************************************************************"""
 
+import glob
 import os
+import shutil
 import subprocess
 import yaml
 import tkinter as tk
@@ -320,10 +322,34 @@ class App(tk.Tk):
             layout_candidate = os.path.join(
                 repo_root, "tools", "plotjuggler", "humanoid_telemetry.xml"
             )
-            cmd = ["plotjuggler"]
+
+            # Resolve PlotJuggler binary or fallback to ROS 2 package runner
+            ros_distro = os.environ.get("ROS_DISTRO", "jazzy")
+            direct_bin = f"/opt/ros/{ros_distro}/lib/plotjuggler/plotjuggler"
+
+            if shutil.which("plotjuggler"):
+                cmd = ["plotjuggler"]
+            elif os.path.isfile(direct_bin) and os.access(direct_bin, os.X_OK):
+                cmd = [direct_bin]
+            elif shutil.which("ros2"):
+                cmd = ["ros2", "run", "plotjuggler", "plotjuggler"]
+            else:
+                alt_bins = glob.glob("/opt/ros/*/lib/plotjuggler/plotjuggler")
+                if alt_bins and os.access(alt_bins[0], os.X_OK):
+                    cmd = [alt_bins[0]]
+                else:
+                    cmd = ["plotjuggler"]
+
+            cmd.extend(["--buffer_size", "60"])
             if os.path.exists(layout_candidate):
                 cmd.extend(["--layout", layout_candidate])
-            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+            subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env=os.environ.copy(),
+            )
         except FileNotFoundError:
             import tkinter.messagebox as mb
 

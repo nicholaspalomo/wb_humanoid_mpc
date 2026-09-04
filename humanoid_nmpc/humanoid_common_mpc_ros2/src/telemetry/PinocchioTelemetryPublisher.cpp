@@ -28,6 +28,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include "humanoid_common_mpc_ros2/telemetry/PinocchioTelemetryPublisher.h"
+#include "humanoid_common_mpc_ros2/telemetry/TelemetryRosHelpers.h"
 
 #include <algorithm>
 #include <cmath>
@@ -312,60 +313,18 @@ void PinocchioTelemetryPublisher::publishPinocchioState(const rclcpp::Time& stam
       const auto aFrameMeas =
           pinocchio::getFrameClassicalAcceleration(model, dataMeasured_, fInfo.frameId, pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED);
 
-      geometry_msgs::msg::PoseStamped poseMsg;
-      poseMsg.header.stamp = stamp;
-      poseMsg.header.frame_id = "world";
-      poseMsg.pose.position.x = placementMeas.translation().x();
-      poseMsg.pose.position.y = placementMeas.translation().y();
-      poseMsg.pose.position.z = placementMeas.translation().z();
-      quaternion_t qm(placementMeas.rotation());
-      poseMsg.pose.orientation.x = qm.x();
-      poseMsg.pose.orientation.y = qm.y();
-      poseMsg.pose.orientation.z = qm.z();
-      poseMsg.pose.orientation.w = qm.w();
-      fInfo.measuredPosePub->publish(poseMsg);
+      const quaternion_t qm(placementMeas.rotation());
+      fInfo.measuredPosePub->publish(createPoseStamped(stamp, "world", placementMeas.translation(), qm));
+      fInfo.measuredEulerPub->publish(createVector3Stamped(stamp, "world", quaternionToEulerZYX(qm)));
+      fInfo.measuredTwistPub->publish(createTwistStamped(stamp, "world", vFrameMeas.linear(), vFrameMeas.angular()));
+      fInfo.measuredAccelPub->publish(createAccelStamped(stamp, "world", aFrameMeas.linear(), aFrameMeas.angular()));
 
-      geometry_msgs::msg::Vector3Stamped eulerMsg;
-      eulerMsg.header.stamp = stamp;
-      eulerMsg.header.frame_id = "world";
-      vector3_t eulM = quaternionToEulerZYX(qm);
-      eulerMsg.vector.x = eulM.x();
-      eulerMsg.vector.y = eulM.y();
-      eulerMsg.vector.z = eulM.z();
-      fInfo.measuredEulerPub->publish(eulerMsg);
-
-      geometry_msgs::msg::TwistStamped twistMsg;
-      twistMsg.header.stamp = stamp;
-      twistMsg.header.frame_id = "world";
-      twistMsg.twist.linear.x = vFrameMeas.linear().x();
-      twistMsg.twist.linear.y = vFrameMeas.linear().y();
-      twistMsg.twist.linear.z = vFrameMeas.linear().z();
-      twistMsg.twist.angular.x = vFrameMeas.angular().x();
-      twistMsg.twist.angular.y = vFrameMeas.angular().y();
-      twistMsg.twist.angular.z = vFrameMeas.angular().z();
-      fInfo.measuredTwistPub->publish(twistMsg);
-
-      geometry_msgs::msg::AccelStamped accelMsg;
-      accelMsg.header.stamp = stamp;
-      accelMsg.header.frame_id = "world";
-      accelMsg.accel.linear.x = aFrameMeas.linear().x();
-      accelMsg.accel.linear.y = aFrameMeas.linear().y();
-      accelMsg.accel.linear.z = aFrameMeas.linear().z();
-      accelMsg.accel.angular.x = aFrameMeas.angular().x();
-      accelMsg.accel.angular.y = aFrameMeas.angular().y();
-      accelMsg.accel.angular.z = aFrameMeas.angular().z();
-      fInfo.measuredAccelPub->publish(accelMsg);
-
-      geometry_msgs::msg::WrenchStamped wrenchMsg;
-      wrenchMsg.header.stamp = stamp;
-      wrenchMsg.header.frame_id = "world";
       auto itForce = measuredForces.find(fInfo.frameName);
       if (itForce != measuredForces.end()) {
-        wrenchMsg.wrench.force.x = itForce->second.x();
-        wrenchMsg.wrench.force.y = itForce->second.y();
-        wrenchMsg.wrench.force.z = itForce->second.z();
+        fInfo.measuredWrenchPub->publish(createForceWrenchStamped(stamp, "world", itForce->second));
+      } else {
+        fInfo.measuredWrenchPub->publish(createForceWrenchStamped(stamp, "world", vector3_t::Zero()));
       }
-      fInfo.measuredWrenchPub->publish(wrenchMsg);
     }
 
     // Desired Frame
@@ -376,63 +335,18 @@ void PinocchioTelemetryPublisher::publishPinocchioState(const rclcpp::Time& stam
       const auto aFrameDes =
           pinocchio::getFrameClassicalAcceleration(model, dataDesired_, fInfo.frameId, pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED);
 
-      geometry_msgs::msg::PoseStamped poseMsg;
-      poseMsg.header.stamp = stamp;
-      poseMsg.header.frame_id = "world";
-      poseMsg.pose.position.x = placementDes.translation().x();
-      poseMsg.pose.position.y = placementDes.translation().y();
-      poseMsg.pose.position.z = placementDes.translation().z();
-      quaternion_t qd(placementDes.rotation());
-      poseMsg.pose.orientation.x = qd.x();
-      poseMsg.pose.orientation.y = qd.y();
-      poseMsg.pose.orientation.z = qd.z();
-      poseMsg.pose.orientation.w = qd.w();
-      fInfo.desiredPosePub->publish(poseMsg);
+      const quaternion_t qd(placementDes.rotation());
+      fInfo.desiredPosePub->publish(createPoseStamped(stamp, "world", placementDes.translation(), qd));
+      fInfo.desiredEulerPub->publish(createVector3Stamped(stamp, "world", quaternionToEulerZYX(qd)));
+      fInfo.desiredTwistPub->publish(createTwistStamped(stamp, "world", vFrameDes.linear(), vFrameDes.angular()));
+      fInfo.desiredAccelPub->publish(createAccelStamped(stamp, "world", aFrameDes.linear(), aFrameDes.angular()));
 
-      geometry_msgs::msg::Vector3Stamped eulerMsg;
-      eulerMsg.header.stamp = stamp;
-      eulerMsg.header.frame_id = "world";
-      vector3_t eulD = quaternionToEulerZYX(qd);
-      eulerMsg.vector.x = eulD.x();
-      eulerMsg.vector.y = eulD.y();
-      eulerMsg.vector.z = eulD.z();
-      fInfo.desiredEulerPub->publish(eulerMsg);
-
-      geometry_msgs::msg::TwistStamped twistMsg;
-      twistMsg.header.stamp = stamp;
-      twistMsg.header.frame_id = "world";
-      twistMsg.twist.linear.x = vFrameDes.linear().x();
-      twistMsg.twist.linear.y = vFrameDes.linear().y();
-      twistMsg.twist.linear.z = vFrameDes.linear().z();
-      twistMsg.twist.angular.x = vFrameDes.angular().x();
-      twistMsg.twist.angular.y = vFrameDes.angular().y();
-      twistMsg.twist.angular.z = vFrameDes.angular().z();
-      fInfo.desiredTwistPub->publish(twistMsg);
-
-      geometry_msgs::msg::AccelStamped accelMsg;
-      accelMsg.header.stamp = stamp;
-      accelMsg.header.frame_id = "world";
-      accelMsg.accel.linear.x = aFrameDes.linear().x();
-      accelMsg.accel.linear.y = aFrameDes.linear().y();
-      accelMsg.accel.linear.z = aFrameDes.linear().z();
-      accelMsg.accel.angular.x = aFrameDes.angular().x();
-      accelMsg.accel.angular.y = aFrameDes.angular().y();
-      accelMsg.accel.angular.z = aFrameDes.angular().z();
-      fInfo.desiredAccelPub->publish(accelMsg);
-
-      geometry_msgs::msg::WrenchStamped wrenchMsg;
-      wrenchMsg.header.stamp = stamp;
-      wrenchMsg.header.frame_id = "world";
       auto itWrench = desiredWrenches.find(fInfo.frameName);
       if (itWrench != desiredWrenches.end()) {
-        wrenchMsg.wrench.force.x = itWrench->second[0];
-        wrenchMsg.wrench.force.y = itWrench->second[1];
-        wrenchMsg.wrench.force.z = itWrench->second[2];
-        wrenchMsg.wrench.torque.x = itWrench->second[3];
-        wrenchMsg.wrench.torque.y = itWrench->second[4];
-        wrenchMsg.wrench.torque.z = itWrench->second[5];
+        fInfo.desiredWrenchPub->publish(createWrenchStamped(stamp, "world", itWrench->second));
+      } else {
+        fInfo.desiredWrenchPub->publish(createWrenchStamped(stamp, "world", vector6_t::Zero()));
       }
-      fInfo.desiredWrenchPub->publish(wrenchMsg);
     }
   }
 }
@@ -600,36 +514,9 @@ void PinocchioTelemetryPublisher::publish(const ::robot::model::RobotState& robo
   mpcJointTargetPub_->publish(targetJointMsg);
 
   // /robot/base_*
-  geometry_msgs::msg::PoseStamped robotPoseMsg;
-  robotPoseMsg.header.stamp = now;
-  robotPoseMsg.header.frame_id = "world";
-  robotPoseMsg.pose.position.x = rootPos.x();
-  robotPoseMsg.pose.position.y = rootPos.y();
-  robotPoseMsg.pose.position.z = rootPos.z();
-  robotPoseMsg.pose.orientation.x = rootQuat.x();
-  robotPoseMsg.pose.orientation.y = rootQuat.y();
-  robotPoseMsg.pose.orientation.z = rootQuat.z();
-  robotPoseMsg.pose.orientation.w = rootQuat.w();
-  robotBasePosePub_->publish(robotPoseMsg);
-
-  geometry_msgs::msg::Vector3Stamped robotEulerMsg;
-  robotEulerMsg.header.stamp = now;
-  robotEulerMsg.header.frame_id = "world";
-  robotEulerMsg.vector.x = rootEuler.x();
-  robotEulerMsg.vector.y = rootEuler.y();
-  robotEulerMsg.vector.z = rootEuler.z();
-  robotBaseEulerPub_->publish(robotEulerMsg);
-
-  geometry_msgs::msg::TwistStamped robotTwistMsg;
-  robotTwistMsg.header.stamp = now;
-  robotTwistMsg.header.frame_id = "world";
-  robotTwistMsg.twist.linear.x = rootLinVel.x();
-  robotTwistMsg.twist.linear.y = rootLinVel.y();
-  robotTwistMsg.twist.linear.z = rootLinVel.z();
-  robotTwistMsg.twist.angular.x = rootAngVel.x();
-  robotTwistMsg.twist.angular.y = rootAngVel.y();
-  robotTwistMsg.twist.angular.z = rootAngVel.z();
-  robotBaseTwistPub_->publish(robotTwistMsg);
+  robotBasePosePub_->publish(createPoseStamped(now, "world", rootPos, rootQuat));
+  robotBaseEulerPub_->publish(createVector3Stamped(now, "world", rootEuler));
+  robotBaseTwistPub_->publish(createTwistStamped(now, "world", rootLinVel, rootAngVel));
 
   // /mpc/target_base_*
   vector3_t targetPos = rootPos;
@@ -642,92 +529,35 @@ void PinocchioTelemetryPublisher::publish(const ::robot::model::RobotState& robo
     scalar_t time = mpcObservation.time;
     vector_t targetState = LinearInterpolation::interpolate(time, mpcCommand.mpcTargetTrajectories_.timeTrajectory,
                                                             mpcCommand.mpcTargetTrajectories_.stateTrajectory);
-    vector6_t targetBasePose = mpcRobotModelPtr_->getBasePose(targetState);
-    targetPos = targetBasePose.head<BASE_TRANSLATION_DIM>();
-    targetEuler = vector3_t(targetBasePose[5], targetBasePose[4], targetBasePose[3]);
-    targetQuat = getQuaternionFromEulerAnglesZyx(vector3_t(targetBasePose.tail<BASE_ROTATION_DIM>()));
+    targetPos = mpcRobotModelPtr_->getBasePosition(targetState);
+    const vector3_t targetEulerZyx = mpcRobotModelPtr_->getBaseOrientationEulerZYX(targetState);
+    targetEuler = vector3_t(targetEulerZyx.z(), targetEulerZyx.y(), targetEulerZyx.x());
+    targetQuat = getQuaternionFromEulerAnglesZyx(targetEulerZyx);
 
     if (!mpcCommand.mpcTargetTrajectories_.inputTrajectory.empty()) {
       vector_t tInput = LinearInterpolation::interpolate(time, mpcCommand.mpcTargetTrajectories_.timeTrajectory,
                                                          mpcCommand.mpcTargetTrajectories_.inputTrajectory);
       if (tInput.size() >= static_cast<int>(N_CONTACTS * CONTACT_WRENCH_DIM)) {
-        targetLinVel = targetState.head<BASE_TRANSLATION_DIM>();
+        targetLinVel = mpcRobotModelPtr_->getBaseComLinearVelocity(targetState);
       }
     }
   }
 
-  geometry_msgs::msg::PoseStamped mpcPoseMsg;
-  mpcPoseMsg.header.stamp = now;
-  mpcPoseMsg.header.frame_id = "world";
-  mpcPoseMsg.pose.position.x = targetPos.x();
-  mpcPoseMsg.pose.position.y = targetPos.y();
-  mpcPoseMsg.pose.position.z = targetPos.z();
-  mpcPoseMsg.pose.orientation.x = targetQuat.x();
-  mpcPoseMsg.pose.orientation.y = targetQuat.y();
-  mpcPoseMsg.pose.orientation.z = targetQuat.z();
-  mpcPoseMsg.pose.orientation.w = targetQuat.w();
-  mpcTargetBasePosePub_->publish(mpcPoseMsg);
-
-  geometry_msgs::msg::Vector3Stamped mpcEulerMsg;
-  mpcEulerMsg.header.stamp = now;
-  mpcEulerMsg.header.frame_id = "world";
-  mpcEulerMsg.vector.x = targetEuler.x();
-  mpcEulerMsg.vector.y = targetEuler.y();
-  mpcEulerMsg.vector.z = targetEuler.z();
-  mpcTargetBaseEulerPub_->publish(mpcEulerMsg);
-
-  geometry_msgs::msg::TwistStamped mpcTwistMsg;
-  mpcTwistMsg.header.stamp = now;
-  mpcTwistMsg.header.frame_id = "world";
-  mpcTwistMsg.twist.linear.x = targetLinVel.x();
-  mpcTwistMsg.twist.linear.y = targetLinVel.y();
-  mpcTwistMsg.twist.linear.z = targetLinVel.z();
-  mpcTwistMsg.twist.angular.x = targetAngVel.x();
-  mpcTwistMsg.twist.angular.y = targetAngVel.y();
-  mpcTwistMsg.twist.angular.z = targetAngVel.z();
-  mpcTargetBaseTwistPub_->publish(mpcTwistMsg);
+  mpcTargetBasePosePub_->publish(createPoseStamped(now, "world", targetPos, targetQuat));
+  mpcTargetBaseEulerPub_->publish(createVector3Stamped(now, "world", targetEuler));
+  mpcTargetBaseTwistPub_->publish(createTwistStamped(now, "world", targetLinVel, targetAngVel));
 
   // /mpc/contact_wrench/left|right
   if (mpcPolicyInput.size() >= static_cast<int>(N_CONTACTS * CONTACT_WRENCH_DIM)) {
-    geometry_msgs::msg::WrenchStamped mpcLeftWrench;
-    mpcLeftWrench.header.stamp = now;
-    mpcLeftWrench.header.frame_id = "world";
-    mpcLeftWrench.wrench.force.x = mpcPolicyInput[0];
-    mpcLeftWrench.wrench.force.y = mpcPolicyInput[1];
-    mpcLeftWrench.wrench.force.z = mpcPolicyInput[2];
-    mpcLeftWrench.wrench.torque.x = mpcPolicyInput[3];
-    mpcLeftWrench.wrench.torque.y = mpcPolicyInput[4];
-    mpcLeftWrench.wrench.torque.z = mpcPolicyInput[5];
-    mpcContactWrenchLeftPub_->publish(mpcLeftWrench);
-
-    geometry_msgs::msg::WrenchStamped mpcRightWrench;
-    mpcRightWrench.header.stamp = now;
-    mpcRightWrench.header.frame_id = "world";
-    mpcRightWrench.wrench.force.x = mpcPolicyInput[CONTACT_WRENCH_DIM + 0];
-    mpcRightWrench.wrench.force.y = mpcPolicyInput[CONTACT_WRENCH_DIM + 1];
-    mpcRightWrench.wrench.force.z = mpcPolicyInput[CONTACT_WRENCH_DIM + 2];
-    mpcRightWrench.wrench.torque.x = mpcPolicyInput[CONTACT_WRENCH_DIM + 3];
-    mpcRightWrench.wrench.torque.y = mpcPolicyInput[CONTACT_WRENCH_DIM + 4];
-    mpcRightWrench.wrench.torque.z = mpcPolicyInput[CONTACT_WRENCH_DIM + 5];
-    mpcContactWrenchRightPub_->publish(mpcRightWrench);
+    mpcContactWrenchLeftPub_->publish(
+        createWrenchStamped(now, "world", mpcPolicyInput.segment<CONTACT_WRENCH_DIM>(CONTACT_LEFT_INDEX * CONTACT_WRENCH_DIM)));
+    mpcContactWrenchRightPub_->publish(
+        createWrenchStamped(now, "world", mpcPolicyInput.segment<CONTACT_WRENCH_DIM>(CONTACT_RIGHT_INDEX * CONTACT_WRENCH_DIM)));
   }
 
   // /sensors/contact_wrench/left|right
-  geometry_msgs::msg::WrenchStamped simLeftWrench;
-  simLeftWrench.header.stamp = now;
-  simLeftWrench.header.frame_id = "world";
-  simLeftWrench.wrench.force.x = leftMeasuredForce.x();
-  simLeftWrench.wrench.force.y = leftMeasuredForce.y();
-  simLeftWrench.wrench.force.z = leftMeasuredForce.z();
-  simContactWrenchLeftPub_->publish(simLeftWrench);
-
-  geometry_msgs::msg::WrenchStamped simRightWrench;
-  simRightWrench.header.stamp = now;
-  simRightWrench.header.frame_id = "world";
-  simRightWrench.wrench.force.x = rightMeasuredForce.x();
-  simRightWrench.wrench.force.y = rightMeasuredForce.y();
-  simRightWrench.wrench.force.z = rightMeasuredForce.z();
-  simContactWrenchRightPub_->publish(simRightWrench);
+  simContactWrenchLeftPub_->publish(createForceWrenchStamped(now, "world", leftMeasuredForce));
+  simContactWrenchRightPub_->publish(createForceWrenchStamped(now, "world", rightMeasuredForce));
 
   // /mpc/observation
   ocs2_ros2_msgs::msg::MpcObservation obsMsg;

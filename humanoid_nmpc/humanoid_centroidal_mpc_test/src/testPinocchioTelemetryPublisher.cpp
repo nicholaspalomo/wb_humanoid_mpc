@@ -61,13 +61,13 @@ TEST(TestPinocchioTelemetryPublisher, DofTopicNamingAndPublishing) {
 
   // 1. Verify DOF names contain base DOFs followed by actuated joint names
   const auto& dofNames = publisher.getDofNames();
-  ASSERT_GE(dofNames.size(), 6 + modelSettings.mpc_joint_dim);
-  EXPECT_EQ(dofNames[0], "base_x");
-  EXPECT_EQ(dofNames[1], "base_y");
-  EXPECT_EQ(dofNames[2], "base_z");
-  EXPECT_EQ(dofNames[3], "base_yaw");
-  EXPECT_EQ(dofNames[4], "base_pitch");
-  EXPECT_EQ(dofNames[5], "base_roll");
+  ASSERT_GE(dofNames.size(), humanoid::JOINT_COORDINATE_OFFSET + modelSettings.mpc_joint_dim);
+  EXPECT_EQ(dofNames[humanoid::BASE_POS_X_INDEX], "base_x");
+  EXPECT_EQ(dofNames[humanoid::BASE_POS_Y_INDEX], "base_y");
+  EXPECT_EQ(dofNames[humanoid::BASE_POS_Z_INDEX], "base_z");
+  EXPECT_EQ(dofNames[humanoid::BASE_TRANSLATION_DIM + humanoid::BASE_ROT_YAW_INDEX], "base_yaw");
+  EXPECT_EQ(dofNames[humanoid::BASE_TRANSLATION_DIM + humanoid::BASE_ROT_PITCH_INDEX], "base_pitch");
+  EXPECT_EQ(dofNames[humanoid::BASE_TRANSLATION_DIM + humanoid::BASE_ROT_ROLL_INDEX], "base_roll");
 
   // 2. Verify tracked frame names
   const auto& frameNames = publisher.getTrackedFrameNames();

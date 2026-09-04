@@ -92,6 +92,8 @@ using ad_quaternion_t = QUATERNION_T<ad_scalar_t>;
 /******************************************************************************************************/
 
 constexpr size_t N_CONTACTS = 2;
+constexpr size_t CONTACT_LEFT_INDEX = 0;
+constexpr size_t CONTACT_RIGHT_INDEX = 1;
 
 template <typename T>
 using feet_array_t = std::array<T, N_CONTACTS>;
@@ -102,6 +104,15 @@ using feet_vec_t = std::vector<T>;
 using contact_flag_t = feet_array_t<bool>;  // describes which feet are in contacts [left_contact, right_contact]
 
 constexpr size_t CONTACT_WRENCH_DIM = 6;
+constexpr size_t CONTACT_FORCE_DIM = 3;
+constexpr size_t CONTACT_TORQUE_DIM = 3;
+
+constexpr size_t WRENCH_FORCE_X_INDEX = 0;
+constexpr size_t WRENCH_FORCE_Y_INDEX = 1;
+constexpr size_t WRENCH_FORCE_Z_INDEX = 2;
+constexpr size_t WRENCH_TORQUE_X_INDEX = 3;
+constexpr size_t WRENCH_TORQUE_Y_INDEX = 4;
+constexpr size_t WRENCH_TORQUE_Z_INDEX = 5;
 
 namespace humanoid {
 
@@ -115,6 +126,10 @@ namespace humanoid {
 constexpr size_t BASE_POS_X_INDEX = 0;
 constexpr size_t BASE_POS_Y_INDEX = 1;
 constexpr size_t BASE_POS_Z_INDEX = 2;
+
+constexpr size_t BASE_ROT_YAW_INDEX = 0;
+constexpr size_t BASE_ROT_PITCH_INDEX = 1;
+constexpr size_t BASE_ROT_ROLL_INDEX = 2;
 
 constexpr size_t BASE_TRANSLATION_DIM = 3;
 constexpr size_t BASE_ROTATION_DIM = 3;

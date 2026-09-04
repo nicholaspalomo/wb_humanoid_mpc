@@ -28,6 +28,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include "humanoid_common_mpc_ros2/telemetry/HumanoidTelemetryPublisher.h"
+#include "humanoid_common_mpc_ros2/telemetry/TelemetryRosHelpers.h"
 
 #include <algorithm>
 #include <cmath>
@@ -142,36 +143,9 @@ void HumanoidTelemetryPublisher::publish(const ::robot::model::RobotState& robot
   const vector3_t rootLinVel = rootQuat * robotState.getRootLinearVelocityInLocalFrame();
   const vector3_t rootAngVel = rootQuat * robotState.getRootAngularVelocityInLocalFrame();
 
-  geometry_msgs::msg::PoseStamped robotPoseMsg;
-  robotPoseMsg.header.stamp = now;
-  robotPoseMsg.header.frame_id = "world";
-  robotPoseMsg.pose.position.x = rootPos.x();
-  robotPoseMsg.pose.position.y = rootPos.y();
-  robotPoseMsg.pose.position.z = rootPos.z();
-  robotPoseMsg.pose.orientation.x = rootQuat.x();
-  robotPoseMsg.pose.orientation.y = rootQuat.y();
-  robotPoseMsg.pose.orientation.z = rootQuat.z();
-  robotPoseMsg.pose.orientation.w = rootQuat.w();
-  robotBasePosePub_->publish(robotPoseMsg);
-
-  geometry_msgs::msg::Vector3Stamped robotEulerMsg;
-  robotEulerMsg.header.stamp = now;
-  robotEulerMsg.header.frame_id = "world";
-  robotEulerMsg.vector.x = rootEuler.x();  // roll [rad]
-  robotEulerMsg.vector.y = rootEuler.y();  // pitch [rad]
-  robotEulerMsg.vector.z = rootEuler.z();  // yaw [rad]
-  robotBaseEulerPub_->publish(robotEulerMsg);
-
-  geometry_msgs::msg::TwistStamped robotTwistMsg;
-  robotTwistMsg.header.stamp = now;
-  robotTwistMsg.header.frame_id = "world";
-  robotTwistMsg.twist.linear.x = rootLinVel.x();
-  robotTwistMsg.twist.linear.y = rootLinVel.y();
-  robotTwistMsg.twist.linear.z = rootLinVel.z();
-  robotTwistMsg.twist.angular.x = rootAngVel.x();
-  robotTwistMsg.twist.angular.y = rootAngVel.y();
-  robotTwistMsg.twist.angular.z = rootAngVel.z();
-  robotBaseTwistPub_->publish(robotTwistMsg);
+  robotBasePosePub_->publish(createPoseStamped(now, "world", rootPos, rootQuat));
+  robotBaseEulerPub_->publish(createVector3Stamped(now, "world", rootEuler));
+  robotBaseTwistPub_->publish(createTwistStamped(now, "world", rootLinVel, rootAngVel));
 
   // 4. MPC Target Base Pose, Euler, and Twist
   vector3_t targetPos = rootPos;
@@ -184,93 +158,34 @@ void HumanoidTelemetryPublisher::publish(const ::robot::model::RobotState& robot
     scalar_t time = mpcObservation.time;
     vector_t targetState = LinearInterpolation::interpolate(time, mpcCommand.mpcTargetTrajectories_.timeTrajectory,
                                                             mpcCommand.mpcTargetTrajectories_.stateTrajectory);
-    vector6_t targetBasePose = mpcRobotModelPtr_->getBasePose(targetState);
-    targetPos = targetBasePose.head<3>();
-    // In centroidal/whole-body MPC state: base orientation is Euler ZYX (yaw, pitch, roll)
-    targetEuler = vector3_t(targetBasePose[5], targetBasePose[4], targetBasePose[3]);
-    targetQuat = getQuaternionFromEulerAnglesZyx(vector3_t(targetBasePose.tail<3>()));
+    targetPos = mpcRobotModelPtr_->getBasePosition(targetState);
+    const vector3_t targetEulerZyx = mpcRobotModelPtr_->getBaseOrientationEulerZYX(targetState);
+    targetEuler = vector3_t(targetEulerZyx.z(), targetEulerZyx.y(), targetEulerZyx.x());
+    targetQuat = getQuaternionFromEulerAnglesZyx(targetEulerZyx);
 
     if (!mpcCommand.mpcTargetTrajectories_.inputTrajectory.empty()) {
       vector_t targetInput = LinearInterpolation::interpolate(time, mpcCommand.mpcTargetTrajectories_.timeTrajectory,
                                                               mpcCommand.mpcTargetTrajectories_.inputTrajectory);
-      if (targetInput.size() >= 12) {
-        // Linear velocity of CoM approx
-        targetLinVel = targetState.head<3>();
+      if (targetInput.size() >= static_cast<int>(N_CONTACTS * CONTACT_WRENCH_DIM)) {
+        targetLinVel = mpcRobotModelPtr_->getBaseComLinearVelocity(targetState);
       }
     }
   }
 
-  geometry_msgs::msg::PoseStamped mpcPoseMsg;
-  mpcPoseMsg.header.stamp = now;
-  mpcPoseMsg.header.frame_id = "world";
-  mpcPoseMsg.pose.position.x = targetPos.x();
-  mpcPoseMsg.pose.position.y = targetPos.y();
-  mpcPoseMsg.pose.position.z = targetPos.z();
-  mpcPoseMsg.pose.orientation.x = targetQuat.x();
-  mpcPoseMsg.pose.orientation.y = targetQuat.y();
-  mpcPoseMsg.pose.orientation.z = targetQuat.z();
-  mpcPoseMsg.pose.orientation.w = targetQuat.w();
-  mpcTargetBasePosePub_->publish(mpcPoseMsg);
-
-  geometry_msgs::msg::Vector3Stamped mpcEulerMsg;
-  mpcEulerMsg.header.stamp = now;
-  mpcEulerMsg.header.frame_id = "world";
-  mpcEulerMsg.vector.x = targetEuler.x();
-  mpcEulerMsg.vector.y = targetEuler.y();
-  mpcEulerMsg.vector.z = targetEuler.z();
-  mpcTargetBaseEulerPub_->publish(mpcEulerMsg);
-
-  geometry_msgs::msg::TwistStamped mpcTwistMsg;
-  mpcTwistMsg.header.stamp = now;
-  mpcTwistMsg.header.frame_id = "world";
-  mpcTwistMsg.twist.linear.x = targetLinVel.x();
-  mpcTwistMsg.twist.linear.y = targetLinVel.y();
-  mpcTwistMsg.twist.linear.z = targetLinVel.z();
-  mpcTwistMsg.twist.angular.x = targetAngVel.x();
-  mpcTwistMsg.twist.angular.y = targetAngVel.y();
-  mpcTwistMsg.twist.angular.z = targetAngVel.z();
-  mpcTargetBaseTwistPub_->publish(mpcTwistMsg);
+  mpcTargetBasePosePub_->publish(createPoseStamped(now, "world", targetPos, targetQuat));
+  mpcTargetBaseEulerPub_->publish(createVector3Stamped(now, "world", targetEuler));
+  mpcTargetBaseTwistPub_->publish(createTwistStamped(now, "world", targetLinVel, targetAngVel));
 
   // 5. Contact Wrenches: MPC Requested vs MuJoCo Measured
-  if (mpcPolicyInput.size() >= 12) {
-    geometry_msgs::msg::WrenchStamped mpcLeftWrench;
-    mpcLeftWrench.header.stamp = now;
-    mpcLeftWrench.header.frame_id = "world";
-    mpcLeftWrench.wrench.force.x = mpcPolicyInput[0];
-    mpcLeftWrench.wrench.force.y = mpcPolicyInput[1];
-    mpcLeftWrench.wrench.force.z = mpcPolicyInput[2];
-    mpcLeftWrench.wrench.torque.x = mpcPolicyInput[3];
-    mpcLeftWrench.wrench.torque.y = mpcPolicyInput[4];
-    mpcLeftWrench.wrench.torque.z = mpcPolicyInput[5];
-    mpcContactWrenchLeftPub_->publish(mpcLeftWrench);
-
-    geometry_msgs::msg::WrenchStamped mpcRightWrench;
-    mpcRightWrench.header.stamp = now;
-    mpcRightWrench.header.frame_id = "world";
-    mpcRightWrench.wrench.force.x = mpcPolicyInput[6];
-    mpcRightWrench.wrench.force.y = mpcPolicyInput[7];
-    mpcRightWrench.wrench.force.z = mpcPolicyInput[8];
-    mpcRightWrench.wrench.torque.x = mpcPolicyInput[9];
-    mpcRightWrench.wrench.torque.y = mpcPolicyInput[10];
-    mpcRightWrench.wrench.torque.z = mpcPolicyInput[11];
-    mpcContactWrenchRightPub_->publish(mpcRightWrench);
+  if (mpcPolicyInput.size() >= static_cast<int>(N_CONTACTS * CONTACT_WRENCH_DIM)) {
+    mpcContactWrenchLeftPub_->publish(
+        createWrenchStamped(now, "world", mpcPolicyInput.segment<CONTACT_WRENCH_DIM>(CONTACT_LEFT_INDEX * CONTACT_WRENCH_DIM)));
+    mpcContactWrenchRightPub_->publish(
+        createWrenchStamped(now, "world", mpcPolicyInput.segment<CONTACT_WRENCH_DIM>(CONTACT_RIGHT_INDEX * CONTACT_WRENCH_DIM)));
   }
 
-  geometry_msgs::msg::WrenchStamped simLeftWrench;
-  simLeftWrench.header.stamp = now;
-  simLeftWrench.header.frame_id = "world";
-  simLeftWrench.wrench.force.x = leftMeasuredForce.x();
-  simLeftWrench.wrench.force.y = leftMeasuredForce.y();
-  simLeftWrench.wrench.force.z = leftMeasuredForce.z();
-  simContactWrenchLeftPub_->publish(simLeftWrench);
-
-  geometry_msgs::msg::WrenchStamped simRightWrench;
-  simRightWrench.header.stamp = now;
-  simRightWrench.header.frame_id = "world";
-  simRightWrench.wrench.force.x = rightMeasuredForce.x();
-  simRightWrench.wrench.force.y = rightMeasuredForce.y();
-  simRightWrench.wrench.force.z = rightMeasuredForce.z();
-  simContactWrenchRightPub_->publish(simRightWrench);
+  simContactWrenchLeftPub_->publish(createForceWrenchStamped(now, "world", leftMeasuredForce));
+  simContactWrenchRightPub_->publish(createForceWrenchStamped(now, "world", rightMeasuredForce));
 
   // 6. Current State-Input Tracked by MPC (/mpc/observation)
   ocs2_ros2_msgs::msg::MpcObservation obsMsg;
