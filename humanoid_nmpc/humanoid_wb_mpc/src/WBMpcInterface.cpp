@@ -201,6 +201,7 @@ absl::Status WBMpcInterface::setupOptimalControlProblem() {
 
     std::unique_ptr<EndEffectorDynamics<scalar_t>> eeDynamicsPtr;
     bool needsEeDynamics = formulationTasks.hasHardConstraint(MpcHardConstraintType::ZeroVelocity) ||
+                           formulationTasks.hasSoftConstraint(MpcSoftConstraintType::ZeroVelocity) ||
                            formulationTasks.hasHardConstraint(MpcHardConstraintType::NormalVelocity) ||
                            formulationTasks.hasCost(MpcCostType::TaskSpaceFootCost);
     if (needsEeDynamics) {
@@ -218,6 +219,13 @@ absl::Status WBMpcInterface::setupOptimalControlProblem() {
     if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::ContactMomentXY)) {
       problemPtr_->softConstraintPtr->add(absl::StrCat(footName, "_contactMomentXY"),
                                           factory.getContactMomentXYConstraint(i, absl::StrCat(footName, "_contact_moment_XY_constraint")));
+    }
+    if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::ZeroVelocity) && eeDynamicsPtr) {
+      auto stanceConstraint = getStanceFootConstraint(*eeDynamicsPtr, i);
+      auto penalty = std::make_unique<QuadraticPenalty>(modelSettings_.footConstraintConfig.softConstraintWeight);
+      problemPtr_->softConstraintPtr->add(
+          absl::StrCat(footName, "_zeroVelocity"),
+          std::make_unique<StateInputSoftConstraint>(std::move(stanceConstraint), std::move(penalty)));
     }
 
     if (formulationTasks.hasHardConstraint(MpcHardConstraintType::ZeroWrench)) {

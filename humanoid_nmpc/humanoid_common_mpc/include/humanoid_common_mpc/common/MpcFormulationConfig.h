@@ -61,6 +61,7 @@ enum class MpcSoftConstraintType {
   FrictionForceCone,
   ContactMomentXY,
   ContactWrenchCone,
+  ZeroVelocity,
 };
 
 /**

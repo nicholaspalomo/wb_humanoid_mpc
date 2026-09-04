@@ -51,6 +51,7 @@ class ModelSettings {
     scalar_t linearAccelerationErrorGain_z{1.0};
     scalar_t linearAccelerationErrorGain_xy{1.0};
     scalar_t angularAccelerationErrorGain{1.0};
+    scalar_t softConstraintWeight{10.0};
   };
 
   ModelSettings(const std::string& configFile, const std::string& urdfFile, const std::string& mpcName, bool verbose = "false");

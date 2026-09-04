@@ -73,6 +73,8 @@ int main() {
   CHECK_TRUE(*stringToMpcSoftConstraintType("friction_force_cone") == MpcSoftConstraintType::FrictionForceCone, "soft 4");
   CHECK_TRUE(*stringToMpcSoftConstraintType("contact_moment_xy") == MpcSoftConstraintType::ContactMomentXY, "soft 5");
   CHECK_TRUE(*stringToMpcSoftConstraintType("contact_wrench_cone") == MpcSoftConstraintType::ContactWrenchCone, "soft 6");
+  CHECK_TRUE(*stringToMpcSoftConstraintType("zero_velocity") == MpcSoftConstraintType::ZeroVelocity, "soft zero_velocity");
+  CHECK_TRUE(*stringToMpcSoftConstraintType("zeroVelocity") == MpcSoftConstraintType::ZeroVelocity, "soft zeroVelocity");
 
   // Test hard constraint string-to-enum
   CHECK_TRUE(stringToMpcHardConstraintType("zero_wrench").ok(), "hard 1 ok");
@@ -84,6 +86,7 @@ int main() {
   // Test enum-to-string
   CHECK_TRUE(*mpcCostTypeToString(MpcCostType::StateQuadraticCost) == "state_quadratic_cost", "cost to string");
   CHECK_TRUE(*mpcSoftConstraintTypeToString(MpcSoftConstraintType::JointLimits) == "joint_limits", "soft to string");
+  CHECK_TRUE(*mpcSoftConstraintTypeToString(MpcSoftConstraintType::ZeroVelocity) == "zero_velocity", "soft zero_velocity to string");
   CHECK_TRUE(*mpcHardConstraintTypeToString(MpcHardConstraintType::ZeroWrench) == "zero_wrench", "hard to string");
 
   // Test error handling: returns InvalidArgument status, does not throw
@@ -157,6 +160,39 @@ int main() {
   MpcFormulationTasks tasksFromSv = *sv_tasks_result;
   CHECK_TRUE(tasksFromSv.costs.size() == 3, "sv load costs count");
   CHECK_TRUE(tasksFromSv.hasCost(MpcCostType::StateQuadraticCost), "sv load hasCost StateQuadraticCost");
+
+  // Test YAML loading with soft zero_velocity
+  const std::string testSoftZeroVelYamlPath = "/tmp/test_mpc_soft_zero_vel.yaml";
+  {
+    std::ofstream ofs(testSoftZeroVelYamlPath);
+    ofs << "hard_constraints:\n"
+        << "  - zero_wrench\n"
+        << "  - normal_velocity\n\n"
+        << "soft_constraints:\n"
+        << "  - joint_limits\n"
+        << "  - zero_velocity\n\n"
+        << "costs:\n"
+        << "  - state_quadratic_cost\n";
+  }
+  absl::StatusOr<MpcFormulationTasks> softZeroVelTasks = loadMpcFormulationTasks(testSoftZeroVelYamlPath, false);
+  CHECK_TRUE(softZeroVelTasks.ok(), "soft zero velocity yaml ok");
+  CHECK_TRUE(softZeroVelTasks->hasSoftConstraint(MpcSoftConstraintType::ZeroVelocity), "hasSoftConstraint ZeroVelocity");
+  CHECK_TRUE(!softZeroVelTasks->hasHardConstraint(MpcHardConstraintType::ZeroVelocity), "should not have hard ZeroVelocity");
+
+  // Test mutual exclusion: zero_velocity as both hard and soft constraint must fail
+  const std::string testConflictYamlPath = "/tmp/test_mpc_conflict.yaml";
+  {
+    std::ofstream ofs(testConflictYamlPath);
+    ofs << "hard_constraints:\n"
+        << "  - zero_velocity\n\n"
+        << "soft_constraints:\n"
+        << "  - zero_velocity\n\n"
+        << "costs:\n"
+        << "  - state_quadratic_cost\n";
+  }
+  absl::StatusOr<MpcFormulationTasks> conflictResult = loadMpcFormulationTasks(testConflictYamlPath, false);
+  CHECK_TRUE(!conflictResult.ok(), "conflicting zero_velocity should fail");
+  CHECK_TRUE(conflictResult.status().code() == absl::StatusCode::kInvalidArgument, "conflict code should be InvalidArgument");
 
   LOG(INFO) << "All MPC Formulation Config tests passed successfully!";
   return 0;

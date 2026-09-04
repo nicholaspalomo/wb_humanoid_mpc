@@ -3,7 +3,6 @@ centroidalModelType: 0  # 0: FullCentroidalDynamics, 1: Single Rigid Body Dynami
 # MPC Problem Formulation Tasks
 hard_constraints:
   - zero_wrench
-  - zero_velocity
   - normal_velocity
 
 soft_constraints:
@@ -11,14 +10,15 @@ soft_constraints:
   - foot_collision
   - friction_force_cone
   - contact_moment_xy
+  # - zero_velocity
 
 costs:
   - state_quadratic_cost
   - input_quadratic_cost
   - terminal_cost
-  # - icp_cost
-  # - task_space_foot_cost
-  # - task_space_torso_cost
+  - icp_cost
+  - task_space_foot_cost
+  - task_space_torso_cost
   # - external_torque_cost
 
 interface:
@@ -38,6 +38,7 @@ model_settings:
     linearAccelerationErrorGain_z: 0.0
     linearAccelerationErrorGain_xy: 0.0
     angularAccelerationErrorGain: 0.0
+    softConstraintWeight: 10.0
 
   phaseTransitionStanceTime: 0.0
 
@@ -81,8 +82,8 @@ swing_trajectory_config:
 
 # multiple_shooting settings
 multiple_shooting:
-  nThreads: 4
-  dt: 0.02
+  nThreads: 8
+  dt: 0.025
   sqpIteration: 1
   deltaTol: 1e-4
   g_max: 1e-2
@@ -94,7 +95,7 @@ multiple_shooting:
   printSolverStatus: false
   printLinesearch: false
   useFeedbackPolicy: false
-  integratorType: RK4
+  integratorType: RK2
   threadPriority: 50
 
 # Rollout settings
@@ -107,13 +108,13 @@ rollout:
   checkNumericalStability: false
 
 mpc:
-  timeHorizon: 1.2  # [s]
+  timeHorizon: 1.0  # [s]
   solutionTimeWindow: -1  # maximum [s]
   coldStart: false
 
   debugPrint: false
 
-  mpcDesiredFrequency: 80  # [Hz]
+  mpcDesiredFrequency: 50  # [Hz]
   mrtDesiredFrequency: 100  # [Hz]
 
 initialState:
@@ -208,7 +209,7 @@ Q:
 
 # control weight matrix
 R:
-  scaling: 1e-3
+  scaling: 1e0
 
   # ; Feet Contact Forces: [LF, RF, LH, RH] ;;
   "(0,0)": 5.0  # left_force_x

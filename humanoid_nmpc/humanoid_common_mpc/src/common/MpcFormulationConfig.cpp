@@ -89,6 +89,8 @@ const absl::flat_hash_map<std::string, MpcSoftConstraintType> kSoftConstraintMap
     {"contactmomentxyconstraint", MpcSoftConstraintType::ContactMomentXY},
     {"contactwrenchcone", MpcSoftConstraintType::ContactWrenchCone},
     {"contactwrenchconesoftconstraint", MpcSoftConstraintType::ContactWrenchCone},
+    {"zerovelocity", MpcSoftConstraintType::ZeroVelocity},
+    {"zerovelocitysoftconstraint", MpcSoftConstraintType::ZeroVelocity},
 };
 
 const absl::flat_hash_map<std::string, MpcHardConstraintType> kHardConstraintMap = {
@@ -150,7 +152,7 @@ absl::StatusOr<MpcSoftConstraintType> stringToMpcSoftConstraintType(absl::string
   }
   return absl::InvalidArgumentError(absl::StrCat(
       "Unknown MPC soft constraint type: '", name, "'. Supported soft constraints are: ",
-      "joint_limits, foot_collision, friction_force_cone, contact_moment_xy, contact_wrench_cone."));
+      "joint_limits, foot_collision, friction_force_cone, contact_moment_xy, contact_wrench_cone, zero_velocity."));
 }
 
 absl::StatusOr<std::string> mpcSoftConstraintTypeToString(MpcSoftConstraintType type) {
@@ -165,6 +167,8 @@ absl::StatusOr<std::string> mpcSoftConstraintTypeToString(MpcSoftConstraintType 
       return "contact_moment_xy";
     case MpcSoftConstraintType::ContactWrenchCone:
       return "contact_wrench_cone";
+    case MpcSoftConstraintType::ZeroVelocity:
+      return "zero_velocity";
     default:
       return absl::InvalidArgumentError(absl::StrCat("Unknown MpcSoftConstraintType: ", static_cast<int>(type)));
   }
@@ -264,6 +268,12 @@ absl::StatusOr<MpcFormulationTasks> loadMpcFormulationTasks(absl::string_view ta
         formulationTasks.hardConstraints.insert(hc);
       }
     }
+  }
+
+  if (formulationTasks.hasHardConstraint(MpcHardConstraintType::ZeroVelocity) &&
+      formulationTasks.hasSoftConstraint(MpcSoftConstraintType::ZeroVelocity)) {
+    return absl::InvalidArgumentError(
+        "[loadMpcFormulationTasks] 'zero_velocity' cannot be configured as both a hard constraint and a soft constraint simultaneously.");
   }
 
   if (verbose) {

@@ -45,6 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_centroidal_model/ModelHelperFunctions.h>
 #include <ocs2_core/misc/LoadData.h>
 #include <ocs2_core/misc/Numerics.h>
+#include <ocs2_core/penalties/Penalties.h>
 #include <ocs2_core/soft_constraint/StateInputSoftConstraint.h>
 #include <ocs2_oc/synchronized_module/SolverSynchronizedModule.h>
 #include <ocs2_pinocchio_interface/PinocchioEndEffectorKinematicsCppAd.h>
@@ -236,6 +237,7 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
 
     std::unique_ptr<EndEffectorKinematics<scalar_t>> eeKinematicsPtr;
     bool needsEeKinematics = formulationTasks.hasHardConstraint(MpcHardConstraintType::ZeroVelocity) ||
+                             formulationTasks.hasSoftConstraint(MpcSoftConstraintType::ZeroVelocity) ||
                              formulationTasks.hasHardConstraint(MpcHardConstraintType::NormalVelocity);
     if (needsEeKinematics) {
       eeKinematicsPtr.reset(new PinocchioEndEffectorKinematicsCppAd(*pinocchioInterfacePtr_, pinocchioMappingCppAd, {footName},
@@ -253,6 +255,13 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
     if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::ContactMomentXY)) {
       problemPtr_->softConstraintPtr->add(absl::StrCat(footName, "_contactMomentXY"),
                                           factory.getContactMomentXYConstraint(i, absl::StrCat(footName, "_contact_moment_XY_constraint")));
+    }
+    if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::ZeroVelocity) && eeKinematicsPtr) {
+      auto stanceConstraint = getStanceFootConstraint(*eeKinematicsPtr, i);
+      auto penalty = std::make_unique<QuadraticPenalty>(modelSettings_.footConstraintConfig.softConstraintWeight);
+      problemPtr_->softConstraintPtr->add(
+          absl::StrCat(footName, "_zeroVelocity"),
+          std::make_unique<StateInputSoftConstraint>(std::move(stanceConstraint), std::move(penalty)));
     }
 
     if (formulationTasks.hasHardConstraint(MpcHardConstraintType::ZeroWrench)) {
@@ -300,25 +309,37 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
 
 std::unique_ptr<StateInputConstraint> CentroidalMpcInterface::getStanceFootConstraint(const EndEffectorKinematics<scalar_t>& eeKinematics,
                                                                                       size_t contactPointIndex) {
-  auto eeZeroVelConConfig = [](scalar_t positionErrorGain, scalar_t orientationErrorGain) {
+  auto eeZeroVelConConfig = [](const ModelSettings::FootConstraintConfig& footConfig) {
     EndEffectorKinematicsTwistConstraint::Config config;
     config.b.setZero(6);
     config.Ax.setZero(6, 6);
-    config.Av.setIdentity(6, 6);
-    if (!numerics::almost_eq(positionErrorGain, 0.0)) {
-      config.Ax(2, 2) = positionErrorGain;
+    config.Av.setZero(6, 6);
+
+    // Position error gain: only z-axis (foot height tracking during stance)
+    if (!numerics::almost_eq(footConfig.positionErrorGain_z, 0.0)) {
+      config.Ax(2, 2) = footConfig.positionErrorGain_z;
     }
-    if (!numerics::almost_eq(orientationErrorGain, 0.0)) {
-      config.Ax.block(3, 3, 3, 3) = Eigen::MatrixXd::Identity(3, 3) * orientationErrorGain;
+    // Orientation error gain: all 3 rotation axes
+    if (!numerics::almost_eq(footConfig.orientationErrorGain, 0.0)) {
+      config.Ax.block(3, 3, 3, 3) = Eigen::MatrixXd::Identity(3, 3) * footConfig.orientationErrorGain;
     }
+
+    // Linear velocity gains: xy and z separately
+    config.Av(0, 0) = footConfig.linearVelocityErrorGain_xy;
+    config.Av(1, 1) = footConfig.linearVelocityErrorGain_xy;
+    config.Av(2, 2) = footConfig.linearVelocityErrorGain_z;
+
+    // Angular velocity gain: all 3 rotation axes
+    config.Av(3, 3) = footConfig.angularVelocityErrorGain;
+    config.Av(4, 4) = footConfig.angularVelocityErrorGain;
+    config.Av(5, 5) = footConfig.angularVelocityErrorGain;
 
     return config;
   };
 
   return std::unique_ptr<StateInputConstraint>(
       new ZeroVelocityConstraintCppAd(*referenceManagerPtr_, eeKinematics, contactPointIndex,
-                                      eeZeroVelConConfig(modelSettings_.footConstraintConfig.positionErrorGain_z,
-                                                         modelSettings_.footConstraintConfig.orientationErrorGain)));
+                                      eeZeroVelConConfig(modelSettings_.footConstraintConfig)));
 }
 
 /******************************************************************************************************/
