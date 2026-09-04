@@ -111,6 +111,8 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
   vector_t mpcJointKd_;
   vector_t otherJointKp_;
   vector_t otherJointKd_;
+
+  scalar_t previousObservationTime_{0.0};  ///< Previous sim time for computing actual dt
 };
 
 }  // namespace ocs2::humanoid

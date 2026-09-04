@@ -1,4 +1,5 @@
 /******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
 Copyright (c) 2024, 1X Technologies. All rights reserved.
 
@@ -31,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <rclcpp/rclcpp.hpp>
 
 #include <humanoid_centroidal_mpc/CentroidalMpcInterface.h>
+#include "absl/log/check.h"
 #include <humanoid_common_mpc_ros2/visualization/HumanoidVisualizer.h>
 
 #include "ocs2_centroidal_model/CentroidalModelPinocchioMapping.h"
@@ -56,7 +58,9 @@ int main(int argc, char** argv) {
   rclcpp::init(argc, argv);
   auto node = std::make_shared<rclcpp::Node>("humanoid_visualizer");
 
-  CentroidalMpcInterface interface(taskFile, urdfFile, referenceFile);
+  absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> create_result = CentroidalMpcInterface::Create(taskFile, urdfFile, referenceFile);
+  CHECK(create_result.ok()) << "Failed to create CentroidalMpcInterface: " << create_result.status();
+  CentroidalMpcInterface& interface = **create_result;
 
   HumanoidVisualizer visualization(taskFile, interface.getPinocchioInterface(), interface.getMpcRobotModel(), node);
 

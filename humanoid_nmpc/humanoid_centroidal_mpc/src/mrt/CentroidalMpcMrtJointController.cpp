@@ -47,6 +47,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <yaml-cpp/yaml.h>
 #include <filesystem>
 
+#include "absl/log/log.h"
+#include "absl/status/status.h"
+
 // Pinocchio algorithm headers (must come after pinocchio/fwd.hpp)
 #include <pinocchio/algorithm/rnea.hpp>
 
@@ -308,8 +311,13 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
   size_t mpcPolicyMode;
 
   if (mcpMrtInterface_.initialPolicyReceived()) {
+    // Compute actual sim dt from elapsed simulation time (respects RTF)
+    scalar_t simDt = currentMpcObservation_.time - previousObservationTime_;
+    // Clamp to sane range: avoid zero/negative (first call, time resets) and excessive lookahead
+    simDt = std::clamp(simDt, 0.001, 0.02);
+
     // Evaluate policy with feedback if activated in config
-    mcpMrtInterface_.evaluatePolicy(currentMpcObservation_.time + 0.005, currentMpcObservation_.state, mpcPolicyState, mpcPolicyInput,
+    mcpMrtInterface_.evaluatePolicy(currentMpcObservation_.time + simDt, currentMpcObservation_.state, mpcPolicyState, mpcPolicyInput,
                                     mpcPolicyMode);
 
     // TODO something seems wrong with the inverse dynamics. You should correct that.
@@ -343,16 +351,37 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
 
     static size_t mpcDebugCount = 0;
     if (++mpcDebugCount % 200 == 1) {
+      // MPC planned base vs actual base
+      vector_t q_planned = mpcRobotModelPtr_->getGeneralizedCoordinates(mpcPolicyState);
+      vector_t q_actual = mpcRobotModelPtr_->getGeneralizedCoordinates(currentMpcObservation_.state);
+      std::cerr << "[ACTIVE_MPC] Base planned: " << q_planned.head(7).transpose()
+                << "\n             Base actual:  " << q_actual.head(7).transpose() << std::endl;
+
+      // Compare planned vs actual joint positions (first 6 joints = spine + arms)
+      vector_t qj_planned = mpcRobotModelPtr_->getJointAngles(mpcPolicyState);
+      vector_t qj_actual = mpcRobotModelPtr_->getJointAngles(currentMpcObservation_.state);
+      std::cerr << "[ACTIVE_MPC] Joint planned: " << qj_planned.head(std::min<int>(6, qj_planned.size())).transpose()
+                << "\n             Joint actual:  " << qj_actual.head(std::min<int>(6, qj_actual.size())).transpose() << std::endl;
+
+      // Total vertical contact force vs robot weight
+      double Fz_total = footWrenches[0][2] + footWrenches[1][2];
+      std::cerr << "[ACTIVE_MPC] Fz_total=" << Fz_total << " (expect ~mg for free-floating)" << std::endl;
+
+      // Also compute and print gravity compensation torques for comparison
+      vector_t gravTorques = computeGravityCompensation(robotState);
+      std::cerr << "[ACTIVE_MPC] gravTorques: " << gravTorques.transpose() << std::endl;
+
       std::cerr << "[ACTIVE_MPC] Foot wrenches: L=" << footWrenches[0].transpose()
                 << " R=" << footWrenches[1].transpose() << std::endl;
-      std::cerr << "[ACTIVE_MPC] Torques: " << mpcJointTorques.transpose() << std::endl;
+      std::cerr << "[ACTIVE_MPC] ID Torques:  " << mpcJointTorques.transpose() << std::endl;
       for (size_t i = 0; i < mpcJointIndices_.size(); i++) {
         size_t index = mpcJointIndices_[i];
         double q_cur = robotState.getJointPosition(index);
         double q_des = mpc_q_j_des[i];
         if (std::abs(q_des - q_cur) > 0.05 || std::abs(mpcJointTorques[i]) > 100.0) {
           std::cerr << "  mpc_joint[" << index << "] des=" << q_des << " cur=" << q_cur
-                    << " err=" << (q_des - q_cur) << " tau=" << mpcJointTorques[i] << std::endl;
+                    << " err=" << (q_des - q_cur) << " ID_tau=" << mpcJointTorques[i]
+                    << " grav_tau=" << gravTorques[i] << std::endl;
         }
       }
     }
@@ -400,6 +429,9 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
     action.kd = otherJointKd_[i];
     action.feed_forward_effort = 0.0;
   };
+
+  // Track observation time for next call's dt computation
+  previousObservationTime_ = currentMpcObservation_.time;
 }
 
 /******************************************************************************************************/
@@ -416,10 +448,22 @@ void CentroidalMpcMrtJointController::solverWorker() {
   while (!terminateThread_.load()) {
     auto targetTimeForNextIteration = std::chrono::steady_clock::now() + std::chrono::microseconds(mpcDeltaTMicroSeconds_);
 
-    mcpMrtInterface_.advanceMpc();
+    // Handle externally-requested MPC reset (e.g. gantry lock/unlock)
+    if (resetMpcRequested_.exchange(false)) {
+      mcpMrtInterface_.resetMpcNode(currentObservationToResetTrajectory(mcpMrtInterface_.getCurrentObservation()));
+      std::cerr << "MPC reset to current observation (external request)." << std::endl;
+    }
 
-    // Update active policy buffer immediately after solve finishes
-    mcpMrtInterface_.updatePolicy();
+    absl::Status mpcStatus = mcpMrtInterface_.advanceMpc();
+    if (!mpcStatus.ok()) {
+      // MPC solver failed — log, request reset, and continue with previous solution.
+      LOG(ERROR) << "MPC solver error: " << mpcStatus.message()
+                 << " — requesting reset and retrying.";
+      resetMpcRequested_.store(true);
+    } else {
+      // Update active policy buffer immediately after solve finishes
+      mcpMrtInterface_.updatePolicy();
+    }
 
     if (!realtime_) {
       auto currentTime = std::chrono::steady_clock::now();

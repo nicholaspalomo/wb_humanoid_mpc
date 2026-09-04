@@ -42,6 +42,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <yaml-cpp/yaml.h>
 #include <filesystem>
 
+#include "absl/log/log.h"
+#include "absl/status/status.h"
+
 namespace ocs2::humanoid {
 
 WBMpcMrtJointController::WBMpcMrtJointController(const ::robot::model::RobotDescription& robotDescription,
@@ -200,8 +203,13 @@ void WBMpcMrtJointController::computeJointControlAction(scalar_t time,
   size_t mpcPolicyMode;
 
   if (mcpMrtInterface_.initialPolicyReceived()) {
+    // Compute actual sim dt from elapsed simulation time (respects RTF)
+    scalar_t simDt = currentMpcObservation_.time - previousObservationTime_;
+    // Clamp to sane range: avoid zero/negative (first call, time resets) and excessive lookahead
+    simDt = std::clamp(simDt, 0.001, 0.02);
+
     // Evaluate policy with feedback if activated in config
-    mcpMrtInterface_.evaluatePolicy(currentMpcObservation_.time + 0.005, currentMpcObservation_.state, mpcPolicyState, mpcPolicyInput,
+    mcpMrtInterface_.evaluatePolicy(currentMpcObservation_.time + simDt, currentMpcObservation_.state, mpcPolicyState, mpcPolicyInput,
                                     mpcPolicyMode);
 
     vector_t mpcJointTorques = computeJointTorques<scalar_t>(mpcPolicyState, mpcPolicyInput, pinocchioInterface_, mpcRobotModel_);
@@ -257,6 +265,9 @@ void WBMpcMrtJointController::computeJointControlAction(scalar_t time,
     action.kd = otherJointKd_[i];
     action.feed_forward_effort = 0.0;
   };
+
+  // Track observation time for next call's dt computation
+  previousObservationTime_ = currentMpcObservation_.time;
 }
 
 /******************************************************************************************************/
@@ -274,12 +285,15 @@ void WBMpcMrtJointController::solverWorker() {
   while (true) {
     auto targetTimeForNextIteration = std::chrono::steady_clock::now() + std::chrono::microseconds(mpcDeltaTMicroSeconds_);
 
-    mcpMrtInterface_.advanceMpc();
-
-    // Update active policy buffer
-    mcpMrtInterface_.updatePolicy();
-
-    // std::cerr << "MPC policy computed!" << std::endl;
+    absl::Status mpcStatus = mcpMrtInterface_.advanceMpc();
+    if (!mpcStatus.ok()) {
+      // MPC solver failed — log and continue with previous solution.
+      LOG(ERROR) << "MPC solver error in WB worker: " << mpcStatus.message()
+                 << " — retaining previous solution and retrying.";
+    } else {
+      // Update active policy buffer
+      mcpMrtInterface_.updatePolicy();
+    }
 
     if (!realtime_) {
       auto currentTime = std::chrono::steady_clock::now();

@@ -1,4 +1,5 @@
 /******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
 Copyright (c) 2024, 1X Technologies. All rights reserved.
 
@@ -47,20 +48,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+
 namespace ocs2::humanoid {
 
 class CentroidalMpcInterface final : public RobotInterface {
  public:
   /**
-   * Constructor
-   *
-   * @throw Invalid argument error if input task file or urdf file does not exist.
+   * Factory method. Constructs a CentroidalMpcInterface and sets up the optimal
+   * control problem, propagating any errors via absl::Status.
    *
    * @param [in] taskFile: The absolute path to the configuration file for the MPC.
    * @param [in] urdfFile: The absolute path to the URDF file for the robot.
    * @param [in] referenceFile: The absolute path to the reference configuration file.
+   * @return absl::StatusOr<CentroidalMpcInterface> The constructed interface, or error status.
    */
-  CentroidalMpcInterface(const std::string& taskFile, const std::string& urdfFile, const std::string& referenceFile, bool setupOCP = true);
+  static absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> Create(const std::string& taskFile, const std::string& urdfFile,
+                                                                        const std::string& referenceFile);
 
   ~CentroidalMpcInterface() override = default;
 
@@ -94,7 +99,13 @@ class CentroidalMpcInterface final : public RobotInterface {
   std::vector<std::string> getEqualityConstraintNames() const;
 
  private:
-  void setupOptimalControlProblem();
+  /**
+   * Private constructor — use Create() to construct.
+   */
+  CentroidalMpcInterface(const std::string& taskFile, const std::string& urdfFile, const std::string& referenceFile,
+                         bool setupOCP = false);
+
+  absl::Status setupOptimalControlProblem();
 
   std::unique_ptr<StateInputConstraint> getStanceFootConstraint(const EndEffectorKinematics<scalar_t>& eeKinematics,
                                                                 size_t contactPointIndex);

@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <rclcpp/rclcpp.hpp>
 
 #include <humanoid_centroidal_mpc/CentroidalMpcInterface.h>
+#include "absl/log/check.h"
 #include <mujoco_sim_interface/MujocoSimInterface.h>
 #include <ocs2_robotic_tools/common/RotationTransforms.h>
 
@@ -65,7 +66,9 @@ int main(int argc, char** argv) {
   rclcpp::init(argc, argv);
 
   // Robot interface
-  CentroidalMpcInterface interface(taskFile, urdfFile, referenceFile);
+  absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> create_result = CentroidalMpcInterface::Create(taskFile, urdfFile, referenceFile);
+  CHECK(create_result.ok()) << "Failed to create CentroidalMpcInterface: " << create_result.status();
+  CentroidalMpcInterface& interface = **create_result;
 
   // MPC
   SqpMpc mpc(interface.mpcSettings(), interface.sqpSettings(), interface.getOptimalControlProblem(), interface.getInitializer());
@@ -170,7 +173,22 @@ int main(int argc, char** argv) {
     }
 
     rclcpp::spin_some(nodeHandle);
+    bool gantryBefore = robotInterface.isGantryLocked();
     fsmBridge.processCommands(currentModeName, robotInterface);
+    bool gantryAfter = robotInterface.isGantryLocked();
+
+    // Reset MPC and switch to JOINT_PD when gantry is locked
+    if (gantryBefore != gantryAfter) {
+      mpcJointController.requestMpcReset();
+      if (gantryAfter) {
+        // Gantry locked: switch to safe PD mode (MPC is overconstrained on the gantry)
+        currentModeName = "JOINT_PD";
+        fsmBridge.publishFsmState(currentModeName, gantryAfter);
+        LOG(INFO) << "Gantry locked — switching to JOINT_PD mode and resetting MPC.";
+      } else {
+        LOG(INFO) << "Gantry unlocked — resetting MPC.";
+      }
+    }
 
     auto currentTime = std::chrono::steady_clock::now();
     if (currentTime > targetTimeForNextIteration) {

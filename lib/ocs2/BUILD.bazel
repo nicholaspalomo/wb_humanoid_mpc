@@ -149,6 +149,9 @@ cc_library(
     deps = [
         ":ocs2_core",
         ":ocs2_oc",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/strings",
         "@eigen",
         "@boost",
     ],

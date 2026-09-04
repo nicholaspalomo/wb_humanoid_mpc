@@ -50,6 +50,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <humanoid_common_mpc/pinocchio_model/createPinocchioModel.h>
 #include "humanoid_common_mpc/HumanoidCostConstraintFactory.h"
 #include "humanoid_common_mpc/common/MpcFormulationConfig.h"
+#include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/initialization/WeightCompInitializer.h"
 
 #include "humanoid_wb_mpc/WBMpcPreComputation.h"
@@ -124,7 +125,10 @@ WBMpcInterface::WBMpcInterface(const std::string& taskFile, const std::string& u
   loadData::loadEigenMatrix(taskFile, "initialState", initialState_);
 
   if (setupOCP) {
-    setupOptimalControlProblem();
+    absl::Status status = setupOptimalControlProblem();
+    if (!status.ok()) {
+      throw std::runtime_error(status.ToString());
+    }
   }
 }
 
@@ -132,7 +136,18 @@ WBMpcInterface::WBMpcInterface(const std::string& taskFile, const std::string& u
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-void WBMpcInterface::setupOptimalControlProblem() {
+absl::StatusOr<std::unique_ptr<WBMpcInterface>> WBMpcInterface::Create(const std::string& taskFile, const std::string& urdfFile,
+                                                                       const std::string& referenceFile) {
+  std::unique_ptr<WBMpcInterface> interface(new WBMpcInterface(taskFile, urdfFile, referenceFile, /*setupOCP=*/false));
+  RETURN_IF_ERROR(interface->setupOptimalControlProblem());
+  return interface;
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+absl::Status WBMpcInterface::setupOptimalControlProblem() {
   HumanoidCostConstraintFactory factory =
       HumanoidCostConstraintFactory(taskFile_, referenceFile_, *referenceManagerPtr_, *pinocchioInterfacePtr_, *mpcRobotModelPtr_,
                                     *mpcRobotModelADPtr_, modelSettings_, verbose_);
@@ -148,11 +163,7 @@ void WBMpcInterface::setupOptimalControlProblem() {
   problemPtr_->dynamicsPtr = std::move(dynamicsPtr);
 
   // Load configured MPC formulation tasks
-  const absl::StatusOr<MpcFormulationTasks> formulationTasksOr = loadMpcFormulationTasks(taskFile_, verbose_);
-  if (!formulationTasksOr.ok()) {
-    throw std::runtime_error(formulationTasksOr.status().ToString());
-  }
-  const MpcFormulationTasks formulationTasks = *formulationTasksOr;
+  ASSIGN_OR_RETURN(const MpcFormulationTasks formulationTasks, loadMpcFormulationTasks(taskFile_, verbose_));
 
   // Cost terms
   if (formulationTasks.hasCost(MpcCostType::StateInputQuadraticCost)) {
@@ -239,6 +250,8 @@ void WBMpcInterface::setupOptimalControlProblem() {
 
   // Initialization
   initializerPtr_.reset(new WeightCompInitializer(*pinocchioInterfacePtr_, *referenceManagerPtr_, *mpcRobotModelPtr_));
+
+  return absl::OkStatus();
 }
 
 /******************************************************************************************************/

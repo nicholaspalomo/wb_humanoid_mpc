@@ -134,9 +134,9 @@ int main() {
         << "  - terminal_cost\n";
   }
 
-  absl::StatusOr<MpcFormulationTasks> tasksOr = loadMpcFormulationTasks(testYamlPath, true);
-  CHECK_TRUE(tasksOr.ok(), "loadMpcFormulationTasks ok");
-  MpcFormulationTasks tasks = *tasksOr;
+  absl::StatusOr<MpcFormulationTasks> tasks_result = loadMpcFormulationTasks(testYamlPath, true);
+  CHECK_TRUE(tasks_result.ok(), "loadMpcFormulationTasks ok");
+  MpcFormulationTasks tasks = *tasks_result;
   CHECK_TRUE(tasks.hardConstraints.size() == 3, "hard constraints count");
   CHECK_TRUE(tasks.softConstraints.size() == 3, "soft constraints count");
   CHECK_TRUE(tasks.costs.size() == 3, "costs count");
@@ -152,9 +152,9 @@ int main() {
 
   // Explicitly test absl::string_view caller
   absl::string_view svYamlPath = testYamlPath;
-  absl::StatusOr<MpcFormulationTasks> tasksFromSvOr = loadMpcFormulationTasks(svYamlPath, false);
-  CHECK_TRUE(tasksFromSvOr.ok(), "tasksFromSvOr ok");
-  MpcFormulationTasks tasksFromSv = *tasksFromSvOr;
+  absl::StatusOr<MpcFormulationTasks> sv_tasks_result = loadMpcFormulationTasks(svYamlPath, false);
+  CHECK_TRUE(sv_tasks_result.ok(), "sv_tasks_result ok");
+  MpcFormulationTasks tasksFromSv = *sv_tasks_result;
   CHECK_TRUE(tasksFromSv.costs.size() == 3, "sv load costs count");
   CHECK_TRUE(tasksFromSv.hasCost(MpcCostType::StateQuadraticCost), "sv load hasCost StateQuadraticCost");
 

@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <rclcpp/rclcpp.hpp>
 
 #include <humanoid_wb_mpc/WBMpcInterface.h>
+#include "absl/log/check.h"
 #include <mujoco_sim_interface/MujocoSimInterface.h>
 #include <ocs2_robotic_tools/common/RotationTransforms.h>
 
@@ -65,7 +66,9 @@ int main(int argc, char** argv) {
   rclcpp::init(argc, argv);
 
   // Robot interface
-  WBMpcInterface interface(taskFile, urdfFile, referenceFile);
+  absl::StatusOr<std::unique_ptr<WBMpcInterface>> create_result = WBMpcInterface::Create(taskFile, urdfFile, referenceFile);
+  CHECK(create_result.ok()) << "Failed to create WBMpcInterface: " << create_result.status();
+  WBMpcInterface& interface = **create_result;
 
   // MPC
   SqpMpc mpc(interface.mpcSettings(), interface.sqpSettings(), interface.getOptimalControlProblem(), interface.getInitializer());

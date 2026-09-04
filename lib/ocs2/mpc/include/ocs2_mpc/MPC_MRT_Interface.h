@@ -36,6 +36,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <thread>
 
+#include "absl/status/status.h"
+
 #include <ocs2_core/misc/Benchmark.h>
 #include <ocs2_core/model_data/Multiplier.h>
 #include "ocs2_mpc/MPC_BASE.h"
@@ -72,8 +74,10 @@ class MPC_MRT_Interface final : public MRT_BASE {
   /**
    * Advance the mpc module for one iteration. The evaluation methods can be called while this method is running. They will evaluate the
    * control law that was up-to-date at the last updatePolicy() call.
+   *
+   * @return absl::OkStatus() on success, or an error status if the solver crashed.
    */
-  void advanceMpc();
+  absl::Status advanceMpc();
 
   /**
    * @brief Retrieves the gain matrix from solver capable of optimizing over LinearController type.

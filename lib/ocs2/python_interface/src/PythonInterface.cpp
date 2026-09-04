@@ -83,7 +83,8 @@ void PythonInterface::setTargetTrajectories(TargetTrajectories targetTrajectorie
 /******************************************************************************************************/
 /******************************************************************************************************/
 void PythonInterface::advanceMpc() {
-  mpcMrtInterface_->advanceMpc();
+  // Status is already logged inside advanceMpc() — discard here.
+  (void)mpcMrtInterface_->advanceMpc();
 }
 
 /******************************************************************************************************/

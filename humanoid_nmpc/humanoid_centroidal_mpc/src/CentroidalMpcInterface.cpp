@@ -52,6 +52,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <humanoid_common_mpc/HumanoidCostConstraintFactory.h>
 #include <humanoid_common_mpc/HumanoidPreComputation.h>
 #include <humanoid_common_mpc/common/MpcFormulationConfig.h>
+#include "humanoid_common_mpc/common/StatusMacros.h"
 #include <humanoid_common_mpc/constraint/EndEffectorKinematicsTwistConstraint.h>
 #include <humanoid_common_mpc/cost/EndEffectorKinematicsQuadraticCost.h>
 #include <humanoid_common_mpc/pinocchio_model/createPinocchioModel.h>
@@ -144,7 +145,10 @@ CentroidalMpcInterface::CentroidalMpcInterface(const std::string& taskFile,
   loadData::loadEigenMatrix(taskFile, "initialState", initialState_);
 
   if (setupOCP) {
-    setupOptimalControlProblem();
+    absl::Status status = setupOptimalControlProblem();
+    if (!status.ok()) {
+      throw std::runtime_error(status.ToString());
+    }
   }
 }
 
@@ -152,7 +156,18 @@ CentroidalMpcInterface::CentroidalMpcInterface(const std::string& taskFile,
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-void CentroidalMpcInterface::setupOptimalControlProblem() {
+absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> CentroidalMpcInterface::Create(const std::string& taskFile, const std::string& urdfFile,
+                                                                                       const std::string& referenceFile) {
+  std::unique_ptr<CentroidalMpcInterface> interface(new CentroidalMpcInterface(taskFile, urdfFile, referenceFile, /*setupOCP=*/false));
+  RETURN_IF_ERROR(interface->setupOptimalControlProblem());
+  return interface;
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
   HumanoidCostConstraintFactory factory =
       HumanoidCostConstraintFactory(taskFile_, referenceFile_, *referenceManagerPtr_, *pinocchioInterfacePtr_, *mpcRobotModelPtr_,
                                     *mpcRobotModelADPtr_, modelSettings_, verbose_);
@@ -164,15 +179,10 @@ void CentroidalMpcInterface::setupOptimalControlProblem() {
   std::unique_ptr<SystemDynamicsBase> dynamicsPtr;
   const std::string modelName = "dynamics";
   dynamicsPtr.reset(new CentroidalDynamicsAD(*pinocchioInterfacePtr_, centroidalModelInfo_, modelName, modelSettings_));
-
   problemPtr_->dynamicsPtr = std::move(dynamicsPtr);
 
   // Load configured MPC formulation tasks
-  const absl::StatusOr<MpcFormulationTasks> formulationTasksOr = loadMpcFormulationTasks(taskFile_, verbose_);
-  if (!formulationTasksOr.ok()) {
-    throw std::runtime_error(formulationTasksOr.status().ToString());
-  }
-  const MpcFormulationTasks formulationTasks = *formulationTasksOr;
+  ASSIGN_OR_RETURN(const MpcFormulationTasks formulationTasks, loadMpcFormulationTasks(taskFile_, verbose_));
 
   // Cost terms
   if (formulationTasks.hasCost(MpcCostType::StateInputQuadraticCost)) {
@@ -280,6 +290,8 @@ void CentroidalMpcInterface::setupOptimalControlProblem() {
   constexpr bool extendNormalizedMomentum = true;
   initializerPtr_.reset(
       new CentroidalWeightCompInitializer(centroidalModelInfo_, *referenceManagerPtr_, *mpcRobotModelPtr_, extendNormalizedMomentum));
+
+  return absl::OkStatus();
 }
 
 /******************************************************************************************************/
