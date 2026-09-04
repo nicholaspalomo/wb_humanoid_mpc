@@ -205,48 +205,64 @@ The joystick GUI (`base_velocity_controller_gui`) features a dark-themed tabbed 
 Each robot model's MPC task configuration file (`task.yaml`) includes runtime flags at the very top:
 
 ```yaml
-# Telemetry logging & Online GUI tuning toggles
-enableTelemetry: true     # Enable/disable high-rate telemetry publishing to ROS 2 & PlotJuggler
-enableOnlineTuning: true  # Enable/disable interactive slider adjustments and saving in GUI
+# Simulation & Telemetry Configuration
+enableTelemetry: true        # Enable high-rate ROS 2 telemetry publishing for PlotJuggler
+enableOnlineTuning: true     # Enable runtime parameter and gain tuning in Controller GUI
+
+# Targeted Pinocchio frames for telemetry logging (position, orientation, twist, accel, wrench)
+telemetryFrames:
+  - "foot_l_contact"
+  - "foot_r_contact"
+  - "pelvis"
+  - "torso_link"
 ```
 
-- **`enableTelemetry`:** When `false`, the C++ simulation node completely skips instantiating and publishing the telemetry bridge, eliminating overhead on `/joint_states`, `/robot/base_*`, `/mpc/*`, and `/sensors/*`. In the Joystick GUI, the **PlotJuggler** button will also be disabled.
+- **`enableTelemetry`:** When `false`, the C++ simulation node completely skips instantiating and publishing the telemetry bridge, eliminating overhead. In the Joystick GUI, the **PlotJuggler** button will also be disabled.
 - **`enableOnlineTuning`:** When `false`, the GUI disables all sliders, quick multipliers, and YAML save buttons in both the **⚙️ Joint PD Gains** and **📈 MPC Parameters** tabs, displaying an orange safety badge `🔒 Online Tuning Disabled`.
+- **`telemetryFrames`:** Optional targeted list of Pinocchio frames to monitor. The telemetry engine automatically computes forward kinematics, spatial twists, frame accelerations, and contact wrenches for both measured and MPC desired states.
 
 ---
 
-### 📊 Real-Time Telemetry & PlotJuggler (`make plotjuggler`)
+### 📊 Real-Time Telemetry & PlotJuggler
 
-Simulations publish high-rate telemetry topics designed for instant inspection in **PlotJuggler**:
+Simulations automatically launch **PlotJuggler** alongside **RViz2** and the **Base Controller GUI** inside the desktop / VNC session (`http://localhost:6080/vnc.html`):
 
 ```bash
-# Launch PlotJuggler with pre-configured humanoid telemetry layout
+# Or launch PlotJuggler manually anytime with pre-configured layout:
 make plotjuggler
 ```
 *(Or click the **📊 PlotJuggler** button in the Base Controller GUI)*.
 
 #### Pre-Configured Telemetry Layout Tabs
-- **Base Pose & Euler Angles:** Robot actual floating-base position and orientation (Roll, Pitch, Yaw in degrees) vs. MPC planned trajectory.
-- **Base Twist:** Actual base linear ($v_x, v_y, v_z$) and angular ($\omega_x, \omega_y, \omega_z$) velocities vs. MPC target velocities.
-- **Contact Forces:** Commanded 3D foot contact forces from MPC vs. simulated sensor forces measured directly from MuJoCo foot force sensors.
-- **Joint Dynamics:** Current joint positions, velocities, applied motor torques, and MPC target position/velocity trajectories.
+1. **Base Pose & Euler Angles:** Robot actual floating-base position and orientation (Roll, Pitch, Yaw in degrees) vs. MPC planned trajectory.
+2. **Base Twist:** Actual base linear ($v_x, v_y, v_z$) and angular ($\omega_x, \omega_y, \omega_z$) velocities vs. MPC target velocities.
+3. **Contact Forces:** Commanded 3D foot contact forces from MPC vs. simulated sensor forces measured directly from MuJoCo foot force sensors.
+4. **Joint Dynamics:** Current joint positions, velocities, applied motor torques, and MPC target position/velocity trajectories.
+5. **Generalized Coordinates (Pinocchio):** Full-order generalized coordinates ($q$), velocities ($v$), and forces ($\tau$) for both measured robot state and MPC desired trajectory, formatted per degree-of-freedom.
+6. **Frame Kinematics & Acceleration:** Cartesian position, orientation, linear/angular velocity, acceleration, and contact wrenches for targeted Pinocchio frames (e.g. feet, pelvis, torso).
 
 #### Published ROS 2 Telemetry Topics
-| Topic | Type | Description |
+| Topic Pattern | Type | Description |
 |---|---|---|
+| `/robot/generalized_coordinates/[dof_name]` | `std_msgs/msg/Float64` | Measured robot generalized coordinate for specified DOF (e.g. `base_z`, joint angles) |
+| `/robot/generalized_velocities/[dof_name]` | `std_msgs/msg/Float64` | Measured robot generalized velocity for specified DOF |
+| `/robot/generalized_forces/[dof_name]` | `std_msgs/msg/Float64` | Measured / applied generalized force for specified DOF |
+| `/mpc/desired/generalized_coordinates/[dof_name]` | `std_msgs/msg/Float64` | MPC desired generalized coordinate for specified DOF |
+| `/mpc/desired/generalized_velocities/[dof_name]` | `std_msgs/msg/Float64` | MPC desired generalized velocity for specified DOF |
+| `/mpc/desired/generalized_forces/[dof_name]` | `std_msgs/msg/Float64` | MPC desired feedforward torque / force for specified DOF |
+| `/robot/frames/[frame_name]/pose` | `geometry_msgs/msg/PoseStamped` | Forward kinematics pose of targeted frame |
+| `/robot/frames/[frame_name]/euler` | `geometry_msgs/msg/Vector3Stamped` | Orientation of targeted frame (Roll, Pitch, Yaw) |
+| `/robot/frames/[frame_name]/twist` | `geometry_msgs/msg/TwistStamped` | Spatial twist (linear & angular velocity) of frame |
+| `/robot/frames/[frame_name]/accel` | `geometry_msgs/msg/AccelStamped` | Linear and angular acceleration of targeted frame |
+| `/robot/frames/[frame_name]/wrench` | `geometry_msgs/msg/WrenchStamped` | Measured contact wrench acting at frame |
+| `/mpc/desired/frames/[frame_name]/*` | Various | MPC desired pose, euler, twist, accel, wrench at frame |
 | `/joint_states` | `sensor_msgs/msg/JointState` | Current robot joint positions, velocities, and applied torques |
 | `/mpc/joint_targets` | `sensor_msgs/msg/JointState` | MPC target joint positions, velocities, and feedforward torques |
-| `/robot/base_pose` | `geometry_msgs/msg/PoseStamped` | Actual floating-base 3D position and orientation (Quaternion) |
-| `/robot/base_euler` | `geometry_msgs/msg/Vector3Stamped` | Actual floating-base Roll, Pitch, and Yaw angles [rad] |
-| `/robot/base_twist` | `geometry_msgs/msg/TwistStamped` | Actual floating-base linear and angular twist in world frame |
-| `/mpc/target_base_pose` | `geometry_msgs/msg/PoseStamped` | MPC optimal reference base position and orientation |
-| `/mpc/target_base_euler` | `geometry_msgs/msg/Vector3Stamped` | MPC optimal reference Roll, Pitch, and Yaw angles [rad] |
-| `/mpc/target_base_twist` | `geometry_msgs/msg/TwistStamped` | MPC optimal reference base linear and angular velocity |
-| `/mpc/contact_wrench/left` | `geometry_msgs/msg/WrenchStamped` | Left foot contact wrench commanded by MPC |
-| `/mpc/contact_wrench/right` | `geometry_msgs/msg/WrenchStamped` | Right foot contact wrench commanded by MPC |
-| `/sensors/contact_wrench/left` | `geometry_msgs/msg/WrenchStamped` | Measured left foot contact force from MuJoCo sensor |
-| `/sensors/contact_wrench/right` | `geometry_msgs/msg/WrenchStamped` | Measured right foot contact force from MuJoCo sensor |
-| `/mpc/observation` | `ocs2_ros2_msgs/msg/MpcObservation` | Latest full system observation tracked by the MPC solver |
+| `/robot/base_pose`, `/robot/base_euler`, `/robot/base_twist` | Various | Measured floating-base position, euler, and twist |
+| `/mpc/target_base_pose`, `_euler`, `_twist` | Various | MPC optimal reference base position, euler, and twist |
+| `/mpc/contact_wrench/left`, `/mpc/contact_wrench/right` | `geometry_msgs/msg/WrenchStamped` | Left & right foot contact wrenches commanded by MPC |
+| `/sensors/contact_wrench/left`, `/right` | `geometry_msgs/msg/WrenchStamped` | Measured foot contact wrenches from simulation |
+| `/mpc/observation` | `ocs2_ros2_msgs/msg/MpcObservation` | Latest full system observation tracked by MPC solver |
 
 ---
 

@@ -64,7 +64,7 @@ PinocchioTelemetryPublisher::PinocchioTelemetryPublisher(rclcpp::Node::SharedPtr
 void PinocchioTelemetryPublisher::initializePublishers(const rclcpp::QoS& qos, const std::vector<std::string>& userTrackedFrames) {
   // 1. Initialize DOF names
   // Base DOFs (JointModelTranslation + JointModelSphericalZYX)
-  dofNames_ = {"base_x", "base_y", "base_z", "base_yaw", "base_pitch", "base_roll"};
+  dofNames_ = getBaseDofNames();
 
   // Actuated joint names from MPC model settings
   for (const auto& jointName : modelSettingsPtr_->mpcModelJointNames) {
@@ -73,6 +73,27 @@ void PinocchioTelemetryPublisher::initializePublishers(const rclcpp::QoS& qos, c
 
   fullJointNames_.assign(modelSettingsPtr_->fullJointNames.begin(), modelSettingsPtr_->fullJointNames.end());
   mpcJointIndices_ = modelSettingsPtr_->mpcModelToFullJointsIndices;
+
+  // Pre-calculate RobotDescription joint indices for MPC joints and full joints
+  descJointIndices_.clear();
+  descJointIndices_.reserve(modelSettingsPtr_->mpcModelJointNames.size());
+  for (const auto& jointName : modelSettingsPtr_->mpcModelJointNames) {
+    if (robotDescriptionPtr_ && robotDescriptionPtr_->containsJoint(jointName)) {
+      descJointIndices_.push_back(robotDescriptionPtr_->getJointIndex(jointName));
+    } else {
+      descJointIndices_.push_back(std::numeric_limits<size_t>::max());
+    }
+  }
+
+  descFullJointIndices_.clear();
+  descFullJointIndices_.reserve(fullJointNames_.size());
+  for (const auto& jointName : fullJointNames_) {
+    if (robotDescriptionPtr_ && robotDescriptionPtr_->containsJoint(jointName)) {
+      descFullJointIndices_.push_back(robotDescriptionPtr_->getJointIndex(jointName));
+    } else {
+      descFullJointIndices_.push_back(std::numeric_limits<size_t>::max());
+    }
+  }
 
   // 2. Initialize Per-DOF Publishers (/mpc/desired/generalized_* and /robot/generalized_*)
   dofTrackInfos_.reserve(dofNames_.size());
@@ -438,25 +459,36 @@ void PinocchioTelemetryPublisher::publish(const ::robot::model::RobotState& robo
   const vector3_t rootLinVel = rootQuat * robotState.getRootLinearVelocityInLocalFrame();
   const vector3_t rootAngVel = rootQuat * robotState.getRootAngularVelocityInLocalFrame();
 
-  q_meas.head<3>() = rootPos;
+  q_meas.head<BASE_TRANSLATION_DIM>() = rootPos;
   // Pinocchio JointModelSphericalZYX convention: yaw, pitch, roll
   const vector3_t eulerAnglesZyx(rootEuler.z(), rootEuler.y(), rootEuler.x());
-  q_meas.segment<3>(3) = eulerAnglesZyx;
+  q_meas.segment<BASE_ROTATION_DIM>(BASE_TRANSLATION_DIM) = eulerAnglesZyx;
 
-  v_meas.head<3>() = rootLinVel;
-  v_meas.segment<3>(3) = getEulerAnglesZyxDerivativesFromGlobalAngularVelocity<scalar_t>(eulerAnglesZyx, rootAngVel);
+  v_meas.head<BASE_TRANSLATION_DIM>() = rootLinVel;
+  v_meas.segment<BASE_ROTATION_DIM>(BASE_TRANSLATION_DIM) =
+      getEulerAnglesZyxDerivativesFromGlobalAngularVelocity<scalar_t>(eulerAnglesZyx, rootAngVel);
 
   // Actuated Joints
   for (size_t j = 0; j < numMpcJoints; ++j) {
-    size_t fullIdx = mpcJointIndices_[j];
-    q_meas[6 + j] = robotState.getJointPosition(fullIdx);
-    v_meas[6 + j] = robotState.getJointVelocity(fullIdx);
-
-    const auto& actionOpt = robotJointAction.at(fullIdx);
-    if (actionOpt.has_value()) {
-      const auto& action = actionOpt.value();
-      tau_meas[6 + j] =
-          action.feed_forward_effort + action.kp * (action.q_des - q_meas[6 + j]) + action.kd * (action.qd_des - v_meas[6 + j]);
+    if (j < descJointIndices_.size()) {
+      size_t descIdx = descJointIndices_[j];
+      if (descIdx != std::numeric_limits<size_t>::max() && robotDescriptionPtr_ && descIdx < robotDescriptionPtr_->getNumJoints()) {
+        try {
+          q_meas[JOINT_COORDINATE_OFFSET + j] = robotState.getJointPosition(descIdx);
+          v_meas[JOINT_COORDINATE_OFFSET + j] = robotState.getJointVelocity(descIdx);
+          if (robotDescriptionPtr_ && descIdx < robotDescriptionPtr_->getNumJoints()) {
+            const auto& actionOpt = robotJointAction.at(descIdx);
+            if (actionOpt.has_value()) {
+              const auto& action = actionOpt.value();
+              tau_meas[JOINT_COORDINATE_OFFSET + j] = action.feed_forward_effort +
+                                                      action.kp * (action.q_des - q_meas[JOINT_COORDINATE_OFFSET + j]) +
+                                                      action.kd * (action.qd_des - v_meas[JOINT_COORDINATE_OFFSET + j]);
+            }
+          }
+        } catch (const std::exception&) {
+          // Fall back to default
+        }
+      }
     }
   }
 
@@ -480,10 +512,14 @@ void PinocchioTelemetryPublisher::publish(const ::robot::model::RobotState& robo
   }
 
   for (size_t j = 0; j < numMpcJoints; ++j) {
-    size_t fullIdx = mpcJointIndices_[j];
-    const auto& actionOpt = robotJointAction.at(fullIdx);
-    if (actionOpt.has_value()) {
-      tau_des[6 + j] = actionOpt.value().feed_forward_effort;
+    if (j < descJointIndices_.size()) {
+      size_t descIdx = descJointIndices_[j];
+      if (descIdx != std::numeric_limits<size_t>::max() && robotDescriptionPtr_ && descIdx < robotDescriptionPtr_->getNumJoints()) {
+        const auto& actionOpt = robotJointAction.at(descIdx);
+        if (actionOpt.has_value()) {
+          tau_des[JOINT_COORDINATE_OFFSET + j] = actionOpt.value().feed_forward_effort;
+        }
+      }
     }
   }
 
@@ -491,7 +527,7 @@ void PinocchioTelemetryPublisher::publish(const ::robot::model::RobotState& robo
   std::unordered_map<std::string, vector3_t> measuredForces;
   std::unordered_map<std::string, vector6_t> desiredWrenches;
 
-  if (modelSettingsPtr_->contactNames.size() >= 2) {
+  if (modelSettingsPtr_->contactNames.size() >= N_CONTACTS) {
     measuredForces[modelSettingsPtr_->contactNames[0]] = leftMeasuredForce;
     measuredForces[modelSettingsPtr_->contactNames[1]] = rightMeasuredForce;
   }
@@ -510,20 +546,28 @@ void PinocchioTelemetryPublisher::publish(const ::robot::model::RobotState& robo
   sensor_msgs::msg::JointState jointStateMsg;
   jointStateMsg.header.stamp = now;
   jointStateMsg.name = fullJointNames_;
-  jointStateMsg.position.resize(fullJointNames_.size());
-  jointStateMsg.velocity.resize(fullJointNames_.size());
-  jointStateMsg.effort.resize(fullJointNames_.size());
+  jointStateMsg.position.resize(fullJointNames_.size(), 0.0);
+  jointStateMsg.velocity.resize(fullJointNames_.size(), 0.0);
+  jointStateMsg.effort.resize(fullJointNames_.size(), 0.0);
 
   for (size_t i = 0; i < fullJointNames_.size(); ++i) {
-    jointStateMsg.position[i] = robotState.getJointPosition(i);
-    jointStateMsg.velocity[i] = robotState.getJointVelocity(i);
-    const auto& actionOpt = robotJointAction.at(i);
-    if (actionOpt.has_value()) {
-      const auto& action = actionOpt.value();
-      jointStateMsg.effort[i] = action.feed_forward_effort + action.kp * (action.q_des - jointStateMsg.position[i]) +
-                                action.kd * (action.qd_des - jointStateMsg.velocity[i]);
-    } else {
-      jointStateMsg.effort[i] = 0.0;
+    size_t descIdx = (i < descFullJointIndices_.size()) ? descFullJointIndices_[i] : std::numeric_limits<size_t>::max();
+    if (descIdx != std::numeric_limits<size_t>::max() && robotDescriptionPtr_ && descIdx < robotDescriptionPtr_->getNumJoints()) {
+      try {
+        jointStateMsg.position[i] = robotState.getJointPosition(descIdx);
+        jointStateMsg.velocity[i] = robotState.getJointVelocity(descIdx);
+      } catch (const std::exception&) {
+        jointStateMsg.position[i] = 0.0;
+        jointStateMsg.velocity[i] = 0.0;
+      }
+      if (robotDescriptionPtr_ && descIdx < robotDescriptionPtr_->getNumJoints()) {
+        const auto& actionOpt = robotJointAction.at(descIdx);
+        if (actionOpt.has_value()) {
+          const auto& action = actionOpt.value();
+          jointStateMsg.effort[i] = action.feed_forward_effort + action.kp * (action.q_des - jointStateMsg.position[i]) +
+                                    action.kd * (action.qd_des - jointStateMsg.velocity[i]);
+        }
+      }
     }
   }
   jointStatePub_->publish(jointStateMsg);
@@ -532,20 +576,25 @@ void PinocchioTelemetryPublisher::publish(const ::robot::model::RobotState& robo
   sensor_msgs::msg::JointState targetJointMsg;
   targetJointMsg.header.stamp = now;
   targetJointMsg.name = fullJointNames_;
-  targetJointMsg.position.resize(fullJointNames_.size());
-  targetJointMsg.velocity.resize(fullJointNames_.size());
-  targetJointMsg.effort.resize(fullJointNames_.size());
+  targetJointMsg.position.resize(fullJointNames_.size(), 0.0);
+  targetJointMsg.velocity.resize(fullJointNames_.size(), 0.0);
+  targetJointMsg.effort.resize(fullJointNames_.size(), 0.0);
 
   for (size_t i = 0; i < fullJointNames_.size(); ++i) {
-    const auto& actionOpt = robotJointAction.at(i);
-    if (actionOpt.has_value()) {
-      targetJointMsg.position[i] = actionOpt.value().q_des;
-      targetJointMsg.velocity[i] = actionOpt.value().qd_des;
-      targetJointMsg.effort[i] = actionOpt.value().feed_forward_effort;
-    } else {
-      targetJointMsg.position[i] = robotState.getJointPosition(i);
-      targetJointMsg.velocity[i] = 0.0;
-      targetJointMsg.effort[i] = 0.0;
+    size_t descIdx = (i < descFullJointIndices_.size()) ? descFullJointIndices_[i] : std::numeric_limits<size_t>::max();
+    if (descIdx != std::numeric_limits<size_t>::max() && robotDescriptionPtr_ && descIdx < robotDescriptionPtr_->getNumJoints()) {
+      const auto& actionOpt = robotJointAction.at(descIdx);
+      if (actionOpt.has_value()) {
+        targetJointMsg.position[i] = actionOpt.value().q_des;
+        targetJointMsg.velocity[i] = actionOpt.value().qd_des;
+        targetJointMsg.effort[i] = actionOpt.value().feed_forward_effort;
+      } else if (robotDescriptionPtr_ && descIdx < robotDescriptionPtr_->getNumJoints()) {
+        try {
+          targetJointMsg.position[i] = robotState.getJointPosition(descIdx);
+        } catch (const std::exception&) {
+          targetJointMsg.position[i] = 0.0;
+        }
+      }
     }
   }
   mpcJointTargetPub_->publish(targetJointMsg);
@@ -594,15 +643,15 @@ void PinocchioTelemetryPublisher::publish(const ::robot::model::RobotState& robo
     vector_t targetState = LinearInterpolation::interpolate(time, mpcCommand.mpcTargetTrajectories_.timeTrajectory,
                                                             mpcCommand.mpcTargetTrajectories_.stateTrajectory);
     vector6_t targetBasePose = mpcRobotModelPtr_->getBasePose(targetState);
-    targetPos = targetBasePose.head<3>();
+    targetPos = targetBasePose.head<BASE_TRANSLATION_DIM>();
     targetEuler = vector3_t(targetBasePose[5], targetBasePose[4], targetBasePose[3]);
-    targetQuat = getQuaternionFromEulerAnglesZyx(vector3_t(targetBasePose.tail<3>()));
+    targetQuat = getQuaternionFromEulerAnglesZyx(vector3_t(targetBasePose.tail<BASE_ROTATION_DIM>()));
 
     if (!mpcCommand.mpcTargetTrajectories_.inputTrajectory.empty()) {
       vector_t tInput = LinearInterpolation::interpolate(time, mpcCommand.mpcTargetTrajectories_.timeTrajectory,
                                                          mpcCommand.mpcTargetTrajectories_.inputTrajectory);
-      if (tInput.size() >= 12) {
-        targetLinVel = targetState.head<3>();
+      if (tInput.size() >= static_cast<int>(N_CONTACTS * CONTACT_WRENCH_DIM)) {
+        targetLinVel = targetState.head<BASE_TRANSLATION_DIM>();
       }
     }
   }
@@ -639,7 +688,7 @@ void PinocchioTelemetryPublisher::publish(const ::robot::model::RobotState& robo
   mpcTargetBaseTwistPub_->publish(mpcTwistMsg);
 
   // /mpc/contact_wrench/left|right
-  if (mpcPolicyInput.size() >= 12) {
+  if (mpcPolicyInput.size() >= static_cast<int>(N_CONTACTS * CONTACT_WRENCH_DIM)) {
     geometry_msgs::msg::WrenchStamped mpcLeftWrench;
     mpcLeftWrench.header.stamp = now;
     mpcLeftWrench.header.frame_id = "world";
@@ -654,12 +703,12 @@ void PinocchioTelemetryPublisher::publish(const ::robot::model::RobotState& robo
     geometry_msgs::msg::WrenchStamped mpcRightWrench;
     mpcRightWrench.header.stamp = now;
     mpcRightWrench.header.frame_id = "world";
-    mpcRightWrench.wrench.force.x = mpcPolicyInput[6];
-    mpcRightWrench.wrench.force.y = mpcPolicyInput[7];
-    mpcRightWrench.wrench.force.z = mpcPolicyInput[8];
-    mpcRightWrench.wrench.torque.x = mpcPolicyInput[9];
-    mpcRightWrench.wrench.torque.y = mpcPolicyInput[10];
-    mpcRightWrench.wrench.torque.z = mpcPolicyInput[11];
+    mpcRightWrench.wrench.force.x = mpcPolicyInput[CONTACT_WRENCH_DIM + 0];
+    mpcRightWrench.wrench.force.y = mpcPolicyInput[CONTACT_WRENCH_DIM + 1];
+    mpcRightWrench.wrench.force.z = mpcPolicyInput[CONTACT_WRENCH_DIM + 2];
+    mpcRightWrench.wrench.torque.x = mpcPolicyInput[CONTACT_WRENCH_DIM + 3];
+    mpcRightWrench.wrench.torque.y = mpcPolicyInput[CONTACT_WRENCH_DIM + 4];
+    mpcRightWrench.wrench.torque.z = mpcPolicyInput[CONTACT_WRENCH_DIM + 5];
     mpcContactWrenchRightPub_->publish(mpcRightWrench);
   }
 

@@ -109,12 +109,12 @@ TEST(TestPinocchioTelemetryPublisher, DofTopicNamingAndPublishing) {
   // 4. Publish Pinocchio state
   const auto& model = pinocchioInterface.getModel();
   vector_t q_meas = vector_t::Zero(model.nq);
-  q_meas[2] = 0.78;  // base_z = 0.78 m
+  q_meas[BASE_POS_Z_INDEX] = 0.78;  // base_z = 0.78 m
   vector_t v_meas = vector_t::Zero(model.nv);
   vector_t tau_meas = vector_t::Zero(model.nv);
 
   vector_t q_des = vector_t::Zero(model.nq);
-  q_des[2] = 0.85;  // desired base_z = 0.85 m
+  q_des[BASE_POS_Z_INDEX] = 0.85;  // desired base_z = 0.85 m
   vector_t v_des = vector_t::Zero(model.nv);
   vector_t tau_des = vector_t::Zero(model.nv);
 

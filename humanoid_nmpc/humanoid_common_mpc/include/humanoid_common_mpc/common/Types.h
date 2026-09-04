@@ -32,6 +32,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <array>
 #include <cstddef>
+#include <string>
+#include <vector>
 
 #include <ocs2_core/Types.h>
 #include <ocs2_core/automatic_differentiation/Types.h>
@@ -100,5 +102,30 @@ using feet_vec_t = std::vector<T>;
 using contact_flag_t = feet_array_t<bool>;  // describes which feet are in contacts [left_contact, right_contact]
 
 constexpr size_t CONTACT_WRENCH_DIM = 6;
+
+namespace humanoid {
+
+/******************************************************************************************************/
+/* Floating base & generalized coordinates definition
+   The floating base consists of 3 translation coordinates (x, y, z) and 3 spherical ZYX rotation
+   coordinates (yaw, pitch, roll). Actuated joints follow the floating base degrees of freedom.
+*/
+/******************************************************************************************************/
+
+constexpr size_t BASE_POS_X_INDEX = 0;
+constexpr size_t BASE_POS_Y_INDEX = 1;
+constexpr size_t BASE_POS_Z_INDEX = 2;
+
+constexpr size_t BASE_TRANSLATION_DIM = 3;
+constexpr size_t BASE_ROTATION_DIM = 3;
+constexpr size_t FLOATING_BASE_DIM = BASE_TRANSLATION_DIM + BASE_ROTATION_DIM;  // 6 DoF
+constexpr size_t JOINT_COORDINATE_OFFSET = FLOATING_BASE_DIM;
+
+inline const std::vector<std::string>& getBaseDofNames() {
+  static const std::vector<std::string> baseDofNames = {"base_x", "base_y", "base_z", "base_yaw", "base_pitch", "base_roll"};
+  return baseDofNames;
+}
+
+}  // namespace humanoid
 
 }  // namespace ocs2
