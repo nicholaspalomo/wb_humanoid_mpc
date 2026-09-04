@@ -1,4 +1,5 @@
 /******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -61,6 +62,10 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
    */
   ~CentroidalMpcMrtJointController();
 
+  bool ready() {
+    mcpMrtInterface_.updatePolicy();
+    return mcpMrtInterface_.initialPolicyReceived();
+  }
   bool ready() const { return mcpMrtInterface_.initialPolicyReceived(); }
 
   /**
@@ -74,6 +79,31 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   void startMpcThread(const ::robot::model::RobotState& initRobotState);
 
   void loadPdGains(const std::string& pdGainsFile, const ModelSettings& modelSettings);
+
+  /**
+   * @brief Set the active control mode. When set to "JOINT_PD", the controller
+   *        computes Pinocchio-based gravity compensation + PD tracking to nominal positions.
+   */
+  void setControlMode(std::string_view mode) {
+    std::string newMode(mode);
+    if (newMode != controlMode_) {
+      controlMode_ = newMode;
+    }
+  }
+  const std::string& getControlMode() const { return controlMode_; }
+
+  /**
+   * @brief Request an asynchronous MPC reset. The solver thread will reset the MPC
+   *        to a stable trajectory from the current observation on its next iteration.
+   *        Use this when external conditions change (e.g. gantry lock/unlock) to
+   *        prevent the solver from using a stale warm-start.
+   */
+  void requestMpcReset() { resetMpcRequested_.store(true); }
+
+  /**
+   * @brief Set nominal joint positions for JOINT_PD mode.
+   */
+  void setNominalJointPositions(const std::vector<scalar_t>& positions) { nominalJointPositions_ = positions; }
 
  private:
   /**
@@ -104,6 +134,7 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   bool realtime_;  // True if MPC is to be run as fast as possible
 
   std::atomic_bool terminateThread_{false};
+  std::atomic_bool resetMpcRequested_{false};
   std::jthread solver_worker_;
 
   std::shared_ptr<DummyObserver> visualizerPtr_;
@@ -113,8 +144,20 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
 
   vector_t mpcJointKp_;
   vector_t mpcJointKd_;
+  vector_t mpcJointTorqueLimit_;
   vector_t otherJointKp_;
   vector_t otherJointKd_;
+  vector_t otherJointTorqueLimit_;
+
+  std::string controlMode_{"WB_MPC"};            ///< Active control mode (JOINT_PD, WB_MPC, etc.)
+  std::vector<scalar_t> nominalJointPositions_;  ///< Nominal positions for JOINT_PD mode
+  scalar_t previousObservationTime_{0.0};         ///< Previous sim time for computing actual dt
+
+  /**
+   * @brief Compute per-joint gravity compensation torques via Pinocchio.
+   * Uses nonLinearEffects with zero velocity for pure gravity torques.
+   */
+  vector_t computeGravityCompensation(const ::robot::model::RobotState& robotState);
 };
 
 }  // namespace ocs2::humanoid

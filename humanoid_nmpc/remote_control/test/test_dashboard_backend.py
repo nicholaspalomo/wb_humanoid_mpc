@@ -33,6 +33,7 @@ from humanoid_nmpc.remote_control.remote_control.dashboard_backend import (
 class TestDashboardBackend(unittest.TestCase):
     def setUp(self):
         self.sim_mgr = SimProcessManager()
+        self.sim_mgr.stop()
         self.joy = VirtualJoystickROS2()
 
     def tearDown(self):

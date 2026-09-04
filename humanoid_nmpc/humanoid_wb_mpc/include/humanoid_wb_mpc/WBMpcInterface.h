@@ -1,4 +1,5 @@
 /******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
 Copyright (c) 2024, 1X Technologies. All rights reserved.
 
@@ -45,20 +46,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
 #include "humanoid_wb_mpc/end_effector/EndEffectorDynamics.h"
 
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+
 namespace ocs2::humanoid {
 
 class WBMpcInterface final : public RobotInterface {
  public:
   /**
-   * Constructor
-   *
-   * @throw Invalid argument error if input task file or urdf file does not exist.
+   * Factory method. Constructs a WBMpcInterface and sets up the optimal
+   * control problem, propagating any errors via absl::Status.
    *
    * @param [in] taskFile: The absolute path to the configuration file for the MPC.
    * @param [in] urdfFile: The absolute path to the URDF file for the robot.
    * @param [in] referenceFile: The absolute path to the reference configuration file.
+   * @return absl::StatusOr<WBMpcInterface> The constructed interface, or error status.
    */
-  WBMpcInterface(const std::string& taskFile, const std::string& urdfFile, const std::string& referenceFile, bool setupOCP = true);
+  static absl::StatusOr<std::unique_ptr<WBMpcInterface>> Create(const std::string& taskFile, const std::string& urdfFile,
+                                                                const std::string& referenceFile);
 
   ~WBMpcInterface() override = default;
 
@@ -86,7 +91,12 @@ class WBMpcInterface final : public RobotInterface {
   const WBAccelMpcRobotModel<ad_scalar_t>& getMpcRobotModelAD() const { return *mpcRobotModelADPtr_; }
 
  private:
-  void setupOptimalControlProblem();
+  /**
+   * Private constructor — use Create() to construct.
+   */
+  WBMpcInterface(const std::string& taskFile, const std::string& urdfFile, const std::string& referenceFile, bool setupOCP = false);
+
+  absl::Status setupOptimalControlProblem();
 
   std::unique_ptr<StateInputConstraint> getStanceFootConstraint(const EndEffectorDynamics<scalar_t>& eeDynamics, size_t contactPointIndex);
   std::unique_ptr<StateInputConstraint> getNormalVelocityConstraint(const EndEffectorDynamics<scalar_t>& eeDynamics,

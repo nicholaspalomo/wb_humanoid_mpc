@@ -38,6 +38,8 @@ struct Metrics {
   double fpsSim;
   /// Real time factor for current sim step: RTF = dt_sim / dt_real
   double rtfTick;
+  /// Smoothed RTF (exponential moving average)
+  double rtfSmoothed;
   /// Time drift per-tick.
   double driftTick;
   /// Total time drift since starting the sim.
@@ -46,16 +48,28 @@ struct Metrics {
   void reset() {
     fpsSim = 0.0;
     rtfTick = 0.0;
+    rtfSmoothed = 1.0;  // Start at ideal value
     driftTick = 0.0;
     driftCumulative = 0.0;
   }
 };
 
 struct MjState {
-  explicit MjState(const mjModel* mujocoModel_);
+  explicit MjState(const mjModel* model);
 
+  // Deep-copy: allocate new mjData and copy contents
+  MjState(const MjState& other);
+  MjState& operator=(const MjState& other);
+
+  // Move: transfer ownership of mjData
+  MjState(MjState&& other) noexcept;
+  MjState& operator=(MjState&& other) noexcept;
+
+  ~MjState();
+
+  const mjModel* model{nullptr};
   int64_t timestamp{0};
-  mjData* data;
+  mjData* data{nullptr};
   Metrics metrics;
 };
 }  // namespace robot::mujoco_sim_interface

@@ -88,16 +88,23 @@ void MujocoRenderer::keyboard(GLFWwindow* window, int key, int, int act, int mod
     renderer->mujocoOptions_.flags[mjVIS_CONVEXHULL] = !renderer->mujocoOptions_.flags[mjVIS_CONVEXHULL];
   }
 
+  // Number keys '0'-'5': toggle geom groups (Group 1 = Visual, Group 2 = Collision, Group 0 = Floor)
+  if (act == GLFW_PRESS && key >= GLFW_KEY_0 && key <= GLFW_KEY_5) {
+    int group = key - GLFW_KEY_0;
+    renderer->mujocoOptions_.geomgroup[group] = !renderer->mujocoOptions_.geomgroup[group];
+  }
+
   // 'p' key: print hotkeys
   if (act == GLFW_PRESS && key == GLFW_KEY_P) {
     std::cerr << "\n\n==========================================================="
               << "\nHotkeys\n===========================================================\n"
-              << "c => toggle contact point visualization\n"
-              << "f => toggle contact force visualization\n"
-              << "m => toggle center of mass visualization\n"
-              << "t => toggle model transparency\n"
-              << "i => toggle interia visualization\n"
-              << "h => toggle hull visualization\n";
+              << "0-5 => toggle geom groups (0: Floor, 1: Visual Mesh, 2: Collision)\n"
+              << "c   => toggle contact point visualization\n"
+              << "f   => toggle contact force visualization\n"
+              << "m   => toggle center of mass visualization\n"
+              << "t   => toggle model transparency\n"
+              << "i   => toggle inertia visualization\n"
+              << "h   => toggle hull visualization\n";
   }
 }
 
@@ -204,7 +211,7 @@ void renderMetrics(const mjrContext* con, const mjrRect& viewport, const MjState
   metrics << "Sim  Time[s]: " << std::fixed << std::setprecision(3) << state.data->time << "\n\n";
 
   // Real-time tracking
-  metrics << "RTF: " << std::fixed << std::setprecision(3) << state.metrics.rtfTick << "\n";
+  metrics << "RTF: " << std::fixed << std::setprecision(3) << state.metrics.rtfSmoothed << "\n";
   metrics << "Drift[ms]: " << std::fixed << std::setprecision(3) << state.metrics.driftTick * 1e3 << "\n";
   metrics << "Cummulative Drift[ms]: " << std::fixed << std::setprecision(3) << state.metrics.driftCumulative * 1e3;
 
@@ -291,7 +298,7 @@ void MujocoRenderer::renderLoop() {
     glfwGetFramebufferSize(window_, &viewport_.width, &viewport_.height);
 
     // Copy physics data to render data
-    simInterface_->copyMjState(simState_);
+    simInterface_->readLatestMjState(simState_);
     mj_forward(simInterface_->getModel(), simState_.data);
 
     mjv_updateScene(simInterface_->getModel(), simState_.data, &mujocoOptions_, nullptr, nullptr, mjCAT_ALL, &mujocoScene_);
@@ -371,7 +378,7 @@ void MujocoRenderer::initialize() {
   mujocoCam_.lookat[1] = arr_view[4];
   mujocoCam_.lookat[2] = arr_view[5];
 
-  simInterface_->copyMjState(simState_);
+  simInterface_->readLatestMjState(simState_);
 
   // get framebuffer viewport
   // We don't want to step the actual simulation here, as it screws up the initialization of the IMU's

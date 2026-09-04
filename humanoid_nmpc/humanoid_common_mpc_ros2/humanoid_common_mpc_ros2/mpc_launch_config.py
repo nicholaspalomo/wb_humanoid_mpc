@@ -239,6 +239,11 @@ class MPCLaunchConfig:
             executable="base_velocity_controller_gui",
             name="base_velocity_controller_gui",
             output="screen",
+            parameters=[
+                {
+                    "target_command_file": LaunchConfiguration("target_command_file"),
+                }
+            ],
         )
 
         self.mpc_observation_logger_node = launch_ros.actions.Node(

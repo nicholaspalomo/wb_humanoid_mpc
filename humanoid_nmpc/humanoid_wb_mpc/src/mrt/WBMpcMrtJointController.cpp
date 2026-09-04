@@ -1,4 +1,5 @@
 /******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -33,12 +34,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_robotic_tools/common/RotationTransforms.h>
 
 #include <humanoid_common_mpc/gait/MotionPhaseDefinition.h>
+#include <humanoid_common_mpc/common/ThreadAffinity.h>
 #include <humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h>
 #include <humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h>
 #include "humanoid_wb_mpc/dynamics/DynamicsHelperFunctions.h"
 
 #include <yaml-cpp/yaml.h>
 #include <filesystem>
+
+#include "absl/log/log.h"
+#include "absl/status/status.h"
 
 namespace ocs2::humanoid {
 
@@ -198,8 +203,13 @@ void WBMpcMrtJointController::computeJointControlAction(scalar_t time,
   size_t mpcPolicyMode;
 
   if (mcpMrtInterface_.initialPolicyReceived()) {
+    // Compute actual sim dt from elapsed simulation time (respects RTF)
+    scalar_t simDt = currentMpcObservation_.time - previousObservationTime_;
+    // Clamp to sane range: avoid zero/negative (first call, time resets) and excessive lookahead
+    simDt = std::clamp(simDt, 0.001, 0.02);
+
     // Evaluate policy with feedback if activated in config
-    mcpMrtInterface_.evaluatePolicy(currentMpcObservation_.time + 0.005, currentMpcObservation_.state, mpcPolicyState, mpcPolicyInput,
+    mcpMrtInterface_.evaluatePolicy(currentMpcObservation_.time + simDt, currentMpcObservation_.state, mpcPolicyState, mpcPolicyInput,
                                     mpcPolicyMode);
 
     vector_t mpcJointTorques = computeJointTorques<scalar_t>(mpcPolicyState, mpcPolicyInput, pinocchioInterface_, mpcRobotModel_);
@@ -255,6 +265,9 @@ void WBMpcMrtJointController::computeJointControlAction(scalar_t time,
     action.kd = otherJointKd_[i];
     action.feed_forward_effort = 0.0;
   };
+
+  // Track observation time for next call's dt computation
+  previousObservationTime_ = currentMpcObservation_.time;
 }
 
 /******************************************************************************************************/
@@ -262,28 +275,33 @@ void WBMpcMrtJointController::computeJointControlAction(scalar_t time,
 /******************************************************************************************************/
 
 void WBMpcMrtJointController::solverWorker() {
+  const auto coreAlloc = ocs2::humanoid::getDefaultCoreAllocation();
+  ocs2::humanoid::setThreadCpuAffinity(coreAlloc.mpcCores, pthread_self(), "WB MPC Solver Thread");
+
   mcpMrtInterface_.resetMpcNode(currentObservationToResetTrajectory(mcpMrtInterface_.getCurrentObservation()));
   std::cerr << "MPC is reset. NMPC solver started!" << std::endl;
 
+  size_t slowWarningCount = 0;
   while (true) {
     auto targetTimeForNextIteration = std::chrono::steady_clock::now() + std::chrono::microseconds(mpcDeltaTMicroSeconds_);
 
-    mcpMrtInterface_.advanceMpc();
-
-    // Publish if Policy has been updated
-    if (!mcpMrtInterface_.updatePolicy()) {
-      std::cerr << "The solver has failed to update!!" << std::endl;
-      return;
+    absl::Status mpcStatus = mcpMrtInterface_.advanceMpc();
+    if (!mpcStatus.ok()) {
+      // MPC solver failed — log and continue with previous solution.
+      LOG(ERROR) << "MPC solver error in WB worker: " << mpcStatus.message()
+                 << " — retaining previous solution and retrying.";
+    } else {
+      // Update active policy buffer
+      mcpMrtInterface_.updatePolicy();
     }
-
-    // std::cerr << "MPC policy computed!" << std::endl;
 
     if (!realtime_) {
       auto currentTime = std::chrono::steady_clock::now();
       if (currentTime > targetTimeForNextIteration) {
         auto delay = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - targetTimeForNextIteration).count();
-
-        std::cerr << "Warning: MPC loop running slow by " << delay << " microseconds." << std::endl;
+        if (delay > 1000 && (++slowWarningCount % 20 == 0)) {
+          std::cerr << "Warning: MPC loop running slow by " << delay << " microseconds." << std::endl;
+        }
       } else {
         // Sleep in case sim loop is faster than specified
         std::this_thread::sleep_until(targetTimeForNextIteration);

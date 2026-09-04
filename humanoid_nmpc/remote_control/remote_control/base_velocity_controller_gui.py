@@ -27,13 +27,16 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ****************************************************************************"""
 
+import os
+import yaml
 import tkinter as tk
 from tkinter import ttk
 import threading
 import rclpy
 from rclpy.node import Node
 from humanoid_mpc_msgs.msg import WalkingVelocityCommand
-from rclpy.qos import QoSProfile, ReliabilityPolicy
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
+from std_msgs.msg import String
 from remote_control import XBoxControllerInterface
 from remote_control.tk_app import JoystickGui, LEDIndicatorGui
 
@@ -46,12 +49,12 @@ class App(tk.Tk):
         # Position window on the right side of the screen
         screen_width = self.winfo_screenwidth()
         screen_height = self.winfo_screenheight()
-        gui_width = 750
+        gui_width = 850
         gui_height = 420
         pos_x = max(0, screen_width - gui_width - 30)
         pos_y = 50
         self.geometry(f"{gui_width}x{gui_height}+{pos_x}+{pos_y}")
-        self.minsize(650, 380)
+        self.minsize(750, 380)
 
         # Set window background color
         self.configure(bg="#2c2c2c")
@@ -140,7 +143,10 @@ class App(tk.Tk):
         self.joystick_right.pack(pady=(5, 5))
 
         # Slider frame
-        self.slider_default_value = 75
+        self.min_height = 0.2
+        self.max_height = 1.3
+        self.height_scale = (self.max_height - self.min_height) / 100.0
+        self.slider_default_value = (0.8 - self.min_height) / self.height_scale
         self.slider_frame = ttk.Frame(main_frame)
         self.slider_frame.grid(row=0, column=2, padx=15, pady=10, sticky="ns")
 
@@ -161,6 +167,42 @@ class App(tk.Tk):
         # Control frame
         control_frame = ttk.Frame(main_frame)
         control_frame.grid(row=1, column=0, columnspan=5, pady=(10, 0))
+
+        # --- FSM Mode Selector ---
+        fsm_frame = ttk.Frame(control_frame)
+        fsm_frame.pack(side="left", padx=5)
+
+        ttk.Label(
+            fsm_frame,
+            text="FSM Mode:",
+            font=("Helvetica", 9, "bold"),
+        ).pack(side="left", padx=(0, 4))
+
+        self.fsm_mode_var = tk.StringVar(value="ZERO_TORQUE")
+        self.fsm_dropdown = ttk.Combobox(
+            fsm_frame,
+            textvariable=self.fsm_mode_var,
+            values=["ZERO_TORQUE", "JOINT_PD", "GRAVITY_COMP", "WB_MPC", "SAFETY"],
+            state="readonly",
+            width=14,
+        )
+        self.fsm_dropdown.pack(side="left")
+        self.fsm_dropdown.bind("<<ComboboxSelected>>", self._on_fsm_change)
+
+        # --- Gantry Lock Toggle ---
+        self.gantry_var = tk.BooleanVar(value=True)  # Locked by default
+        self.gantry_toggle = ttk.Checkbutton(
+            control_frame,
+            text="Gantry Lock",
+            variable=self.gantry_var,
+            command=self._on_gantry_toggle,
+        )
+        self.gantry_toggle.pack(side="left", padx=10)
+
+        # Separator
+        ttk.Separator(control_frame, orient="vertical").pack(
+            side="left", fill="y", padx=5
+        )
 
         # Create LED
         self.joystick_connected_indicator = LEDIndicatorGui(
@@ -188,6 +230,39 @@ class App(tk.Tk):
     def slider_callback(self, value):
         pass
 
+    def _on_fsm_change(self, event):
+        """Handle FSM dropdown selection change."""
+        mode = self.fsm_mode_var.get()
+        if self._fsm_command_callback:
+            self._fsm_command_callback(mode)
+
+    def _on_gantry_toggle(self):
+        """Handle gantry lock checkbox toggle."""
+        cmd = "LOCK_GANTRY" if self.gantry_var.get() else "UNLOCK_GANTRY"
+        if self._fsm_command_callback:
+            self._fsm_command_callback(cmd)
+
+    def update_fsm_state(self, state_str: str):
+        """Update GUI from ROS 2 state message: 'MODE,GANTRY_STATE'."""
+        try:
+            parts = [p.strip() for p in state_str.split(",")]
+            if len(parts) >= 1:
+                fsm_state = parts[0]
+                valid_modes = (
+                    "ZERO_TORQUE",
+                    "JOINT_PD",
+                    "GRAVITY_COMP",
+                    "WB_MPC",
+                    "SAFETY",
+                )
+                if fsm_state in valid_modes:
+                    self.fsm_mode_var.set(fsm_state)
+            if len(parts) >= 2:
+                gantry_state = parts[1]
+                self.gantry_var.set(gantry_state == "GANTRY_LOCKED")
+        except Exception:
+            pass
+
     def set_joystick_connected(self, is_connected):
         self.joystick_connected_indicator.set_state(is_connected)
         if is_connected:
@@ -213,10 +288,16 @@ class App(tk.Tk):
         self.joystick_right.set_position()
         self.slider.set(self.slider_default_value)
 
+    def set_default_pelvis_height(self, height: float):
+        self.max_height = max(1.3, height + 0.3)
+        self.height_scale = (self.max_height - self.min_height) / 100.0
+        self.slider_default_value = (height - self.min_height) / self.height_scale
+        self.slider.set(self.slider_default_value)
+
     def set_knob_positions(self, msg: WalkingVelocityCommand):
         self.joystick_left.set_position(msg.linear_velocity_x, msg.linear_velocity_y)
         self.joystick_right.set_position(0.0, msg.angular_velocity_z)
-        self.slider.set((msg.desired_pelvis_height - 0.2) / 0.008)
+        self.slider.set((msg.desired_pelvis_height - self.min_height) / self.height_scale)
 
     def get_walking_command_msg(self):
         msg = WalkingVelocityCommand()
@@ -225,7 +306,7 @@ class App(tk.Tk):
         msg.linear_velocity_y = self.joystick_left.y_norm
         msg.angular_velocity_z = self.joystick_right.y_norm
 
-        msg.desired_pelvis_height = self.slider.get() * 0.008 + 0.2
+        msg.desired_pelvis_height = self.slider.get() * self.height_scale + self.min_height
         return msg
 
 
@@ -236,14 +317,52 @@ class RosJoystickApp(Node):
         self.publisher_rate = 25  # Hz
         self.xbox_controller_interface = XBoxControllerInterface(self.publisher_rate)
 
+        # Declare parameters for robot-specific height configuration
+        self.declare_parameter("default_pelvis_height", 0.8)
+        self.declare_parameter("target_command_file", "")
+
+        default_height = float(self.get_parameter("default_pelvis_height").value)
+        cmd_file = str(self.get_parameter("target_command_file").value)
+        if cmd_file and os.path.exists(cmd_file):
+            try:
+                with open(cmd_file, "r") as f:
+                    data = yaml.safe_load(f)
+                    if data and "defaultBaseHeight" in data:
+                        default_height = float(data["defaultBaseHeight"])
+                        self.get_logger().info(
+                            f"Loaded defaultBaseHeight={default_height} from {cmd_file}"
+                        )
+            except Exception as e:
+                self.get_logger().warn(
+                    f"Failed to read defaultBaseHeight from {cmd_file}: {e}"
+                )
+
         qos_profile = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, depth=25)
 
         self.publisher_ = self.create_publisher(
             WalkingVelocityCommand, "/humanoid/walking_velocity_command", qos_profile
         )
-        self.timer = self.create_timer(1 / self.publisher_rate, self.timer_callback)
+
+        # FSM command publisher & state subscriber
+        cmd_qos = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, depth=10)
+        self.fsm_cmd_pub = self.create_publisher(
+            String, "/humanoid/fsm_command", cmd_qos
+        )
+
+        state_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            depth=1,
+        )
+        self.fsm_state_sub = self.create_subscription(
+            String, "/humanoid/fsm_state", self._fsm_state_callback, state_qos
+        )
 
         self.app = App()
+        self.app.set_default_pelvis_height(default_height)
+        self.app._fsm_command_callback = self._send_fsm_command
+
+        self.timer = self.create_timer(1 / self.publisher_rate, self.timer_callback)
 
         self.ros_thread = threading.Thread(target=self.ros_spin)
         self.ros_thread.daemon = True
@@ -251,6 +370,14 @@ class RosJoystickApp(Node):
 
         self.counter = 0
         self._gui_active = False
+
+    def _send_fsm_command(self, cmd_text: str):
+        msg = String()
+        msg.data = cmd_text
+        self.fsm_cmd_pub.publish(msg)
+
+    def _fsm_state_callback(self, msg: String):
+        self.app.after(0, self.app.update_fsm_state, msg.data)
 
     def timer_callback(self):
 
@@ -264,14 +391,9 @@ class RosJoystickApp(Node):
         else:
             self.app.set_joystick_connected(False)
             cmd_msg = self.app.get_walking_command_msg()
-            is_nonzero = (
-                abs(cmd_msg.linear_velocity_x) > 1e-4
-                or abs(cmd_msg.linear_velocity_y) > 1e-4
-                or abs(cmd_msg.angular_velocity_z) > 1e-4
-            )
-            if is_nonzero or self._gui_active:
-                self.publisher_.publish(cmd_msg)
-                self._gui_active = is_nonzero
+            # Always publish so the height slider value is transmitted for gantry control,
+            # even when all velocity components are zero.
+            self.publisher_.publish(cmd_msg)
             # check for connection every 2 seconds
             if self.counter >= (2 * self.publisher_rate):
                 self.xbox_controller_interface.get_joystick_connection()

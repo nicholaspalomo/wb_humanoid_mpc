@@ -40,6 +40,8 @@ cc_library(
         "//lib/ocs2:ocs2_mpc",
         "//lib/ocs2:ocs2_sqp",
         "//lib/ocs2:ocs2_pinocchio_interface",
+        "@abseil-cpp//absl/log:log",
+        "@abseil-cpp//absl/strings",
         "@eigen",
         "@boost",
         "@pinocchio",

@@ -136,9 +136,14 @@ std::vector<VECTOR3_T<SCALAR_T>> getFramePositions(const PinocchioInterfaceTpl<S
                                                    std::vector<std::string> frameNames) {
   std::vector<VECTOR3_T<SCALAR_T>> positions;
   positions.reserve(frameNames.size());
+  const auto& model = pinocchioInterface.getModel();
   const auto& data = pinocchioInterface.getData();
   for (size_t i = 0; i < frameNames.size(); i++) {
-    const pinocchio::FrameIndex frameIndex = pinocchioInterface.getModel().getFrameId(frameNames[i]);
+    if (frameNames[i].empty() || !model.existFrame(frameNames[i])) {
+      positions.emplace_back(VECTOR3_T<SCALAR_T>::Zero());
+      continue;
+    }
+    const pinocchio::FrameIndex frameIndex = model.getFrameId(frameNames[i]);
     const VECTOR3_T<SCALAR_T>& position = data.oMf[frameIndex].translation();
     positions.emplace_back(position);
   }
@@ -202,19 +207,12 @@ VECTOR6_T<SCALAR_T> computeBaseAcceleration(const MATRIX_T<SCALAR_T>& M,
   // linear and angular part. Which are both inverted separately. This does not only exploit part of the sparsity but also prevents a CppAD
   // branching error when multiplying a 6x6 matrix with a6 dim. vector.
 
-  Eigen::Matrix<SCALAR_T, 3, 3> M_bb_lin = M.topLeftCorner(3, 3);
-  Eigen::Matrix<SCALAR_T, 3, 3> M_bb_ang = M.block(3, 3, 3, 3);
+  auto M_bb = M.topLeftCorner(6, 6);
   auto M_bj = M.block(0, 6, 6, qdd_joints.size());
-  Eigen::Matrix<SCALAR_T, 3, 3> M_bb_lin_inv = M_bb_lin.inverse();
-  Eigen::Matrix<SCALAR_T, 3, 3> M_bb_ang_inv = M_bb_ang.inverse();
 
   VECTOR6_T<SCALAR_T> intermediate = -nle.head(6) - M_bj * qdd_joints + externalForcesInJointSpace.head(6);
 
-  VECTOR6_T<SCALAR_T> baseAccelerations;
-  baseAccelerations.head(3) = M_bb_lin_inv * intermediate.head(3);
-  baseAccelerations.tail(3) = M_bb_ang_inv * intermediate.tail(3);
-
-  return baseAccelerations;
+  return M_bb.inverse() * intermediate;
 }
 template VECTOR6_T<scalar_t> computeBaseAcceleration(const MATRIX_T<scalar_t>& M,
                                                      const VECTOR_T<scalar_t>& nle,
@@ -265,7 +263,6 @@ VECTOR_T<SCALAR_T> computeJointTorques(const VECTOR_T<SCALAR_T>& q,
   VECTOR_T<SCALAR_T> jointTorques =
       data.M.bottomRows(n_joints) * q_dd + data.nle.tail(n_joints) - externalForcesInJointSpace.tail(n_joints);
 
-  // return jointTorques;
   return jointTorques;
 }
 template VECTOR_T<scalar_t> computeJointTorques(const VECTOR_T<scalar_t>& q,

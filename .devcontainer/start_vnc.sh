@@ -96,6 +96,35 @@ x11vnc -display ${VNC_DISPLAY} \
     >/dev/null 2>&1 || true
 sleep 0.5
 
+# Setup Openbox window layout rules for side-by-side simulation + RViz viewing
+mkdir -p "${HOME}/.config/openbox"
+if [ -f "/etc/xdg/openbox/rc.xml" ]; then
+    cp /etc/xdg/openbox/rc.xml "${HOME}/.config/openbox/rc.xml"
+    python3 -c '
+import os
+rc_path = os.path.expanduser("~/.config/openbox/rc.xml")
+with open(rc_path, "r") as f:
+    content = f.read()
+rules = """
+  <application class="*rviz*" title="*rviz*" name="*rviz*">
+    <position force="yes"><x>0</x><y>0</y></position>
+    <size><width>950</width><height>1040</height></size>
+    <maximized>no</maximized>
+  </application>
+  <application title="*Mujoco*" name="*" class="*">
+    <position force="yes"><x>960</x><y>0</y></position>
+    <size><width>950</width><height>1040</height></size>
+    <maximized>no</maximized>
+    <focus>yes</focus>
+  </application>
+"""
+if "</applications>" in content:
+    content = content.replace("</applications>", rules + "\n</applications>")
+    with open(rc_path, "w") as f:
+        f.write(content)
+' 2>/dev/null || true
+fi
+
 # Start a lightweight window manager
 echo "Starting openbox window manager ..."
 openbox &

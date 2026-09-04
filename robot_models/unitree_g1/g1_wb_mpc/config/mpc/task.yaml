@@ -1,3 +1,21 @@
+# MPC Problem Formulation Tasks
+hard_constraints:
+  - zero_wrench
+  - zero_velocity
+  - normal_velocity
+
+soft_constraints:
+  - joint_limits
+  - foot_collision
+  - friction_force_cone
+  - contact_moment_xy
+
+costs:
+  - state_quadratic_cost
+  - input_quadratic_cost
+  - terminal_cost
+  - task_space_foot_cost
+
 interface:
   verbose: false  # show the loaded parameters
   useAnalyticalGradientsDynamics: false

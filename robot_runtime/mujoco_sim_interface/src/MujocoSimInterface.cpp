@@ -35,7 +35,50 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace robot::mujoco_sim_interface {
 
-MjState::MjState(const mjModel* mujocoModel_) : data(mj_makeData(mujocoModel_)) {}
+MjState::MjState(const mjModel* model) : model(model), data(mj_makeData(model)) {}
+
+MjState::MjState(const MjState& other)
+    : model(other.model), timestamp(other.timestamp), data(other.model ? mj_makeData(other.model) : nullptr), metrics(other.metrics) {
+  if (data && other.data && model) {
+    mj_copyData(data, model, other.data);
+  }
+}
+
+MjState& MjState::operator=(const MjState& other) {
+  if (this != &other) {
+    if (data) mj_deleteData(data);
+    model = other.model;
+    timestamp = other.timestamp;
+    data = other.model ? mj_makeData(other.model) : nullptr;
+    metrics = other.metrics;
+    if (data && other.data && model) {
+      mj_copyData(data, model, other.data);
+    }
+  }
+  return *this;
+}
+
+MjState::MjState(MjState&& other) noexcept : model(other.model), timestamp(other.timestamp), data(other.data), metrics(other.metrics) {
+  other.data = nullptr;
+  other.model = nullptr;
+}
+
+MjState& MjState::operator=(MjState&& other) noexcept {
+  if (this != &other) {
+    if (data) mj_deleteData(data);
+    model = other.model;
+    timestamp = other.timestamp;
+    data = other.data;
+    metrics = other.metrics;
+    other.data = nullptr;
+    other.model = nullptr;
+  }
+  return *this;
+}
+
+MjState::~MjState() {
+  if (data) mj_deleteData(data);
+}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -48,15 +91,15 @@ MujocoSimInterface::MujocoSimInterface(const MujocoSimConfig& config, const std:
       robotJointActionInternal_(model::RobotJointAction(this->getRobotDescription())),
       headless_(config.headless),
       verbose_(config.verbose) {
-  lastRealTime_ = std::chrono::high_resolution_clock::now();
+  lastRealTime_ = std::chrono::steady_clock::now();
   const int errstr_sz = 1000;  // Define the size of the error buffer
   char errstr[errstr_sz];      // Declare the error string buffer
 
   // option 1: parse and compile XML from file
   mujocoModel_ = mj_loadXML(config.scenePath.c_str(), NULL, errstr, errstr_sz);
   if (!mujocoModel_) {
-    std::cerr << "Could not load MuJoCo model: " << config.scenePath << ". Error: " << std::strerror(errno) << std::endl;
-    throw std::runtime_error("Could not load MuJoCo: " + std::string(std::strerror(errno)));
+    std::cerr << "Could not load MuJoCo model: " << config.scenePath << ". Error: " << errstr << std::endl;
+    throw std::runtime_error("Could not load MuJoCo: " + std::string(errstr));
   }
 
   // Create data
@@ -118,6 +161,15 @@ MujocoSimInterface::MujocoSimInterface(const MujocoSimConfig& config, const std:
   qpos_init_ = new mjtNum[mujocoModel_->nq];
   qvel_init_ = new mjtNum[mujocoModel_->nv];
 
+  if (config_.gantryHeight > 0.0) {
+    gantryHeight_ = config_.gantryHeight;
+  } else if (config_.initStatePtr_) {
+    gantryHeight_ = config_.initStatePtr_->getRootPositionInWorldFrame().z();
+  } else {
+    gantryHeight_ = mujocoData_->qpos[2];
+  }
+  isGantryLocked_ = config_.isGantryLocked;
+
   // Safe init state for resets
   memcpy(qpos_init_, mujocoData_->qpos, mujocoModel_->nq * sizeof(mjtNum));
   memcpy(qvel_init_, mujocoData_->qvel, mujocoModel_->nv * sizeof(mjtNum));
@@ -125,10 +177,53 @@ MujocoSimInterface::MujocoSimInterface(const MujocoSimConfig& config, const std:
   // Make sure the init state is propagated throughout the RobotInterface.
   updateThreadSafeRobotState();
   updateInterfaceStateFromRobot();
+
+  // Save original dof_damping and boost for zero-torque ragdoll mode at startup.
+  originalDofDamping_.assign(mujocoModel_->dof_damping, mujocoModel_->dof_damping + mujocoModel_->nv);
+  // Boost damping for smooth ragdoll settling (skip root 6 DOFs)
+  for (int i = 6; i < mujocoModel_->nv; ++i) {
+    mujocoModel_->dof_damping[i] = 20.0;
+  }
+
+  // Initialize lock-free triple buffer for sim→render state transfer.
+  // Each slot holds an MjState with its own mjData copy.
+  MjState initState(mujocoModel_);
+  mj_copyData(initState.data, mujocoModel_, mujocoData_);
+  initState.timestamp = mujocoData_->time;
+  initState.metrics = metrics_;
+  renderStateBuffer_ = std::make_unique<TripleBuffer<MjState>>(initState);
+
+  // Throttle: publish to triple buffer at render frequency, not every sim step.
+  // E.g. dt=0.0005 (2000 Hz sim), renderFrequencyHz=60 → publish every ~33 steps.
+  if (config_.renderFrequencyHz > 0.0 && config_.dt > 0.0) {
+    renderPublishInterval_ = std::max(static_cast<size_t>(1), static_cast<size_t>(1.0 / (config_.renderFrequencyHz * config_.dt)));
+  }
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
+
+void MujocoSimInterface::enableTorques() {
+  // Restore original dof_damping for MPC active control
+  if (!originalDofDamping_.empty()) {
+    for (int i = 0; i < mujocoModel_->nv; ++i) {
+      mujocoModel_->dof_damping[i] = originalDofDamping_[i];
+    }
+  }
+  zeroTorqueMode_ = false;
+}
+
+void MujocoSimInterface::disableTorques() {
+  // Boost joint damping for smooth ragdoll settling
+  if (originalDofDamping_.empty()) {
+    originalDofDamping_.assign(mujocoModel_->dof_damping, mujocoModel_->dof_damping + mujocoModel_->nv);
+  }
+  for (int i = 6; i < mujocoModel_->nv; ++i) {
+    mujocoModel_->dof_damping[i] = 20.0;
+  }
+  zeroTorqueMode_ = true;
+}
+
 /******************************************************************************************************/
 
 MujocoSimInterface::~MujocoSimInterface() {
@@ -149,15 +244,15 @@ void MujocoSimInterface::reset() {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-void MujocoSimInterface::copyMjState(MjState& state) const {
-  {
-    std::lock_guard<std::mutex> guard(mujocoMutex_);
-
-    state.timestamp = mujocoData_->time;
-    mj_copyData(state.data, mujocoModel_, mujocoData_);
-
-    state.metrics = metrics_;
-  }
+void MujocoSimInterface::readLatestMjState(MjState& state) const {
+  // Lock-free: acquire the latest published state from the triple buffer.
+  // If new data is available, the internal read↔clean swap happens atomically.
+  // Either way, copy from the current read slot into the caller's state.
+  renderStateBuffer_->acquireRead();
+  const MjState& latest = renderStateBuffer_->readSlot();
+  state.timestamp = latest.timestamp;
+  mj_copyData(state.data, mujocoModel_, latest.data);
+  state.metrics = latest.metrics;
 }
 
 /******************************************************************************************************/
@@ -179,11 +274,26 @@ void MujocoSimInterface::setupJointIndexMaps() {
   activeRobotJointStateIndices_ = getRobotDescription().getJointIndices(activeMuJoCoJointNames_);
 
   // Mujoco to robot actuators
+  // NOTE: MuJoCo actuator names (e.g. "back_bkz_motor") do NOT match robot description joint
+  // names (e.g. "back_bkz"). We resolve the joint driven by each actuator via actuator_trnid
+  // so that the robot description lookup succeeds. Only joint-type actuators (trntype == mjTRN_JOINT)
+  // are considered; slide/site actuators are skipped.
   for (int i = 0; i < mujocoModel_->nu; ++i) {
     const std::string actuator_name = mj_id2name(mujocoModel_, mjOBJ_ACTUATOR, i);
 
-    if (getRobotDescription().containsJoint(actuator_name)) {
-      activeMuJoCoActuatorNames_.emplace_back(actuator_name);
+    // Resolve the joint name driven by this actuator.
+    std::string driven_joint_name;
+    if (mujocoModel_->actuator_trntype[i] == mjTRN_JOINT) {
+      const int jnt_id = mujocoModel_->actuator_trnid[2 * i];  // (nu x 2): [2*i]=primary target id, [2*i+1]=secondary
+      const char* jnt_name_cstr = mj_id2name(mujocoModel_, mjOBJ_JOINT, jnt_id);
+      if (jnt_name_cstr != nullptr) {
+        driven_joint_name = jnt_name_cstr;
+      }
+    }
+
+    if (!driven_joint_name.empty() && getRobotDescription().containsJoint(driven_joint_name)) {
+      // Store the driven joint name so getJointIndices resolves correctly.
+      activeMuJoCoActuatorNames_.emplace_back(driven_joint_name);
     } else {
       std::cerr << "WARNING: Actuator contained in mujoco xml not be commanded through RobotHWInterface: " << actuator_name << std::endl;
     }
@@ -340,14 +450,20 @@ void MujocoSimInterface::updateMetrics() {
 
   metrics_.fpsSim = simFps_.fps();
 
-  auto nowRealTime = std::chrono::high_resolution_clock::now();
+  auto nowRealTime = std::chrono::steady_clock::now();
   auto realElapsedTime = std::chrono::duration<double>(nowRealTime - lastRealTime_).count();
   lastRealTime_ = nowRealTime;
 
   metrics_.driftTick = config_.dt - realElapsedTime;
   metrics_.driftCumulative += metrics_.driftTick;
 
-  metrics_.rtfTick = config_.dt / realElapsedTime;
+  metrics_.rtfTick = (realElapsedTime > 1e-7) ? (config_.dt / realElapsedTime) : 1.0;
+
+  // Window-based RTF: total sim time elapsed / total wall time elapsed.
+  // This is the true real-time factor, immune to per-tick scheduling noise.
+  double wallElapsed = std::chrono::duration<double>(nowRealTime - loopStartTime_).count();
+  double simElapsed = mujocoData_->time - simTimeAtLoopStart_;
+  metrics_.rtfSmoothed = (wallElapsed > 0.1) ? (simElapsed / wallElapsed) : 1.0;
 }
 
 /******************************************************************************************************/
@@ -355,18 +471,71 @@ void MujocoSimInterface::updateMetrics() {
 /******************************************************************************************************/
 
 void MujocoSimInterface::simulationStep() {
-  threadSafeRobotJointAction_.copy_value(robotJointActionInternal_);
-  for (size_t i = 0; i < nActuators_; ++i) {
-    joint_index_t idx = activeRobotActuatorIndices_[i];
-    const robot::model::JointAction& jointAction = robotJointActionInternal_.at(idx).value();
-    mujocoData_->ctrl[i] =
-        jointAction.getTotalFeedbackTorque(robotStateInternal_.getJointPosition(idx), robotStateInternal_.getJointVelocity(idx));
+  if (zeroTorqueMode_.load()) {
+    // Zero-torque / ragdoll mode: zero all actuator commands.
+    // Joint damping is handled by MuJoCo's native dof_damping (boosted on entry).
+    for (int i = 0; i < mujocoModel_->nu; ++i) {
+      mujocoData_->ctrl[i] = 0.0;
+    }
+  } else {
+    threadSafeRobotJointAction_.copy_value(robotJointActionInternal_);
+    for (size_t i = 0; i < nActuators_; ++i) {
+      joint_index_t idx = activeRobotActuatorIndices_[i];
+      const robot::model::JointAction& jointAction = robotJointActionInternal_.at(idx).value();
+      double totalTorque =
+          jointAction.getTotalFeedbackTorque(robotStateInternal_.getJointPosition(idx), robotStateInternal_.getJointVelocity(idx));
+
+      // Clamp total torque to the actuator force range from the MuJoCo model.
+      // This enforces physical actuator limits on the combined PD + feedforward torque,
+      // preventing the unclamped PD term from exceeding actuator capabilities.
+      if (mujocoModel_->actuator_forcelimited[i]) {
+        totalTorque = std::clamp(totalTorque, (double)mujocoModel_->actuator_forcerange[2 * i],
+                                 (double)mujocoModel_->actuator_forcerange[2 * i + 1]);
+      } else {
+        // Fallback: use the joint's actuatorfrcrange if the actuator itself isn't force-limited.
+        // Look up the joint index from the actuator's transmission target.
+        int mj_joint_id = mujocoModel_->actuator_trnid[2 * i];
+        if (mj_joint_id >= 0 && mujocoModel_->jnt_actfrclimited[mj_joint_id]) {
+          totalTorque = std::clamp(totalTorque, (double)mujocoModel_->jnt_actfrcrange[2 * mj_joint_id],
+                                   (double)mujocoModel_->jnt_actfrcrange[2 * mj_joint_id + 1]);
+        }
+      }
+      mujocoData_->ctrl[i] = totalTorque;
+    }
   }
 
-  mujocoMutex_.lock();
+  // Apply virtual gantry constraint if locked to suspend robot at ground-touch stance height
+  if (config_.enableGantry && isGantryLocked_.load()) {
+    mujocoData_->qpos[0] = 0.0;
+    mujocoData_->qpos[1] = 0.0;
+    mujocoData_->qpos[2] = gantryHeight_.load();
+    mujocoData_->qpos[3] = 1.0;
+    mujocoData_->qpos[4] = 0.0;
+    mujocoData_->qpos[5] = 0.0;
+    mujocoData_->qpos[6] = 0.0;
+
+    mujocoData_->qvel[0] = 0.0;
+    mujocoData_->qvel[1] = 0.0;
+    mujocoData_->qvel[2] = 0.0;
+    mujocoData_->qvel[3] = 0.0;
+    mujocoData_->qvel[4] = 0.0;
+    mujocoData_->qvel[5] = 0.0;
+  }
+
   mj_step(mujocoModel_, mujocoData_);
   updateThreadSafeRobotState();
   updateMetrics();
+
+  // Publish state to the lock-free triple buffer for the render thread.
+  // Throttled to render frequency to avoid unnecessary mj_copyData overhead.
+  if (++renderPublishCounter_ >= renderPublishInterval_) {
+    renderPublishCounter_ = 0;
+    MjState& writeSlot = renderStateBuffer_->writeSlot();
+    writeSlot.timestamp = mujocoData_->time;
+    mj_copyData(writeSlot.data, mujocoModel_, mujocoData_);
+    writeSlot.metrics = metrics_;
+    renderStateBuffer_->publishWrite();
+  }
 
   // Auto reset logic.
   if (mujocoData_->qpos[2] < 0.2) {
@@ -378,12 +547,24 @@ void MujocoSimInterface::simulationStep() {
     updateThreadSafeRobotState();
     simFps_.reset();
     metrics_.reset();
+    auto resetNow = std::chrono::steady_clock::now();
+    lastRealTime_ = resetNow;
+    loopStartTime_ = resetNow;
+    simTimeAtLoopStart_ = mujocoData_->time;
     updateMetrics();
-    mujocoMutex_.unlock();
+
+    // Publish reset state to triple buffer
+    {
+      MjState& writeSlot = renderStateBuffer_->writeSlot();
+      writeSlot.timestamp = mujocoData_->time;
+      mj_copyData(writeSlot.data, mujocoModel_, mujocoData_);
+      writeSlot.metrics = metrics_;
+      renderStateBuffer_->publishWrite();
+    }
+
     // Sleep to let controller update and adjust;
     std::this_thread::sleep_until(std::chrono::steady_clock::now() + std::chrono::microseconds(1000000));
   }
-  mujocoMutex_.unlock();
 }
 
 /******************************************************************************************************/
@@ -393,13 +574,32 @@ void MujocoSimInterface::simulationStep() {
 void MujocoSimInterface::simulationLoop() {
   simFps_.reset();
   metrics_.reset();
-  auto nextWakeup = std::chrono::steady_clock::now();
+  auto now = std::chrono::steady_clock::now();
+  lastRealTime_ = now;
+  loopStartTime_ = now;
+  simTimeAtLoopStart_ = mujocoData_->time;
+  auto nextWakeup = now;
   while (!terminate_.load()) {
     simulationStep();
 
-    // Sleep in case sim loop is faster than specified sim rate.
+    // Advance the wakeup target by one sim timestep.
     nextWakeup += std::chrono::microseconds(timeStepMicro_);
-    std::this_thread::sleep_until(nextWakeup);
+
+    auto now = std::chrono::steady_clock::now();
+    // Allow up to 10ms of catchup budget for minor OS scheduling jitter.
+    // If we fell behind by more than 10ms (e.g. auto-reset sleep), rebase nextWakeup.
+    if (now - nextWakeup > std::chrono::milliseconds(10)) {
+      nextWakeup = now;
+    } else if (nextWakeup > now) {
+      // Sleep until 50µs before target, then busy-spin for sub-microsecond precision.
+      auto spinThreshold = nextWakeup - std::chrono::microseconds(50);
+      if (std::chrono::steady_clock::now() < spinThreshold) {
+        std::this_thread::sleep_until(spinThreshold);
+      }
+      while (std::chrono::steady_clock::now() < nextWakeup) {
+        // Busy spin
+      }
+    }
   }
 }
 

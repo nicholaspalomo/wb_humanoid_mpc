@@ -65,6 +65,8 @@ class HumanoidCostConstraintFactory {
   HumanoidCostConstraintFactory(const HumanoidCostConstraintFactory& other) = delete;
 
   std::unique_ptr<StateInputCost> getStateInputQuadraticCost() const;
+  std::unique_ptr<StateInputCost> getStateQuadraticCost() const;
+  std::unique_ptr<StateInputCost> getInputQuadraticCost() const;
 
   std::unique_ptr<StateCost> getTerminalCost() const;
 

@@ -12,7 +12,7 @@ def generate_launch_description():
         mpc_config_pkg="unitree_r1_centroidal_mpc",
         mpc_model_pkg="unitree_r1_description",
         urdf_rel_path="/urdf/R1.urdf",
-        xml_rel_path="",
+        xml_rel_path="/urdf/R1.xml",
         robot_name="r1",
         solver="sqp",
         enable_debug=False,
@@ -25,6 +25,7 @@ def generate_launch_description():
     cfg.ld.add_action(cfg.declare_gait_command_file)
     cfg.ld.add_action(cfg.declare_urdf_path)
     cfg.ld.add_action(cfg.declare_rviz_config_path)
+    cfg.ld.add_action(cfg.declare_xml_path)
 
     # Add nodes
     cfg.ld.add_action(cfg.mpc_sim)

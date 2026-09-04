@@ -150,7 +150,7 @@ _ROBOT_CONFIG_CACHE: Dict[str, Dict[str, Any]] = {}
 def load_robot_config(
     robot_name: Optional[str] = None,
     workspace_dir: Optional[str] = None,
-    use_pinocchio: bool = True,
+    use_pinocchio: bool = False,
     force_reload: bool = False,
 ) -> Dict[str, Any]:
     """Dynamically loads robot joints, limits, and nominal configuration from URDF/Pinocchio & YAML files."""
@@ -205,14 +205,18 @@ def load_robot_config(
 
     if use_pinocchio and urdf_path and os.path.exists(urdf_path):
         try:
-            import pinocchio as pin
+            import numpy as _np
 
-            pinocchio_model = pin.buildModelFromUrdf(urdf_path)
-            for i in range(1, pinocchio_model.njoints):
-                jname = pinocchio_model.names[i]
-                if jname not in ("root_joint", "universe", "root"):
-                    all_joint_names.append(jname)
-            total_mass = sum(inertial.mass for inertial in pinocchio_model.inertias)
+            # Only import pinocchio if numpy is not 2.x (pinocchio_pywrap requires numpy 1.x ABI)
+            if not _np.__version__.startswith("2."):
+                import pinocchio as pin
+
+                pinocchio_model = pin.buildModelFromUrdf(urdf_path)
+                for i in range(1, pinocchio_model.njoints):
+                    jname = pinocchio_model.names[i]
+                    if jname not in ("root_joint", "universe", "root"):
+                        all_joint_names.append(jname)
+                total_mass = sum(inertial.mass for inertial in pinocchio_model.inertias)
         except Exception:
             pinocchio_model = None
 
@@ -484,7 +488,7 @@ class VirtualGantry:
         self.height = max(self.min_height, min(self.max_height, float(height)))
         return self.height
 
-    def auto_calibrate_ground_touch(self, foot_clearance: float = 0.005) -> float:
+    def auto_calibrate_ground_touch(self, foot_clearance: float = 0.0) -> float:
         """Calibrates gantry height so nominal stance feet barely touch the ground."""
         self.height = self.cfg["nominal_pelvis_height_bent"] + foot_clearance
         self.is_locked = True
@@ -559,6 +563,11 @@ class HumanoidFSM:
         self._safety_initial_kp_vec = self.kp_vector.copy()
         self._safety_initial_kd_vec = self.kd_vector.copy()
 
+        # Joint PD gradual snap transition parameters
+        self.joint_pd_snap_duration = 2.0
+        self._joint_pd_start_time: Optional[float] = None
+        self._joint_pd_start_q: Optional[np.ndarray] = None
+
         # State transition listeners
         self._listeners: List[Callable[[ControlMode, ControlMode], None]] = []
 
@@ -611,9 +620,26 @@ class HumanoidFSM:
             self._safety_start_time = None
             self._safety_hold_q = None
 
+        if new_mode == ControlMode.JOINT_PD:
+            self._joint_pd_start_time = time.time()
+            self._joint_pd_start_q = current_q.copy() if current_q is not None else None
+        else:
+            self._joint_pd_start_time = None
+            self._joint_pd_start_q = None
+
         for cb in self._listeners:
             try:
                 cb(old_mode, new_mode)
+            except Exception:
+                pass
+
+        if getattr(self, "_fsm_command_pub", None) is not None:
+            try:
+                from std_msgs.msg import String
+
+                msg = String()
+                msg.data = new_mode.name
+                self._fsm_command_pub.publish(msg)
             except Exception:
                 pass
 
@@ -657,6 +683,32 @@ class HumanoidFSM:
 
         return fraction, current_kp, current_kd
 
+    def get_joint_pd_progress(
+        self, now: Optional[float] = None
+    ) -> Tuple[float, bool, np.ndarray]:
+        """Returns (snap_progress_fraction, is_snapping, target_q_interpolated) during JOINT_PD transition."""
+        if (
+            self.current_mode != ControlMode.JOINT_PD
+            or self._joint_pd_start_time is None
+        ):
+            return 1.0, False, self.nominal_q.copy()
+
+        current_time = now if now is not None else time.time()
+        elapsed = current_time - self._joint_pd_start_time
+        if elapsed >= self.joint_pd_snap_duration:
+            return 1.0, False, self.nominal_q.copy()
+
+        s = max(0.0, min(1.0, elapsed / max(1e-4, self.joint_pd_snap_duration)))
+        # Minimum-jerk quintic blending polynomial: 6s^5 - 15s^4 + 10s^3
+        alpha = s * s * s * (s * (s * 6.0 - 15.0) + 10.0)
+        start_q = (
+            self._joint_pd_start_q
+            if self._joint_pd_start_q is not None
+            else np.zeros_like(self.nominal_q)
+        )
+        target_q = (1.0 - alpha) * start_q + alpha * self.nominal_q
+        return alpha, True, target_q
+
     def compute_torques(
         self,
         q: Optional[np.ndarray] = None,
@@ -680,15 +732,40 @@ class HumanoidFSM:
         if v is None:
             v = np.zeros(self.num_actuators, dtype=np.float64)
 
-        # 1. ZERO_TORQUE Mode
+        # 1. ZERO_TORQUE Mode (All de-energized, passive freewheeling)
         if self.current_mode == ControlMode.ZERO_TORQUE:
             return np.zeros(self.num_actuators, dtype=np.float64)
 
-        # 2. JOINT_PD Mode
+        # 2. JOINT_PD Mode (Gradual minimum-jerk snap to nominal stance)
         elif self.current_mode == ControlMode.JOINT_PD:
-            error = self.nominal_q - q
-            tau = self.kp_vector * error - self.kd_vector * v
-            return tau
+            alpha, is_snapping, target_q = self.get_joint_pd_progress(now=now)
+            if is_snapping:
+                if self._joint_pd_start_q is None:
+                    self._joint_pd_start_q = q.copy()
+
+                start_q = self._joint_pd_start_q
+                current_time = now if now is not None else time.time()
+                elapsed = current_time - self._joint_pd_start_time
+                s = max(
+                    0.0,
+                    min(1.0, elapsed / max(1e-4, self.joint_pd_snap_duration)),
+                )
+                alpha = s * s * s * (s * (s * 6.0 - 15.0) + 10.0)
+                d_alpha = (30.0 * s**4 - 60.0 * s**3 + 30.0 * s**2) / max(
+                    1e-4, self.joint_pd_snap_duration
+                )
+
+                target_q = (1.0 - alpha) * start_q + alpha * self.nominal_q
+                target_qd = d_alpha * (self.nominal_q - start_q)
+
+                # Softly ramp effective proportional gain (30% -> 100%)
+                kp_eff = (0.3 + 0.7 * alpha) * self.kp_vector
+                tau = kp_eff * (target_q - q) + self.kd_vector * (target_qd - v)
+                return tau
+            else:
+                error = self.nominal_q - q
+                tau = self.kp_vector * error - self.kd_vector * v
+                return tau
 
         # 3. GRAVITY_COMP Mode
         elif self.current_mode == ControlMode.GRAVITY_COMP:

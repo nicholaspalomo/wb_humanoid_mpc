@@ -74,6 +74,7 @@ def ensure_ros2_paths():
             sys.path.append(ros_path)
 
     # 2. Bazel-generated message packages (humanoid_mpc_msgs, ocs2_ros2_msgs)
+    py_ver = f"python{sys.version_info.major}.{sys.version_info.minor}"
     candidates = [
         os.path.expanduser("~/.cache/bazel"),
         os.path.join(os.getcwd(), ".bazel"),
@@ -82,12 +83,10 @@ def ensure_ros2_paths():
     ]
     for c_dir in candidates:
         if os.path.exists(c_dir):
-            for lib in glob.glob(f"{c_dir}/**/install/*/lib/lib*.so", recursive=True):
-                try:
-                    ctypes.CDLL(lib, mode=ctypes.RTLD_GLOBAL)
-                except Exception:
-                    pass
-            for match in glob.glob(f"{c_dir}/**/site-packages", recursive=True):
+            for match in glob.glob(
+                f"{c_dir}/**/install/*/lib/{py_ver}/site-packages",
+                recursive=True,
+            ):
                 if match not in sys.path:
                     sys.path.append(match)
 
@@ -101,39 +100,51 @@ class SimProcessManager:
     TARGETS: Dict[str, Dict[str, str]] = {
         "g1_centroidal_dummy": {
             "name": "Unitree G1 Centroidal — Dummy Sim (RViz)",
-            "command": "make launch-g1-dummy-sim",
+            "command": "make launch-g1-dummy-sim-vnc",
             "type": "dummy",
             "robot": "g1",
         },
         "g1_centroidal_sim": {
             "name": "Unitree G1 Centroidal — MuJoCo Physics Sim",
-            "command": "make launch-g1-sim",
+            "command": "make launch-g1-sim-vnc",
             "type": "mujoco",
             "robot": "g1",
         },
         "g1_wb_dummy": {
             "name": "Unitree G1 Whole-Body — Dummy Sim (RViz)",
-            "command": "make launch-wb-g1-dummy-sim",
+            "command": "make launch-wb-g1-dummy-sim-vnc",
             "type": "dummy",
             "robot": "g1",
         },
         "g1_wb_sim": {
             "name": "Unitree G1 Whole-Body — MuJoCo Physics Sim",
-            "command": "make launch-wb-g1-sim",
+            "command": "make launch-wb-g1-sim-vnc",
             "type": "mujoco",
             "robot": "g1",
         },
         "atlas_centroidal_dummy": {
             "name": "DRC Atlas Centroidal — Dummy Sim (RViz)",
-            "command": "make launch-drc-atlas-dummy-sim",
+            "command": "make launch-drc-atlas-dummy-sim-vnc",
             "type": "dummy",
             "robot": "atlas",
         },
         "atlas_centroidal_sim": {
             "name": "DRC Atlas Centroidal — MuJoCo Ground Sim",
-            "command": "make launch-drc-atlas-sim",
+            "command": "make launch-drc-atlas-sim-vnc",
             "type": "mujoco",
             "robot": "atlas",
+        },
+        "r1_centroidal_dummy": {
+            "name": "Unitree R1 Centroidal — Dummy Sim (RViz)",
+            "command": "make launch-r1-dummy-sim-vnc",
+            "type": "dummy",
+            "robot": "r1",
+        },
+        "r1_centroidal_sim": {
+            "name": "Unitree R1 Centroidal — MuJoCo Physics Sim",
+            "command": "make launch-r1-sim-vnc",
+            "type": "mujoco",
+            "robot": "r1",
         },
     }
 
@@ -144,7 +155,6 @@ class SimProcessManager:
         self.log_queue: queue.Queue = queue.Queue(maxsize=1000)
         self.is_running = False
         self._reader_thread: Optional[threading.Thread] = None
-        self.stop()
 
     def launch(
         self,
@@ -197,6 +207,8 @@ class SimProcessManager:
             self.active_target_key = target_key
 
             def _reader():
+                buffer = []
+                last_flush = time.time()
                 try:
                     while self.is_running:
                         proc = self.process
@@ -210,9 +222,17 @@ class SimProcessManager:
                             if proc.poll() is not None:
                                 break
                             time.sleep(0.01)
+                            # Periodically flush if idle
+                            now = time.time()
+                            if buffer and (now - last_flush >= 0.1):
+                                chunk = "".join(buffer)
+                                buffer.clear()
+                                last_flush = now
+                                if on_output:
+                                    on_output(chunk)
                             continue
-                        if on_output:
-                            on_output(line)
+
+                        buffer.append(line)
                         try:
                             self.log_queue.put_nowait(line)
                         except queue.Full:
@@ -221,6 +241,19 @@ class SimProcessManager:
                                 self.log_queue.put_nowait(line)
                             except Exception:
                                 pass
+
+                        now = time.time()
+                        if now - last_flush >= 0.1 or len(buffer) >= 15:
+                            chunk = "".join(buffer)
+                            buffer.clear()
+                            last_flush = now
+                            if on_output:
+                                on_output(chunk)
+
+                    if buffer:
+                        chunk = "".join(buffer)
+                        if on_output:
+                            on_output(chunk)
                 except Exception:
                     pass
                 finally:
@@ -238,49 +271,104 @@ class SimProcessManager:
 
     def stop(self) -> bool:
         """Stops the active simulation process cleanly."""
-        if self.process:
+        if self.process is not None:
             try:
                 import signal
 
-                os.killpg(os.getpgid(self.process.pid), signal.SIGTERM)
-                self.process.wait(timeout=1.0)
-            except Exception:
                 try:
-                    import signal
-
-                    os.killpg(os.getpgid(self.process.pid), signal.SIGKILL)
+                    pgid = os.getpgid(self.process.pid)
+                    os.killpg(pgid, signal.SIGTERM)
+                    time.sleep(0.1)
+                    os.killpg(pgid, signal.SIGKILL)
                 except Exception:
-                    pass
+                    self.process.kill()
+            except Exception:
+                pass
+            self.process = None
 
-        self.process = None
-        self.is_running = False
-        self.active_target_key = None
-
-        # Clean up any remaining ROS2 / simulation child processes
+        # Clean up spawned ROS nodes specifically by binary name or bazel install path
+        # (Targeted commands ensure Jupyter/Python kernels are never matched)
         try:
-            subprocess.run(
-                [
-                    "pkill",
-                    "-9",
-                    "-f",
-                    "humanoid_.*_node|drc_atlas_.*|g1_.*|rviz2|robot_state_publisher|base_velocity_controller_gui|ros2 launch",
-                ],
-                check=False,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
+            cleanup_cmds = [
+                ["pkill", "-9", "-f", "/tmp/.bazel_ros_install"],
+                ["pkill", "-9", "-f", "base_velocity_controller_gui"],
+                ["pkill", "-9", "-f", "ros2 launch"],
+                ["pkill", "-9", "-x", "rviz2"],
+                ["pkill", "-9", "-x", "robot_state_publisher"],
+                ["pkill", "-9", "-x", "humanoid_centroidal_mpc_sqp_node"],
+                ["pkill", "-9", "-x", "humanoid_centroidal_mpc_dummy_sim_node"],
+                ["pkill", "-9", "-x", "humanoid_centroidal_mpc_sim"],
+                ["pkill", "-9", "-x", "humanoid_wb_mpc_sqp_node"],
+                ["pkill", "-9", "-x", "humanoid_wb_mpc_sim"],
+            ]
+            for c in cleanup_cmds:
+                subprocess.run(c, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            # Allow processes to actually terminate before launching a new sim
+            time.sleep(0.5)
         except Exception:
             pass
 
+        self.is_running = False
+        self.active_target_key = None
         return True
 
     def get_status(self) -> Dict[str, str]:
         """Returns the current simulation execution status."""
-        if self.is_running and self.process and self.process.poll() is None:
+        active_pids = []
+        try:
+            # Use pgrep -a to get full command lines so we can filter out
+            # build wrappers (bash -c "bazel build ... && ros2 launch ...")
+            # that mention sim target names but aren't the actual running sim.
+            pcheck = subprocess.run(
+                [
+                    "pgrep",
+                    "-a",
+                    "-f",
+                    r"/tmp/\.bazel_ros_install/(humanoid_centroidal_mpc_ros2|humanoid_wb_mpc_ros2)/lib/|/opt/ros/jazzy/lib/rviz2/rviz2",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            if pcheck.returncode == 0 and pcheck.stdout.strip():
+                current_pid = str(os.getpid())
+                for line in pcheck.stdout.strip().splitlines():
+                    parts = line.strip().split(None, 1)
+                    if len(parts) < 2:
+                        continue
+                    pid_s, cmdline = parts
+                    if pid_s == current_pid:
+                        continue
+                    # Skip wrapper commands that contain "bazel build" or "make launch"
+                    if "bazel build" in cmdline or "make launch" in cmdline:
+                        continue
+                    active_pids.append(pid_s)
+        except Exception:
+            pass
+
+        if active_pids:
+            self.is_running = True
+            pid_str = (
+                str(self.process.pid)
+                if (self.process and self.process.poll() is None)
+                else active_pids[0]
+            )
+            target_key = self.active_target_key or "atlas_centroidal_sim"
+            target_name = self.TARGETS.get(target_key, {}).get(
+                "name", "Humanoid Simulation & Visualizer"
+            )
             return {
                 "status": "RUNNING",
+                "target": target_key,
+                "name": target_name,
+                "pid": pid_str,
+            }
+        elif self.is_running and self.process and self.process.poll() is None:
+            return {
+                "status": "BUILDING",
                 "target": self.active_target_key or "Unknown",
-                "name": self.TARGETS.get(self.active_target_key, {}).get("name", ""),
+                "name": self.TARGETS.get(self.active_target_key, {}).get(
+                    "name", "Compiling targets..."
+                ),
                 "pid": str(self.process.pid),
             }
         else:
@@ -302,6 +390,10 @@ class VirtualJoystickROS2:
         self,
         topic: str = "/humanoid/walking_velocity_command",
         publish_rate: float = 25.0,
+        robot_name: Optional[str] = None,
+        workspace_dir: Optional[str] = None,
+        auto_connect: bool = False,
+        auto_stream: bool = True,
     ):
         # Shutdown any previous active joystick instances in the same process
         while VirtualJoystickROS2._ACTIVE_INSTANCES:
@@ -313,25 +405,40 @@ class VirtualJoystickROS2:
 
         self.topic = topic
         self.publish_rate = publish_rate
+        self.robot_name = robot_name
+        self.workspace_dir = workspace_dir
+
+        # Determine nominal height from robot config
+        try:
+            cfg = load_robot_config(robot_name=robot_name, workspace_dir=workspace_dir)
+            self.desired_height = float(cfg.get("nominal_pelvis_height_bent", 0.70))
+        except Exception:
+            self.desired_height = 0.70
+
         self.v_x = 0.0
         self.v_y = 0.0
         self.v_yaw = 0.0
-        self.desired_height = 0.80
 
         self._node = None
         self._publisher = None
-        self._timer = None
-        self._ros_thread = None
+        self._stream_thread = None
+        self._is_streaming = False
         self._is_active = False
         self._ros_available = False
         self._init_error = None
         self._publish_active = False
+        self.auto_stream = auto_stream
 
-        self._init_ros2()
+        if auto_connect:
+            self.connect()
+            if self.auto_stream:
+                self.start_streaming()
         VirtualJoystickROS2._ACTIVE_INSTANCES.append(self)
 
-    def _init_ros2(self):
-        """Initializes ROS2 node and publisher in background thread."""
+    def connect(self) -> bool:
+        """Initializes ROS2 node and publisher safely without background spin."""
+        if self._is_active and self._publisher is not None:
+            return True
         try:
             ensure_ros2_paths()
             import rclpy
@@ -340,66 +447,77 @@ class VirtualJoystickROS2:
             from humanoid_mpc_msgs.msg import WalkingVelocityCommand
 
             if not rclpy.ok():
-                rclpy.init()
+                try:
+                    from rclpy.signals import SignalHandlerOptions
 
-            class _JoyNode(Node):
-                def __init__(self, outer):
-                    super().__init__(
-                        f"jupyter_virtual_joystick_{int(time.time()*1000) % 100000}"
-                    )
-                    self.outer = outer
-                    qos = QoSProfile(
-                        reliability=ReliabilityPolicy.BEST_EFFORT, depth=10
-                    )
-                    self.pub = self.create_publisher(
-                        WalkingVelocityCommand, outer.topic, qos
-                    )
-                    self.timer = self.create_timer(1.0 / outer.publish_rate, self._tick)
+                    rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
+                except Exception:
+                    try:
+                        rclpy.init()
+                    except Exception:
+                        pass
 
-                def _tick(self):
-                    is_nonzero = (
-                        abs(self.outer.v_x) > 1e-4
-                        or abs(self.outer.v_y) > 1e-4
-                        or abs(self.outer.v_yaw) > 1e-4
-                    )
-                    if is_nonzero or self.outer._publish_active:
-                        msg = WalkingVelocityCommand()
-                        msg.linear_velocity_x = float(self.outer.v_x)
-                        msg.linear_velocity_y = float(self.outer.v_y)
-                        msg.angular_velocity_z = float(self.outer.v_yaw)
-                        msg.desired_pelvis_height = float(self.outer.desired_height)
-                        self.pub.publish(msg)
-                        self.outer._publish_active = is_nonzero
-
-            self._node = _JoyNode(self)
+            node_name = f"jupyter_virtual_joystick_{int(time.time()*1000) % 100000}"
+            self._node = rclpy.create_node(node_name)
+            qos = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, depth=10)
+            self._publisher = self._node.create_publisher(
+                WalkingVelocityCommand, self.topic, qos
+            )
             self._ros_available = True
             self._is_active = True
-
-            def _spin():
-                try:
-                    while self._is_active and rclpy.ok() and self._node is not None:
-                        rclpy.spin_once(self._node, timeout_sec=0.1)
-                except Exception:
-                    pass
-
-            self._ros_thread = threading.Thread(target=_spin, daemon=True)
-            self._ros_thread.start()
-
+            return True
         except Exception as e:
             self._ros_available = False
             self._is_active = False
             self._init_error = str(e)
+            return False
 
     @property
     def is_ros_connected(self) -> bool:
         """Returns True if the ROS2 node and publisher are actively connected."""
         return self._ros_available and self._is_active
 
+    def start_streaming(self):
+        """Starts 25 Hz background streaming of WalkingVelocityCommand to ROS2."""
+        if not self.is_ros_connected:
+            self.connect()
+        if not self.is_ros_connected:
+            return
+        if self._stream_thread is not None and self._stream_thread.is_alive():
+            return
+        self._is_streaming = True
+
+        def _stream_loop():
+            period = 1.0 / max(1.0, float(self.publish_rate))
+            while self._is_streaming and self._is_active:
+                if self._publisher is not None:
+                    try:
+                        from humanoid_mpc_msgs.msg import WalkingVelocityCommand
+
+                        msg = WalkingVelocityCommand()
+                        msg.linear_velocity_x = float(self.v_x)
+                        msg.linear_velocity_y = float(self.v_y)
+                        msg.angular_velocity_z = float(self.v_yaw)
+                        msg.desired_pelvis_height = float(self.desired_height)
+                        self._publisher.publish(msg)
+                    except Exception:
+                        pass
+                time.sleep(period)
+
+        self._stream_thread = threading.Thread(target=_stream_loop, daemon=True)
+        self._stream_thread.start()
+
+    def stop_streaming(self):
+        """Stops background streaming."""
+        self._is_streaming = False
+
     def publish_now(self):
         """Publishes the current velocity command immediately to ROS2."""
         if not self.is_ros_connected:
-            self._init_ros2()
-        if self._node and hasattr(self._node, "pub") and self._node.pub:
+            self.connect()
+        if self.auto_stream and not self._is_streaming:
+            self.start_streaming()
+        if self._publisher is not None:
             try:
                 from humanoid_mpc_msgs.msg import WalkingVelocityCommand
 
@@ -408,7 +526,7 @@ class VirtualJoystickROS2:
                 msg.linear_velocity_y = float(self.v_y)
                 msg.angular_velocity_z = float(self.v_yaw)
                 msg.desired_pelvis_height = float(self.desired_height)
-                self._node.pub.publish(msg)
+                self._publisher.publish(msg)
             except Exception:
                 pass
 
@@ -417,13 +535,14 @@ class VirtualJoystickROS2:
         linear_x: float = 0.0,
         linear_y: float = 0.0,
         angular_z: float = 0.0,
-        desired_height: float = 0.80,
+        desired_height: Optional[float] = None,
     ):
         """Sets the active commanded walking velocity."""
         self.v_x = float(linear_x)
         self.v_y = float(linear_y)
         self.v_yaw = float(angular_z)
-        self.desired_height = float(desired_height)
+        if desired_height is not None:
+            self.desired_height = float(desired_height)
         self._publish_active = True
         self.publish_now()
 
@@ -435,7 +554,7 @@ class VirtualJoystickROS2:
         self._publish_active = True
         self.publish_now()
 
-    def step(self, direction: str, delta_v: float = 0.1, delta_yaw: float = 0.15):
+    def step(self, direction: str, delta_v: float = 0.2, delta_yaw: float = 0.2):
         """Applies directional incremental velocity steps."""
         if direction == "forward":
             self.v_x = min(1.0, self.v_x + delta_v)
@@ -457,23 +576,15 @@ class VirtualJoystickROS2:
 
     def shutdown(self):
         """Destroys the ROS2 node and releases resources."""
+        self.stop_streaming()
         self._is_active = False
-        if self._ros_thread and self._ros_thread.is_alive():
-            try:
-                self._ros_thread.join(timeout=0.2)
-            except Exception:
-                pass
-        self.stop()
         if self._node is not None:
             try:
-                import rclpy
-
-                if hasattr(self._node, "timer") and self._node.timer is not None:
-                    self._node.timer.cancel()
                 self._node.destroy_node()
             except Exception:
                 pass
             self._node = None
+            self._publisher = None
 
     @property
     def is_ros_connected(self) -> bool:

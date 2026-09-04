@@ -32,6 +32,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_core/control/FeedforwardController.h>
 #include <ocs2_core/control/LinearController.h>
 
+#include <sstream>
+
+#include "absl/log/log.h"
+#include "absl/status/status.h"
+#include "absl/strings/str_cat.h"
+
 namespace ocs2 {
 
 /******************************************************************************************************/
@@ -84,7 +90,7 @@ const ReferenceManagerInterface& MPC_MRT_Interface::getReferenceManager() const 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void MPC_MRT_Interface::advanceMpc() {
+absl::Status MPC_MRT_Interface::advanceMpc() {
   // measure the delay in running MPC
   mpcTimer_.startTimer();
 
@@ -99,21 +105,22 @@ void MPC_MRT_Interface::advanceMpc() {
   try {
     controllerIsUpdated = mpc_.run(currentObservation.time, currentObservation.state, currentObservation.mode);
   } catch (const std::exception& e) {
-    std::cerr << e.what() << '\n';
-    std::cerr << "\n#####################################################"
-              << "\n###############   MPC HAS CRASHED.   ################"
-              << "\n#####################################################\n";
-    std::cerr << "Time: \n";
-    std::cerr << currentObservation.time << "\n";
-    std::cerr << "State: \n";
-    std::cerr << currentObservation.state << "\n";
-    std::cerr << "Desired Trajectories: \n";
-    std::cerr << mpc_.getSolverPtr()->getReferenceManager().getTargetTrajectories() << std::endl;
-    throw(std::runtime_error("MPC has crashed!"));
+    LOG(ERROR) << "MPC solver exception: " << e.what();
+    LOG(ERROR) << "############### MPC HAS CRASHED. ###############";
+    LOG(ERROR) << "Time: " << currentObservation.time;
+    // Note: Eigen state vectors can't stream directly into LOG(), so use a stringstream.
+    std::ostringstream oss;
+    oss << currentObservation.state;
+    LOG(ERROR) << "State: " << oss.str();
+    oss.str("");
+    oss << mpc_.getSolverPtr()->getReferenceManager().getTargetTrajectories();
+    LOG(ERROR) << "Desired Trajectories: " << oss.str();
+    return absl::InternalError(
+        absl::StrCat("MPC solver crashed: ", e.what()));
   }
 
   if (!controllerIsUpdated) {
-    return;
+    return absl::OkStatus();
   }
   copyToBuffer(currentObservation);
 
@@ -126,16 +133,16 @@ void MPC_MRT_Interface::advanceMpc() {
     timeWindow = mpc_.getSolverPtr()->getFinalTime() - currentObservation.time;
   }
   if (timeWindow < 2.0 * mpcTimer_.getAverageInMilliseconds() * 1e-3) {
-    std::cerr << "[MPC_MRT_Interface::advanceMpc] WARNING: The solution time window might be shorter than the MPC delay!\n";
+    LOG(WARNING) << "The solution time window might be shorter than the MPC delay!";
   }
 
   // measure the delay
   if (mpc_.settings().debugPrint_) {
-    std::cerr << "\n### MPC_MRT Benchmarking";
-    std::cerr << "\n###   Maximum : " << mpcTimer_.getMaxIntervalInMilliseconds() << "[ms].";
-    std::cerr << "\n###   Average : " << mpcTimer_.getAverageInMilliseconds() << "[ms].";
-    std::cerr << "\n###   Latest  : " << mpcTimer_.getLastIntervalInMilliseconds() << "[ms]." << std::endl;
+    LOG(INFO) << "MPC_MRT Benchmarking — Max: " << mpcTimer_.getMaxIntervalInMilliseconds()
+              << "ms, Avg: " << mpcTimer_.getAverageInMilliseconds()
+              << "ms, Latest: " << mpcTimer_.getLastIntervalInMilliseconds() << "ms";
   }
+  return absl::OkStatus();
 }
 
 /******************************************************************************************************/

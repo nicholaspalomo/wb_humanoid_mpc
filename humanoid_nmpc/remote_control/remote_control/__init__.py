@@ -40,12 +40,19 @@ from .humanoid_finite_state_machine import (
 
 ensure_ros2_paths()
 
-try:
-    from .xbox_controller_interface import XBoxControllerInterface
-    from . import xbox_walking_command_publisher
-except ImportError:
-    XBoxControllerInterface = None
-    xbox_walking_command_publisher = None
+
+# Lazy access for xbox controller to avoid eager pygame initialization in Jupyter
+def __getattr__(name):
+    if name == "XBoxControllerInterface":
+        from .xbox_controller_interface import XBoxControllerInterface
+
+        return XBoxControllerInterface
+    elif name == "xbox_walking_command_publisher":
+        from . import xbox_walking_command_publisher
+
+        return xbox_walking_command_publisher
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+
 
 __all__ = [
     "SimProcessManager",

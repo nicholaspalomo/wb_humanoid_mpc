@@ -1,4 +1,5 @@
 /******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -39,7 +40,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <atomic>
 #include <chrono>
 #include <ctime>
-#include <mutex>
 #include <thread>
 
 #include <Eigen/Dense>
@@ -48,6 +48,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "mujoco_sim_interface/MujocoRenderer.h"
 #include "mujoco_sim_interface/MujocoUtils.h"
 #include "robot_core/FPSTracker.h"
+#include "robot_core/TripleBuffer.h"
 #include "robot_core/Types.h"
 #include "robot_model/RobotHWInterfaceBase.h"
 
@@ -60,6 +61,9 @@ struct MujocoSimConfig {
   double renderFrequencyHz{60.0};
   bool headless{false};
   bool verbose{false};
+  bool enableGantry{true};
+  bool isGantryLocked{true};
+  double gantryHeight{0.0};
 };
 
 class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
@@ -73,13 +77,34 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
 
   void startSim();
 
+  std::thread& getSimulationThread() { return simulate_thread_; }
+
   void simulationStep();
 
   // Todo Manu also reset environment
   void reset();
 
-  // Allows the renderer to make a thread safe copy of the state at it's own frequency.
-  void copyMjState(MjState& state) const;
+  // Virtual Gantry Controls
+  void lockGantry() { isGantryLocked_ = true; }
+  void unlockGantry() { isGantryLocked_ = false; }
+  double stepGantry(double delta) {
+    gantryHeight_ = gantryHeight_.load() + delta;
+    return gantryHeight_.load();
+  }
+  void setGantryHeight(double height) { gantryHeight_ = height; }
+  bool isGantryLocked() const { return isGantryLocked_.load(); }
+  double getGantryHeight() const { return gantryHeight_.load(); }
+
+  /// Zero-torque mode: when enabled, all actuator commands are zeroed in simulationStep().
+  /// The sim starts in zero-torque mode by default to allow the MPC solver to warm up.
+  /// enableTorques/disableTorques also swap MuJoCo's dof_damping for smooth ragdoll behavior.
+  bool isZeroTorqueMode() const { return zeroTorqueMode_.load(); }
+  void enableTorques();
+  void disableTorques();
+
+  // Allows the renderer to read the latest sim state without blocking the sim thread.
+  // Uses a lock-free triple buffer internally.
+  void readLatestMjState(MjState& state) const;
 
   const mjModel* getModel() const { return mujocoModel_; }
 
@@ -125,12 +150,13 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   std::atomic<bool> terminate_{false};
   std::atomic<bool> guiInitialized_{false};
 
-  mutable std::mutex mujocoMutex_;  // Used to access mujoco model and data accross simulation and render threads.
   std::thread simulate_thread_;
   std::unique_ptr<MujocoRenderer> renderer_;
 
-  FPSTracker simFps_{"mujoco_sim"};
-  std::chrono::high_resolution_clock::time_point lastRealTime_;
+  FPSTracker simFps_{"mujoco_sim", 0.02};
+  std::chrono::steady_clock::time_point lastRealTime_;
+  std::chrono::steady_clock::time_point loopStartTime_;
+  double simTimeAtLoopStart_{0.0};
   Metrics metrics_{};
 
   size_t right_foot_sensor_addr_;
@@ -138,6 +164,19 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
 
   size_t right_foot_touch_sensor_addr_;
   size_t left_foot_touch_sensor_addr_;
+
+  std::atomic<bool> isGantryLocked_{true};
+  std::atomic<double> gantryHeight_{0.0};
+  std::atomic<bool> zeroTorqueMode_{true};  // Start in zero-torque mode by default
+  std::vector<mjtNum> originalDofDamping_;  // Saved dof_damping values for restore on enableTorques
+
+  /// Lock-free triple buffer for sim→render state transfer.
+  /// Initialized lazily after MuJoCo model is loaded (requires mjModel* for MjState allocation).
+  std::unique_ptr<TripleBuffer<MjState>> renderStateBuffer_;
+
+  /// Throttle: only publish to the triple buffer every N sim steps (matches render Hz).
+  size_t renderPublishInterval_{1};
+  size_t renderPublishCounter_{0};
 };
 
 }  // namespace robot::mujoco_sim_interface

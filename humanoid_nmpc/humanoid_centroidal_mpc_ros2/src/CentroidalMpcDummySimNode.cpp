@@ -1,4 +1,5 @@
 /******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
 Copyright (c) 2024, 1X Technologies. All rights reserved.
 
@@ -34,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_ros2_interfaces/mrt/MRT_ROS_Interface.h>
 
 #include <humanoid_centroidal_mpc/CentroidalMpcInterface.h>
+#include "absl/log/check.h"
 
 #include "humanoid_common_mpc_ros2/visualization/HumanoidVisualizer.h"
 
@@ -60,7 +62,9 @@ int main(int argc, char** argv) {
   qos.best_effort();
 
   // Robot interface
-  CentroidalMpcInterface interface(taskFile, urdfFile, referenceFile, true);
+  absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> create_result = CentroidalMpcInterface::Create(taskFile, urdfFile, referenceFile);
+  CHECK(create_result.ok()) << "Failed to create CentroidalMpcInterface: " << create_result.status();
+  CentroidalMpcInterface& interface = **create_result;
 
   // MRT
   rclcpp::Node::SharedPtr nodeHandle = std::make_shared<rclcpp::Node>(robotName + "_mrt");

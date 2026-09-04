@@ -1,4 +1,5 @@
 /******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
 Copyright (c) 2024, 1X Technologies. All rights reserved.
 
@@ -29,14 +30,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <ocs2_sqp/SqpMpc.h>
+#include <fstream>
 #include <rclcpp/rclcpp.hpp>
 
 #include <humanoid_wb_mpc/WBMpcInterface.h>
+#include "absl/log/check.h"
 #include <mujoco_sim_interface/MujocoSimInterface.h>
 #include <ocs2_robotic_tools/common/RotationTransforms.h>
 
 #include <humanoid_wb_mpc/command/WBMpcTargetTrajectoriesCalculator.h>
 #include <humanoid_wb_mpc/mrt/WBMpcMrtJointController.h>
+#include <humanoid_common_mpc/common/ThreadAffinity.h>
+#include <absl/log/log.h>
+#include "humanoid_common_mpc_ros2/fsm/SimFsmBridge.h"
 #include "humanoid_common_mpc_ros2/ros_comm/Ros2ProceduralMpcMotionManager.h"
 #include "humanoid_common_mpc_ros2/visualization/HumanoidVisualizer.h"
 
@@ -60,7 +66,9 @@ int main(int argc, char** argv) {
   rclcpp::init(argc, argv);
 
   // Robot interface
-  WBMpcInterface interface(taskFile, urdfFile, referenceFile);
+  absl::StatusOr<std::unique_ptr<WBMpcInterface>> create_result = WBMpcInterface::Create(taskFile, urdfFile, referenceFile);
+  CHECK(create_result.ok()) << "Failed to create WBMpcInterface: " << create_result.status();
+  WBMpcInterface& interface = **create_result;
 
   // MPC
   SqpMpc mpc(interface.mpcSettings(), interface.sqpSettings(), interface.getOptimalControlProblem(), interface.getInitializer());
@@ -92,22 +100,12 @@ int main(int argc, char** argv) {
 
   // Init Sim state
   robot::model::RobotDescription robotDescription(urdfFile);
-  robot::model::RobotState initState(robotDescription, 2);
-  initState.setConfigurationToZero();
+  robot::model::RobotState initState =
+      createInitialSimState(robotDescription, interface.modelSettings(), interface.getMpcRobotModel(), interface.getInitialState());
 
-  const vector_t& initMpcState = interface.getInitialState();
-  const auto& mpcModel = interface.getMpcRobotModel();
-  initState.setRootPositionInWorldFrame(mpcModel.getBasePosition(initMpcState));
-  vector3_t baseOriEulerZyx = mpcModel.getBaseOrientationEulerZYX(initMpcState);
-  initState.setRootRotationLocalToWorldFrame(ocs2::getQuaternionFromEulerAnglesZyx(baseOriEulerZyx));
+  LOG(INFO) << "initState: " << initState.getRootPositionInWorldFrame().transpose();
 
-  vector_t mpcJointAngles = mpcModel.getJointAngles(initMpcState);
-  std::vector<robot::joint_index_t> mpcJointIndices = robotDescription.getJointIndices(interface.modelSettings().mpcModelJointNames);
-  for (size_t i = 0; i < mpcJointIndices.size(); i++) {
-    initState.setJointPosition(mpcJointIndices[i], mpcJointAngles[i]);
-  }
-
-  std::cerr << "initState: " << initState.getRootPositionInWorldFrame().transpose() << std::endl;
+  SimFsmBridge fsmBridge(robotDescription, initState, nodeHandle);
 
   robot::mujoco_sim_interface::MujocoSimConfig config;
 
@@ -124,7 +122,7 @@ int main(int argc, char** argv) {
                                              interface.getPinocchioInterface(), interface.mpcSettings().mpcDesiredFrequency_,
                                              humanoidVisualizer, pdGainsFile);
 
-  std::cout << "MPC MRT joint controller is set up with PD gains from: " << pdGainsFile << std::endl;
+  LOG(INFO) << "MPC MRT joint controller is set up with PD gains from: " << pdGainsFile;
 
   // size_t mrtDeltaTMicroSeconds_ = 1000000 / (interface.mpcSettings().mrtDesiredFrequency_);
   size_t mrtDeltaTMicroSeconds_ = 1000000 / (500);
@@ -135,28 +133,53 @@ int main(int argc, char** argv) {
   while (!mpcJointController.ready()) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
-  std::cout << "Initial MPC policy received. " << std::endl;
+  LOG(INFO) << "Initial MPC policy received.";
 
   // Wait to allow MPC policy to initialize
   std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+  // Start sim loop in zero-torque mode: the robot spawns passively held by the gantry.
+  // The MPC solver continues to receive state feedback and refine its policy.
+  const auto coreAlloc = ocs2::humanoid::getDefaultCoreAllocation();
   robotInterface.startSim();
+  ocs2::humanoid::setThreadCpuAffinity(coreAlloc.simCores, robotInterface.getSimulationThread().native_handle(), "MuJoCo Simulation");
+  ocs2::humanoid::setThreadCpuAffinity(coreAlloc.mrtCores, pthread_self(), "MRT Joint Control Loop");
 
   rclcpp::spin_some(nodeHandle);
+  LOG(INFO) << "Zero-torque mode: robot spawned. Waiting for FSM command to enable torques...";
 
+  // Unified control loop: processes /humanoid/fsm_command ROS 2 topics for mode transitions.
+  std::string currentModeName = "ZERO_TORQUE";
+  size_t mrtSlowCount = 0;
   while (true) {
     auto targetTimeForNextIteration = std::chrono::steady_clock::now() + std::chrono::microseconds(mrtDeltaTMicroSeconds_);
 
+    // Always publish state to MPC so the solver's plan stays current.
+    // In zero-torque mode, we still compute the control action but don't apply it,
+    // keeping the MPC solver warm for instant transitions back to active mode.
     robotInterface.updateInterfaceStateFromRobot();
     mpcJointController.computeJointControlAction(0.0, robotInterface.getRobotState(), robotInterface.getRobotJointAction());
-    robotInterface.applyJointAction();
+
+    // Apply mode-specific overrides (e.g. pure nominal position tracking in JOINT_PD mode)
+    fsmBridge.applyModeAction(currentModeName, robotDescription, robotInterface.getRobotJointAction());
+
+    if (!robotInterface.isZeroTorqueMode()) {
+      robotInterface.applyJointAction();
+    }
 
     rclcpp::spin_some(nodeHandle);
+    fsmBridge.processCommands(currentModeName, robotInterface);
 
     auto currentTime = std::chrono::steady_clock::now();
     if (currentTime > targetTimeForNextIteration) {
-      auto delay = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - targetTimeForNextIteration).count();
-
-      std::cerr << "Warning: MRT loop running slow by " << delay << " microseconds." << std::endl;
+      // Only warn in MPC-active mode and for significant delays (>1ms).
+      // Sub-millisecond overruns are normal OS scheduling jitter.
+      if (!robotInterface.isZeroTorqueMode()) {
+        auto delay = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - targetTimeForNextIteration).count();
+        if (delay > 1000 && (++mrtSlowCount % 20 == 0)) {
+          LOG(WARNING) << "MRT loop running slow by " << delay << " microseconds.";
+        }
+      }
     } else {
       // Sleep in case sim loop is faster than specified
       std::this_thread::sleep_until(targetTimeForNextIteration);
