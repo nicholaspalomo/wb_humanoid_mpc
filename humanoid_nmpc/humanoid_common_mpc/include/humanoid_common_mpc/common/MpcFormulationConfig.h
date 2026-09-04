@@ -82,17 +82,11 @@ struct MpcFormulationTasks {
   absl::flat_hash_set<MpcSoftConstraintType> softConstraints;
   absl::flat_hash_set<MpcHardConstraintType> hardConstraints;
 
-  bool hasCost(MpcCostType type) const {
-    return costs.contains(type);
-  }
+  bool hasCost(MpcCostType type) const { return costs.contains(type); }
 
-  bool hasSoftConstraint(MpcSoftConstraintType type) const {
-    return softConstraints.contains(type);
-  }
+  bool hasSoftConstraint(MpcSoftConstraintType type) const { return softConstraints.contains(type); }
 
-  bool hasHardConstraint(MpcHardConstraintType type) const {
-    return hardConstraints.contains(type);
-  }
+  bool hasHardConstraint(MpcHardConstraintType type) const { return hardConstraints.contains(type); }
 };
 
 // String to Enum conversions (supports snake_case and camelCase, case-insensitive)

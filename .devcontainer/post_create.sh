@@ -97,6 +97,11 @@ if [ -f "${WORKSPACE_DIR}/Makefile" ]; then
   cd "${WORKSPACE_DIR}" && make install-hooks 2>/dev/null || true
 fi
 
+# Symlink PlotJuggler binary to PATH if installed under ROS 2
+if [ -f "/opt/ros/${ROS_DISTRO:-jazzy}/lib/plotjuggler/plotjuggler" ]; then
+  ln -sf "/opt/ros/${ROS_DISTRO:-jazzy}/lib/plotjuggler/plotjuggler" /usr/local/bin/plotjuggler 2>/dev/null || true
+fi
+
 # Register Jupyter kernel for VS Code / Antigravity
 if command -v python3 &>/dev/null; then
   python3 -m ipykernel install --user --name "wb_humanoid_mpc" --display-name "Python 3 (Humanoid MPC)" 2>/dev/null || true

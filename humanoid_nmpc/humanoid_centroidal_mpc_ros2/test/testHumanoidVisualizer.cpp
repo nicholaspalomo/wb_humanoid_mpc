@@ -32,8 +32,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <rclcpp/rclcpp.hpp>
 
 #include <humanoid_centroidal_mpc/CentroidalMpcInterface.h>
-#include "absl/log/check.h"
 #include <humanoid_common_mpc_ros2/visualization/HumanoidVisualizer.h>
+#include "absl/log/check.h"
 
 #include "ocs2_centroidal_model/CentroidalModelPinocchioMapping.h"
 

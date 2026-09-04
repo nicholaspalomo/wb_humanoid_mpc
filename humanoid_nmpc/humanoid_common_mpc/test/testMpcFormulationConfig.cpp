@@ -37,11 +37,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 using namespace ocs2::humanoid;
 
-#define CHECK_TRUE(cond, msg)                                             \
-  do {                                                                    \
-    if (!(cond)) {                                                        \
-      throw std::runtime_error(absl::StrCat("Check failed: ", (msg)));     \
-    }                                                                     \
+#define CHECK_TRUE(cond, msg)                                          \
+  do {                                                                 \
+    if (!(cond)) {                                                     \
+      throw std::runtime_error(absl::StrCat("Check failed: ", (msg))); \
+    }                                                                  \
   } while (0)
 
 int main() {

@@ -62,7 +62,8 @@ class WBMpcInterface final : public RobotInterface {
    * @param [in] referenceFile: The absolute path to the reference configuration file.
    * @return absl::StatusOr<WBMpcInterface> The constructed interface, or error status.
    */
-  static absl::StatusOr<std::unique_ptr<WBMpcInterface>> Create(const std::string& taskFile, const std::string& urdfFile,
+  static absl::StatusOr<std::unique_ptr<WBMpcInterface>> Create(const std::string& taskFile,
+                                                                const std::string& urdfFile,
                                                                 const std::string& referenceFile);
 
   ~WBMpcInterface() override = default;

@@ -136,7 +136,8 @@ WBMpcInterface::WBMpcInterface(const std::string& taskFile, const std::string& u
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-absl::StatusOr<std::unique_ptr<WBMpcInterface>> WBMpcInterface::Create(const std::string& taskFile, const std::string& urdfFile,
+absl::StatusOr<std::unique_ptr<WBMpcInterface>> WBMpcInterface::Create(const std::string& taskFile,
+                                                                       const std::string& urdfFile,
                                                                        const std::string& referenceFile) {
   std::unique_ptr<WBMpcInterface> interface(new WBMpcInterface(taskFile, urdfFile, referenceFile, /*setupOCP=*/false));
   RETURN_IF_ERROR(interface->setupOptimalControlProblem());
@@ -223,9 +224,8 @@ absl::Status WBMpcInterface::setupOptimalControlProblem() {
     if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::ZeroVelocity) && eeDynamicsPtr) {
       auto stanceConstraint = getStanceFootConstraint(*eeDynamicsPtr, i);
       auto penalty = std::make_unique<QuadraticPenalty>(modelSettings_.footConstraintConfig.softConstraintWeight);
-      problemPtr_->softConstraintPtr->add(
-          absl::StrCat(footName, "_zeroVelocity"),
-          std::make_unique<StateInputSoftConstraint>(std::move(stanceConstraint), std::move(penalty)));
+      problemPtr_->softConstraintPtr->add(absl::StrCat(footName, "_zeroVelocity"),
+                                          std::make_unique<StateInputSoftConstraint>(std::move(stanceConstraint), std::move(penalty)));
     }
 
     if (formulationTasks.hasHardConstraint(MpcHardConstraintType::ZeroWrench)) {

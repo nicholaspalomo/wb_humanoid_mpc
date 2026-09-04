@@ -8,6 +8,8 @@ _TEST_DEPS = [
     ":humanoid_centroidal_mpc_test_headers",
     "//humanoid_nmpc/humanoid_centroidal_mpc",
     "//humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_dummy_sim_node",
+    "//humanoid_nmpc/humanoid_common_mpc_ros2",
+    "//robot_runtime/robot_model",
     "@eigen",
     "@boost",
     "@pinocchio",
@@ -69,6 +71,15 @@ cc_test(
     name = "test_angular_center_of_mass",
     size = "small",
     srcs = ["src/testAngularCenterOfMass.cpp"],
+    copts = _TEST_COPTS,
+    data = _TEST_DATA,
+    deps = _TEST_DEPS,
+)
+
+cc_test(
+    name = "test_pinocchio_telemetry_publisher",
+    size = "small",
+    srcs = ["src/testPinocchioTelemetryPublisher.cpp"],
     copts = _TEST_COPTS,
     data = _TEST_DATA,
     deps = _TEST_DEPS,

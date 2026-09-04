@@ -67,6 +67,12 @@ class MPCLaunchConfig:
             "rviz/humanoid.rviz",
         )
 
+        ### PlotJuggler Config ###
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
+        default_plotjuggler_layout_path = os.path.join(
+            repo_root, "tools", "plotjuggler", "humanoid_telemetry.xml"
+        )
+
         ### Termianl Prefix ###
         if enable_debug:
             self.always_terminal_prefix = ["x-terminal-emulator -e gdb -ex run --args"]
@@ -179,6 +185,19 @@ class MPCLaunchConfig:
             arguments=["-d", LaunchConfiguration("rvizconfig")],
         )
 
+        self.plotjuggler_node = launch_ros.actions.Node(
+            package="plotjuggler",
+            executable="plotjuggler",
+            name="plotjuggler",
+            output="screen",
+            arguments=[
+                "--buffer_size",
+                "60",
+                "--layout",
+                LaunchConfiguration("plotjuggler_layout"),
+            ],
+        )
+
         self.robot_state_publisher_node = launch_ros.actions.Node(
             package="robot_state_publisher",
             executable="robot_state_publisher",
@@ -242,6 +261,8 @@ class MPCLaunchConfig:
             parameters=[
                 {
                     "target_command_file": LaunchConfiguration("target_command_file"),
+                    "task_file": LaunchConfiguration("config_name"),
+                    "robot_name": LaunchConfiguration("robot_name"),
                 }
             ],
         )
@@ -292,6 +313,11 @@ class MPCLaunchConfig:
             "rvizconfig",
             default_value=default_rviz_config_path,
             description="Absolute path to rviz config file",
+        )
+        self.declare_plotjuggler_layout_path = DeclareLaunchArgument(
+            "plotjuggler_layout",
+            default_value=default_plotjuggler_layout_path,
+            description="Path to PlotJuggler XML layout",
         )
 
         print("Finished launch config initialization")

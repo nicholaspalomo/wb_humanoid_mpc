@@ -56,6 +56,13 @@ from .humanoid_finite_state_machine import (
 
 def ensure_ros2_paths():
     """Auto-detects and adds ROS2 and Bazel-generated message bindings to sys.path."""
+    try:
+        import humanoid_mpc_msgs
+
+        return
+    except ImportError:
+        pass
+
     # 1. Base ROS2 distribution site-packages from ROS_DISTRO or /opt/ros
     ros_distro = os.environ.get("ROS_DISTRO")
     ros_paths = []

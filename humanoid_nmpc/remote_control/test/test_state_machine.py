@@ -183,10 +183,10 @@ class TestHumanoidFSM(unittest.TestCase):
         self.assertIsNotNone(atlas_cfg["controller_path"])
         self.assertEqual(len(atlas_cfg["kp_vector"]), len(atlas_cfg["joint_names"]))
         self.assertEqual(len(atlas_cfg["kd_vector"]), len(atlas_cfg["joint_names"]))
-        # Atlas knee gain from joint_pd_gains.yaml is 1000.0 / 60.0
+        # Atlas knee gain from joint_pd_gains.yaml is 3500.0 / 140.0
         kny_idx = atlas_cfg["joint_names"].index("r_leg_kny")
-        self.assertEqual(atlas_cfg["kp_vector"][kny_idx], 1000.0)
-        self.assertEqual(atlas_cfg["kd_vector"][kny_idx], 60.0)
+        self.assertEqual(atlas_cfg["kp_vector"][kny_idx], 3500.0)
+        self.assertEqual(atlas_cfg["kd_vector"][kny_idx], 140.0)
 
     def test_safety_damped_pd_decay(self):
         """Verifies SAFETY mode decays PD gains smoothly and transitions to ZERO_TORQUE."""

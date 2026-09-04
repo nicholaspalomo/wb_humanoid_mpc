@@ -39,9 +39,7 @@ namespace ocs2::humanoid {
  */
 class StateQuadraticCost final : public QuadraticStateInputCost {
  public:
-  StateQuadraticCost(matrix_t Q,
-                     size_t inputDim,
-                     const SwitchedModelReferenceManager& referenceManager);
+  StateQuadraticCost(matrix_t Q, size_t inputDim, const SwitchedModelReferenceManager& referenceManager);
 
   ~StateQuadraticCost() override = default;
   StateQuadraticCost* clone() const override { return new StateQuadraticCost(*this); }

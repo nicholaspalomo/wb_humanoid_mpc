@@ -27,7 +27,10 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ****************************************************************************"""
 
+import glob
 import os
+import shutil
+import subprocess
 import yaml
 import tkinter as tk
 from tkinter import ttk
@@ -38,60 +41,93 @@ from humanoid_mpc_msgs.msg import WalkingVelocityCommand
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
 from std_msgs.msg import String
 from remote_control import XBoxControllerInterface
-from remote_control.tk_app import JoystickGui, LEDIndicatorGui
+from remote_control.tk_app import (
+    JoystickGui,
+    LEDIndicatorGui,
+    JointPdGainsTab,
+    MpcParamsTab,
+)
 
 
 class App(tk.Tk):
-    def __init__(self):
+    def __init__(
+        self,
+        pd_gains_file: str = "",
+        task_file: str = "",
+        enable_online_tuning: bool = True,
+        enable_telemetry: bool = True,
+    ):
         super().__init__()
-        self.title("Robot Base Controller")
+        self.title("Robot Base Controller & Tuning")
+        self.pd_gains_file = pd_gains_file
+        self.task_file = task_file
+        self.enable_online_tuning = enable_online_tuning
+        self.enable_telemetry = enable_telemetry
+        self._fsm_command_callback = None
 
         # Position window on the right side of the screen
         screen_width = self.winfo_screenwidth()
         screen_height = self.winfo_screenheight()
-        gui_width = 850
-        gui_height = 420
+        gui_width = 960
+        gui_height = 700
         pos_x = max(0, screen_width - gui_width - 30)
         pos_y = 50
         self.geometry(f"{gui_width}x{gui_height}+{pos_x}+{pos_y}")
-        self.minsize(750, 380)
+        self.minsize(800, 520)
 
         # Set window background color
-        self.configure(bg="#2c2c2c")
+        self.configure(bg="#1e1e1e")
 
         # Add padding around the window
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
         # Style configuration
-        # Configure modern dark theme styles
         style = ttk.Style()
+        try:
+            style.theme_use("clam")
+        except Exception:
+            pass
 
         # Configure dark theme colors
-        style.configure("TFrame", background="#2c2c2c")
+        style.configure("TFrame", background="#1e1e1e")
+        style.configure("TNotebook", background="#181818", borderwidth=0)
         style.configure(
-            "TLabel", background="#2c2c2c", foreground="#ffffff", font=("Helvetica", 12)
+            "TNotebook.Tab",
+            background="#2d2d2d",
+            foreground="#cccccc",
+            padding=[16, 8],
+            font=("Helvetica", 10, "bold"),
+        )
+        style.map(
+            "TNotebook.Tab",
+            background=[("selected", "#007acc")],
+            foreground=[("selected", "#ffffff")],
+        )
+
+        style.configure(
+            "TLabel", background="#1e1e1e", foreground="#ffffff", font=("Helvetica", 11)
         )
 
         # Regular button style
         style.configure(
             "TButton",
-            padding=8,
-            background="#4a90e2",
+            padding=6,
+            background="#007acc",
             foreground="#ffffff",
             font=("Helvetica", 10, "bold"),
         )
         style.map(
             "TButton",
-            background=[("active", "#357abd")],
+            background=[("active", "#005a9e")],
             foreground=[("active", "#ffffff")],
         )
 
         # Disabled button style
         style.configure(
             "Disabled.TButton",
-            padding=8,
-            background="#cccccc",
+            padding=6,
+            background="#444444",
             foreground="#888888",
             font=("Helvetica", 10, "bold"),
         )
@@ -99,7 +135,7 @@ class App(tk.Tk):
         # Modern checkbox style
         style.configure(
             "TCheckbutton",
-            background="#2c2c2c",
+            background="#1e1e1e",
             foreground="#ffffff",
             font=("Helvetica", 10),
         )
@@ -107,15 +143,43 @@ class App(tk.Tk):
         # Modern scale (slider) style
         style.configure(
             "Vertical.TScale",
-            background="#2c2c2c",
-            troughcolor="#363636",
-            bordercolor="#4a90e2",
+            background="#1e1e1e",
+            troughcolor="#2d2d2d",
+            bordercolor="#007acc",
         )
 
+        # Top-level Notebook tabs
+        self.notebook = ttk.Notebook(self)
+        self.notebook.pack(fill="both", expand=True, padx=8, pady=8)
+
+        # Tab 1: Base Controller
+        tab_base = ttk.Frame(self.notebook)
+        self.notebook.add(tab_base, text="🕹️ Base Controller")
+
+        # Tab 2: Joint PD Gains
+        tab_pd = ttk.Frame(self.notebook)
+        self.notebook.add(tab_pd, text="⚙️ Joint PD Gains")
+        self.joint_pd_tab = JointPdGainsTab(
+            tab_pd,
+            pd_gains_file=self.pd_gains_file,
+            enable_online_tuning=self.enable_online_tuning,
+        )
+        self.joint_pd_tab.pack(fill="both", expand=True)
+
+        # Tab 3: MPC Parameters
+        tab_mpc = ttk.Frame(self.notebook)
+        self.notebook.add(tab_mpc, text="📈 MPC Parameters")
+        self.mpc_params_tab = MpcParamsTab(
+            tab_mpc,
+            task_file=self.task_file,
+            enable_online_tuning=self.enable_online_tuning,
+        )
+        self.mpc_params_tab.pack(fill="both", expand=True)
+
+        # Build Tab 1: Base Controller contents
         self.auto_center_var = tk.BooleanVar(value=False)
 
-        # Main container frame
-        main_frame = ttk.Frame(self)
+        main_frame = ttk.Frame(tab_base)
         main_frame.pack(padx=15, pady=15, fill="both", expand=True)
 
         # Left Joystick (Linear Velocity)
@@ -223,9 +287,78 @@ class App(tk.Tk):
         )
         self.auto_center_checkbox.pack(side="left")
 
+        # PlotJuggler launch button
+        self.plotjuggler_btn = ttk.Button(
+            control_frame,
+            text="📊 PlotJuggler",
+            command=self._launch_plotjuggler,
+        )
+        if not self.enable_telemetry:
+            self.plotjuggler_btn.configure(
+                state="disabled",
+                text="📊 PlotJuggler (Disabled)",
+            )
+        self.plotjuggler_btn.pack(side="left", padx=10)
+
         main_frame.rowconfigure(0, weight=1)
         main_frame.columnconfigure(0, weight=1)
         main_frame.columnconfigure(1, weight=1)
+
+    def _launch_plotjuggler(self):
+        """Launch PlotJuggler with the humanoid telemetry layout."""
+        if not self.enable_telemetry:
+            import tkinter.messagebox as mb
+
+            mb.showinfo(
+                "Telemetry Disabled",
+                "Telemetry is disabled in task.yaml (enableTelemetry: false).",
+            )
+            return
+
+        try:
+            repo_root = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), "../../..")
+            )
+            layout_candidate = os.path.join(
+                repo_root, "tools", "plotjuggler", "humanoid_telemetry.xml"
+            )
+
+            # Resolve PlotJuggler binary or fallback to ROS 2 package runner
+            ros_distro = os.environ.get("ROS_DISTRO", "jazzy")
+            direct_bin = f"/opt/ros/{ros_distro}/lib/plotjuggler/plotjuggler"
+
+            if shutil.which("plotjuggler"):
+                cmd = ["plotjuggler"]
+            elif os.path.isfile(direct_bin) and os.access(direct_bin, os.X_OK):
+                cmd = [direct_bin]
+            elif shutil.which("ros2"):
+                cmd = ["ros2", "run", "plotjuggler", "plotjuggler"]
+            else:
+                alt_bins = glob.glob("/opt/ros/*/lib/plotjuggler/plotjuggler")
+                if alt_bins and os.access(alt_bins[0], os.X_OK):
+                    cmd = [alt_bins[0]]
+                else:
+                    cmd = ["plotjuggler"]
+
+            cmd.extend(["--buffer_size", "60"])
+            if os.path.exists(layout_candidate):
+                cmd.extend(["--layout", layout_candidate])
+
+            subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env=os.environ.copy(),
+            )
+        except FileNotFoundError:
+            import tkinter.messagebox as mb
+
+            mb.showwarning(
+                "PlotJuggler",
+                "plotjuggler executable was not found on PATH. Run 'make plotjuggler' from the terminal.",
+            )
+        except Exception as e:
+            print(f"Error launching PlotJuggler: {e}")
 
     def slider_callback(self, value):
         pass
@@ -297,7 +430,9 @@ class App(tk.Tk):
     def set_knob_positions(self, msg: WalkingVelocityCommand):
         self.joystick_left.set_position(msg.linear_velocity_x, msg.linear_velocity_y)
         self.joystick_right.set_position(0.0, msg.angular_velocity_z)
-        self.slider.set((msg.desired_pelvis_height - self.min_height) / self.height_scale)
+        self.slider.set(
+            (msg.desired_pelvis_height - self.min_height) / self.height_scale
+        )
 
     def get_walking_command_msg(self):
         msg = WalkingVelocityCommand()
@@ -306,7 +441,9 @@ class App(tk.Tk):
         msg.linear_velocity_y = self.joystick_left.y_norm
         msg.angular_velocity_z = self.joystick_right.y_norm
 
-        msg.desired_pelvis_height = self.slider.get() * self.height_scale + self.min_height
+        msg.desired_pelvis_height = (
+            self.slider.get() * self.height_scale + self.min_height
+        )
         return msg
 
 
@@ -317,12 +454,22 @@ class RosJoystickApp(Node):
         self.publisher_rate = 25  # Hz
         self.xbox_controller_interface = XBoxControllerInterface(self.publisher_rate)
 
-        # Declare parameters for robot-specific height configuration
+        # Declare parameters for robot-specific configuration
         self.declare_parameter("default_pelvis_height", 0.8)
         self.declare_parameter("target_command_file", "")
+        self.declare_parameter("task_file", "")
+        self.declare_parameter("pd_gains_file", "")
+        self.declare_parameter("robot_name", "")
 
         default_height = float(self.get_parameter("default_pelvis_height").value)
         cmd_file = str(self.get_parameter("target_command_file").value)
+        task_file = str(self.get_parameter("task_file").value)
+        pd_gains_file = str(self.get_parameter("pd_gains_file").value)
+        robot_name = str(self.get_parameter("robot_name").value)
+
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
+
+        # 1. Load default base height from target_command_file if provided
         if cmd_file and os.path.exists(cmd_file):
             try:
                 with open(cmd_file, "r") as f:
@@ -336,6 +483,67 @@ class RosJoystickApp(Node):
                 self.get_logger().warn(
                     f"Failed to read defaultBaseHeight from {cmd_file}: {e}"
                 )
+
+        # 2. Autodetect task_file if empty
+        if not task_file or not os.path.exists(task_file):
+            if cmd_file and os.path.exists(cmd_file):
+                cand = os.path.join(os.path.dirname(cmd_file), "task.yaml")
+                if os.path.exists(cand):
+                    task_file = cand
+            if not task_file or not os.path.exists(task_file):
+                # Search default candidates
+                candidates = [
+                    os.path.join(
+                        repo_root,
+                        "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml",
+                    ),
+                    os.path.join(
+                        repo_root,
+                        "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.yaml",
+                    ),
+                    os.path.join(
+                        repo_root,
+                        "robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.yaml",
+                    ),
+                ]
+                for c in candidates:
+                    if os.path.exists(c):
+                        task_file = c
+                        break
+
+        # 3. Autodetect pd_gains_file if empty
+        if not pd_gains_file or not os.path.exists(pd_gains_file):
+            if task_file and os.path.exists(task_file):
+                cand = os.path.abspath(
+                    os.path.join(
+                        os.path.dirname(task_file),
+                        "..",
+                        "controller",
+                        "joint_pd_gains.yaml",
+                    )
+                )
+                if os.path.exists(cand):
+                    pd_gains_file = cand
+            if not pd_gains_file or not os.path.exists(pd_gains_file):
+                candidates = [
+                    os.path.join(
+                        repo_root,
+                        "robot_models/unitree_g1/g1_wb_mpc/config/controller/joint_pd_gains.yaml",
+                    ),
+                    os.path.join(
+                        repo_root,
+                        "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/controller/joint_pd_gains.yaml",
+                    ),
+                ]
+                for c in candidates:
+                    if os.path.exists(c):
+                        pd_gains_file = c
+                        break
+
+        if task_file:
+            self.get_logger().info(f"Using MPC task file: {task_file}")
+        if pd_gains_file:
+            self.get_logger().info(f"Using Joint PD gains file: {pd_gains_file}")
 
         qos_profile = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, depth=25)
 
@@ -358,7 +566,37 @@ class RosJoystickApp(Node):
             String, "/humanoid/fsm_state", self._fsm_state_callback, state_qos
         )
 
-        self.app = App()
+        enable_online_tuning = True
+        enable_telemetry = True
+        if task_file and os.path.exists(task_file):
+            try:
+                from remote_control.tk_app.yaml_editor_utils import load_yaml_safe
+
+                cfg = load_yaml_safe(task_file)
+                if "enableOnlineTuning" in cfg:
+                    enable_online_tuning = bool(cfg["enableOnlineTuning"])
+                elif "enable_online_tuning" in cfg:
+                    enable_online_tuning = bool(cfg["enable_online_tuning"])
+
+                if "enableTelemetry" in cfg:
+                    enable_telemetry = bool(cfg["enableTelemetry"])
+                elif "enable_telemetry" in cfg:
+                    enable_telemetry = bool(cfg["enable_telemetry"])
+            except Exception as e:
+                self.get_logger().warning(
+                    f"Could not parse online tuning/telemetry flags from {task_file}: {e}"
+                )
+
+        self.get_logger().info(
+            f"Online tuning enabled: {enable_online_tuning}, Telemetry enabled: {enable_telemetry}"
+        )
+
+        self.app = App(
+            pd_gains_file=pd_gains_file,
+            task_file=task_file,
+            enable_online_tuning=enable_online_tuning,
+            enable_telemetry=enable_telemetry,
+        )
         self.app.set_default_pelvis_height(default_height)
         self.app._fsm_command_callback = self._send_fsm_command
 

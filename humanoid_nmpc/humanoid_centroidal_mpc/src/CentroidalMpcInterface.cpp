@@ -53,10 +53,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <humanoid_common_mpc/HumanoidCostConstraintFactory.h>
 #include <humanoid_common_mpc/HumanoidPreComputation.h>
 #include <humanoid_common_mpc/common/MpcFormulationConfig.h>
-#include "humanoid_common_mpc/common/StatusMacros.h"
 #include <humanoid_common_mpc/constraint/EndEffectorKinematicsTwistConstraint.h>
 #include <humanoid_common_mpc/cost/EndEffectorKinematicsQuadraticCost.h>
 #include <humanoid_common_mpc/pinocchio_model/createPinocchioModel.h>
+#include "humanoid_common_mpc/common/StatusMacros.h"
 
 #include "humanoid_centroidal_mpc/constraint/JointMimicKinematicConstraint.h"
 #include "humanoid_centroidal_mpc/constraint/NormalVelocityConstraintCppAd.h"
@@ -157,7 +157,8 @@ CentroidalMpcInterface::CentroidalMpcInterface(const std::string& taskFile,
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> CentroidalMpcInterface::Create(const std::string& taskFile, const std::string& urdfFile,
+absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> CentroidalMpcInterface::Create(const std::string& taskFile,
+                                                                                       const std::string& urdfFile,
                                                                                        const std::string& referenceFile) {
   std::unique_ptr<CentroidalMpcInterface> interface(new CentroidalMpcInterface(taskFile, urdfFile, referenceFile, /*setupOCP=*/false));
   RETURN_IF_ERROR(interface->setupOptimalControlProblem());
@@ -259,9 +260,8 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
     if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::ZeroVelocity) && eeKinematicsPtr) {
       auto stanceConstraint = getStanceFootConstraint(*eeKinematicsPtr, i);
       auto penalty = std::make_unique<QuadraticPenalty>(modelSettings_.footConstraintConfig.softConstraintWeight);
-      problemPtr_->softConstraintPtr->add(
-          absl::StrCat(footName, "_zeroVelocity"),
-          std::make_unique<StateInputSoftConstraint>(std::move(stanceConstraint), std::move(penalty)));
+      problemPtr_->softConstraintPtr->add(absl::StrCat(footName, "_zeroVelocity"),
+                                          std::make_unique<StateInputSoftConstraint>(std::move(stanceConstraint), std::move(penalty)));
     }
 
     if (formulationTasks.hasHardConstraint(MpcHardConstraintType::ZeroWrench)) {
@@ -337,9 +337,8 @@ std::unique_ptr<StateInputConstraint> CentroidalMpcInterface::getStanceFootConst
     return config;
   };
 
-  return std::unique_ptr<StateInputConstraint>(
-      new ZeroVelocityConstraintCppAd(*referenceManagerPtr_, eeKinematics, contactPointIndex,
-                                      eeZeroVelConConfig(modelSettings_.footConstraintConfig)));
+  return std::unique_ptr<StateInputConstraint>(new ZeroVelocityConstraintCppAd(*referenceManagerPtr_, eeKinematics, contactPointIndex,
+                                                                               eeZeroVelConConfig(modelSettings_.footConstraintConfig)));
 }
 
 /******************************************************************************************************/

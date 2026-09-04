@@ -33,8 +33,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_robotic_tools/common/RotationDerivativesTransforms.h>
 #include <ocs2_robotic_tools/common/RotationTransforms.h>
 
-#include <humanoid_common_mpc/gait/MotionPhaseDefinition.h>
 #include <humanoid_common_mpc/common/ThreadAffinity.h>
+#include <humanoid_common_mpc/gait/MotionPhaseDefinition.h>
 #include <humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h>
 #include <humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h>
 #include "humanoid_wb_mpc/dynamics/DynamicsHelperFunctions.h"
@@ -64,6 +64,7 @@ WBMpcMrtJointController::WBMpcMrtJointController(const ::robot::model::RobotDesc
   otherJointIndices_ = robotDescription.getJointIndices(modelSettings.fixedJointNames);
   currentMpcObservation_.state = vector_t::Zero(mpcRobotModel_.getStateDim());
   currentMpcObservation_.input = vector_t::Zero(mpcRobotModel_.getInputDim());
+  latestPolicyInput_ = vector_t::Zero(mpcRobotModel_.getInputDim());
 
   loadPdGains(pdGainsFile, modelSettings);
 }
@@ -211,6 +212,7 @@ void WBMpcMrtJointController::computeJointControlAction(scalar_t time,
     // Evaluate policy with feedback if activated in config
     mcpMrtInterface_.evaluatePolicy(currentMpcObservation_.time + simDt, currentMpcObservation_.state, mpcPolicyState, mpcPolicyInput,
                                     mpcPolicyMode);
+    latestPolicyInput_ = mpcPolicyInput;
 
     vector_t mpcJointTorques = computeJointTorques<scalar_t>(mpcPolicyState, mpcPolicyInput, pinocchioInterface_, mpcRobotModel_);
     vector_t mpc_q_desired = mpcRobotModel_.getJointAngles(mpcPolicyState);
@@ -241,6 +243,7 @@ void WBMpcMrtJointController::computeJointControlAction(scalar_t time,
     //   Apply weight compensated input around current state
     mpcPolicyState = currentMpcObservation_.state;
     mpcPolicyInput = weightCompensatingInput(pinocchioInterface_, {true, true}, mpcRobotModel_);
+    latestPolicyInput_ = mpcPolicyInput;
     vector_t weightCompensatingTorques = computeJointTorques<scalar_t>(mpcPolicyState, mpcPolicyInput, pinocchioInterface_, mpcRobotModel_);
 
     for (size_t i = 0; i < mpcJointIndices_.size(); i++) {
@@ -288,8 +291,7 @@ void WBMpcMrtJointController::solverWorker() {
     absl::Status mpcStatus = mcpMrtInterface_.advanceMpc();
     if (!mpcStatus.ok()) {
       // MPC solver failed — log and continue with previous solution.
-      LOG(ERROR) << "MPC solver error in WB worker: " << mpcStatus.message()
-                 << " — retaining previous solution and retrying.";
+      LOG(ERROR) << "MPC solver error in WB worker: " << mpcStatus.message() << " — retaining previous solution and retrying.";
     } else {
       // Update active policy buffer
       mcpMrtInterface_.updatePolicy();

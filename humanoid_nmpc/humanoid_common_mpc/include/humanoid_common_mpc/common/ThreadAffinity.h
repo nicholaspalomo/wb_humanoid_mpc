@@ -47,9 +47,7 @@ namespace ocs2::humanoid {
  * @param threadName: Optional human-readable name for logging.
  * @return True if affinity was successfully set.
  */
-inline bool setThreadCpuAffinity(const std::vector<int>& cpuCores,
-                                 pthread_t thread = pthread_self(),
-                                 const std::string& threadName = "") {
+inline bool setThreadCpuAffinity(const std::vector<int>& cpuCores, pthread_t thread = pthread_self(), const std::string& threadName = "") {
   if (cpuCores.empty()) {
     return true;
   }
@@ -68,16 +66,15 @@ inline bool setThreadCpuAffinity(const std::vector<int>& cpuCores,
   }
 
   if (validCores.empty()) {
-    std::cerr << "WARNING: No valid CPU cores specified for thread affinity"
-              << (threadName.empty() ? "" : " on " + threadName) << "." << std::endl;
+    std::cerr << "WARNING: No valid CPU cores specified for thread affinity" << (threadName.empty() ? "" : " on " + threadName) << "."
+              << std::endl;
     return false;
   }
 
   int rc = pthread_setaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
   if (rc != 0) {
-    std::cerr << "WARNING: Failed to set thread CPU affinity"
-              << (threadName.empty() ? "" : " on " + threadName)
-              << " (error code: " << rc << ")." << std::endl;
+    std::cerr << "WARNING: Failed to set thread CPU affinity" << (threadName.empty() ? "" : " on " + threadName) << " (error code: " << rc
+              << ")." << std::endl;
     return false;
   }
 
@@ -85,9 +82,8 @@ inline bool setThreadCpuAffinity(const std::vector<int>& cpuCores,
   for (size_t i = 0; i < validCores.size(); ++i) {
     oss << validCores[i] << (i + 1 < validCores.size() ? "," : "");
   }
-  std::cout << "[ThreadAffinity] Successfully pinned "
-            << (threadName.empty() ? "thread" : threadName)
-            << " to CPU core(s): [" << oss.str() << "]" << std::endl;
+  std::cout << "[ThreadAffinity] Successfully pinned " << (threadName.empty() ? "thread" : threadName) << " to CPU core(s): [" << oss.str()
+            << "]" << std::endl;
 
   return true;
 }

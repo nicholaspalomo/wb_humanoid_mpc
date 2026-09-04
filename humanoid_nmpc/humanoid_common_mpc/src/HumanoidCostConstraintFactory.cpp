@@ -33,12 +33,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/HumanoidCostConstraintFactory.h"
 
-#include "absl/log/log.h"
-#include "absl/strings/str_cat.h"
 #include <ocs2_core/misc/LoadData.h>
 #include <ocs2_core/penalties/Penalties.h>
 #include <boost/property_tree/info_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
+#include "absl/log/log.h"
+#include "absl/strings/str_cat.h"
 
 #include <ocs2_core/constraint/StateInputConstraint.h>
 #include <ocs2_core/cost/QuadraticStateCost.h>
@@ -91,8 +91,10 @@ std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getStateInputQuad
   if (verbose_) {
     LOG(INFO) << "\n #### Base Tracking Cost Coefficients: \n"
               << " #### =============================================================================\n"
-              << "Q:\n" << Q << "\n"
-              << "R:\n" << R << "\n"
+              << "Q:\n"
+              << Q << "\n"
+              << "R:\n"
+              << R << "\n"
               << " #### =============================================================================";
   }
 
@@ -111,12 +113,12 @@ std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getStateQuadratic
   if (verbose_) {
     LOG(INFO) << "\n #### Base Tracking State Cost Coefficients: \n"
               << " #### =============================================================================\n"
-              << "Q:\n" << Q << "\n"
+              << "Q:\n"
+              << Q << "\n"
               << " #### =============================================================================";
   }
 
-  return std::unique_ptr<StateInputCost>(
-      new StateQuadraticCost(std::move(Q), mpcRobotModelADPtr_->getInputDim(), *referenceManagerPtr_));
+  return std::unique_ptr<StateInputCost>(new StateQuadraticCost(std::move(Q), mpcRobotModelADPtr_->getInputDim(), *referenceManagerPtr_));
 }
 
 /******************************************************************************************************/
@@ -130,12 +132,13 @@ std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getInputQuadratic
   if (verbose_) {
     LOG(INFO) << "\n #### Base Tracking Input Cost Coefficients: \n"
               << " #### =============================================================================\n"
-              << "R:\n" << R << "\n"
+              << "R:\n"
+              << R << "\n"
               << " #### =============================================================================";
   }
 
-  return std::unique_ptr<StateInputCost>(new InputQuadraticCost(
-      std::move(R), mpcRobotModelADPtr_->getStateDim(), *referenceManagerPtr_, *pinocchioInterfacePtr_, *mpcRobotModelPtr_));
+  return std::unique_ptr<StateInputCost>(new InputQuadraticCost(std::move(R), mpcRobotModelADPtr_->getStateDim(), *referenceManagerPtr_,
+                                                                *pinocchioInterfacePtr_, *mpcRobotModelPtr_));
 }
 
 /******************************************************************************************************/
