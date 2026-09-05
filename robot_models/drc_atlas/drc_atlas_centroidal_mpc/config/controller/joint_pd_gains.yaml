@@ -137,5 +137,3 @@ joint_gains:
     kp: 1000.0     # 360 N·m limit
     kd: 40.0
     torque_limit: 360.0
-
-

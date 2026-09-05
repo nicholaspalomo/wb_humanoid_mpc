@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/log/check.h"
 
 #include <humanoid_centroidal_mpc/command/CentroidalMpcTargetTrajectoriesCalculator.h>
+#include <humanoid_centroidal_mpc/mrt/MpcParameterUpdaterModule.h>
 #include "humanoid_common_mpc_ros2/ros_comm/Ros2ProceduralMpcMotionManager.h"
 
 using namespace ocs2;
@@ -89,6 +90,10 @@ int main(int argc, char** argv) {
 
   mpc.getSolverPtr()->setReferenceManager(interface.getReferenceManagerPtr());
   mpc.getSolverPtr()->addSynchronizedModule(ros2ProceduralMpcMotionManager);
+
+  // Register real-time MPC parameter hot-reloading
+  auto mpcParameterUpdater = std::make_shared<MpcParameterUpdaterModule>(&mpc, taskFile, urdfFile, referenceFile);
+  mpc.getSolverPtr()->addSynchronizedModule(mpcParameterUpdater);
 
   MPC_ROS_Interface mpcNode(mpc, robotName);
   mpcNode.launchNodes(nodeHandle, qos);

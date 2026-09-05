@@ -78,7 +78,7 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
 
   void startMpcThread(const ::robot::model::RobotState& initRobotState);
 
-  void loadPdGains(const std::string& pdGainsFile, const ModelSettings& modelSettings);
+  void loadPdGains(const std::string& pdGainsFile);
 
   /**
    * @brief Set the active control mode. When set to "JOINT_PD", the controller
@@ -157,6 +157,12 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   std::vector<scalar_t> nominalJointPositions_;  ///< Nominal positions for JOINT_PD mode
   scalar_t previousObservationTime_{0.0};        ///< Previous sim time for computing actual dt
   vector_t latestPolicyInput_;                   ///< Latest MPC policy input (e.g. contact forces, joint accelerations)
+
+  std::string pdGainsFile_;
+  std::vector<std::string> mpcModelJointNames_;
+  std::vector<std::string> fixedJointNames_;
+  std::filesystem::file_time_type pdGainsLastWriteTime_;
+  size_t fileCheckCounter_{0};
 
   /**
    * @brief Compute per-joint gravity compensation torques via Pinocchio.

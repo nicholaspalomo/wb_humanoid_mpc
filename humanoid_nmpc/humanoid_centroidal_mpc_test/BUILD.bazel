@@ -1,3 +1,5 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
 # humanoid_centroidal_mpc_test - Test package for centroidal MPC
@@ -84,6 +86,24 @@ cc_test(
     data = _TEST_DATA,
     deps = _TEST_DEPS,
 )
+cc_test(
+    name = "test_mpc_parameter_updater_module",
+    size = "small",
+    srcs = ["src/testMpcParameterUpdaterModule.cpp"],
+    copts = _TEST_COPTS,
+    data = _TEST_DATA,
+    deps = _TEST_DEPS,
+)
+cc_test(
+    name = "test_centroidal_mpc_mrt_joint_controller",
+    size = "small",
+    srcs = ["src/testCentroidalMpcMrtJointController.cpp"],
+    copts = _TEST_COPTS,
+    data = _TEST_DATA,
+    deps = _TEST_DEPS,
+)
+
+
 
 cc_library(
     name = "humanoid_centroidal_mpc_test_headers",

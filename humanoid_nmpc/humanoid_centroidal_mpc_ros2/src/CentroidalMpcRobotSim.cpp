@@ -41,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <absl/log/log.h>
 #include <humanoid_centroidal_mpc/command/CentroidalMpcTargetTrajectoriesCalculator.h>
 #include <humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h>
+#include <humanoid_centroidal_mpc/mrt/MpcParameterUpdaterModule.h>
 #include <humanoid_common_mpc/common/ThreadAffinity.h>
 #include "humanoid_common_mpc_ros2/fsm/SimFsmBridge.h"
 #include "humanoid_common_mpc_ros2/ros_comm/Ros2ProceduralMpcMotionManager.h"
@@ -99,6 +100,10 @@ int main(int argc, char** argv) {
 
   mpc.getSolverPtr()->setReferenceManager(interface.getReferenceManagerPtr());
   mpc.getSolverPtr()->addSynchronizedModule(ros2ProceduralMpcMotionManager);
+
+  // Register real-time MPC parameter hot-reloading
+  auto mpcParameterUpdater = std::make_shared<MpcParameterUpdaterModule>(&mpc, taskFile, urdfFile, referenceFile);
+  mpc.getSolverPtr()->addSynchronizedModule(mpcParameterUpdater);
 
   // Init Sim state
   robot::model::RobotDescription robotDescription(urdfFile);

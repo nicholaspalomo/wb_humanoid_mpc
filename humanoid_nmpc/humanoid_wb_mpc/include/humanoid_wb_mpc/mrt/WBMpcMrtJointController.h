@@ -1,4 +1,5 @@
 /******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -118,6 +119,11 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
 
   scalar_t previousObservationTime_{0.0};  ///< Previous sim time for computing actual dt
   vector_t latestPolicyInput_;             ///< Latest MPC policy input
+
+  std::string pdGainsFile_;
+  ModelSettings modelSettings_;
+  std::filesystem::file_time_type pdGainsLastWriteTime_;
+  size_t fileCheckCounter_{0};
 };
 
 }  // namespace ocs2::humanoid

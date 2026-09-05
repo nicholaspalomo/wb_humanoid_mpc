@@ -319,7 +319,7 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /robot_description
-      Enabled: false
+      Enabled: true
       Links:
         All Links Enabled: true
         Expand Joint Details: false
@@ -332,7 +332,7 @@ Visualization Manager:
       Name: Terminal State RobotModel
       TF Prefix: terminal_state
       Update Interval: 0
-      Value: false
+      Value: true
       Visual Enabled: true
     - Alpha: 0.30000001192092896
       Class: rviz_default_plugins/RobotModel

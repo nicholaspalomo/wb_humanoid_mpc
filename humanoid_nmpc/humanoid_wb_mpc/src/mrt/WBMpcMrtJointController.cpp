@@ -59,12 +59,19 @@ WBMpcMrtJointController::WBMpcMrtJointController(const ::robot::model::RobotDesc
       mpcRobotModel_(modelSettings),
       mpcDeltaTMicroSeconds_(1000000 / mpcDesiredFrequency),
       realtime_(mpcDesiredFrequency <= 0),
-      visualizerPtr_(rVizVisualizerPtr) {
+      visualizerPtr_(rVizVisualizerPtr),
+      pdGainsFile_(pdGainsFile),
+      modelSettings_(modelSettings) {
   mpcJointIndices_ = robotDescription.getJointIndices(modelSettings.mpcModelJointNames);
   otherJointIndices_ = robotDescription.getJointIndices(modelSettings.fixedJointNames);
   currentMpcObservation_.state = vector_t::Zero(mpcRobotModel_.getStateDim());
   currentMpcObservation_.input = vector_t::Zero(mpcRobotModel_.getInputDim());
   latestPolicyInput_ = vector_t::Zero(mpcRobotModel_.getInputDim());
+
+  if (!pdGainsFile_.empty() && std::filesystem::exists(pdGainsFile_)) {
+    std::error_code ec;
+    pdGainsLastWriteTime_ = std::filesystem::last_write_time(pdGainsFile_, ec);
+  }
 
   loadPdGains(pdGainsFile, modelSettings);
 }
@@ -195,8 +202,18 @@ void WBMpcMrtJointController::updateMpcObservation(ocs2::SystemObservation& mpcO
 void WBMpcMrtJointController::computeJointControlAction(scalar_t time,
                                                         const ::robot::model::RobotState& robotState,
                                                         ::robot::model::RobotJointAction& robotJointAction) {
-  updateMpcObservation(currentMpcObservation_, robotState);
+  // Hot-reload Joint PD Gains at 1Hz (assuming 500Hz control loop)
+  if (!pdGainsFile_.empty() && fileCheckCounter_++ % 500 == 0) {
+    std::error_code ec;
+    auto last_write = std::filesystem::last_write_time(pdGainsFile_, ec);
+    if (!ec && last_write != pdGainsLastWriteTime_) {
+      pdGainsLastWriteTime_ = last_write;
+      loadPdGains(pdGainsFile_, modelSettings_);
+    }
+  }
+
   // Set observation to MPC
+  updateMpcObservation(currentMpcObservation_, robotState);
   mcpMrtInterface_.setCurrentObservation(currentMpcObservation_);
 
   vector_t mpcPolicyState;

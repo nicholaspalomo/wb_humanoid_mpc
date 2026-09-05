@@ -204,13 +204,11 @@
                 <inertial pos="0 0 0" quat="0.5 0.5 -0.5 0.5" mass="0.125" diaginertia="1.30101e-05 1.01674e-05 8.42775e-06"/>
                 <joint name="l_leg_aky" pos="0 0 0" axis="0 1 0" range="-1 0.7" actuatorfrcrange="-740 740" damping="5.0"/>
                 <geom class="visual" pos="0.014 0 0.008" type="mesh" mesh="l_talus"/>
-                <geom class="collision" type="sphere" size="0.03"/>
                 <body name="l_foot">
                   <inertial pos="0.027 0 -0.067" quat="0 0.707107 0 0.707107" mass="2.05" diaginertia="0.008 0.007 0.002"/>
                   <joint name="l_leg_akx" pos="0 0 0" axis="1 0 0" range="-0.8 0.8" actuatorfrcrange="-360 360" damping="5.0"/>
                   <geom class="visual" pos="-0.008 0.002 0.024" type="mesh" mesh="l_foot"/>
-                  <!-- Foot sole contact geoms — flat box + 4 corner spheres for stable ground contact -->
-                  <geom class="collision" type="box" size="0.13 0.06 0.01" pos="0.04 0 -0.065"/>
+                  <!-- Foot sole contact geoms — 4 corner spheres only (no box) for clean point contacts -->
                   <geom class="collision" type="sphere" size="0.012" pos="-0.08 0.055 -0.07"/>
                   <geom class="collision" type="sphere" size="0.012" pos="-0.08 -0.055 -0.07"/>
                   <geom class="collision" type="sphere" size="0.012" pos="0.16 0.055 -0.07"/>
@@ -247,13 +245,11 @@
                 <inertial pos="0 0 0" quat="0.5 0.5 -0.5 0.5" mass="0.125" diaginertia="1.30101e-05 1.01674e-05 8.42775e-06"/>
                 <joint name="r_leg_aky" pos="0 0 0" axis="0 1 0" range="-1 0.7" actuatorfrcrange="-740 740" damping="5.0"/>
                 <geom class="visual" pos="0.014 0 0.008" type="mesh" mesh="r_talus"/>
-                <geom class="collision" type="sphere" size="0.03"/>
                 <body name="r_foot">
                   <inertial pos="0.027 0 -0.067" quat="0 0.707107 0 0.707107" mass="2.05" diaginertia="0.008 0.007 0.002"/>
                   <joint name="r_leg_akx" pos="0 0 0" axis="1 0 0" range="-0.8 0.8" actuatorfrcrange="-360 360" damping="5.0"/>
                   <geom class="visual" pos="-0.008 -0.002 0.024" type="mesh" mesh="r_foot"/>
-                  <!-- Foot sole contact geoms — flat box + 4 corner spheres for stable ground contact -->
-                  <geom class="collision" type="box" size="0.13 0.06 0.01" pos="0.04 0 -0.065"/>
+                  <!-- Foot sole contact geoms — 4 corner spheres only (no box) for clean point contacts -->
                   <geom class="collision" type="sphere" size="0.012" pos="-0.08 0.055 -0.07"/>
                   <geom class="collision" type="sphere" size="0.012" pos="-0.08 -0.055 -0.07"/>
                   <geom class="collision" type="sphere" size="0.012" pos="0.16 0.055 -0.07"/>
