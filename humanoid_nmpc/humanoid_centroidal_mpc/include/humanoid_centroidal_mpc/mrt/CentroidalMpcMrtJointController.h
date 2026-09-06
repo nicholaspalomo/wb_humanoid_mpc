@@ -37,6 +37,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 #include "robot_model/RobotDescription.h"
 
+#include <atomic>
+#include <mutex>
+#include <rclcpp/rclcpp.hpp>
+#include <std_msgs/msg/string.hpp>
+
 namespace ocs2::humanoid {
 
 class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase {
@@ -79,6 +84,12 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   void startMpcThread(const ::robot::model::RobotState& initRobotState);
 
   void loadPdGains(const std::string& pdGainsFile);
+
+  /**
+   * Subscribe to the /pd_gains_updates ROS topic for real-time
+   * PD gain updates from the GUI (without writing to joint_pd_gains.yaml).
+   */
+  void subscribePdGains(rclcpp::Node::SharedPtr node);
 
   /**
    * @brief Set the active control mode. When set to "JOINT_PD", the controller
@@ -166,6 +177,12 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   std::vector<std::string> fixedJointNames_;
   std::filesystem::file_time_type pdGainsLastWriteTime_;
   size_t fileCheckCounter_{0};
+
+  // ROS topic state for real-time PD gains updates
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr pdGainsSubscription_;
+  std::mutex pdGainsPendingMutex_;
+  std::string pdGainsPendingYamlContent_;
+  std::atomic<bool> hasNewPdGainsTopicData_{false};
 
   /**
    * @brief Compute per-joint gravity compensation torques via Pinocchio.

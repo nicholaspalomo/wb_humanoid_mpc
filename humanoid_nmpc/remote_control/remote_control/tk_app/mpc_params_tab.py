@@ -117,6 +117,9 @@ class MpcParamsTab(ttk.Frame):
         self._live_values: Dict[str, float] = (
             {}
         )  # Persists slider values across category switches
+        self._default_values: Dict[str, float] = (
+            {}
+        )  # Persists reset-checkpoint defaults across category switches
 
         self._build_header_ui()
 
@@ -328,10 +331,13 @@ class MpcParamsTab(ttk.Frame):
         elif cat == "Constraints & Barriers":
             self._render_constraints_and_barriers()
 
-        # Restore saved slider values (from previous edits on this tab)
+        # Restore saved slider values and defaults (from previous edits on this tab)
         for key, row in self.slider_rows.items():
             if key in self._live_values:
                 row.set_value(self._live_values[key])
+            if key in self._default_values:
+                row.default_value = self._default_values[key]
+                row._update_highlight()
 
         if not self.enable_online_tuning:
             for row in self.slider_rows.values():
@@ -610,15 +616,19 @@ class MpcParamsTab(ttk.Frame):
         if qf_scaling_key in self.slider_rows:
             q_scale = float(q_data.get("scaling", 1.0))
             self.slider_rows[qf_scaling_key].set_value(q_scale)
+            self._live_values[qf_scaling_key] = q_scale
             synced += 1
 
-        # Sync diagonal entries (0,0) through (11,11)
-        for i in range(12):
-            diag_key = f"({i},{i})"
-            qf_slider_key = f'Q_final."{diag_key}"'
-            if qf_slider_key in self.slider_rows and diag_key in q_data:
+        # Sync ALL diagonal entries that exist in Q_final sliders
+        for key in list(self.slider_rows.keys()):
+            if not key.startswith('Q_final."('):
+                continue
+            # Extract the "(i,j)" part from the slider key
+            diag_key = key.split("Q_final.")[1].strip('"')
+            if diag_key in q_data:
                 q_val = float(q_data[diag_key])
-                self.slider_rows[qf_slider_key].set_value(q_val)
+                self.slider_rows[key].set_value(q_val)
+                self._live_values[key] = q_val
                 synced += 1
 
         if synced > 0:
@@ -927,10 +937,14 @@ class MpcParamsTab(ttk.Frame):
             self._show_status("No file path specified to save.", error=True)
             return
 
-        updates = []
+        # Merge current slider_rows into _live_values to capture pending changes
         for key_path_str, row in self.slider_rows.items():
+            self._live_values[key_path_str] = row.get_value()
+
+        # Build updates from ALL live values (all tabs, not just the active one)
+        updates = []
+        for key_path_str, val in self._live_values.items():
             parts = key_path_str.split(".")
-            val = row.get_value()
             updates.append((parts, val))
 
         try:
@@ -943,8 +957,12 @@ class MpcParamsTab(ttk.Frame):
                 if update_defaults:
                     # Explicit "Save to YAML": update the reset checkpoint
                     # so "Reset All" returns to these values.
-                    for row in self.slider_rows.values():
-                        row.default_value = row.current_value
+                    for key, val in self._live_values.items():
+                        # Update defaults for visible sliders
+                        if key in self.slider_rows:
+                            self.slider_rows[key].default_value = val
+                    # Also store defaults for non-visible tabs
+                    self._default_values = dict(self._live_values)
                 for row in self.slider_rows.values():
                     row._update_highlight()
 

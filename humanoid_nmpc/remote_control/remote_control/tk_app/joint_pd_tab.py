@@ -60,6 +60,7 @@ class JointPdGainsTab(ttk.Frame):
         pd_gains_file: Optional[str] = None,
         on_gains_updated=None,
         enable_online_tuning: bool = True,
+        param_publisher=None,
         *args,
         **kwargs,
     ):
@@ -69,12 +70,13 @@ class JointPdGainsTab(ttk.Frame):
         self.pd_gains_file = pd_gains_file
         self.on_gains_updated = on_gains_updated
         self.enable_online_tuning = enable_online_tuning
+        self.param_publisher = param_publisher  # ROS publisher for /pd_gains_updates
 
         self.raw_data: Dict[str, Any] = {}
         self.slider_rows: Dict[str, SliderRow] = {}  # key -> SliderRow
         self.section_frames: Dict[str, ttk.LabelFrame] = {}
         self.scale_buttons: list = []
-        self._debounce_save_id = None  # tkinter after() ID for debounced auto-save
+        self._debounce_publish_id = None  # tkinter after() ID for debounced publish
 
         self._build_header_ui()
         self._build_master_scale_ui()
@@ -450,16 +452,59 @@ class JointPdGainsTab(ttk.Frame):
         self._show_status("All gains reset to loaded defaults")
 
     def _on_any_slider_change(self, name: str, value: float):
-        """Called on every slider move; debounces auto-save to disk."""
-        if self._debounce_save_id is not None:
-            self.after_cancel(self._debounce_save_id)
-        self._debounce_save_id = self.after(300, self._auto_save)
+        """Called on every slider move; debounces publish to ROS topic.
 
-    def _auto_save(self):
-        """Debounced auto-save: writes current slider values to YAML."""
-        self._debounce_save_id = None
-        if self.enable_online_tuning and self.pd_gains_file:
-            self.save_to_yaml()
+        The C++ CentroidalMpcMrtJointController subscribes to /pd_gains_updates
+        for real-time PD gain updates without touching the YAML file.
+        """
+        if self._debounce_publish_id is not None:
+            self.after_cancel(self._debounce_publish_id)
+        self._debounce_publish_id = self.after(300, self._publish_to_topic)
+
+    def _build_yaml_with_slider_values(self) -> str:
+        """Build a complete YAML string from the original file with slider values applied.
+
+        Reads the original joint_pd_gains.yaml, applies current slider values as
+        line edits, and returns the full modified YAML string (without writing to
+        disk).  The C++ side writes this to a temp file for parsing.
+        """
+        if not self.pd_gains_file or not os.path.exists(self.pd_gains_file):
+            return ""
+
+        with open(self.pd_gains_file, "r") as f:
+            lines = f.readlines()
+
+        # Build updates list from current slider values
+        updates = []
+        for key_path_str, row in self.slider_rows.items():
+            parts = key_path_str.split(".")
+            val = row.get_value()
+            updates.append((parts, val))
+
+        # Apply updates in-place on the lines
+        from remote_control.tk_app.yaml_editor_utils import _update_single_key
+
+        for key_path, value in updates:
+            lines = _update_single_key(lines, key_path, value)
+
+        return "".join(lines)
+
+    def _publish_to_topic(self):
+        """Publish current slider values as a YAML string to /pd_gains_updates."""
+        self._debounce_publish_id = None
+        if not self.enable_online_tuning or not self.param_publisher:
+            return
+
+        try:
+            yaml_content = self._build_yaml_with_slider_values()
+            if yaml_content:
+                from std_msgs.msg import String
+
+                msg = String()
+                msg.data = yaml_content
+                self.param_publisher.publish(msg)
+        except Exception as e:
+            self._show_status(f"Error publishing to topic: {e}", error=True)
 
     def save_to_yaml(self):
         if not self.enable_online_tuning:

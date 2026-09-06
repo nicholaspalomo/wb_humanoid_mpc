@@ -37,6 +37,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 #include "robot_model/RobotDescription.h"
 
+#include <atomic>
+#include <mutex>
+#include <rclcpp/rclcpp.hpp>
+#include <std_msgs/msg/string.hpp>
+
 namespace ocs2::humanoid {
 
 class WBMpcMrtJointController final : public ::robot::model::ControlBase {
@@ -74,6 +79,12 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
   void startMpcThread(const ::robot::model::RobotState& initRobotState);
 
   void loadPdGains(const std::string& pdGainsFile, const ModelSettings& modelSettings);
+
+  /**
+   * Subscribe to the /pd_gains_updates ROS topic for real-time
+   * PD gain updates from the GUI (without writing to joint_pd_gains.yaml).
+   */
+  void subscribePdGains(rclcpp::Node::SharedPtr node);
 
   const ocs2::SystemObservation& getCurrentObservation() const { return currentMpcObservation_; }
   const vector_t& getLatestPolicyInput() const { return latestPolicyInput_; }
@@ -124,6 +135,12 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
   const ModelSettings& modelSettings_;
   std::filesystem::file_time_type pdGainsLastWriteTime_;
   size_t fileCheckCounter_{0};
+
+  // ROS topic state for real-time PD gains updates
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr pdGainsSubscription_;
+  std::mutex pdGainsPendingMutex_;
+  std::string pdGainsPendingYamlContent_;
+  std::atomic<bool> hasNewPdGainsTopicData_{false};
 };
 
 }  // namespace ocs2::humanoid

@@ -30,6 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_wb_mpc/mrt/WBMpcMrtJointController.h"
 
+#include <fstream>
+
 #include <ocs2_robotic_tools/common/RotationDerivativesTransforms.h>
 #include <ocs2_robotic_tools/common/RotationTransforms.h>
 
@@ -138,6 +140,22 @@ void WBMpcMrtJointController::loadPdGains(const std::string& pdGainsFile, const 
 /******************************************************************************************************/
 /******************************************************************************************************/
 
+void WBMpcMrtJointController::subscribePdGains(rclcpp::Node::SharedPtr node) {
+  auto qos = rclcpp::QoS(1).best_effort();
+  pdGainsSubscription_ =
+      node->create_subscription<std_msgs::msg::String>("/pd_gains_updates", qos, [this](const std_msgs::msg::String::SharedPtr msg) {
+        std::lock_guard<std::mutex> lock(pdGainsPendingMutex_);
+        pdGainsPendingYamlContent_ = msg->data;
+        hasNewPdGainsTopicData_.store(true);
+        std::cerr << "[WBMpcMrtJointController] topicCallback received " << msg->data.size() << " chars" << std::endl;
+      });
+  LOG(INFO) << "[WBMpcMrtJointController] Subscribed to /pd_gains_updates topic.";
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
 WBMpcMrtJointController::~WBMpcMrtJointController() {
   // Signal the solver thread to terminate
   terminateThread_.store(true);
@@ -202,6 +220,26 @@ void WBMpcMrtJointController::updateMpcObservation(ocs2::SystemObservation& mpcO
 void WBMpcMrtJointController::computeJointControlAction(scalar_t time,
                                                         const ::robot::model::RobotState& robotState,
                                                         ::robot::model::RobotJointAction& robotJointAction) {
+  // Check for ROS topic-based PD gains update (takes priority over file-watcher)
+  if (hasNewPdGainsTopicData_.load()) {
+    hasNewPdGainsTopicData_.store(false);
+    std::string yamlContent;
+    {
+      std::lock_guard<std::mutex> lock(pdGainsPendingMutex_);
+      yamlContent = std::move(pdGainsPendingYamlContent_);
+    }
+    if (!yamlContent.empty()) {
+      // Write to a temp file and call loadPdGains
+      std::string tempFile = pdGainsFile_ + ".live.yaml";
+      {
+        std::ofstream ofs(tempFile);
+        ofs << yamlContent;
+      }
+      loadPdGains(tempFile, modelSettings_);
+      std::cerr << "[WBMpcMrtJointController] Applied PD gains from topic." << std::endl;
+    }
+  }
+
   // Hot-reload Joint PD Gains at 1Hz (assuming 500Hz control loop)
   if (!pdGainsFile_.empty() && fileCheckCounter_++ % 500 == 0) {
     std::error_code ec;

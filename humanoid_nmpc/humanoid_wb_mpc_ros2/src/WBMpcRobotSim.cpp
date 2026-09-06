@@ -138,7 +138,7 @@ int main(int argc, char** argv) {
   WBMpcMrtJointController mpcJointController(robotInterface.getRobotDescription(), interface.modelSettings(), mpc,
                                              interface.getPinocchioInterface(), interface.mpcSettings().mpcDesiredFrequency_,
                                              humanoidVisualizer, pdGainsFile);
-
+  mpcJointController.subscribePdGains(nodeHandle);
   bool enableTelemetry = true;
   std::vector<std::string> telemetryFrames;
   const scalar_t mrtDesiredFrequency = interface.mpcSettings().mrtDesiredFrequency_;

@@ -58,6 +58,7 @@ class App(tk.Tk):
         enable_online_tuning: bool = True,
         enable_telemetry: bool = True,
         param_publisher=None,
+        pd_gains_publisher=None,
     ):
         super().__init__()
         self.title("Robot Base Controller & Tuning")
@@ -67,6 +68,7 @@ class App(tk.Tk):
         self.enable_telemetry = enable_telemetry
         self._fsm_command_callback = None
         self.param_publisher = param_publisher
+        self.pd_gains_publisher = pd_gains_publisher
 
         # Position window on the left side of the screen on top of the RVIZ window
         gui_width = 960
@@ -176,6 +178,7 @@ class App(tk.Tk):
             tab_pd,
             pd_gains_file=self.pd_gains_file,
             enable_online_tuning=self.enable_online_tuning,
+            param_publisher=self.pd_gains_publisher,
         )
         self.joint_pd_tab.pack(fill="both", expand=True)
 
@@ -603,6 +606,11 @@ class RosJoystickApp(Node):
             String, "/mpc_parameter_updates", param_qos
         )
 
+        # Publisher for real-time PD gains updates (slider -> ROS topic -> C++)
+        self.pd_gains_publisher = self.create_publisher(
+            String, "/pd_gains_updates", param_qos
+        )
+
         enable_online_tuning = True
         enable_telemetry = True
         if task_file and os.path.exists(task_file):
@@ -634,6 +642,7 @@ class RosJoystickApp(Node):
             enable_online_tuning=enable_online_tuning,
             enable_telemetry=enable_telemetry,
             param_publisher=self.param_publisher,
+            pd_gains_publisher=self.pd_gains_publisher,
         )
         self.app.set_default_pelvis_height(default_height)
         self.app._fsm_command_callback = self._send_fsm_command
