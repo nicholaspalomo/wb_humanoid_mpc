@@ -175,7 +175,7 @@ initialState:
 
 # standard state weight matrix
 Q:
-  scaling: 10
+  scaling: 5
 
   # ; Normalized Centroidal Momentum: [linear, angular] ;;
   "(0,0)": 2  # h_com_x / robotMass
@@ -197,7 +197,7 @@ Q:
   # ; Joint Positions ;;
   "(12,12)": 10  # back_bkz
   "(13,13)": 50  # back_bky
-  "(14,14)": 10  # back_bkx
+  "(14,14)": 15  # back_bkx
   "(15,15)": 5  # l_arm_shz
   "(16,16)": 20  # l_arm_shx
   "(17,17)": 10  # l_arm_ely
@@ -267,25 +267,7 @@ R:
 
 terminalCostScaling: 4
 Q_final:
-  scaling: 10
-
-  # ; Normalized Centroidal Momentum: [linear, angular] ;;
-  "(0,0)": 2  # h_com_x / robotMass
-  "(1,1)": 2  # h_com_y / robotMass
-  "(2,2)": 15  # h_com_z / robotMass
-  "(3,3)": 50  # L_x / robotMass
-  "(4,4)": 15  # L_y / robotMass
-  "(5,5)": 4  # L_z / robotMass
-
-  # ; Base Pose: [position, orientation] ;;
-  "(6,6)": 0  # p_base_x
-  "(7,7)": 0  # p_base_y
-  "(8,8)": 15  # p_base_z
-  # euler angles for base to world rotation
-  "(9,9)": 25  # theta_base_z
-  "(10,10)": 25  # theta_base_y
-  "(11,11)": 25  # theta_base_x
-  scaling: 10
+  scaling: 5
 
   # ; Normalized Centroidal Momentum: [linear, angular] ;;
   "(0,0)": 2  # h_com_x / robotMass
@@ -307,7 +289,7 @@ Q_final:
   # ; Joint Positions ;;
   "(12,12)": 10  # back_bkz
   "(13,13)": 50  # back_bky
-  "(14,14)": 10  # back_bkx
+  "(14,14)": 15  # back_bkx
   "(15,15)": 5  # l_arm_shz
   "(16,16)": 20  # l_arm_shx
   "(17,17)": 10  # l_arm_ely
