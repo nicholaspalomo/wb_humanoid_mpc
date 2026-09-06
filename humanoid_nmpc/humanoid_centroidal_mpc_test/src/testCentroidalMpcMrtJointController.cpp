@@ -34,26 +34,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <thread>
 
 #include <humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h>
-#include <ocs2_dummy_loop/DummyObserver.h>
 #include <ocs2_mpc/MPC_BASE.h>
+#include <ocs2_ros2_interfaces/mrt/DummyObserver.h>
 #include "humanoid_centroidal_mpc_test/CentroidalTestingModelInterface.h"
 
 using namespace ocs2;
 using namespace ocs2::humanoid;
 
+#include <robot_model/RobotDescription.h>
+
 class MockMpc : public MPC_BASE {
  public:
-  MockMpc() {
-    SystemObservation initialObservation;
-    initialObservation.time = 0.0;
-    initialObservation.state = vector_t::Zero(10);
-    initialObservation.input = vector_t::Zero(10);
-    mrtObservationQueue_.push(initialObservation);
-  }
+  MockMpc() : MPC_BASE(mpc::Settings{}) {}
 
-  bool run(double currentTime, const vector_t& currentState) override { return true; }
-  void calculateController(double initTime, const vector_t& initState, double finalTime) override {}
-  const OptimalControlProblem& getOptimalControlProblem() const override { throw std::runtime_error("Not implemented"); }
+  bool run(scalar_t currentTime, const vector_t& currentState, size_t currentMode = 0) override { return true; }
+  void calculateController(scalar_t initTime, const vector_t& initState, size_t initMode, scalar_t finalTime) override {}
+  SolverBase* getSolverPtr() override { return nullptr; }
+  const SolverBase* getSolverPtr() const override { return nullptr; }
 };
 
 class CentroidalMpcMrtJointControllerTest : public ::testing::Test {
@@ -84,21 +81,14 @@ class CentroidalMpcMrtJointControllerTest : public ::testing::Test {
 TEST_F(CentroidalMpcMrtJointControllerTest, testPdGainsHotReloading) {
   MockMpc mockMpc;
 
-  // Set up robot state and joint action
-  robot::model::RobotState robotState;
-  robotState.t = 0.0;
-  robot::model::RobotJointAction jointAction;
-  auto jointNames = testingModelInterface.getPinocchioInterface().getModel().names;
-  for (const auto& name : jointNames) {
-    if (name != "universe") {
-      jointAction.insert(name, robot::model::JointAction{});
-    }
-  }
+  ::robot::model::RobotDescription robotDesc(testingModelInterface.urdfFile);
+  robot::model::RobotState robotState(robotDesc);
+  robot::model::RobotJointAction jointAction(robotDesc);
 
   // Create controller
-  CentroidalMpcMrtJointController controller(testingModelInterface.getPinocchioInterface().getModel(),
-                                             testingModelInterface.getModelSettings(), testingModelInterface.getMpcRobotModel(), mockMpc,
-                                             testingModelInterface.getPinocchioInterface(), 400.0, nullptr, tempPdGainsFile_.string());
+  CentroidalMpcMrtJointController controller(robotDesc, testingModelInterface.getModelSettings(), testingModelInterface.getMpcRobotModel(),
+                                             mockMpc, testingModelInterface.getPinocchioInterface(), 400.0, nullptr,
+                                             tempPdGainsFile_.string());
 
   controller.setControlMode("JOINT_PD");
 

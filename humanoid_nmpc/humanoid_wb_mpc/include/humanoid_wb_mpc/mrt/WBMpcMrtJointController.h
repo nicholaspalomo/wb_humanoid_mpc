@@ -121,7 +121,7 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
   vector_t latestPolicyInput_;             ///< Latest MPC policy input
 
   std::string pdGainsFile_;
-  ModelSettings modelSettings_;
+  const ModelSettings& modelSettings_;
   std::filesystem::file_time_type pdGainsLastWriteTime_;
   size_t fileCheckCounter_{0};
 };

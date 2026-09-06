@@ -1,5 +1,6 @@
 # Simulation & Telemetry Configuration
 enableTelemetry: true        # Enable high-rate ROS 2 telemetry publishing for PlotJuggler
+telemetryFrequency: 100      # [Hz] Telemetry publishing frequency (decimated from MRT loop)
 enableOnlineTuning: true     # Enable runtime parameter and gain tuning in Controller GUI
 
 # Targeted Pinocchio frames for telemetry logging (position, orientation, twist, accel, wrench)
@@ -140,7 +141,7 @@ initialState:
   # Base Pose: [position, orientation]
   "(6,0)": 0.0  # p_base_x
   "(7,0)": 0.0  # p_base_y
-  "(8,0)": 0.70  # p_base_z
+  "(8,0)": 0.7405  # p_base_z
   "(9,0)": 0.0  # theta_base_z
   "(10,0)": 0.0  # theta_base_y
   "(11,0)": 0.0  # theta_base_x

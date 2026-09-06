@@ -109,6 +109,7 @@ class MpcParamsTab(ttk.Frame):
         self.raw_data: Dict[str, Any] = {}
         self.slider_rows: Dict[str, SliderRow] = {}  # key_path_str -> SliderRow
         self.comment_map: Dict[str, str] = {}  # "(i,i)" -> comment description
+        self._debounce_save_id = None  # tkinter after() ID for debounced auto-save
 
         self._build_header_ui()
 
@@ -143,6 +144,14 @@ class MpcParamsTab(ttk.Frame):
         )
         preset_cb.pack(side="left", padx=(0, 10))
         preset_cb.bind("<<ComboboxSelected>>", self._on_preset_selected)
+        preset_cb.bind(
+            "<Button-1>",
+            lambda e: (
+                e.widget.event_generate("<Down>", when="head")
+                if e.widget.identify(e.x, e.y) != "downarrow"
+                else None
+            ),
+        )
 
         self.path_var = tk.StringVar(value=self.task_file or "")
         path_entry = ttk.Entry(toolbar, textvariable=self.path_var, width=32)
@@ -322,6 +331,7 @@ class MpcParamsTab(ttk.Frame):
             min_val=0.01,
             max_val=max(scaling_val * 5.0, 10.0),
             label_width=22,
+            on_change=self._on_any_slider_change,
         )
         row.pack(fill="x", padx=4, pady=2)
         self.slider_rows["Q.scaling"] = row
@@ -344,6 +354,7 @@ class MpcParamsTab(ttk.Frame):
                     min_val=0.0,
                     max_val=max(val * 4.0, 50.0),
                     label_width=28,
+                    on_change=self._on_any_slider_change,
                 )
                 row.pack(fill="x", padx=4, pady=1)
                 self.slider_rows[f'Q."{key}"'] = row
@@ -366,6 +377,7 @@ class MpcParamsTab(ttk.Frame):
                     min_val=0.0,
                     max_val=max(val * 4.0, 100.0),
                     label_width=28,
+                    on_change=self._on_any_slider_change,
                 )
                 row.pack(fill="x", padx=4, pady=1)
                 self.slider_rows[f'Q."{key}"'] = row
@@ -391,6 +403,7 @@ class MpcParamsTab(ttk.Frame):
                 min_val=0.0,
                 max_val=max(val * 5.0, 5.0),
                 label_width=28,
+                on_change=self._on_any_slider_change,
             )
             row.pack(fill="x", padx=4, pady=1)
             self.slider_rows[f'Q."{key}"'] = row
@@ -418,6 +431,7 @@ class MpcParamsTab(ttk.Frame):
             min_val=0.01,
             max_val=max(scaling_val * 5.0, 10.0),
             label_width=22,
+            on_change=self._on_any_slider_change,
         )
         row.pack(fill="x", padx=4, pady=2)
         self.slider_rows["R.scaling"] = row
@@ -440,6 +454,7 @@ class MpcParamsTab(ttk.Frame):
                     min_val=0.0,
                     max_val=max(val * 4.0, 50.0),
                     label_width=26,
+                    on_change=self._on_any_slider_change,
                 )
                 row.pack(fill="x", padx=4, pady=1)
                 self.slider_rows[f'R."{key}"'] = row
@@ -464,6 +479,7 @@ class MpcParamsTab(ttk.Frame):
                 min_val=0.0,
                 max_val=max(val * 4.0, 100.0),
                 label_width=26,
+                on_change=self._on_any_slider_change,
             )
             row.pack(fill="x", padx=4, pady=1)
             self.slider_rows[f'R."{key}"'] = row
@@ -483,6 +499,7 @@ class MpcParamsTab(ttk.Frame):
             min_val=0.1,
             max_val=max(term_scaling * 4.0, 20.0),
             label_width=24,
+            on_change=self._on_any_slider_change,
         )
         row.pack(fill="x", padx=4, pady=2)
         self.slider_rows["terminalCostScaling"] = row
@@ -523,6 +540,7 @@ class MpcParamsTab(ttk.Frame):
                     min_val=0.0,
                     max_val=max(val * 4.0, 50.0),
                     label_width=28,
+                    on_change=self._on_any_slider_change,
                 )
                 row.pack(fill="x", padx=4, pady=1)
                 self.slider_rows[f'Q_final."{key}"'] = row
@@ -545,6 +563,7 @@ class MpcParamsTab(ttk.Frame):
                         min_val=0.0,
                         max_val=max(val * 3.0, 100.0),
                         label_width=24,
+                        on_change=self._on_any_slider_change,
                     )
                     row.pack(fill="x", padx=4, pady=1)
                     self.slider_rows[f"task_space_foot_cost_weights.{k}"] = row
@@ -571,6 +590,7 @@ class MpcParamsTab(ttk.Frame):
                         min_val=0.0,
                         max_val=max(val * 3.0, 100.0),
                         label_width=24,
+                        on_change=self._on_any_slider_change,
                     )
                     row.pack(fill="x", padx=4, pady=1)
                     self.slider_rows[f"task_space_costs.torso.weights.{k}"] = row
@@ -591,6 +611,7 @@ class MpcParamsTab(ttk.Frame):
                 min_val=0.0,
                 max_val=max(val * 4.0, 50.0),
                 label_width=24,
+                on_change=self._on_any_slider_change,
             )
             row.pack(fill="x", padx=4, pady=2)
             self.slider_rows["icp_cost_weights.icpErrorWeight"] = row
@@ -613,6 +634,7 @@ class MpcParamsTab(ttk.Frame):
                         min_val=0.0,
                         max_val=max(val * 3.0, 50.0),
                         label_width=26,
+                        on_change=self._on_any_slider_change,
                     )
                     row.pack(fill="x", padx=4, pady=1)
                     self.slider_rows[f"model_settings.foot_constraint.{k}"] = row
@@ -638,6 +660,7 @@ class MpcParamsTab(ttk.Frame):
                         min_val=min_val,
                         max_val=max_val,
                         label_width=26,
+                        on_change=self._on_any_slider_change,
                     )
                     row.pack(fill="x", padx=4, pady=1)
                     self.slider_rows[f"swing_trajectory_config.{k}"] = row
@@ -663,6 +686,7 @@ class MpcParamsTab(ttk.Frame):
                     min_val=0.01,
                     max_val=max(val * 4.0, 20.0),
                     label_width=26,
+                    on_change=self._on_any_slider_change,
                 )
                 row.pack(fill="x", padx=4, pady=1)
                 self.slider_rows[f"contacts.frictionForceConeSoftConstraint.{k}"] = row
@@ -679,6 +703,7 @@ class MpcParamsTab(ttk.Frame):
                     min_val=0.01,
                     max_val=max(val * 4.0, 2000.0),
                     label_width=26,
+                    on_change=self._on_any_slider_change,
                 )
                 row.pack(fill="x", padx=4, pady=1)
                 self.slider_rows[f"jointLimits.{k}"] = row
@@ -695,6 +720,7 @@ class MpcParamsTab(ttk.Frame):
                     min_val=0.01,
                     max_val=max(val * 4.0, 20000.0),
                     label_width=26,
+                    on_change=self._on_any_slider_change,
                 )
                 row.pack(fill="x", padx=4, pady=1)
                 self.slider_rows[f"collision_constraint.{k}"] = row
@@ -705,6 +731,18 @@ class MpcParamsTab(ttk.Frame):
         for row in self.slider_rows.values():
             row.reset_to_default()
         self._show_status("All parameters reset to loaded defaults")
+
+    def _on_any_slider_change(self, name: str, value: float):
+        """Called on every slider move; debounces auto-save to disk."""
+        if self._debounce_save_id is not None:
+            self.after_cancel(self._debounce_save_id)
+        self._debounce_save_id = self.after(300, self._auto_save)
+
+    def _auto_save(self):
+        """Debounced auto-save: writes current slider values to YAML."""
+        self._debounce_save_id = None
+        if self.enable_online_tuning and self.task_file:
+            self.save_to_yaml()
 
     def save_to_yaml(self):
         if not self.enable_online_tuning:

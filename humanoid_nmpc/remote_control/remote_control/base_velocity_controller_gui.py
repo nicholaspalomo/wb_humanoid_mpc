@@ -1,4 +1,5 @@
 """****************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -65,15 +66,18 @@ class App(tk.Tk):
         self.enable_telemetry = enable_telemetry
         self._fsm_command_callback = None
 
-        # Position window on the right side of the screen
-        screen_width = self.winfo_screenwidth()
-        screen_height = self.winfo_screenheight()
+        # Position window on the left side of the screen on top of the RVIZ window
         gui_width = 960
         gui_height = 700
-        pos_x = max(0, screen_width - gui_width - 30)
+        pos_x = 30
         pos_y = 50
         self.geometry(f"{gui_width}x{gui_height}+{pos_x}+{pos_y}")
         self.minsize(800, 520)
+
+        # Raise window on top of other windows (e.g. RVIZ)
+        self.lift()
+        self.attributes("-topmost", True)
+        self.after(1500, lambda: self.attributes("-topmost", False))
 
         # Set window background color
         self.configure(bg="#1e1e1e")
@@ -147,6 +151,13 @@ class App(tk.Tk):
             troughcolor="#2d2d2d",
             bordercolor="#007acc",
         )
+
+        # Ensure Combobox popdown list has proper theme colors and readable font
+        self.option_add("*TCombobox*Listbox.background", "#2d2d2d")
+        self.option_add("*TCombobox*Listbox.foreground", "#ffffff")
+        self.option_add("*TCombobox*Listbox.selectBackground", "#007acc")
+        self.option_add("*TCombobox*Listbox.selectForeground", "#ffffff")
+        self.option_add("*TCombobox*Listbox.font", ("Helvetica", 10))
 
         # Top-level Notebook tabs
         self.notebook = ttk.Notebook(self)
@@ -388,15 +399,24 @@ class App(tk.Tk):
                     "WB_MPC",
                     "SAFETY",
                 )
-                if fsm_state in valid_modes:
+                if fsm_state in valid_modes and self.fsm_mode_var.get() != fsm_state:
                     self.fsm_mode_var.set(fsm_state)
             if len(parts) >= 2:
                 gantry_state = parts[1]
-                self.gantry_var.set(gantry_state == "GANTRY_LOCKED")
+                target_gantry = gantry_state == "GANTRY_LOCKED"
+                if self.gantry_var.get() != target_gantry:
+                    self.gantry_var.set(target_gantry)
         except Exception:
             pass
 
     def set_joystick_connected(self, is_connected):
+        if (
+            hasattr(self, "_last_joystick_connected")
+            and self._last_joystick_connected == is_connected
+        ):
+            return
+        self._last_joystick_connected = is_connected
+
         self.joystick_connected_indicator.set_state(is_connected)
         if is_connected:
             self.center_button.configure(state="disabled")
@@ -600,7 +620,7 @@ class RosJoystickApp(Node):
         self.app.set_default_pelvis_height(default_height)
         self.app._fsm_command_callback = self._send_fsm_command
 
-        self.timer = self.create_timer(1 / self.publisher_rate, self.timer_callback)
+        self.app.after(int(1000 / self.publisher_rate), self._tk_timer_loop)
 
         self.ros_thread = threading.Thread(target=self.ros_spin)
         self.ros_thread.daemon = True
@@ -617,6 +637,10 @@ class RosJoystickApp(Node):
     def _fsm_state_callback(self, msg: String):
         self.app.after(0, self.app.update_fsm_state, msg.data)
 
+    def _tk_timer_loop(self):
+        self.timer_callback()
+        self.app.after(int(1000 / self.publisher_rate), self._tk_timer_loop)
+
     def timer_callback(self):
 
         if self.xbox_controller_interface.joystick_connected:
@@ -632,11 +656,16 @@ class RosJoystickApp(Node):
             # Always publish so the height slider value is transmitted for gantry control,
             # even when all velocity components are zero.
             self.publisher_.publish(cmd_msg)
-            # check for connection every 2 seconds
+            # Check for connection every 2 seconds on the main thread.
+            # pygame is NOT thread-safe: calling pygame.joystick.quit()/init()
+            # from a background thread deadlocks against SDL's internal timer
+            # thread.  The check itself is fast (~1 ms), so running it here is
+            # safe for the Tk event loop.
             if self.counter >= (2 * self.publisher_rate):
-                self.xbox_controller_interface.get_joystick_connection()
                 self.counter = 0
-            self.counter = self.counter + 1
+                self.xbox_controller_interface.get_joystick_connection()
+            else:
+                self.counter = self.counter + 1
 
     def ros_spin(self):
         rclpy.spin(self)

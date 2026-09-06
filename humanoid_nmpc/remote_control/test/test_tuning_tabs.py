@@ -235,5 +235,241 @@ class TestTuningTabsWithFiles(unittest.TestCase):
             root.destroy()
 
 
+class TestMpcParamsAutoSaveRoundTrip(unittest.TestCase):
+    """Test the debounced auto-save → YAML round-trip for MPC params tab."""
+
+    def setUp(self):
+        self.repo_root = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "../../..")
+        )
+        self.atlas_task_file = os.path.join(
+            self.repo_root,
+            "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml",
+        )
+        self.tmpdir = tempfile.mkdtemp()
+        self.tmp_task_file = os.path.join(self.tmpdir, "task.yaml")
+        shutil.copy2(self.atlas_task_file, self.tmp_task_file)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_slider_change_triggers_debounced_save(self):
+        """Verify that _on_any_slider_change schedules a debounced save."""
+        import tkinter as tk
+        from remote_control.tk_app.mpc_params_tab import MpcParamsTab
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            tab = MpcParamsTab(
+                root, task_file=self.tmp_task_file, enable_online_tuning=True
+            )
+            # Initially no debounce scheduled
+            self.assertIsNone(tab._debounce_save_id)
+
+            # Simulate a slider change
+            tab._on_any_slider_change("Q.scaling", 5.0)
+            self.assertIsNotNone(tab._debounce_save_id)
+
+            # Cancel to avoid side-effects
+            root.after_cancel(tab._debounce_save_id)
+            tab._debounce_save_id = None
+        finally:
+            root.destroy()
+
+    def test_auto_save_writes_to_yaml(self):
+        """Verify that _auto_save writes the current slider values to YAML on disk."""
+        import tkinter as tk
+        from remote_control.tk_app.mpc_params_tab import MpcParamsTab
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            tab = MpcParamsTab(
+                root, task_file=self.tmp_task_file, enable_online_tuning=True
+            )
+
+            # Modify a slider value (Q.scaling)
+            if "Q.scaling" in tab.slider_rows:
+                original_val = tab.slider_rows["Q.scaling"].get_value()
+                new_val = original_val * 2.0
+                tab.slider_rows["Q.scaling"].set_value(new_val)
+
+                # Force auto-save (bypass debounce)
+                tab._auto_save()
+
+                # Read back from YAML
+                updated_data = load_yaml_safe(self.tmp_task_file)
+                self.assertAlmostEqual(
+                    float(updated_data.get("Q", {}).get("scaling", 0)),
+                    new_val,
+                    places=4,
+                    msg="Q.scaling should be updated in YAML after auto-save",
+                )
+        finally:
+            root.destroy()
+
+    def test_auto_save_disabled_when_online_tuning_off(self):
+        """Verify that _auto_save does nothing when online tuning is disabled."""
+        import tkinter as tk
+        from remote_control.tk_app.mpc_params_tab import MpcParamsTab
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            tab = MpcParamsTab(
+                root, task_file=self.tmp_task_file, enable_online_tuning=False
+            )
+
+            # Read original file content
+            with open(self.tmp_task_file, "r") as f:
+                original_content = f.read()
+
+            # Force auto-save — should be a no-op
+            tab._auto_save()
+
+            # File should be unchanged
+            with open(self.tmp_task_file, "r") as f:
+                self.assertEqual(f.read(), original_content)
+        finally:
+            root.destroy()
+
+    def test_all_categories_render_without_error(self):
+        """Verify that all 5 category tabs render without errors."""
+        import tkinter as tk
+        from remote_control.tk_app.mpc_params_tab import MpcParamsTab
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            tab = MpcParamsTab(
+                root, task_file=self.tmp_task_file, enable_online_tuning=True
+            )
+
+            for cat in tab.categories:
+                tab.active_category.set(cat)
+                tab._render_active_category()
+                # Should have created at least some slider rows for each category
+                # (unless the YAML doesn't have data for that category)
+        finally:
+            root.destroy()
+
+    def test_barrier_params_round_trip(self):
+        """Verify that barrier mu/delta slider changes round-trip through YAML."""
+        import tkinter as tk
+        from remote_control.tk_app.mpc_params_tab import MpcParamsTab
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            tab = MpcParamsTab(
+                root, task_file=self.tmp_task_file, enable_online_tuning=True
+            )
+            # Switch to the Constraints & Barriers category
+            tab.active_category.set("Constraints & Barriers")
+            tab._render_active_category()
+
+            # Find a barrier slider (joint limits mu)
+            barrier_key = "jointLimits.mu"
+            if barrier_key in tab.slider_rows:
+                original_val = tab.slider_rows[barrier_key].get_value()
+                new_val = 500.0
+                tab.slider_rows[barrier_key].set_value(new_val)
+
+                # Force auto-save
+                tab._auto_save()
+
+                # Read back
+                updated_data = load_yaml_safe(self.tmp_task_file)
+                self.assertAlmostEqual(
+                    float(updated_data.get("jointLimits", {}).get("mu", 0)),
+                    new_val,
+                    places=2,
+                    msg="jointLimits.mu should round-trip through YAML",
+                )
+        finally:
+            root.destroy()
+
+
+class TestJointPdAutoSaveRoundTrip(unittest.TestCase):
+    """Test the debounced auto-save → YAML round-trip for joint PD gains tab."""
+
+    def setUp(self):
+        self.repo_root = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "../../..")
+        )
+        self.g1_pd_file = os.path.join(
+            self.repo_root,
+            "robot_models/unitree_g1/g1_wb_mpc/config/controller/joint_pd_gains.yaml",
+        )
+        self.tmpdir = tempfile.mkdtemp()
+        self.tmp_pd_file = os.path.join(self.tmpdir, "joint_pd_gains.yaml")
+        shutil.copy2(self.g1_pd_file, self.tmp_pd_file)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_slider_change_triggers_debounced_save(self):
+        """Verify that slider changes schedule a debounced save on the joint PD tab."""
+        import tkinter as tk
+        from remote_control.tk_app.joint_pd_tab import JointPdGainsTab
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            tab = JointPdGainsTab(
+                root, pd_gains_file=self.tmp_pd_file, enable_online_tuning=True
+            )
+            self.assertIsNone(tab._debounce_save_id)
+
+            tab._on_any_slider_change("some_joint.kp", 42.0)
+            self.assertIsNotNone(tab._debounce_save_id)
+
+            root.after_cancel(tab._debounce_save_id)
+            tab._debounce_save_id = None
+        finally:
+            root.destroy()
+
+    def test_auto_save_writes_gain_changes(self):
+        """Verify that auto-save persists kp/kd changes to the YAML file."""
+        import tkinter as tk
+        from remote_control.tk_app.joint_pd_tab import JointPdGainsTab
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            tab = JointPdGainsTab(
+                root, pd_gains_file=self.tmp_pd_file, enable_online_tuning=True
+            )
+
+            # Find any kp slider and change it
+            kp_sliders = [
+                (k, row) for k, row in tab.slider_rows.items() if k.endswith(".kp")
+            ]
+            if kp_sliders:
+                key, row = kp_sliders[0]
+                original_val = row.get_value()
+                new_val = original_val * 1.5
+                row.set_value(new_val)
+
+                # Force auto-save
+                tab._auto_save()
+
+                # Verify the file changed
+                with open(self.tmp_pd_file, "r") as f:
+                    content = f.read()
+                # The new value should appear in the file
+                self.assertIn(
+                    (
+                        str(round(new_val, 4))
+                        if new_val != int(new_val)
+                        else str(int(new_val))
+                    ),
+                    content,
+                )
+        finally:
+            root.destroy()
+
+
 if __name__ == "__main__":
     unittest.main()

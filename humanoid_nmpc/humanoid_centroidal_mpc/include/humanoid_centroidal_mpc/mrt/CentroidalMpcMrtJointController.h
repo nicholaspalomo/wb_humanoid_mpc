@@ -87,6 +87,11 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   void setControlMode(std::string_view mode) {
     std::string newMode(mode);
     if (newMode != controlMode_) {
+      if ((controlMode_ == "ZERO_TORQUE" || controlMode_ == "JOINT_PD" || controlMode_ == "GRAVITY_COMP") &&
+          (newMode == "WB_MPC" || newMode == "MPC_ACTIVE")) {
+        requestMpcReset();
+        transitionCounter_ = 0;  // Reset for transition diagnostics
+      }
       controlMode_ = newMode;
     }
   }
@@ -143,9 +148,6 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
 
   std::shared_ptr<DummyObserver> visualizerPtr_;
 
-  vector_t inverse_dynamics_kp_;
-  vector_t inverse_dynamics_kd_;
-
   vector_t mpcJointKp_;
   vector_t mpcJointKd_;
   vector_t mpcJointTorqueLimit_;
@@ -157,6 +159,7 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   std::vector<scalar_t> nominalJointPositions_;  ///< Nominal positions for JOINT_PD mode
   scalar_t previousObservationTime_{0.0};        ///< Previous sim time for computing actual dt
   vector_t latestPolicyInput_;                   ///< Latest MPC policy input (e.g. contact forces, joint accelerations)
+  size_t transitionCounter_{100};                ///< Counts cycles since last WB_MPC mode entry (starts past threshold)
 
   std::string pdGainsFile_;
   std::vector<std::string> mpcModelJointNames_;

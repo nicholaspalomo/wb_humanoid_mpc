@@ -1,5 +1,6 @@
 # Simulation & Telemetry Configuration
 enableTelemetry: true        # Enable high-rate ROS 2 telemetry publishing for PlotJuggler
+telemetryFrequency: 100      # [Hz] Telemetry publishing frequency (decimated from MRT loop)
 enableOnlineTuning: true     # Enable runtime parameter and gain tuning in Controller GUI
 
 # Targeted Pinocchio frames for telemetry logging (position, orientation, twist, accel, wrench)
@@ -12,25 +13,26 @@ telemetryFrames:
 centroidalModelType: 0  # 0: FullCentroidalDynamics, 1: Single Rigid Body Dynamics
 
 # MPC Problem Formulation Tasks
-hard_constraints:
-  - zero_wrench
-  - zero_velocity
-  - normal_velocity
+# hard_constraints:
+#   - zero_wrench
+#   - normal_velocity
+#   # - zero_velocity
 
-soft_constraints:
-  - joint_limits
-  - foot_collision
-  - friction_force_cone
-  - contact_moment_xy
+# soft_constraints:
+#   - joint_limits
+#   - foot_collision
+#   - friction_force_cone
+#   - contact_moment_xy
+#   - zero_velocity
 
 costs:
   - state_quadratic_cost
   - input_quadratic_cost
-  - terminal_cost
-  - icp_cost
-  - task_space_foot_cost
-  - task_space_torso_cost
-  - external_torque_cost
+  # - terminal_cost
+  # - icp_cost
+  # - task_space_foot_cost
+  # - task_space_torso_cost
+  # - external_torque_cost
 
 interface:
   verbose: true  # show the loaded parameters
@@ -42,14 +44,14 @@ model_settings:
 
   foot_constraint:
     positionErrorGain_z: 5.0
-    orientationErrorGain: 3.0
+    orientationErrorGain: 20.0
     linearVelocityErrorGain_z: 1.0
-    linearVelocityErrorGain_xy: 1.0
-    angularVelocityErrorGain: 0.2
+    linearVelocityErrorGain_xy: 10.0
+    angularVelocityErrorGain: 1.0
     linearAccelerationErrorGain_z: 0.0
-    linearAccelerationErrorGain_xy: 0.0
-    angularAccelerationErrorGain: 0.0
-    softConstraintWeight: 10.0
+    linearAccelerationErrorGain_xy: 5.0
+    angularAccelerationErrorGain: 2.0
+    softConstraintWeight: 1e4
 
   phaseTransitionStanceTime: 0.0
 
@@ -140,7 +142,7 @@ initialState:
   # ; Base Pose: [position, orientation] ;;
   "(6,0)": 0.0  # p_base_x
   "(7,0)": 0.0  # p_base_y
-  "(8,0)": 0.901  # p_base_z
+  "(8,0)": 0.8952  # p_base_z
   "(9,0)": 0.0  # theta_base_z
   "(10,0)": 0.0  # theta_base_y
   "(11,0)": 0.0  # theta_base_x
@@ -176,70 +178,70 @@ Q:
   scaling: 1e+0
 
   # ; Normalized Centroidal Momentum: [linear, angular] ;;
-  "(0,0)": 2.0  # h_com_x / robotMass
-  "(1,1)": 2.0  # h_com_y / robotMass
-  "(2,2)": 15.0  # h_com_z / robotMass
-  "(3,3)": 15.0  # L_x / robotMass
-  "(4,4)": 15.0  # L_y / robotMass
-  "(5,5)": 4.0  # L_z / robotMass
+  "(0,0)": 2  # h_com_x / robotMass
+  "(1,1)": 2  # h_com_y / robotMass
+  "(2,2)": 15  # h_com_z / robotMass
+  "(3,3)": 50  # L_x / robotMass
+  "(4,4)": 15  # L_y / robotMass
+  "(5,5)": 4  # L_z / robotMass
 
   # ; Base Pose: [position, orientation] ;;
-  "(6,6)": 0.0  # p_base_x
-  "(7,7)": 0.0  # p_base_y
-  "(8,8)": 15.0  # p_base_z
+  "(6,6)": 0  # p_base_x
+  "(7,7)": 0  # p_base_y
+  "(8,8)": 15  # p_base_z
   # euler angles for base to world rotation
-  "(9,9)": 0.0  # theta_base_z
-  "(10,10)": 5.0  # theta_base_y
-  "(11,11)": 5.0  # theta_base_x
+  "(9,9)": 0  # theta_base_z
+  "(10,10)": 5  # theta_base_y
+  "(11,11)": 20  # theta_base_x
 
   # ; Joint Positions ;;
-  "(12,12)": 10.0  # back_bkz
-  "(13,13)": 10.0  # back_bky
-  "(14,14)": 10.0  # back_bkx
-  "(15,15)": 5.0  # l_arm_shz
-  "(16,16)": 20.0  # l_arm_shx
-  "(17,17)": 10.0  # l_arm_ely
-  "(18,18)": 5.0  # l_arm_elx
-  "(19,19)": 2.0  # neck_ry
-  "(20,20)": 5.0  # r_arm_shz
-  "(21,21)": 20.0  # r_arm_shx
-  "(22,22)": 10.0  # r_arm_ely
-  "(23,23)": 5.0  # r_arm_elx
-  "(24,24)": 10.0  # l_leg_hpz
-  "(25,25)": 50.0  # l_leg_hpx
-  "(26,26)": 10.0  # l_leg_hpy
-  "(27,27)": 10.0  # l_leg_kny
-  "(28,28)": 5.0  # l_leg_aky
-  "(29,29)": 5.0  # l_leg_akx
-  "(30,30)": 10.0  # r_leg_hpz
-  "(31,31)": 50.0  # r_leg_hpx
-  "(32,32)": 10.0  # r_leg_hpy
-  "(33,33)": 10.0  # r_leg_kny
-  "(34,34)": 5.0  # r_leg_aky
-  "(35,35)": 5.0  # r_leg_akx
+  "(12,12)": 10  # back_bkz
+  "(13,13)": 10  # back_bky
+  "(14,14)": 10  # back_bkx
+  "(15,15)": 5  # l_arm_shz
+  "(16,16)": 20  # l_arm_shx
+  "(17,17)": 10  # l_arm_ely
+  "(18,18)": 5  # l_arm_elx
+  "(19,19)": 2  # neck_ry
+  "(20,20)": 5  # r_arm_shz
+  "(21,21)": 20  # r_arm_shx
+  "(22,22)": 10  # r_arm_ely
+  "(23,23)": 5  # r_arm_elx
+  "(24,24)": 10  # l_leg_hpz
+  "(25,25)": 50  # l_leg_hpx
+  "(26,26)": 10  # l_leg_hpy
+  "(27,27)": 10  # l_leg_kny
+  "(28,28)": 5  # l_leg_aky
+  "(29,29)": 5  # l_leg_akx
+  "(30,30)": 10  # r_leg_hpz
+  "(31,31)": 50  # r_leg_hpx
+  "(32,32)": 10  # r_leg_hpy
+  "(33,33)": 10  # r_leg_kny
+  "(34,34)": 5  # r_leg_aky
+  "(35,35)": 5  # r_leg_akx
 
 # control weight matrix
 R:
-  scaling: 1e-3
+  scaling: 1e-1
 
   # ; Feet Contact Forces: [LF, RF, LH, RH] ;;
-  "(0,0)": 0.1  # left_force_x
-  "(1,1)": 0.2  # left_force_y
+  "(0,0)": 0.01  # left_force_x
+  "(1,1)": 0.02  # left_force_y
   "(2,2)": 0.05  # left_force_z
-  "(3,3)": 0.2  # left_moment_x
-  "(4,4)": 0.1  # left_moment_y
-  "(5,5)": 0.2  # left_moment_z
-  "(6,6)": 0.1  # right_force_x
-  "(7,7)": 0.2  # right_force_y
+  "(3,3)": 0.02  # left_moment_x
+  "(4,4)": 0.01  # left_moment_y
+  "(5,5)": 0.02  # left_moment_z
+  "(6,6)": 0.01  # right_force_x
+  "(7,7)": 0.02  # right_force_y
   "(8,8)": 0.05  # right_force_z
-  "(9,9)": 0.2  # right_moment_x
-  "(10,10)": 0.1  # right_moment_y
-  "(11,11)": 0.2  # right_moment_z
+  "(9,9)": 0.02  # right_moment_x
+  "(10,10)": 0.01  # right_moment_y
+  "(11,11)": 0.02  # right_moment_z
 
   # ; Joint Velocities ;;
   "(12,12)": 1000.0  # back_bkz
   "(13,13)": 1000.0  # back_bky
-  "(14,14)": 500.0  # back_bkx
+  "(14,14)": 5.0  # back_bkx
   "(15,15)": 100.0  # l_arm_shz
   "(16,16)": 100.0  # l_arm_shx
   "(17,17)": 200.0  # l_arm_ely
@@ -250,15 +252,15 @@ R:
   "(22,22)": 200.0  # r_arm_ely
   "(23,23)": 200.0  # r_arm_elx
   "(24,24)": 500.0  # l_leg_hpz
-  "(25,25)": 50.0  # l_leg_hpx
-  "(26,26)": 50.0  # l_leg_hpy
-  "(27,27)": 50.0  # l_leg_kny
+  "(25,25)": 5.0  # l_leg_hpx
+  "(26,26)": 5.0  # l_leg_hpy
+  "(27,27)": 5.0  # l_leg_kny
   "(28,28)": 50.0  # l_leg_aky
   "(29,29)": 50.0  # l_leg_akx
   "(30,30)": 500.0  # r_leg_hpz
-  "(31,31)": 50.0  # r_leg_hpx
-  "(32,32)": 50.0  # r_leg_hpy
-  "(33,33)": 50.0  # r_leg_kny
+  "(31,31)": 5.0  # r_leg_hpx
+  "(32,32)": 5.0  # r_leg_hpy
+  "(33,33)": 5.0  # r_leg_kny
   "(34,34)": 50.0  # r_leg_aky
   "(35,35)": 50.0  # r_leg_akx
 
@@ -271,7 +273,7 @@ Q_final:
   "(0,0)": 2.0  # h_com_x / robotMass
   "(1,1)": 2.0  # h_com_y / robotMass
   "(2,2)": 15.0  # h_com_z / robotMass
-  "(3,3)": 15.0  # L_x / robotMass
+  "(3,3)": 50.0  # L_x / robotMass
   "(4,4)": 15.0  # L_y / robotMass
   "(5,5)": 4.0  # L_z / robotMass
 
@@ -282,7 +284,7 @@ Q_final:
   # euler angles for base to world rotation
   "(9,9)": 0.0  # theta_base_z
   "(10,10)": 5.0  # theta_base_y
-  "(11,11)": 5.0  # theta_base_x
+  "(11,11)": 20.0  # theta_base_x
 
   # ; Joint Positions ;;
   "(12,12)": 10.0  # back_bkz
@@ -410,12 +412,12 @@ contacts:
   frictionForceConeSoftConstraint:
     frictionCoefficient: 0.5
     # relaxed log barrier parameters
-    mu: 2.0
-    delta: 10.0
+    mu: 0.2
+    delta: 5.0
   contactMomentXYSoftConstraint:
     # relaxed log barrier parameters
-    mu: 2.0
-    delta: 0.05
+    mu: 0.6
+    delta: 0.03
 
 jointLimits:
   # relaxed log barrier parameters
@@ -434,5 +436,5 @@ collision_constraint:
 
     kneeCollisionSphereRadius: 0.07
   # relaxed log barrier parameters
-  mu: 15000
-  delta: 0.04
+  mu: 30000
+  delta: 0.05

@@ -5,8 +5,9 @@ maxDisplacementVelocityX: 2.4
 maxDisplacementVelocityY: 1.2
 maxDeltaPelvisHeight: 0.4
 maxRotationVelocity: 1.0
+targetJointStateInterpolationTimeConstant: 0.5
 
-defaultBaseHeight: 0.7925
+defaultBaseHeight: 0.7911
 
 defaultJointState:
   "(0,0)": -0.05  # left_hip_pitch_joint

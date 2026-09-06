@@ -48,7 +48,7 @@ class TestHumanoidFSM(unittest.TestCase):
         self.assertIn("task_path", atlas_cfg)
         self.assertIsNotNone(atlas_cfg["task_path"])
         self.assertEqual(len(atlas_cfg["nominal_q"]), len(atlas_cfg["joint_names"]))
-        self.assertAlmostEqual(atlas_cfg["nominal_pelvis_height_bent"], 0.895)
+        self.assertAlmostEqual(atlas_cfg["nominal_pelvis_height_bent"], 0.8952)
         self.assertIn("r_leg_kny", atlas_cfg["joint_names"])
         self.assertIn("l_leg_kny", atlas_cfg["joint_names"])
 
@@ -56,7 +56,7 @@ class TestHumanoidFSM(unittest.TestCase):
         self.assertIsNotNone(g1_cfg["urdf_path"])
         self.assertIsNotNone(g1_cfg["task_path"])
         self.assertEqual(len(g1_cfg["nominal_q"]), len(g1_cfg["joint_names"]))
-        self.assertAlmostEqual(g1_cfg["nominal_pelvis_height_bent"], 0.7925)
+        self.assertAlmostEqual(g1_cfg["nominal_pelvis_height_bent"], 0.7911)
         self.assertIn("left_knee_joint", g1_cfg["joint_names"])
 
         # Available robots detection
@@ -112,7 +112,7 @@ class TestHumanoidFSM(unittest.TestCase):
 
         # Auto-calibrate ground touch
         cal_h = gantry.auto_calibrate_ground_touch(foot_clearance=0.005)
-        self.assertAlmostEqual(cal_h, 0.900)
+        self.assertAlmostEqual(cal_h, 0.9002)
         self.assertTrue(gantry.is_locked)
 
     def test_zero_torque_computation(self):

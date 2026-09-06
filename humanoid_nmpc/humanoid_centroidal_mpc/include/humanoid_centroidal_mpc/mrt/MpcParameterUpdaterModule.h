@@ -33,17 +33,30 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include <ocs2_mpc/MPC_BASE.h>
 #include <ocs2_oc/synchronized_module/SolverSynchronizedModule.h>
 
-#include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
+#include "humanoid_common_mpc/common/ModelSettings.h"
 
 namespace ocs2::humanoid {
 
+/**
+ * SolverSynchronizedModule that detects changes to task.yaml and updates cost/constraint
+ * parameters in-place on the solver's existing OCP objects. This avoids rebuilding the
+ * CentroidalMpcInterface (which would cause dangling-reference segfaults) by using the
+ * existing setGains/setWeights/setConfig methods on each cost and penalty object.
+ */
 class MpcParameterUpdaterModule : public SolverSynchronizedModule {
  public:
-  MpcParameterUpdaterModule(MPC_BASE* mpcPtr, const std::string& taskFile, const std::string& urdfFile, const std::string& referenceFile);
+  MpcParameterUpdaterModule(MPC_BASE* mpcPtr,
+                            const std::string& taskFile,
+                            const std::string& urdfFile,
+                            const std::string& referenceFile,
+                            size_t stateDim,
+                            size_t inputDim,
+                            const std::vector<std::string>& contactNames);
 
   ~MpcParameterUpdaterModule() override = default;
 
@@ -55,15 +68,23 @@ class MpcParameterUpdaterModule : public SolverSynchronizedModule {
   void postSolverRun(const PrimalSolution& primalSolution) override {}
 
  private:
+  /**
+   * Re-parses task.yaml and applies all parameter updates in-place to every
+   * thread-local OCP in the SqpSolver.
+   */
+  void applyParameterUpdates();
+
   MPC_BASE* mpcPtr_;
   const std::string taskFile_;
   const std::string urdfFile_;
   const std::string referenceFile_;
 
+  const size_t stateDim_;
+  const size_t inputDim_;
+  const std::vector<std::string> contactNames_;
+
   std::filesystem::file_time_type taskFileLastWriteTime_;
   size_t checkCounter_{0};
-
-  std::unique_ptr<CentroidalMpcInterface> latestInterface_;
 };
 
 }  // namespace ocs2::humanoid

@@ -92,7 +92,9 @@ int main(int argc, char** argv) {
   mpc.getSolverPtr()->addSynchronizedModule(ros2ProceduralMpcMotionManager);
 
   // Register real-time MPC parameter hot-reloading
-  auto mpcParameterUpdater = std::make_shared<MpcParameterUpdaterModule>(&mpc, taskFile, urdfFile, referenceFile);
+  auto mpcParameterUpdater =
+      std::make_shared<MpcParameterUpdaterModule>(&mpc, taskFile, urdfFile, referenceFile, interface.getMpcRobotModel().getStateDim(),
+                                                  interface.getMpcRobotModel().getInputDim(), interface.modelSettings().contactNames);
   mpc.getSolverPtr()->addSynchronizedModule(mpcParameterUpdater);
 
   MPC_ROS_Interface mpcNode(mpc, robotName);

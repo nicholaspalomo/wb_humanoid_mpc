@@ -74,6 +74,7 @@ class JointPdGainsTab(ttk.Frame):
         self.slider_rows: Dict[str, SliderRow] = {}  # key -> SliderRow
         self.section_frames: Dict[str, ttk.LabelFrame] = {}
         self.scale_buttons: list = []
+        self._debounce_save_id = None  # tkinter after() ID for debounced auto-save
 
         self._build_header_ui()
         self._build_master_scale_ui()
@@ -109,6 +110,14 @@ class JointPdGainsTab(ttk.Frame):
         )
         preset_cb.pack(side="left", padx=(0, 10))
         preset_cb.bind("<<ComboboxSelected>>", self._on_preset_selected)
+        preset_cb.bind(
+            "<Button-1>",
+            lambda e: (
+                e.widget.event_generate("<Down>", when="head")
+                if e.widget.identify(e.x, e.y) != "downarrow"
+                else None
+            ),
+        )
 
         # File path entry & Browse
         self.path_var = tk.StringVar(value=self.pd_gains_file or "")
@@ -301,6 +310,7 @@ class JointPdGainsTab(ttk.Frame):
                 max_val=max(def_kp * 3.0, 1000.0),
                 unit="N·m/rad",
                 label_width=20,
+                on_change=self._on_any_slider_change,
             )
             row_kp.pack(fill="x", padx=4, pady=2)
             self.slider_rows["default_gains.kp"] = row_kp
@@ -313,6 +323,7 @@ class JointPdGainsTab(ttk.Frame):
                 max_val=max(def_kd * 3.0, 100.0),
                 unit="N·m·s/rad",
                 label_width=20,
+                on_change=self._on_any_slider_change,
             )
             row_kd.pack(fill="x", padx=4, pady=2)
             self.slider_rows["default_gains.kd"] = row_kd
@@ -367,6 +378,7 @@ class JointPdGainsTab(ttk.Frame):
                 max_val=kp_max,
                 unit="N·m/rad",
                 label_width=26,
+                on_change=self._on_any_slider_change,
             )
             row_kp.pack(fill="x", padx=2, pady=1)
             self.slider_rows[f"joint_gains.{jname}.kp"] = row_kp
@@ -380,6 +392,7 @@ class JointPdGainsTab(ttk.Frame):
                 max_val=kd_max,
                 unit="N·m·s/rad",
                 label_width=26,
+                on_change=self._on_any_slider_change,
             )
             row_kd.pack(fill="x", padx=2, pady=1)
             self.slider_rows[f"joint_gains.{jname}.kd"] = row_kd
@@ -435,6 +448,18 @@ class JointPdGainsTab(ttk.Frame):
         for row in self.slider_rows.values():
             row.reset_to_default()
         self._show_status("All gains reset to loaded defaults")
+
+    def _on_any_slider_change(self, name: str, value: float):
+        """Called on every slider move; debounces auto-save to disk."""
+        if self._debounce_save_id is not None:
+            self.after_cancel(self._debounce_save_id)
+        self._debounce_save_id = self.after(300, self._auto_save)
+
+    def _auto_save(self):
+        """Debounced auto-save: writes current slider values to YAML."""
+        self._debounce_save_id = None
+        if self.enable_online_tuning and self.pd_gains_file:
+            self.save_to_yaml()
 
     def save_to_yaml(self):
         if not self.enable_online_tuning:

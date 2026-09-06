@@ -169,50 +169,50 @@ git-lfs:
 ############################################################
 
 # LINT.IfChange(launch_targets)
-launch-g1-dummy-sim:
+launch-g1-dummy-sim: kill-sims
 	$(source_env) && \
 	bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_dummy_sim_node && \
 	ros2 launch g1_centroidal_mpc dummy_sim.launch.py
 
-launch-g1-sim:
+launch-g1-sim: kill-sims
 	$(source_env) && \
 	bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sim && \
 	ros2 launch g1_centroidal_mpc mujoco_sim.launch.py
 
-launch-wb-g1-dummy-sim:
+launch-wb-g1-dummy-sim: kill-sims
 	$(source_env) && \
 	bazel build //humanoid_nmpc/humanoid_wb_mpc_ros2:humanoid_wb_mpc_sqp_node //humanoid_nmpc/humanoid_wb_mpc_ros2:humanoid_wb_mpc_dummy_sim_node && \
 	ros2 launch g1_wb_mpc dummy_sim.launch.py
 
-launch-wb-g1-sim:
+launch-wb-g1-sim: kill-sims
 	$(source_env) && \
 	bazel build //humanoid_nmpc/humanoid_wb_mpc_ros2:humanoid_wb_mpc_sqp_node //humanoid_nmpc/humanoid_wb_mpc_ros2:humanoid_wb_mpc_sim && \
 	ros2 launch g1_wb_mpc mujoco_sim.launch.py
 
-launch-drc-atlas-dummy-sim:
+launch-drc-atlas-dummy-sim: kill-sims
 	$(source_env) && \
 	bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_dummy_sim_node && \
 	ros2 launch drc_atlas_centroidal_mpc dummy_sim.launch.py
 
-launch-drc-atlas-sim:
+launch-drc-atlas-sim: kill-sims
 	$(source_env) && \
 	bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sim && \
 	ros2 launch drc_atlas_centroidal_mpc mujoco_sim.launch.py
 
-launch-drc-atlas-sandbox:
+launch-drc-atlas-sandbox: kill-sims
 	$(source_env) && ros2 launch drc_atlas_description display.launch.py
 
-launch-r1-dummy-sim:
+launch-r1-dummy-sim: kill-sims
 	$(source_env) && \
 	bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_dummy_sim_node && \
 	ros2 launch unitree_r1_centroidal_mpc dummy_sim.launch.py
 
-launch-r1-sim:
+launch-r1-sim: kill-sims
 	$(source_env) && \
 	bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sim && \
 	ros2 launch unitree_r1_centroidal_mpc mujoco_sim.launch.py
 
-launch-r1-sandbox:
+launch-r1-sandbox: kill-sims
 	$(source_env) && ros2 launch unitree_r1_description display.launch.py
 
 ############################################################

@@ -76,3 +76,5 @@ cartpole_renders/
 notebooks/.ipynb_checkpoints/
 
 MUJOCO_LOG.TXT
+
+*.bak

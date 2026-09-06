@@ -358,218 +358,235 @@ void PinocchioTelemetryPublisher::publish(const ::robot::model::RobotState& robo
                                           const CommandData& mpcCommand,
                                           const vector3_t& leftMeasuredForce,
                                           const vector3_t& rightMeasuredForce) {
-  const auto now = nodeHandle_->now();
-  const auto& model = pinocchioInterface_.getModel();
-  const size_t numMpcJoints = modelSettingsPtr_->mpc_joint_dim;
+  try {
+    const auto now = nodeHandle_->now();
+    const auto& model = pinocchioInterface_.getModel();
+    const size_t numMpcJoints = modelSettingsPtr_->mpc_joint_dim;
 
-  // 1. Compute Measured Generalized State (q_meas, v_meas, tau_meas)
-  vector_t q_meas = vector_t::Zero(model.nq);
-  vector_t v_meas = vector_t::Zero(model.nv);
-  vector_t tau_meas = vector_t::Zero(model.nv);
+    // 1. Compute Measured Generalized State (q_meas, v_meas, tau_meas)
+    vector_t q_meas = vector_t::Zero(model.nq);
+    vector_t v_meas = vector_t::Zero(model.nv);
+    vector_t tau_meas = vector_t::Zero(model.nv);
 
-  const vector3_t rootPos = robotState.getRootPositionInWorldFrame();
-  const quaternion_t rootQuat = robotState.getRootRotationLocalToWorldFrame();
-  const vector3_t rootEuler = quaternionToEulerZYX(rootQuat);  // roll, pitch, yaw
-  const vector3_t rootLinVel = rootQuat * robotState.getRootLinearVelocityInLocalFrame();
-  const vector3_t rootAngVel = rootQuat * robotState.getRootAngularVelocityInLocalFrame();
+    const vector3_t rootPos = robotState.getRootPositionInWorldFrame();
+    const quaternion_t rootQuat = robotState.getRootRotationLocalToWorldFrame();
+    const vector3_t rootEuler = quaternionToEulerZYX(rootQuat);  // roll, pitch, yaw
+    const vector3_t rootLinVel = rootQuat * robotState.getRootLinearVelocityInLocalFrame();
+    const vector3_t rootAngVel = rootQuat * robotState.getRootAngularVelocityInLocalFrame();
 
-  q_meas.head<BASE_TRANSLATION_DIM>() = rootPos;
-  // Pinocchio JointModelSphericalZYX convention: yaw, pitch, roll
-  const vector3_t eulerAnglesZyx(rootEuler.z(), rootEuler.y(), rootEuler.x());
-  q_meas.segment<BASE_ROTATION_DIM>(BASE_TRANSLATION_DIM) = eulerAnglesZyx;
+    q_meas.head<BASE_TRANSLATION_DIM>() = rootPos;
+    // Pinocchio JointModelSphericalZYX convention: yaw, pitch, roll
+    const vector3_t eulerAnglesZyx(rootEuler.z(), rootEuler.y(), rootEuler.x());
+    q_meas.segment<BASE_ROTATION_DIM>(BASE_TRANSLATION_DIM) = eulerAnglesZyx;
 
-  v_meas.head<BASE_TRANSLATION_DIM>() = rootLinVel;
-  v_meas.segment<BASE_ROTATION_DIM>(BASE_TRANSLATION_DIM) =
-      getEulerAnglesZyxDerivativesFromGlobalAngularVelocity<scalar_t>(eulerAnglesZyx, rootAngVel);
+    v_meas.head<BASE_TRANSLATION_DIM>() = rootLinVel;
+    v_meas.segment<BASE_ROTATION_DIM>(BASE_TRANSLATION_DIM) =
+        getEulerAnglesZyxDerivativesFromGlobalAngularVelocity<scalar_t>(eulerAnglesZyx, rootAngVel);
 
-  // Actuated Joints
-  for (size_t j = 0; j < numMpcJoints; ++j) {
-    if (j < descJointIndices_.size()) {
-      size_t descIdx = descJointIndices_[j];
-      if (descIdx != std::numeric_limits<size_t>::max() && robotDescriptionPtr_ && descIdx < robotDescriptionPtr_->getNumJoints()) {
-        try {
-          q_meas[JOINT_COORDINATE_OFFSET + j] = robotState.getJointPosition(descIdx);
-          v_meas[JOINT_COORDINATE_OFFSET + j] = robotState.getJointVelocity(descIdx);
-          if (robotDescriptionPtr_ && descIdx < robotDescriptionPtr_->getNumJoints()) {
-            const auto& actionOpt = robotJointAction.at(descIdx);
-            if (actionOpt.has_value()) {
-              const auto& action = actionOpt.value();
-              tau_meas[JOINT_COORDINATE_OFFSET + j] = action.feed_forward_effort +
-                                                      action.kp * (action.q_des - q_meas[JOINT_COORDINATE_OFFSET + j]) +
-                                                      action.kd * (action.qd_des - v_meas[JOINT_COORDINATE_OFFSET + j]);
+    // Actuated Joints
+    for (size_t j = 0; j < numMpcJoints; ++j) {
+      if (j < descJointIndices_.size()) {
+        size_t descIdx = descJointIndices_[j];
+        if (descIdx != std::numeric_limits<size_t>::max() && robotDescriptionPtr_ && descIdx < robotDescriptionPtr_->getNumJoints()) {
+          try {
+            q_meas[JOINT_COORDINATE_OFFSET + j] = robotState.getJointPosition(descIdx);
+            v_meas[JOINT_COORDINATE_OFFSET + j] = robotState.getJointVelocity(descIdx);
+            if (robotDescriptionPtr_ && descIdx < robotDescriptionPtr_->getNumJoints()) {
+              const auto& actionOpt = robotJointAction.at(descIdx);
+              if (actionOpt.has_value()) {
+                const auto& action = actionOpt.value();
+                tau_meas[JOINT_COORDINATE_OFFSET + j] = action.feed_forward_effort +
+                                                        action.kp * (action.q_des - q_meas[JOINT_COORDINATE_OFFSET + j]) +
+                                                        action.kd * (action.qd_des - v_meas[JOINT_COORDINATE_OFFSET + j]);
+              }
             }
+          } catch (const std::exception&) {
+            // Fall back to default
           }
-        } catch (const std::exception&) {
-          // Fall back to default
         }
       }
     }
-  }
 
-  // 2. Compute Desired Generalized State (q_des, v_des, tau_des)
-  vector_t q_des = q_meas;
-  vector_t v_des = vector_t::Zero(model.nv);
-  vector_t tau_des = vector_t::Zero(model.nv);
-  vector_t targetInput = mpcPolicyInput;
+    // 2. Compute Desired Generalized State (q_des, v_des, tau_des)
+    vector_t q_des = q_meas;
+    vector_t v_des = vector_t::Zero(model.nv);
+    vector_t tau_des = vector_t::Zero(model.nv);
+    vector_t targetInput = mpcPolicyInput;
 
-  if (!mpcCommand.mpcTargetTrajectories_.timeTrajectory.empty()) {
-    scalar_t time = mpcObservation.time;
-    vector_t targetState = LinearInterpolation::interpolate(time, mpcCommand.mpcTargetTrajectories_.timeTrajectory,
-                                                            mpcCommand.mpcTargetTrajectories_.stateTrajectory);
-    q_des = mpcRobotModelPtr_->getGeneralizedCoordinates(targetState);
+    const auto& targetTraj = mpcCommand.mpcTargetTrajectories_;
+    const bool hasValidTargetState = !targetTraj.timeTrajectory.empty() && !targetTraj.stateTrajectory.empty() &&
+                                     targetTraj.timeTrajectory.size() == targetTraj.stateTrajectory.size() && mpcRobotModelPtr_ &&
+                                     targetTraj.stateTrajectory.front().size() == mpcRobotModelPtr_->getStateDim();
 
-    if (!mpcCommand.mpcTargetTrajectories_.inputTrajectory.empty()) {
-      targetInput = LinearInterpolation::interpolate(time, mpcCommand.mpcTargetTrajectories_.timeTrajectory,
-                                                     mpcCommand.mpcTargetTrajectories_.inputTrajectory);
-      v_des = const_cast<MpcRobotModelBase<scalar_t>*>(mpcRobotModelPtr_)->getGeneralizedVelocities(targetState, targetInput);
+    if (hasValidTargetState) {
+      scalar_t time = mpcObservation.time;
+      vector_t targetState = LinearInterpolation::interpolate(time, targetTraj.timeTrajectory, targetTraj.stateTrajectory);
+      q_des = mpcRobotModelPtr_->getGeneralizedCoordinates(targetState);
+
+      const bool hasValidTargetInput = !targetTraj.inputTrajectory.empty() &&
+                                       targetTraj.timeTrajectory.size() == targetTraj.inputTrajectory.size() &&
+                                       targetTraj.inputTrajectory.front().size() == mpcRobotModelPtr_->getInputDim();
+      if (hasValidTargetInput) {
+        targetInput = LinearInterpolation::interpolate(time, targetTraj.timeTrajectory, targetTraj.inputTrajectory);
+        try {
+          v_des = const_cast<MpcRobotModelBase<scalar_t>*>(mpcRobotModelPtr_)->getGeneralizedVelocities(targetState, targetInput);
+        } catch (...) {
+          v_des = vector_t::Zero(model.nv);
+        }
+      }
     }
-  }
 
-  for (size_t j = 0; j < numMpcJoints; ++j) {
-    if (j < descJointIndices_.size()) {
-      size_t descIdx = descJointIndices_[j];
+    for (size_t j = 0; j < numMpcJoints; ++j) {
+      if (j < descJointIndices_.size()) {
+        size_t descIdx = descJointIndices_[j];
+        if (descIdx != std::numeric_limits<size_t>::max() && robotDescriptionPtr_ && descIdx < robotDescriptionPtr_->getNumJoints()) {
+          const auto& actionOpt = robotJointAction.at(descIdx);
+          if (actionOpt.has_value()) {
+            tau_des[JOINT_COORDINATE_OFFSET + j] = actionOpt.value().feed_forward_effort;
+          }
+        }
+      }
+    }
+
+    // 3. Contact Wrenches Setup
+    std::unordered_map<std::string, vector3_t> measuredForces;
+    std::unordered_map<std::string, vector6_t> desiredWrenches;
+
+    if (modelSettingsPtr_->contactNames.size() >= N_CONTACTS) {
+      measuredForces[modelSettingsPtr_->contactNames[0]] = leftMeasuredForce;
+      measuredForces[modelSettingsPtr_->contactNames[1]] = rightMeasuredForce;
+    }
+
+    for (size_t c = 0; c < modelSettingsPtr_->contactNames.size(); ++c) {
+      if (targetInput.size() >= static_cast<int>(mpcRobotModelPtr_->getInputDim())) {
+        desiredWrenches[modelSettingsPtr_->contactNames[c]] = mpcRobotModelPtr_->getContactWrench(targetInput, c);
+      }
+    }
+
+    // 4. Publish Pinocchio State & Frames
+    publishPinocchioState(now, q_meas, v_meas, tau_meas, q_des, v_des, tau_des, measuredForces, desiredWrenches);
+
+    // 5. Standard Backward-Compatible Topics
+    // /joint_states
+    sensor_msgs::msg::JointState jointStateMsg;
+    jointStateMsg.header.stamp = now;
+    jointStateMsg.name = fullJointNames_;
+    jointStateMsg.position.resize(fullJointNames_.size(), 0.0);
+    jointStateMsg.velocity.resize(fullJointNames_.size(), 0.0);
+    jointStateMsg.effort.resize(fullJointNames_.size(), 0.0);
+
+    for (size_t i = 0; i < fullJointNames_.size(); ++i) {
+      size_t descIdx = (i < descFullJointIndices_.size()) ? descFullJointIndices_[i] : std::numeric_limits<size_t>::max();
+      if (descIdx != std::numeric_limits<size_t>::max() && robotDescriptionPtr_ && descIdx < robotDescriptionPtr_->getNumJoints()) {
+        try {
+          jointStateMsg.position[i] = robotState.getJointPosition(descIdx);
+          jointStateMsg.velocity[i] = robotState.getJointVelocity(descIdx);
+        } catch (const std::exception&) {
+          jointStateMsg.position[i] = 0.0;
+          jointStateMsg.velocity[i] = 0.0;
+        }
+        if (robotDescriptionPtr_ && descIdx < robotDescriptionPtr_->getNumJoints()) {
+          const auto& actionOpt = robotJointAction.at(descIdx);
+          if (actionOpt.has_value()) {
+            const auto& action = actionOpt.value();
+            jointStateMsg.effort[i] = action.feed_forward_effort + action.kp * (action.q_des - jointStateMsg.position[i]) +
+                                      action.kd * (action.qd_des - jointStateMsg.velocity[i]);
+          }
+        }
+      }
+    }
+    jointStatePub_->publish(jointStateMsg);
+
+    // /mpc/joint_targets
+    sensor_msgs::msg::JointState targetJointMsg;
+    targetJointMsg.header.stamp = now;
+    targetJointMsg.name = fullJointNames_;
+    targetJointMsg.position.resize(fullJointNames_.size(), 0.0);
+    targetJointMsg.velocity.resize(fullJointNames_.size(), 0.0);
+    targetJointMsg.effort.resize(fullJointNames_.size(), 0.0);
+
+    for (size_t i = 0; i < fullJointNames_.size(); ++i) {
+      size_t descIdx = (i < descFullJointIndices_.size()) ? descFullJointIndices_[i] : std::numeric_limits<size_t>::max();
       if (descIdx != std::numeric_limits<size_t>::max() && robotDescriptionPtr_ && descIdx < robotDescriptionPtr_->getNumJoints()) {
         const auto& actionOpt = robotJointAction.at(descIdx);
         if (actionOpt.has_value()) {
-          tau_des[JOINT_COORDINATE_OFFSET + j] = actionOpt.value().feed_forward_effort;
+          targetJointMsg.position[i] = actionOpt.value().q_des;
+          targetJointMsg.velocity[i] = actionOpt.value().qd_des;
+          targetJointMsg.effort[i] = actionOpt.value().feed_forward_effort;
+        } else if (robotDescriptionPtr_ && descIdx < robotDescriptionPtr_->getNumJoints()) {
+          try {
+            targetJointMsg.position[i] = robotState.getJointPosition(descIdx);
+          } catch (const std::exception&) {
+            targetJointMsg.position[i] = 0.0;
+          }
         }
       }
     }
-  }
+    mpcJointTargetPub_->publish(targetJointMsg);
 
-  // 3. Contact Wrenches Setup
-  std::unordered_map<std::string, vector3_t> measuredForces;
-  std::unordered_map<std::string, vector6_t> desiredWrenches;
+    // /robot/base_*
+    robotBasePosePub_->publish(createPoseStamped(now, "world", rootPos, rootQuat));
+    robotBaseEulerPub_->publish(createVector3Stamped(now, "world", rootEuler));
+    robotBaseTwistPub_->publish(createTwistStamped(now, "world", rootLinVel, rootAngVel));
 
-  if (modelSettingsPtr_->contactNames.size() >= N_CONTACTS) {
-    measuredForces[modelSettingsPtr_->contactNames[0]] = leftMeasuredForce;
-    measuredForces[modelSettingsPtr_->contactNames[1]] = rightMeasuredForce;
-  }
+    // /mpc/target_base_*
+    vector3_t targetPos = rootPos;
+    quaternion_t targetQuat = rootQuat;
+    vector3_t targetEuler = rootEuler;
+    vector3_t targetLinVel = vector3_t::Zero();
+    vector3_t targetAngVel = vector3_t::Zero();
 
-  for (size_t c = 0; c < modelSettingsPtr_->contactNames.size(); ++c) {
-    if (targetInput.size() >= static_cast<int>(mpcRobotModelPtr_->getInputDim())) {
-      desiredWrenches[modelSettingsPtr_->contactNames[c]] = mpcRobotModelPtr_->getContactWrench(targetInput, c);
-    }
-  }
+    if (hasValidTargetState) {
+      scalar_t time = mpcObservation.time;
+      vector_t targetState = LinearInterpolation::interpolate(time, targetTraj.timeTrajectory, targetTraj.stateTrajectory);
+      targetPos = mpcRobotModelPtr_->getBasePosition(targetState);
+      const vector3_t targetEulerZyx = mpcRobotModelPtr_->getBaseOrientationEulerZYX(targetState);
+      targetEuler = vector3_t(targetEulerZyx.z(), targetEulerZyx.y(), targetEulerZyx.x());
+      targetQuat = getQuaternionFromEulerAnglesZyx(targetEulerZyx);
 
-  // 4. Publish Pinocchio State & Frames
-  publishPinocchioState(now, q_meas, v_meas, tau_meas, q_des, v_des, tau_des, measuredForces, desiredWrenches);
-
-  // 5. Standard Backward-Compatible Topics
-  // /joint_states
-  sensor_msgs::msg::JointState jointStateMsg;
-  jointStateMsg.header.stamp = now;
-  jointStateMsg.name = fullJointNames_;
-  jointStateMsg.position.resize(fullJointNames_.size(), 0.0);
-  jointStateMsg.velocity.resize(fullJointNames_.size(), 0.0);
-  jointStateMsg.effort.resize(fullJointNames_.size(), 0.0);
-
-  for (size_t i = 0; i < fullJointNames_.size(); ++i) {
-    size_t descIdx = (i < descFullJointIndices_.size()) ? descFullJointIndices_[i] : std::numeric_limits<size_t>::max();
-    if (descIdx != std::numeric_limits<size_t>::max() && robotDescriptionPtr_ && descIdx < robotDescriptionPtr_->getNumJoints()) {
-      try {
-        jointStateMsg.position[i] = robotState.getJointPosition(descIdx);
-        jointStateMsg.velocity[i] = robotState.getJointVelocity(descIdx);
-      } catch (const std::exception&) {
-        jointStateMsg.position[i] = 0.0;
-        jointStateMsg.velocity[i] = 0.0;
-      }
-      if (robotDescriptionPtr_ && descIdx < robotDescriptionPtr_->getNumJoints()) {
-        const auto& actionOpt = robotJointAction.at(descIdx);
-        if (actionOpt.has_value()) {
-          const auto& action = actionOpt.value();
-          jointStateMsg.effort[i] = action.feed_forward_effort + action.kp * (action.q_des - jointStateMsg.position[i]) +
-                                    action.kd * (action.qd_des - jointStateMsg.velocity[i]);
+      const bool hasValidTargetInput = !targetTraj.inputTrajectory.empty() &&
+                                       targetTraj.timeTrajectory.size() == targetTraj.inputTrajectory.size() &&
+                                       targetTraj.inputTrajectory.front().size() == mpcRobotModelPtr_->getInputDim();
+      if (hasValidTargetInput) {
+        vector_t tInput = LinearInterpolation::interpolate(time, targetTraj.timeTrajectory, targetTraj.inputTrajectory);
+        if (tInput.size() >= static_cast<int>(N_CONTACTS * CONTACT_WRENCH_DIM)) {
+          targetLinVel = mpcRobotModelPtr_->getBaseComLinearVelocity(targetState);
         }
       }
     }
-  }
-  jointStatePub_->publish(jointStateMsg);
 
-  // /mpc/joint_targets
-  sensor_msgs::msg::JointState targetJointMsg;
-  targetJointMsg.header.stamp = now;
-  targetJointMsg.name = fullJointNames_;
-  targetJointMsg.position.resize(fullJointNames_.size(), 0.0);
-  targetJointMsg.velocity.resize(fullJointNames_.size(), 0.0);
-  targetJointMsg.effort.resize(fullJointNames_.size(), 0.0);
+    mpcTargetBasePosePub_->publish(createPoseStamped(now, "world", targetPos, targetQuat));
+    mpcTargetBaseEulerPub_->publish(createVector3Stamped(now, "world", targetEuler));
+    mpcTargetBaseTwistPub_->publish(createTwistStamped(now, "world", targetLinVel, targetAngVel));
 
-  for (size_t i = 0; i < fullJointNames_.size(); ++i) {
-    size_t descIdx = (i < descFullJointIndices_.size()) ? descFullJointIndices_[i] : std::numeric_limits<size_t>::max();
-    if (descIdx != std::numeric_limits<size_t>::max() && robotDescriptionPtr_ && descIdx < robotDescriptionPtr_->getNumJoints()) {
-      const auto& actionOpt = robotJointAction.at(descIdx);
-      if (actionOpt.has_value()) {
-        targetJointMsg.position[i] = actionOpt.value().q_des;
-        targetJointMsg.velocity[i] = actionOpt.value().qd_des;
-        targetJointMsg.effort[i] = actionOpt.value().feed_forward_effort;
-      } else if (robotDescriptionPtr_ && descIdx < robotDescriptionPtr_->getNumJoints()) {
-        try {
-          targetJointMsg.position[i] = robotState.getJointPosition(descIdx);
-        } catch (const std::exception&) {
-          targetJointMsg.position[i] = 0.0;
-        }
-      }
+    // /mpc/contact_wrench/left|right
+    if (mpcPolicyInput.size() >= static_cast<int>(N_CONTACTS * CONTACT_WRENCH_DIM)) {
+      mpcContactWrenchLeftPub_->publish(
+          createWrenchStamped(now, "world", mpcPolicyInput.segment<CONTACT_WRENCH_DIM>(CONTACT_LEFT_INDEX * CONTACT_WRENCH_DIM)));
+      mpcContactWrenchRightPub_->publish(
+          createWrenchStamped(now, "world", mpcPolicyInput.segment<CONTACT_WRENCH_DIM>(CONTACT_RIGHT_INDEX * CONTACT_WRENCH_DIM)));
     }
-  }
-  mpcJointTargetPub_->publish(targetJointMsg);
 
-  // /robot/base_*
-  robotBasePosePub_->publish(createPoseStamped(now, "world", rootPos, rootQuat));
-  robotBaseEulerPub_->publish(createVector3Stamped(now, "world", rootEuler));
-  robotBaseTwistPub_->publish(createTwistStamped(now, "world", rootLinVel, rootAngVel));
+    // /sensors/contact_wrench/left|right
+    simContactWrenchLeftPub_->publish(createForceWrenchStamped(now, "world", leftMeasuredForce));
+    simContactWrenchRightPub_->publish(createForceWrenchStamped(now, "world", rightMeasuredForce));
 
-  // /mpc/target_base_*
-  vector3_t targetPos = rootPos;
-  quaternion_t targetQuat = rootQuat;
-  vector3_t targetEuler = rootEuler;
-  vector3_t targetLinVel = vector3_t::Zero();
-  vector3_t targetAngVel = vector3_t::Zero();
-
-  if (!mpcCommand.mpcTargetTrajectories_.timeTrajectory.empty()) {
-    scalar_t time = mpcObservation.time;
-    vector_t targetState = LinearInterpolation::interpolate(time, mpcCommand.mpcTargetTrajectories_.timeTrajectory,
-                                                            mpcCommand.mpcTargetTrajectories_.stateTrajectory);
-    targetPos = mpcRobotModelPtr_->getBasePosition(targetState);
-    const vector3_t targetEulerZyx = mpcRobotModelPtr_->getBaseOrientationEulerZYX(targetState);
-    targetEuler = vector3_t(targetEulerZyx.z(), targetEulerZyx.y(), targetEulerZyx.x());
-    targetQuat = getQuaternionFromEulerAnglesZyx(targetEulerZyx);
-
-    if (!mpcCommand.mpcTargetTrajectories_.inputTrajectory.empty()) {
-      vector_t tInput = LinearInterpolation::interpolate(time, mpcCommand.mpcTargetTrajectories_.timeTrajectory,
-                                                         mpcCommand.mpcTargetTrajectories_.inputTrajectory);
-      if (tInput.size() >= static_cast<int>(N_CONTACTS * CONTACT_WRENCH_DIM)) {
-        targetLinVel = mpcRobotModelPtr_->getBaseComLinearVelocity(targetState);
-      }
+    // /mpc/observation
+    ocs2_ros2_msgs::msg::MpcObservation obsMsg;
+    obsMsg.time = mpcObservation.time;
+    obsMsg.mode = mpcObservation.mode;
+    if (mpcObservation.state.size() > 0) {
+      obsMsg.state.value.assign(mpcObservation.state.data(), mpcObservation.state.data() + mpcObservation.state.size());
     }
+    if (mpcPolicyInput.size() > 0) {
+      obsMsg.input.value.assign(mpcPolicyInput.data(), mpcPolicyInput.data() + mpcPolicyInput.size());
+    }
+    mpcObservationPub_->publish(obsMsg);
+  } catch (const std::exception& e) {
+    RCLCPP_WARN_THROTTLE(nodeHandle_->get_logger(), *nodeHandle_->get_clock(), 1000, "Pinocchio telemetry publishing error: %s", e.what());
+  } catch (...) {
+    RCLCPP_WARN_THROTTLE(nodeHandle_->get_logger(), *nodeHandle_->get_clock(), 1000, "Pinocchio telemetry publishing unknown error");
   }
-
-  mpcTargetBasePosePub_->publish(createPoseStamped(now, "world", targetPos, targetQuat));
-  mpcTargetBaseEulerPub_->publish(createVector3Stamped(now, "world", targetEuler));
-  mpcTargetBaseTwistPub_->publish(createTwistStamped(now, "world", targetLinVel, targetAngVel));
-
-  // /mpc/contact_wrench/left|right
-  if (mpcPolicyInput.size() >= static_cast<int>(N_CONTACTS * CONTACT_WRENCH_DIM)) {
-    mpcContactWrenchLeftPub_->publish(
-        createWrenchStamped(now, "world", mpcPolicyInput.segment<CONTACT_WRENCH_DIM>(CONTACT_LEFT_INDEX * CONTACT_WRENCH_DIM)));
-    mpcContactWrenchRightPub_->publish(
-        createWrenchStamped(now, "world", mpcPolicyInput.segment<CONTACT_WRENCH_DIM>(CONTACT_RIGHT_INDEX * CONTACT_WRENCH_DIM)));
-  }
-
-  // /sensors/contact_wrench/left|right
-  simContactWrenchLeftPub_->publish(createForceWrenchStamped(now, "world", leftMeasuredForce));
-  simContactWrenchRightPub_->publish(createForceWrenchStamped(now, "world", rightMeasuredForce));
-
-  // /mpc/observation
-  ocs2_ros2_msgs::msg::MpcObservation obsMsg;
-  obsMsg.time = mpcObservation.time;
-  obsMsg.mode = mpcObservation.mode;
-  if (mpcObservation.state.size() > 0) {
-    obsMsg.state.value.assign(mpcObservation.state.data(), mpcObservation.state.data() + mpcObservation.state.size());
-  }
-  if (mpcPolicyInput.size() > 0) {
-    obsMsg.input.value.assign(mpcPolicyInput.data(), mpcPolicyInput.data() + mpcPolicyInput.size());
-  }
-  mpcObservationPub_->publish(obsMsg);
 }
 
 }  // namespace ocs2::humanoid

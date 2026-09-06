@@ -52,6 +52,22 @@ using namespace ocs2;
 using namespace ocs2::humanoid;
 
 int main(int argc, char** argv) {
+  std::set_terminate([]() {
+    std::exception_ptr ex = std::current_exception();
+    if (ex) {
+      try {
+        std::rethrow_exception(ex);
+      } catch (const std::exception& e) {
+        std::cerr << "\nFATAL: Unhandled exception in CentroidalMpcRobotSim: " << e.what() << std::endl;
+      } catch (...) {
+        std::cerr << "\nFATAL: Unknown unhandled exception in CentroidalMpcRobotSim." << std::endl;
+      }
+    } else {
+      std::cerr << "\nFATAL: std::terminate called without active exception in CentroidalMpcRobotSim." << std::endl;
+    }
+    std::abort();
+  });
+
   std::vector<std::string> programArgs;
   programArgs = rclcpp::remove_ros_arguments(argc, argv);
   if (programArgs.size() < 6) {
@@ -102,7 +118,9 @@ int main(int argc, char** argv) {
   mpc.getSolverPtr()->addSynchronizedModule(ros2ProceduralMpcMotionManager);
 
   // Register real-time MPC parameter hot-reloading
-  auto mpcParameterUpdater = std::make_shared<MpcParameterUpdaterModule>(&mpc, taskFile, urdfFile, referenceFile);
+  auto mpcParameterUpdater =
+      std::make_shared<MpcParameterUpdaterModule>(&mpc, taskFile, urdfFile, referenceFile, interface.getMpcRobotModel().getStateDim(),
+                                                  interface.getMpcRobotModel().getInputDim(), interface.modelSettings().contactNames);
   mpc.getSolverPtr()->addSynchronizedModule(mpcParameterUpdater);
 
   // Init Sim state
@@ -131,12 +149,19 @@ int main(int argc, char** argv) {
 
   bool enableTelemetry = true;
   std::vector<std::string> telemetryFrames;
+  const scalar_t mrtDesiredFrequency = interface.mpcSettings().mrtDesiredFrequency_;
+  double telemetryFrequency = std::min(100.0, static_cast<double>(mrtDesiredFrequency > 0.0 ? mrtDesiredFrequency : 100.0));
   try {
     YAML::Node taskYaml = YAML::LoadFile(taskFile);
     if (taskYaml["enableTelemetry"]) {
       enableTelemetry = taskYaml["enableTelemetry"].as<bool>();
     } else if (taskYaml["enable_telemetry"]) {
       enableTelemetry = taskYaml["enable_telemetry"].as<bool>();
+    }
+    if (taskYaml["telemetryFrequency"]) {
+      telemetryFrequency = taskYaml["telemetryFrequency"].as<double>();
+    } else if (taskYaml["telemetry_frequency"]) {
+      telemetryFrequency = taskYaml["telemetry_frequency"].as<double>();
     }
     if (taskYaml["telemetryFrames"]) {
       telemetryFrames = taskYaml["telemetryFrames"].as<std::vector<std::string>>();
@@ -145,20 +170,25 @@ int main(int argc, char** argv) {
     LOG(WARNING) << "Failed to read telemetry config from " << taskFile << ": " << e.what();
   }
 
+  const size_t mrtDeltaTMicroSeconds_ = 1000000 / static_cast<size_t>(mrtDesiredFrequency > 0.0 ? mrtDesiredFrequency : 100.0);
+  const size_t telemetryDecimation = (telemetryFrequency > 0.0 && mrtDesiredFrequency > 0.0)
+                                         ? std::max<size_t>(1, static_cast<size_t>(std::round(mrtDesiredFrequency / telemetryFrequency)))
+                                         : 1;
+
   std::unique_ptr<PinocchioTelemetryPublisher> telemetryPublisher;
   if (enableTelemetry) {
     telemetryPublisher = std::make_unique<PinocchioTelemetryPublisher>(nodeHandle, interface.getPinocchioInterface(),
                                                                        interface.getMpcRobotModel().modelSettings,
                                                                        interface.getMpcRobotModel(), robotDescription, telemetryFrames);
-    LOG(INFO) << "Pinocchio telemetry publishing enabled (100 Hz).";
+    LOG(INFO) << "Pinocchio telemetry publishing enabled (" << (mrtDesiredFrequency / telemetryDecimation)
+              << " Hz, decimation=" << telemetryDecimation << ").";
   } else {
     LOG(INFO) << "Telemetry publishing disabled in task.yaml.";
   }
 
   LOG(INFO) << "MPC MRT joint controller is set up with PD gains from: " << pdGainsFile;
+  LOG(INFO) << "MRT joint control loop configured at " << mrtDesiredFrequency << " Hz (" << mrtDeltaTMicroSeconds_ << " us).";
 
-  // size_t mrtDeltaTMicroSeconds_ = 1000000 / (interface.mpcSettings().mrtDesiredFrequency_);
-  size_t mrtDeltaTMicroSeconds_ = 1000000 / (500);
   robotInterface.initSim();
   robotInterface.updateInterfaceStateFromRobot();
   mpcJointController.startMpcThread(robotInterface.getRobotState());
@@ -205,12 +235,18 @@ int main(int argc, char** argv) {
       robotInterface.applyJointAction();
     }
 
-    // Publish telemetry for PlotJuggler visualization at ~100 Hz (every 5th 500 Hz iteration)
-    if (telemetryPublisher && (++telemetryCounter % 5 == 0)) {
-      telemetryPublisher->publish(robotInterface.getRobotState(), robotInterface.getRobotJointAction(),
-                                  mpcJointController.getCurrentObservation(), mpcJointController.getLatestPolicyInput(),
-                                  mpcJointController.getCommandData(), robotInterface.getLeftFootMeasuredForce(),
-                                  robotInterface.getRightFootMeasuredForce());
+    // Publish telemetry for PlotJuggler visualization at configured rate
+    if (telemetryPublisher && (++telemetryCounter % telemetryDecimation == 0)) {
+      try {
+        telemetryPublisher->publish(robotInterface.getRobotState(), robotInterface.getRobotJointAction(),
+                                    mpcJointController.getCurrentObservation(), mpcJointController.getLatestPolicyInput(),
+                                    mpcJointController.getCommandData(), robotInterface.getLeftFootMeasuredForce(),
+                                    robotInterface.getRightFootMeasuredForce());
+      } catch (const std::exception& e) {
+        LOG_EVERY_N(ERROR, 100) << "Telemetry publish exception caught in sim loop: " << e.what();
+      } catch (...) {
+        LOG_EVERY_N(ERROR, 100) << "Telemetry publish unknown exception caught in sim loop";
+      }
     }
 
     rclcpp::spin_some(nodeHandle);

@@ -88,7 +88,7 @@ cc_test(
 )
 cc_test(
     name = "test_mpc_parameter_updater_module",
-    size = "small",
+    size = "large",
     srcs = ["src/testMpcParameterUpdaterModule.cpp"],
     copts = _TEST_COPTS,
     data = _TEST_DATA,

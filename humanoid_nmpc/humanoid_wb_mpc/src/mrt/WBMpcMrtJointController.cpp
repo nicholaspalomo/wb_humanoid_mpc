@@ -215,6 +215,7 @@ void WBMpcMrtJointController::computeJointControlAction(scalar_t time,
   // Set observation to MPC
   updateMpcObservation(currentMpcObservation_, robotState);
   mcpMrtInterface_.setCurrentObservation(currentMpcObservation_);
+  mcpMrtInterface_.updatePolicy();
 
   vector_t mpcPolicyState;
   vector_t mpcPolicyInput;
@@ -250,7 +251,8 @@ void WBMpcMrtJointController::computeJointControlAction(scalar_t time,
       // std::cerr << "MPCtorque!: " << mpcJointTorques[i] << std::endl;
     };
 
-    if (visualizerPtr_ != nullptr) {
+    static size_t vizCounter = 0;
+    if (visualizerPtr_ != nullptr && (++vizCounter % 16 == 0)) {
       visualizerPtr_->update(currentMpcObservation_, mcpMrtInterface_.getPolicy(), mcpMrtInterface_.getCommand());
     }
   }
@@ -267,8 +269,8 @@ void WBMpcMrtJointController::computeJointControlAction(scalar_t time,
       size_t index = mpcJointIndices_[i];
       robot::model::JointAction& action = robotJointAction.at(index).value();
 
-      action.q_des = 0;
-      action.qd_des = 0;
+      action.q_des = robotState.getJointPosition(index);
+      action.qd_des = 0.0;
       action.kp = mpcJointKp_[i];
       action.kd = mpcJointKd_[i];
       action.feed_forward_effort = weightCompensatingTorques[i];
@@ -309,9 +311,6 @@ void WBMpcMrtJointController::solverWorker() {
     if (!mpcStatus.ok()) {
       // MPC solver failed — log and continue with previous solution.
       LOG(ERROR) << "MPC solver error in WB worker: " << mpcStatus.message() << " — retaining previous solution and retrying.";
-    } else {
-      // Update active policy buffer
-      mcpMrtInterface_.updatePolicy();
     }
 
     if (!realtime_) {
