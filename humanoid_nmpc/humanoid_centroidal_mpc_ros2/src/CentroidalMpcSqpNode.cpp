@@ -95,6 +95,7 @@ int main(int argc, char** argv) {
   auto mpcParameterUpdater =
       std::make_shared<MpcParameterUpdaterModule>(&mpc, taskFile, urdfFile, referenceFile, interface.getMpcRobotModel().getStateDim(),
                                                   interface.getMpcRobotModel().getInputDim(), interface.modelSettings().contactNames);
+  mpcParameterUpdater->subscribe(nodeHandle);
   mpc.getSolverPtr()->addSynchronizedModule(mpcParameterUpdater);
 
   MPC_ROS_Interface mpcNode(mpc, robotName);

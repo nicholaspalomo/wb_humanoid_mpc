@@ -57,6 +57,7 @@ class App(tk.Tk):
         task_file: str = "",
         enable_online_tuning: bool = True,
         enable_telemetry: bool = True,
+        param_publisher=None,
     ):
         super().__init__()
         self.title("Robot Base Controller & Tuning")
@@ -65,6 +66,7 @@ class App(tk.Tk):
         self.enable_online_tuning = enable_online_tuning
         self.enable_telemetry = enable_telemetry
         self._fsm_command_callback = None
+        self.param_publisher = param_publisher
 
         # Position window on the left side of the screen on top of the RVIZ window
         gui_width = 960
@@ -184,6 +186,7 @@ class App(tk.Tk):
             tab_mpc,
             task_file=self.task_file,
             enable_online_tuning=self.enable_online_tuning,
+            param_publisher=self.param_publisher,
         )
         self.mpc_params_tab.pack(fill="both", expand=True)
 
@@ -489,6 +492,14 @@ class RosJoystickApp(Node):
 
         repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
 
+        # Resolve install-space paths back to source-tree paths.
+        # The ament install space copies config files, so edits there don't
+        # appear in the source tree the user is watching.  Prefer the source
+        # copy when it exists so that "Save to YAML" modifies the real file.
+        task_file = self._resolve_source_path(task_file, repo_root)
+        cmd_file = self._resolve_source_path(cmd_file, repo_root)
+        pd_gains_file = self._resolve_source_path(pd_gains_file, repo_root)
+
         # 1. Load default base height from target_command_file if provided
         if cmd_file and os.path.exists(cmd_file):
             try:
@@ -586,6 +597,12 @@ class RosJoystickApp(Node):
             String, "/humanoid/fsm_state", self._fsm_state_callback, state_qos
         )
 
+        # Publisher for real-time MPC parameter updates (slider -> ROS topic -> C++)
+        param_qos = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, depth=1)
+        self.param_publisher = self.create_publisher(
+            String, "/mpc_parameter_updates", param_qos
+        )
+
         enable_online_tuning = True
         enable_telemetry = True
         if task_file and os.path.exists(task_file):
@@ -616,6 +633,7 @@ class RosJoystickApp(Node):
             task_file=task_file,
             enable_online_tuning=enable_online_tuning,
             enable_telemetry=enable_telemetry,
+            param_publisher=self.param_publisher,
         )
         self.app.set_default_pelvis_height(default_height)
         self.app._fsm_command_callback = self._send_fsm_command
@@ -669,6 +687,53 @@ class RosJoystickApp(Node):
 
     def ros_spin(self):
         rclpy.spin(self)
+
+    @staticmethod
+    def _resolve_source_path(path: str, repo_root: str) -> str:
+        """Map an ament install-space config path back to the source tree.
+
+        The ament install space copies config files into:
+          <ws>/install/<pkg>/share/<pkg>/config/...
+        but the original source lives under:
+          <repo_root>/robot_models/<robot>/<pkg>/config/...
+
+        When the source-tree copy exists, return it so that GUI edits modify
+        the file the developer is watching.  Falls back to the original path.
+        """
+        if not path or not os.path.exists(path):
+            return path
+
+        # Strategy 1: look for "robot_models/" in the path and re-root it
+        marker = "/robot_models/"
+        idx = path.find(marker)
+        if idx != -1:
+            candidate = os.path.join(repo_root, path[idx + 1 :])
+            if os.path.exists(candidate):
+                return candidate
+
+        # Strategy 2: extract "<pkg>/config/..." suffix from install-space path
+        # Install layout: .../share/<pkg>/config/...
+        parts = path.replace("\\", "/").split("/")
+        try:
+            share_idx = parts.index("share")
+            # parts[share_idx+1] is the package name, remainder is the config sub-path
+            pkg_name = parts[share_idx + 1]
+            config_suffix = "/".join(
+                parts[share_idx + 2 :]
+            )  # e.g. "config/mpc/task.yaml"
+
+            # Search for a matching source file under robot_models/
+            for root_dir, dirs, files in os.walk(
+                os.path.join(repo_root, "robot_models")
+            ):
+                if os.path.basename(root_dir) == pkg_name:
+                    candidate = os.path.join(root_dir, config_suffix)
+                    if os.path.exists(candidate):
+                        return candidate
+        except (ValueError, IndexError):
+            pass
+
+        return path
 
     def run(self):
         try:

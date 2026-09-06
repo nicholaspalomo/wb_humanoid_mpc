@@ -29,6 +29,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc/mrt/MpcParameterUpdaterModule.h"
 
+#include <fstream>
+#include <iostream>
+
 #include <absl/log/log.h>
 
 #include <ocs2_core/cost/QuadraticStateCost.h>
@@ -77,23 +80,61 @@ void MpcParameterUpdaterModule::preSolverRun(scalar_t initTime,
                                              scalar_t finalTime,
                                              const vector_t& currentState,
                                              const ReferenceManagerInterface& referenceManager) {
-  // Check task.yaml modification time at roughly 1Hz (assuming solver runs around 100Hz)
+  // Pathway 1: Check for ROS topic data (takes priority — no file I/O needed for the source YAML)
+  if (hasNewTopicData_.load(std::memory_order_acquire)) {
+    std::string yamlContent;
+    {
+      std::lock_guard<std::mutex> lock(pendingMutex_);
+      yamlContent = std::move(pendingYamlContent_);
+      hasNewTopicData_.store(false, std::memory_order_release);
+    }
+    // Write to a temp file so we can reuse the existing loadData parsing pipeline.
+    // Keep the .yaml extension so readPropertyTree dispatches to the YAML parser.
+    const std::string tempFile = taskFile_ + ".live.yaml";
+    try {
+      std::ofstream ofs(tempFile, std::ios::trunc);
+      if (ofs.is_open()) {
+        ofs << yamlContent;
+        ofs.close();
+        applyParameterUpdates(tempFile);
+      } else {
+        LOG(ERROR) << "[MpcParameterUpdaterModule] Failed to write temp file: " << tempFile;
+      }
+    } catch (const std::exception& e) {
+      LOG(ERROR) << "[MpcParameterUpdaterModule] Error writing temp file: " << e.what();
+    }
+  }
+
+  // Pathway 2: Check task.yaml modification time at roughly 1Hz (assuming solver runs around 100Hz)
   if (!taskFile_.empty() && checkCounter_++ % 100 == 0) {
     std::error_code ec;
     auto last_write = std::filesystem::last_write_time(taskFile_, ec);
     if (!ec && last_write != taskFileLastWriteTime_) {
       taskFileLastWriteTime_ = last_write;
-      applyParameterUpdates();
+      applyParameterUpdates(taskFile_);
     }
   }
+}
+
+void MpcParameterUpdaterModule::subscribe(rclcpp::Node::SharedPtr node) {
+  subscription_ = node->create_subscription<std_msgs::msg::String>(
+      "/mpc_parameter_updates", rclcpp::QoS(1).best_effort(), [this](const std_msgs::msg::String::SharedPtr msg) { topicCallback(msg); });
+  LOG(INFO) << "[MpcParameterUpdaterModule] Subscribed to /mpc_parameter_updates";
+}
+
+void MpcParameterUpdaterModule::topicCallback(const std_msgs::msg::String::SharedPtr msg) {
+  std::cerr << "[MpcParameterUpdaterModule] topicCallback received " << msg->data.size() << " chars" << std::endl;
+  std::lock_guard<std::mutex> lock(pendingMutex_);
+  pendingYamlContent_ = msg->data;
+  hasNewTopicData_.store(true, std::memory_order_release);
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-void MpcParameterUpdaterModule::applyParameterUpdates() {
-  LOG(INFO) << "[MpcParameterUpdaterModule] Detected changes in " << taskFile_ << ". Applying in-place parameter updates...";
+void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFile) {
+  LOG(INFO) << "[MpcParameterUpdaterModule] Applying in-place parameter updates from " << yamlFile << "...";
 
   if (mpcPtr_ == nullptr) {
     LOG(ERROR) << "[MpcParameterUpdaterModule] mpcPtr_ is null.";
@@ -119,10 +160,10 @@ void MpcParameterUpdaterModule::applyParameterUpdates() {
   scalar_t terminalCostScaling = 1.0;
 
   try {
-    loadData::loadEigenMatrix(taskFile_, "Q", Q);
-    loadData::loadEigenMatrix(taskFile_, "R", R);
-    loadData::loadEigenMatrix(taskFile_, "Q_final", Q_final);
-    loadData::loadCppDataType<scalar_t>(taskFile_, "terminalCostScaling", terminalCostScaling);
+    loadData::loadEigenMatrix(yamlFile, "Q", Q);
+    loadData::loadEigenMatrix(yamlFile, "R", R);
+    loadData::loadEigenMatrix(yamlFile, "Q_final", Q_final);
+    loadData::loadCppDataType<scalar_t>(yamlFile, "terminalCostScaling", terminalCostScaling);
     Q_final *= terminalCostScaling;
   } catch (const std::exception& e) {
     LOG(ERROR) << "[MpcParameterUpdaterModule] Error parsing Q/R/Q_final: " << e.what();
@@ -136,7 +177,7 @@ void MpcParameterUpdaterModule::applyParameterUpdates() {
   vector12_t footTrackingWeightsVec = vector12_t::Zero();
   bool hasFootTrackingWeights = false;
   try {
-    footTrackingWeights = EndEffectorKinematicsWeights::getWeights(taskFile_, "task_space_foot_cost_weights.", false);
+    footTrackingWeights = EndEffectorKinematicsWeights::getWeights(yamlFile, "task_space_foot_cost_weights.", false);
     footTrackingWeightsVec = footTrackingWeights.toVector();
     hasFootTrackingWeights = true;
   } catch (...) {
@@ -145,7 +186,7 @@ void MpcParameterUpdaterModule::applyParameterUpdates() {
   vector2_t icpWeights = vector2_t::Zero();
   bool hasIcpWeights = false;
   try {
-    icpWeights = ICPCost::getWeights(taskFile_, "icp_cost_weights.", false);
+    icpWeights = ICPCost::getWeights(yamlFile, "icp_cost_weights.", false);
     hasIcpWeights = true;
   } catch (...) {
   }
@@ -154,14 +195,14 @@ void MpcParameterUpdaterModule::applyParameterUpdates() {
   boost::property_tree::ptree pt;
   std::vector<std::pair<std::string, vector12_t>> taskSpaceCostUpdates;
   try {
-    loadData::readPropertyTree(taskFile_, pt);
+    loadData::readPropertyTree(yamlFile, pt);
     auto taskSpaceCostsIt = pt.find("task_space_costs");
     if (taskSpaceCostsIt != pt.not_found()) {
       for (auto& task_space_cost : taskSpaceCostsIt->second) {
         std::string costName = task_space_cost.first;
         try {
           EndEffectorKinematicsWeights weights =
-              EndEffectorKinematicsWeights::getWeights(taskFile_, "task_space_costs." + costName + ".weights.", false);
+              EndEffectorKinematicsWeights::getWeights(yamlFile, "task_space_costs." + costName + ".weights.", false);
           taskSpaceCostUpdates.emplace_back(costName + "_TaskSpaceKinematicsCost", weights.toVector());
         } catch (...) {
         }
@@ -175,7 +216,7 @@ void MpcParameterUpdaterModule::applyParameterUpdates() {
   for (size_t i = 0; i < contactNames_.size(); ++i) {
     try {
       std::string fieldName = (i == 0) ? "left_leg_torque_cost." : "right_leg_torque_cost.";
-      auto config = ExternalTorqueQuadraticCostAD::loadConfigFromFile(taskFile_, fieldName, false);
+      auto config = ExternalTorqueQuadraticCostAD::loadConfigFromFile(yamlFile, fieldName, false);
       extTorqueConfigs.emplace_back(contactNames_[i] + "_ExternalTorqueQuadraticCost", std::move(config));
     } catch (...) {
     }

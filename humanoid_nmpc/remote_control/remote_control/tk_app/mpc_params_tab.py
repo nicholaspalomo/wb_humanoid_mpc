@@ -93,6 +93,7 @@ class MpcParamsTab(ttk.Frame):
         task_file: Optional[str] = None,
         on_params_updated=None,
         enable_online_tuning: Optional[bool] = None,
+        param_publisher=None,
         *args,
         **kwargs,
     ):
@@ -109,7 +110,13 @@ class MpcParamsTab(ttk.Frame):
         self.raw_data: Dict[str, Any] = {}
         self.slider_rows: Dict[str, SliderRow] = {}  # key_path_str -> SliderRow
         self.comment_map: Dict[str, str] = {}  # "(i,i)" -> comment description
-        self._debounce_save_id = None  # tkinter after() ID for debounced auto-save
+        self._debounce_publish_id = None  # tkinter after() ID for debounced publish
+        self.param_publisher = (
+            param_publisher  # ROS publisher for /mpc_parameter_updates
+        )
+        self._live_values: Dict[str, float] = (
+            {}
+        )  # Persists slider values across category switches
 
         self._build_header_ui()
 
@@ -169,7 +176,7 @@ class MpcParamsTab(ttk.Frame):
         self.reset_btn.pack(side="left", padx=2)
 
         self.save_btn = ttk.Button(
-            toolbar, text="💾 Save to YAML", command=self.save_to_yaml
+            toolbar, text="💾 Save to YAML", command=self.save_and_checkpoint
         )
         self.save_btn.pack(side="left", padx=(4, 0))
 
@@ -254,6 +261,15 @@ class MpcParamsTab(ttk.Frame):
         self.task_file = os.path.abspath(file_path)
         self.path_var.set(self.task_file)
         self.raw_data = load_yaml_safe(self.task_file)
+
+        # Create a backup of the original file at load time (before any
+        # slider-driven writes) so "Reset All" can always restore it.
+        bak_path = self.task_file + ".bak"
+        if not os.path.exists(bak_path):
+            import shutil
+
+            shutil.copy2(self.task_file, bak_path)
+
         if self._explicit_online_tuning is not None:
             self.enable_online_tuning = self._explicit_online_tuning
         elif "enableOnlineTuning" in self.raw_data:
@@ -268,6 +284,8 @@ class MpcParamsTab(ttk.Frame):
     def reload_file(self):
         if self.task_file and os.path.exists(self.task_file):
             self.load_file(self.task_file)
+            # Publish the reloaded values so the MPC syncs with the sliders
+            self._publish_to_topic()
 
     def _parse_yaml_comments(self, file_path: str):
         """Extracts inline annotations like '# back_bkz' or '# p_base_z' from task.yaml."""
@@ -288,6 +306,11 @@ class MpcParamsTab(ttk.Frame):
 
     def _render_active_category(self):
         cat = self.active_category.get()
+
+        # Save current slider values before destroying them
+        for key, row in self.slider_rows.items():
+            self._live_values[key] = row.get_value()
+
         # Clear content container
         for child in self.scroll_container.scrollable_content.winfo_children():
             child.destroy()
@@ -304,6 +327,11 @@ class MpcParamsTab(ttk.Frame):
             self._render_task_space_costs()
         elif cat == "Constraints & Barriers":
             self._render_constraints_and_barriers()
+
+        # Restore saved slider values (from previous edits on this tab)
+        for key, row in self.slider_rows.items():
+            if key in self._live_values:
+                row.set_value(self._live_values[key])
 
         if not self.enable_online_tuning:
             for row in self.slider_rows.values():
@@ -520,6 +548,14 @@ class MpcParamsTab(ttk.Frame):
         row_qf_s.pack(fill="x", padx=4, pady=2)
         self.slider_rows["Q_final.scaling"] = row_qf_s
 
+        # Sync Q_final from Q button
+        sync_btn = ttk.Button(
+            scale_frame,
+            text="⟳ Sync from Q",
+            command=self._sync_q_final_from_q,
+        )
+        sync_btn.pack(fill="x", padx=4, pady=(4, 2))
+
         # Terminal Momentum & Pose
         term_frame = ttk.LabelFrame(
             self.scroll_container.scrollable_content,
@@ -544,6 +580,50 @@ class MpcParamsTab(ttk.Frame):
                 )
                 row.pack(fill="x", padx=4, pady=1)
                 self.slider_rows[f'Q_final."{key}"'] = row
+
+    def _sync_q_final_from_q(self):
+        """Copy Q diagonal values (0..11) and scaling into Q_final sliders."""
+        if not self.enable_online_tuning:
+            self._show_status("Online tuning is disabled.", error=True)
+            return
+
+        # Use live slider values (persisted across category switches) instead
+        # of re-reading the file, since we no longer auto-save to YAML.
+        q_data = {}
+        for key, val in self._live_values.items():
+            if key.startswith("Q."):
+                # Strip the "Q." prefix and any quotes
+                suffix = key[2:].strip('"')
+                q_data[suffix] = val
+
+        # Fall back to raw_data if no live values for Q exist yet
+        if not q_data:
+            q_data = self.raw_data.get("Q", {})
+
+        if not q_data:
+            self._show_status("Q matrix not found — nothing to sync.", error=True)
+            return
+
+        synced = 0
+        # Sync scaling
+        qf_scaling_key = "Q_final.scaling"
+        if qf_scaling_key in self.slider_rows:
+            q_scale = float(q_data.get("scaling", 1.0))
+            self.slider_rows[qf_scaling_key].set_value(q_scale)
+            synced += 1
+
+        # Sync diagonal entries (0,0) through (11,11)
+        for i in range(12):
+            diag_key = f"({i},{i})"
+            qf_slider_key = f'Q_final."{diag_key}"'
+            if qf_slider_key in self.slider_rows and diag_key in q_data:
+                q_val = float(q_data[diag_key])
+                self.slider_rows[qf_slider_key].set_value(q_val)
+                synced += 1
+
+        if synced > 0:
+            self._on_any_slider_change("sync", 0.0)
+            self._show_status(f"✓ Synced {synced} Q_final entries from Q")
 
     def _render_task_space_costs(self):
         # Foot tracking weights
@@ -749,21 +829,96 @@ class MpcParamsTab(ttk.Frame):
             return
         for row in self.slider_rows.values():
             row.reset_to_default()
+        # Publish immediately so the MPC picks up the reset values
+        self._publish_to_topic()
         self._show_status("All parameters reset to loaded defaults")
 
     def _on_any_slider_change(self, name: str, value: float):
-        """Called on every slider move; debounces auto-save to disk."""
-        if self._debounce_save_id is not None:
-            self.after_cancel(self._debounce_save_id)
-        self._debounce_save_id = self.after(300, self._auto_save)
+        """Called on every slider move; debounces publish to ROS topic.
 
-    def _auto_save(self):
-        """Debounced auto-save: writes current slider values to YAML."""
-        self._debounce_save_id = None
-        if self.enable_online_tuning and self.task_file:
-            self.save_to_yaml()
+        The C++ MpcParameterUpdaterModule subscribes to /mpc_parameter_updates
+        for real-time parameter updates without touching the YAML file.
+        """
+        # Persist the value so it survives category tab switches
+        self._live_values[name] = value
+        if self._debounce_publish_id is not None:
+            self.after_cancel(self._debounce_publish_id)
+        self._debounce_publish_id = self.after(300, self._publish_to_topic)
 
-    def save_to_yaml(self):
+    def _build_yaml_with_slider_values(self) -> str:
+        """Build a complete YAML string from the original file with slider values applied.
+
+        Reads the original task.yaml, applies ALL current slider values (from
+        _live_values, which persists across category tab switches) as line
+        edits, and returns the full modified YAML string (without writing to
+        disk).  The C++ side writes this to a temp file for parsing.
+        """
+        if not self.task_file or not os.path.exists(self.task_file):
+            return ""
+
+        with open(self.task_file, "r") as f:
+            lines = f.readlines()
+
+        # Merge current slider_rows into _live_values to capture any pending changes
+        for key_path_str, row in self.slider_rows.items():
+            self._live_values[key_path_str] = row.get_value()
+
+        # Build updates list from ALL live values (all categories)
+        updates = []
+        for key_path_str, val in self._live_values.items():
+            parts = key_path_str.split(".")
+            updates.append((parts, val))
+
+        # Apply updates in-place on the lines (same logic as update_yaml_values_in_place
+        # but without writing to disk)
+        from remote_control.tk_app.yaml_editor_utils import _update_single_key
+
+        for key_path, value in updates:
+            lines = _update_single_key(lines, key_path, value)
+
+        return "".join(lines)
+
+    def _publish_to_topic(self):
+        """Publish current slider values as a YAML string to /mpc_parameter_updates."""
+        self._debounce_publish_id = None
+        print(
+            f"[MpcParamsTab] _publish_to_topic called. "
+            f"enable_online_tuning={self.enable_online_tuning}, "
+            f"param_publisher={self.param_publisher is not None}"
+        )
+        if not self.enable_online_tuning or not self.param_publisher:
+            print(
+                "[MpcParamsTab] Skipping publish: online tuning disabled or no publisher"
+            )
+            return
+
+        try:
+            yaml_content = self._build_yaml_with_slider_values()
+            print(f"[MpcParamsTab] Built YAML content: {len(yaml_content)} chars")
+            if yaml_content:
+                from std_msgs.msg import String
+
+                msg = String()
+                msg.data = yaml_content
+                self.param_publisher.publish(msg)
+                print(
+                    f"[MpcParamsTab] Published {len(yaml_content)} chars to /mpc_parameter_updates"
+                )
+        except Exception as e:
+            print(f"[MpcParamsTab] ERROR in _publish_to_topic: {e}")
+            import traceback
+
+            traceback.print_exc()
+            self._show_status(f"Error publishing to topic: {e}", error=True)
+
+    def save_and_checkpoint(self):
+        """Explicit save: writes to YAML AND updates the reset checkpoint.
+
+        After this, 'Reset All' will restore sliders to these values.
+        """
+        self.save_to_yaml(update_defaults=True)
+
+    def save_to_yaml(self, update_defaults: bool = False):
         if not self.enable_online_tuning:
             self._show_status("Online tuning is disabled.", error=True)
             return
@@ -779,17 +934,21 @@ class MpcParamsTab(ttk.Frame):
             updates.append((parts, val))
 
         try:
+            # Never create .bak here — the backup was already created at
+            # file-load time in load_file().
             success = update_yaml_values_in_place(
-                self.task_file, updates, create_backup=True
+                self.task_file, updates, create_backup=False
             )
             if success:
+                if update_defaults:
+                    # Explicit "Save to YAML": update the reset checkpoint
+                    # so "Reset All" returns to these values.
+                    for row in self.slider_rows.values():
+                        row.default_value = row.current_value
                 for row in self.slider_rows.values():
-                    row.default_value = row.current_value
                     row._update_highlight()
 
-                self._show_status(
-                    f"✓ Saved to {os.path.basename(self.task_file)} (backup created)"
-                )
+                self._show_status(f"✓ Saved to {os.path.basename(self.task_file)}")
                 if self.on_params_updated:
                     self.on_params_updated(self.task_file)
             else:

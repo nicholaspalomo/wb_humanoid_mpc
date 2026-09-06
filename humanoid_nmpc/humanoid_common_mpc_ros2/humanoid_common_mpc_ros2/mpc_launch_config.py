@@ -59,6 +59,34 @@ class MPCLaunchConfig:
             self.common_mpc_dir, "config/command/gait.yaml"
         )
 
+        # Prefer source-tree configs over ament install-space copies so that
+        # GUI edits and the C++ file-watcher both operate on the canonical file.
+        source_root = self._find_workspace_root()
+        if source_root:
+            for suffix in [
+                f"{mpc_config_pkg}/config/mpc/task.yaml",
+                f"{mpc_config_pkg}/config/command/reference.yaml",
+            ]:
+                # Walk robot_models/ to find the matching package directory
+                rm_dir = os.path.join(source_root, "robot_models")
+                if os.path.isdir(rm_dir):
+                    for root_dir, dirs, files in os.walk(rm_dir):
+                        if os.path.basename(root_dir) == mpc_config_pkg:
+                            rel = suffix[len(mpc_config_pkg) + 1 :]
+                            src = os.path.join(root_dir, rel)
+                            if os.path.exists(src):
+                                if "task.yaml" in rel:
+                                    default_mpc_config_path = src
+                                    print(
+                                        f"[MPCLaunchConfig] Using source-tree task.yaml: {src}"
+                                    )
+                                elif "reference.yaml" in rel:
+                                    default_target_command_path = src
+                                    print(
+                                        f"[MPCLaunchConfig] Using source-tree reference.yaml: {src}"
+                                    )
+                            break
+
         print("MPC config urdf file path: ", self.urdf_path)
 
         ### RVIZ Config ###
@@ -321,3 +349,36 @@ class MPCLaunchConfig:
         )
 
         print("Finished launch config initialization")
+
+    @staticmethod
+    def _find_workspace_root() -> str:
+        """Find the wb_humanoid_mpc workspace root by searching for marker files.
+
+        Tries known devcontainer bind-mount locations first, then walks up from CWD.
+        Returns empty string if not found.
+        """
+        markers = ["WORKSPACE.bazel", "Makefile"]
+
+        # Known devcontainer bind-mount locations
+        candidates = [
+            "/wb_humanoid_mpc_ws/workspace/wb_humanoid_mpc",
+            "/wb_humanoid_mpc_ws/src/wb_humanoid_mpc",
+        ]
+        for c in candidates:
+            if os.path.isdir(c) and any(
+                os.path.exists(os.path.join(c, m)) for m in markers
+            ):
+                return c
+
+        # Walk up from CWD
+        d = os.path.abspath(os.getcwd())
+        for _ in range(10):
+            if any(os.path.exists(os.path.join(d, m)) for m in markers):
+                if os.path.isdir(os.path.join(d, "robot_models")):
+                    return d
+            parent = os.path.dirname(d)
+            if parent == d:
+                break
+            d = parent
+
+        return ""

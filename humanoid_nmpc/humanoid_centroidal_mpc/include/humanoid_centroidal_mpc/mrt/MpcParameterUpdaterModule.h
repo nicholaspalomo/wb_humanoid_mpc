@@ -29,11 +29,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
+
+#include <rclcpp/rclcpp.hpp>
+#include <std_msgs/msg/string.hpp>
 
 #include <ocs2_mpc/MPC_BASE.h>
 #include <ocs2_oc/synchronized_module/SolverSynchronizedModule.h>
@@ -47,6 +52,11 @@ namespace ocs2::humanoid {
  * parameters in-place on the solver's existing OCP objects. This avoids rebuilding the
  * CentroidalMpcInterface (which would cause dangling-reference segfaults) by using the
  * existing setGains/setWeights/setConfig methods on each cost and penalty object.
+ *
+ * Supports two update pathways:
+ *   1. File-watching: detects task.yaml changes on disk (~1 Hz polling).
+ *   2. ROS topic: subscribes to /mpc_parameter_updates (std_msgs/String)
+ *      for real-time slider-driven updates without touching the YAML file.
  */
 class MpcParameterUpdaterModule : public SolverSynchronizedModule {
  public:
@@ -60,6 +70,12 @@ class MpcParameterUpdaterModule : public SolverSynchronizedModule {
 
   ~MpcParameterUpdaterModule() override = default;
 
+  /**
+   * Subscribe to the /mpc_parameter_updates ROS topic for real-time
+   * parameter updates from the GUI (without writing to task.yaml).
+   */
+  void subscribe(rclcpp::Node::SharedPtr node);
+
   void preSolverRun(scalar_t initTime,
                     scalar_t finalTime,
                     const vector_t& currentState,
@@ -69,10 +85,14 @@ class MpcParameterUpdaterModule : public SolverSynchronizedModule {
 
  private:
   /**
-   * Re-parses task.yaml and applies all parameter updates in-place to every
+   * Re-parses a YAML file and applies all parameter updates in-place to every
    * thread-local OCP in the SqpSolver.
+   * @param yamlFile  Path to the YAML file to parse (task.yaml or a temp file).
    */
-  void applyParameterUpdates();
+  void applyParameterUpdates(const std::string& yamlFile);
+
+  /** ROS topic callback — stores the incoming YAML string for the solver thread. */
+  void topicCallback(const std_msgs::msg::String::SharedPtr msg);
 
   MPC_BASE* mpcPtr_;
   const std::string taskFile_;
@@ -83,8 +103,15 @@ class MpcParameterUpdaterModule : public SolverSynchronizedModule {
   const size_t inputDim_;
   const std::vector<std::string> contactNames_;
 
+  // File-watching state
   std::filesystem::file_time_type taskFileLastWriteTime_;
   size_t checkCounter_{0};
+
+  // ROS topic state
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr subscription_;
+  std::mutex pendingMutex_;
+  std::string pendingYamlContent_;
+  std::atomic<bool> hasNewTopicData_{false};
 };
 
 }  // namespace ocs2::humanoid
