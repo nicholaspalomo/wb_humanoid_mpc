@@ -44,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_oc/synchronized_module/SolverSynchronizedModule.h>
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
 namespace ocs2::humanoid {
 
@@ -66,7 +67,8 @@ class MpcParameterUpdaterModule : public SolverSynchronizedModule {
                             const std::string& referenceFile,
                             size_t stateDim,
                             size_t inputDim,
-                            const std::vector<std::string>& contactNames);
+                            const std::vector<std::string>& contactNames,
+                            const SwitchedModelReferenceManager* referenceManager = nullptr);
 
   ~MpcParameterUpdaterModule() override = default;
 
@@ -102,6 +104,7 @@ class MpcParameterUpdaterModule : public SolverSynchronizedModule {
   const size_t stateDim_;
   const size_t inputDim_;
   const std::vector<std::string> contactNames_;
+  const SwitchedModelReferenceManager* referenceManagerPtr_;
 
   // File-watching state
   std::filesystem::file_time_type taskFileLastWriteTime_;

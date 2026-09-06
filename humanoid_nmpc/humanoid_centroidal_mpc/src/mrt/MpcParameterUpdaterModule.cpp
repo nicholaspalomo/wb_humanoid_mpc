@@ -37,18 +37,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_core/cost/QuadraticStateCost.h>
 #include <ocs2_core/cost/QuadraticStateInputCost.h>
 #include <ocs2_core/misc/LoadData.h>
+#include <ocs2_core/misc/Numerics.h>
 #include <ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h>
+#include <ocs2_core/penalties/penalties/QuadraticPenalty.h>
 #include <ocs2_core/penalties/penalties/RelaxedBarrierPenalty.h>
 #include <ocs2_core/soft_constraint/StateInputSoftConstraint.h>
 #include <ocs2_core/soft_constraint/StateSoftConstraint.h>
+#include <ocs2_sqp/SqpSettings.h>
 #include <ocs2_sqp/SqpSolver.h>
 
+#include "humanoid_centroidal_mpc/constraint/ZeroVelocityConstraintCppAd.h"
 #include "humanoid_centroidal_mpc/cost/CentroidalMpcEndEffectorFootCost.h"
 #include "humanoid_centroidal_mpc/cost/ICPCost.h"
 #include "humanoid_common_mpc/constraint/JointLimitsSoftConstraint.h"
 #include "humanoid_common_mpc/cost/EndEffectorKinematicCostHelpers.h"
 #include "humanoid_common_mpc/cost/EndEffectorKinematicsQuadraticCost.h"
 #include "humanoid_common_mpc/cost/ExternalTorqueQuadraticCostAD.h"
+#include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 
 namespace ocs2::humanoid {
 
@@ -58,14 +63,16 @@ MpcParameterUpdaterModule::MpcParameterUpdaterModule(MPC_BASE* mpcPtr,
                                                      const std::string& referenceFile,
                                                      size_t stateDim,
                                                      size_t inputDim,
-                                                     const std::vector<std::string>& contactNames)
+                                                     const std::vector<std::string>& contactNames,
+                                                     const SwitchedModelReferenceManager* referenceManager)
     : mpcPtr_(mpcPtr),
       taskFile_(taskFile),
       urdfFile_(urdfFile),
       referenceFile_(referenceFile),
       stateDim_(stateDim),
       inputDim_(inputDim),
-      contactNames_(contactNames) {
+      contactNames_(contactNames),
+      referenceManagerPtr_(referenceManager) {
   if (!taskFile_.empty() && std::filesystem::exists(taskFile_)) {
     std::error_code ec;
     taskFileLastWriteTime_ = std::filesystem::last_write_time(taskFile_, ec);
@@ -258,10 +265,83 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
   } catch (...) {
   }
 
+  // LINT.IfChange(softConstraintWeight_yaml_path)
   scalar_t zeroVelWeight = -1.0;
   try {
-    loadData::loadPtreeValue(pt, zeroVelWeight, "contacts.footConstraintConfig.softConstraintWeight", false);
+    loadData::loadPtreeValue(pt, zeroVelWeight, "model_settings.foot_constraint.softConstraintWeight", false);
   } catch (...) {
+  }
+  // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:foot_constraint_section,
+  // //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.yaml:foot_constraint_section)
+
+  // ────────────────────────────────────────────────────────────────
+  // 3b. Parse foot constraint error gains
+  // ────────────────────────────────────────────────────────────────
+  ModelSettings::FootConstraintConfig footCfg;
+  bool hasFootConstraintGains = false;
+  try {
+    const std::string fcPrefix = "model_settings.foot_constraint.";
+    loadData::loadPtreeValue(pt, footCfg.positionErrorGain_z, fcPrefix + "positionErrorGain_z", false);
+    loadData::loadPtreeValue(pt, footCfg.orientationErrorGain, fcPrefix + "orientationErrorGain", false);
+    loadData::loadPtreeValue(pt, footCfg.linearVelocityErrorGain_z, fcPrefix + "linearVelocityErrorGain_z", false);
+    loadData::loadPtreeValue(pt, footCfg.linearVelocityErrorGain_xy, fcPrefix + "linearVelocityErrorGain_xy", false);
+    loadData::loadPtreeValue(pt, footCfg.angularVelocityErrorGain, fcPrefix + "angularVelocityErrorGain", false);
+    loadData::loadPtreeValue(pt, footCfg.linearAccelerationErrorGain_z, fcPrefix + "linearAccelerationErrorGain_z", false);
+    loadData::loadPtreeValue(pt, footCfg.linearAccelerationErrorGain_xy, fcPrefix + "linearAccelerationErrorGain_xy", false);
+    loadData::loadPtreeValue(pt, footCfg.angularAccelerationErrorGain, fcPrefix + "angularAccelerationErrorGain", false);
+    hasFootConstraintGains = true;
+  } catch (...) {
+  }
+
+  // Build the Ax/Av config from foot constraint gains (mirrors CentroidalMpcInterface::getStanceFootConstraint)
+  EndEffectorKinematicsTwistConstraint::Config footTwistConfig;
+  if (hasFootConstraintGains) {
+    footTwistConfig.b.setZero(6);
+    footTwistConfig.Ax.setZero(6, 6);
+    footTwistConfig.Av.setZero(6, 6);
+    if (!numerics::almost_eq(footCfg.positionErrorGain_z, 0.0)) {
+      footTwistConfig.Ax(2, 2) = footCfg.positionErrorGain_z;
+    }
+    if (!numerics::almost_eq(footCfg.orientationErrorGain, 0.0)) {
+      footTwistConfig.Ax.block(3, 3, 3, 3) = Eigen::MatrixXd::Identity(3, 3) * footCfg.orientationErrorGain;
+    }
+    footTwistConfig.Av(0, 0) = footCfg.linearVelocityErrorGain_xy;
+    footTwistConfig.Av(1, 1) = footCfg.linearVelocityErrorGain_xy;
+    footTwistConfig.Av(2, 2) = footCfg.linearVelocityErrorGain_z;
+    footTwistConfig.Av(3, 3) = footCfg.angularVelocityErrorGain;
+    footTwistConfig.Av(4, 4) = footCfg.angularVelocityErrorGain;
+    footTwistConfig.Av(5, 5) = footCfg.angularVelocityErrorGain;
+  }
+
+  // ────────────────────────────────────────────────────────────────
+  // 3c. Parse SQP solver settings (safe subset)
+  // ────────────────────────────────────────────────────────────────
+  sqp::Settings sqpUpdates = sqpSolverPtr->getSettings();
+  bool hasSqpUpdates = false;
+  try {
+    size_t sqpIter = sqpUpdates.sqpIteration;
+    loadData::loadPtreeValue(pt, sqpIter, "multiple_shooting.sqpIteration", false);
+    sqpUpdates.sqpIteration = sqpIter;
+    loadData::loadPtreeValue(pt, sqpUpdates.deltaTol, "multiple_shooting.deltaTol", false);
+    loadData::loadPtreeValue(pt, sqpUpdates.g_max, "multiple_shooting.g_max", false);
+    loadData::loadPtreeValue(pt, sqpUpdates.g_min, "multiple_shooting.g_min", false);
+    loadData::loadPtreeValue(pt, sqpUpdates.inequalityConstraintMu, "multiple_shooting.inequalityConstraintMu", false);
+    loadData::loadPtreeValue(pt, sqpUpdates.inequalityConstraintDelta, "multiple_shooting.inequalityConstraintDelta", false);
+    hasSqpUpdates = true;
+  } catch (...) {
+  }
+
+  // ────────────────────────────────────────────────────────────────
+  // 3d. Parse swing trajectory config
+  // ────────────────────────────────────────────────────────────────
+  SwingTrajectoryPlanner::Config swingConfig;
+  bool hasSwingConfig = false;
+  if (referenceManagerPtr_ != nullptr) {
+    try {
+      swingConfig = loadSwingTrajectorySettings(yamlFile, "swing_trajectory_config", false);
+      hasSwingConfig = true;
+    } catch (...) {
+    }
   }
 
   // ────────────────────────────────────────────────────────────────
@@ -376,6 +456,57 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
         penalty->setParameters(collisionParams);
       }
     } catch (...) {
+    }
+
+    // ── Zero velocity soft constraint weight ──
+    if (zeroVelWeight > 0.0) {
+      for (const auto& footName : contactNames_) {
+        try {
+          auto& softCon = ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_zeroVelocity");
+          for (auto& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
+            auto* quadPenalty = dynamic_cast<QuadraticPenalty*>(penalty.get());
+            if (quadPenalty != nullptr) {
+              quadPenalty->setScale(zeroVelWeight);
+            }
+          }
+        } catch (...) {
+        }
+      }
+    }
+
+    // ── Foot constraint error gains ──
+    if (hasFootConstraintGains) {
+      for (const auto& footName : contactNames_) {
+        // Hard constraint path
+        try {
+          auto& con = ocp.equalityConstraintPtr->get<ZeroVelocityConstraintCppAd>(footName + "_zeroVelocity");
+          con.getTwistConstraint().configure(EndEffectorKinematicsTwistConstraint::Config(footTwistConfig));
+        } catch (...) {
+        }
+        // Soft constraint path: the inner constraint is wrapped in StateInputSoftConstraint.
+        // ZeroVelocityConstraintCppAd is reached via dynamic_cast through the soft constraint wrapper.
+        try {
+          auto& softCon = ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_zeroVelocity");
+          auto* zeroVelCon = dynamic_cast<ZeroVelocityConstraintCppAd*>(softCon.getConstraintPtr().get());
+          if (zeroVelCon != nullptr) {
+            zeroVelCon->getTwistConstraint().configure(EndEffectorKinematicsTwistConstraint::Config(footTwistConfig));
+          }
+        } catch (...) {
+        }
+      }
+    }
+  }
+
+  // ── SQP solver settings (applied once, not per-thread OCP) ──
+  if (hasSqpUpdates) {
+    sqpSolverPtr->getSettings() = sqpUpdates;
+  }
+
+  // ── Swing trajectory config ──
+  if (hasSwingConfig && referenceManagerPtr_ != nullptr) {
+    auto swingPlanner = referenceManagerPtr_->getSwingTrajectoryPlanner();
+    if (swingPlanner) {
+      swingPlanner->setConfig(swingConfig);
     }
   }
 

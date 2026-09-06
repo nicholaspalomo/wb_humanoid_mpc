@@ -158,6 +158,12 @@ void CentroidalMpcMrtJointController::loadPdGains(const std::string& pdGainsFile
       otherJointTorqueLimit_[i] = defaultTorqueLimit;
     }
   }
+
+  // Diagnostic: print actual gain values after loading
+  std::cerr << "[PD_GAINS_DEBUG] default_kp=" << defaultKp << " default_kd=" << defaultKd << std::endl;
+  for (size_t i = 0; i < mpcJointIndices_.size(); ++i) {
+    std::cerr << "  mpc_joint[" << i << "] " << mpcModelJointNames_[i] << " kp=" << mpcJointKp_[i] << " kd=" << mpcJointKd_[i] << std::endl;
+  }
 }
 
 /******************************************************************************************************/
@@ -412,7 +418,12 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
 
     vector_t mpcJointTorques = computeJointTorques<scalar_t>(q, qd, qdd_j_des, footWrenches, pinocchioInterface_);
 
-    // std::cout << "mpcJointTorques: " << mpcJointTorques.transpose() << std::endl;
+    // Gravity-comp fallback: use pure gravity compensation instead of full ID torques.
+    // Enable via `useGravityCompFeedforward: true` in task.yaml to isolate ID issues.
+    vector_t feedforwardTorques = mpcJointTorques;
+    if (useGravityCompFeedforward_) {
+      feedforwardTorques = computeGravityCompensation(robotState);
+    }
 
     for (size_t i = 0; i < mpcJointIndices_.size(); i++) {
       size_t index = mpcJointIndices_[i];
@@ -422,7 +433,7 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
       action.qd_des = mpc_qd_j_des[i];
       action.kp = mpcJointKp_[i];
       action.kd = mpcJointKd_[i];
-      action.feed_forward_effort = std::clamp(mpcJointTorques[i], -mpcJointTorqueLimit_[i], mpcJointTorqueLimit_[i]);
+      action.feed_forward_effort = std::clamp(feedforwardTorques[i], -mpcJointTorqueLimit_[i], mpcJointTorqueLimit_[i]);
     };
 
     // ──── Transition diagnostics: first 50 cycles after WB_MPC mode entry ────

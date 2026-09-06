@@ -594,6 +594,75 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
         finally:
             root.destroy()
 
+    def test_leg_torque_costs_sliders_exist(self):
+        """Left and right leg joint torque costs scaling and per-joint sliders must exist."""
+        import tkinter as tk
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            tab = self._create_tab(root, "Task Space Costs")
+            self.assertIn("left_leg_torque_cost.weights.scaling", tab.slider_rows)
+            self.assertIn("right_leg_torque_cost.weights.scaling", tab.slider_rows)
+            for i in range(6):
+                self.assertIn(
+                    f'left_leg_torque_cost.weights."({i},0)"', tab.slider_rows
+                )
+                self.assertIn(
+                    f'right_leg_torque_cost.weights."({i},0)"', tab.slider_rows
+                )
+        finally:
+            root.destroy()
+
+    def test_contact_geometry_and_collision_radii_sliders_exist(self):
+        """Foot contact translation, contact rectangle, and collision sphere radii sliders must exist."""
+        import tkinter as tk
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            tab = self._create_tab(root, "Constraints & Barriers")
+            for axis in ["x", "y", "z"]:
+                self.assertIn(
+                    f"contacts.contact_frame_translation.{axis}", tab.slider_rows
+                )
+            for k in ["x_min", "x_max", "y_min", "y_max"]:
+                self.assertIn(f"contacts.contact_rectangle.{k}", tab.slider_rows)
+            self.assertIn(
+                "collision_constraint.foot.footCollisionSphereRadius", tab.slider_rows
+            )
+            self.assertIn(
+                "collision_constraint.knee.kneeCollisionSphereRadius", tab.slider_rows
+            )
+        finally:
+            root.destroy()
+
+    def test_solver_and_horizon_sliders_exist(self):
+        """MPC loop rates, horizon, SQP multiple shooting, and rollout sliders must exist."""
+        import tkinter as tk
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            tab = self._create_tab(root, "Solver & Horizon")
+            self.assertIn("mpc.timeHorizon", tab.slider_rows)
+            self.assertIn("mpc.mpcDesiredFrequency", tab.slider_rows)
+            self.assertIn("mpc.mrtDesiredFrequency", tab.slider_rows)
+            for k in [
+                "sqpIteration",
+                "dt",
+                "deltaTol",
+                "g_max",
+                "g_min",
+                "inequalityConstraintMu",
+                "inequalityConstraintDelta",
+            ]:
+                self.assertIn(f"multiple_shooting.{k}", tab.slider_rows)
+            self.assertIn("model_settings.phaseTransitionStanceTime", tab.slider_rows)
+            self.assertIn("rollout.timeStep", tab.slider_rows)
+        finally:
+            root.destroy()
+
     def test_constraints_and_barriers_full_roundtrip(self):
         """Modify every constraint/barrier parameter and verify YAML round-trip."""
         import tkinter as tk

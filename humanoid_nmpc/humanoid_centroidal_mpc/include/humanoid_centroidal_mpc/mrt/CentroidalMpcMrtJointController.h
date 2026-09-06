@@ -125,6 +125,12 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   const vector_t& getLatestPolicyInput() const { return latestPolicyInput_; }
   const CommandData& getCommandData() const { return mcpMrtInterface_.getCommand(); }
 
+  /**
+   * @brief Enable/disable using gravity compensation instead of full inverse dynamics feedforward torques in WB_MPC mode.
+   */
+  void setUseGravityCompFeedforward(bool enable) { useGravityCompFeedforward_ = enable; }
+  bool getUseGravityCompFeedforward() const { return useGravityCompFeedforward_; }
+
  private:
   /**
    * Handles the MPC solver thread.
@@ -177,6 +183,8 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   std::vector<std::string> fixedJointNames_;
   std::filesystem::file_time_type pdGainsLastWriteTime_;
   size_t fileCheckCounter_{0};
+
+  bool useGravityCompFeedforward_{false};  ///< When true, use gravity comp instead of full ID torques in WB_MPC mode
 
   // ROS topic state for real-time PD gains updates
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr pdGainsSubscription_;

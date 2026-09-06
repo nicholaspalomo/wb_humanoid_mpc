@@ -67,6 +67,10 @@ class SwingTrajectoryPlanner {
 
   scalar_t getImpactProximityFactor(size_t leg, scalar_t time) const;
 
+  /** Update swing trajectory config at runtime (e.g. from online parameter tuning). */
+  void setConfig(const Config& config) { config_ = config; }
+  const Config& getConfig() const { return config_; }
+
  private:
   /**
    * Extracts for each leg the contact sequence over the motion phase sequence.
@@ -110,7 +114,7 @@ class SwingTrajectoryPlanner {
 
   static scalar_t swingTrajectoryScaling(scalar_t startTime, scalar_t finalTime, scalar_t swingTimeScale);
 
-  const Config config_;
+  Config config_;
   const size_t numFeet_;
 
   feet_array_t<std::vector<SplineCpg>> impactProximityTrajectories_;

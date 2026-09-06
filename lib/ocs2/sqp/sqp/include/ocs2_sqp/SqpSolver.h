@@ -93,6 +93,10 @@ class SqpSolver : public SolverBase {
 
   std::vector<OptimalControlProblem>& getOcpDefinitions() { return ocpDefinitions_; }
 
+  /** Access solver settings for runtime updates (e.g. sqpIteration, tolerances). */
+  sqp::Settings& getSettings() { return settings_; }
+  const sqp::Settings& getSettings() const { return settings_; }
+
   /** All timings are expressed in milliseconds */
   struct Benchmarks {
     scalar_t linearQuadraticApproximationTime;
@@ -160,7 +164,7 @@ class SqpSolver : public SolverBase {
   sqp::Convergence checkConvergence(int iteration, const PerformanceIndex& baseline, const sqp::StepInfo& stepInfo) const;
 
   // Problem definition
-  const sqp::Settings settings_;
+  sqp::Settings settings_;
   DynamicsDiscretizer discretizer_;
   DynamicsSensitivityDiscretizer sensitivityDiscretizer_;
   std::vector<OptimalControlProblem> ocpDefinitions_;

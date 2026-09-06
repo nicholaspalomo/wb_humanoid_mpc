@@ -42,12 +42,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_sqp/SqpSolver.h>
 
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
+#include "humanoid_centroidal_mpc/constraint/ZeroVelocityConstraintCppAd.h"
 #include "humanoid_centroidal_mpc/cost/CentroidalMpcEndEffectorFootCost.h"
 #include "humanoid_centroidal_mpc/cost/ICPCost.h"
 #include "humanoid_centroidal_mpc/mrt/MpcParameterUpdaterModule.h"
 #include "humanoid_common_mpc/constraint/JointLimitsSoftConstraint.h"
 #include "humanoid_common_mpc/cost/EndEffectorKinematicsQuadraticCost.h"
 #include "humanoid_common_mpc/cost/ExternalTorqueQuadraticCostAD.h"
+
+#include <ocs2_core/penalties/penalties/QuadraticPenalty.h>
+#include <ocs2_sqp/SqpSettings.h>
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
 
@@ -354,6 +358,167 @@ TEST_F(MpcParameterUpdaterModuleTest, NoUpdateWhenFileUnchanged) {
   sqp->getOcpDefinitions().front().costPtr->get<QuadraticStateInputCost>("stateInputQuadraticCost").getGains(sameQ, sameR, sameP);
 
   EXPECT_DOUBLE_EQ(origQ.norm(), sameQ.norm()) << "Q should not change when file is untouched";
+}
+
+}
+
+// New test cases follow within the namespace
+// Test: Verify that SQP solver settings are updated at runtime.
+/******************************************************************************************************/
+TEST_F(MpcParameterUpdaterModuleTest, SqpSettingsUpdated) {
+  MpcParameterUpdaterModule updater(mpc_.get(), tmpTaskFile_, urdfFile_, referenceFile_, stateDim_, inputDim_, contactNames_);
+
+  auto* sqp = getSqpSolver();
+  ASSERT_NE(sqp, nullptr);
+
+  // Read original sqpIteration
+  size_t origIter = sqp->getSettings().sqpIteration;
+
+  // Mutate multiple_shooting.sqpIteration
+  {
+    std::ifstream in(tmpTaskFile_);
+    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.close();
+
+    auto pos = content.find("sqpIteration:");
+    ASSERT_NE(pos, std::string::npos);
+    auto valueStart = pos + std::string("sqpIteration:").size();
+    auto lineEnd = content.find('\n', valueStart);
+    content.replace(valueStart, lineEnd - valueStart, " 15");
+
+    std::ofstream out(tmpTaskFile_);
+    out << content;
+  }
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+  // Trigger update
+  vector_t dummyState = vector_t::Zero(stateDim_);
+  for (size_t i = 0; i < 101; ++i) {
+    updater.preSolverRun(0.0, 1.0, dummyState, *interface_->getReferenceManagerPtr());
+  }
+
+  // Verify
+  EXPECT_EQ(sqp->getSettings().sqpIteration, 15u) << "sqpIteration should have been updated to 15";
+  EXPECT_NE(sqp->getSettings().sqpIteration, origIter) << "sqpIteration should differ from original";
+}
+
+/******************************************************************************************************/
+// Test: Verify that zero velocity soft constraint weight (QuadraticPenalty scale) is updated.
+/******************************************************************************************************/
+TEST_F(MpcParameterUpdaterModuleTest, SoftConstraintWeightUpdated) {
+  MpcParameterUpdaterModule updater(mpc_.get(), tmpTaskFile_, urdfFile_, referenceFile_, stateDim_, inputDim_, contactNames_);
+
+  auto* sqp = getSqpSolver();
+  ASSERT_NE(sqp, nullptr);
+
+  // Mutate model_settings.foot_constraint.softConstraintWeight to 12345.0
+  {
+    std::ifstream in(tmpTaskFile_);
+    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.close();
+
+    auto pos = content.find("softConstraintWeight:");
+    if (pos == std::string::npos) {
+      GTEST_SKIP() << "softConstraintWeight not found in task.yaml";
+    }
+    auto valueStart = pos + std::string("softConstraintWeight:").size();
+    auto lineEnd = content.find('\n', valueStart);
+    content.replace(valueStart, lineEnd - valueStart, " 12345.0");
+
+    std::ofstream out(tmpTaskFile_);
+    out << content;
+  }
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+  // Trigger update
+  vector_t dummyState = vector_t::Zero(stateDim_);
+  for (size_t i = 0; i < 101; ++i) {
+    updater.preSolverRun(0.0, 1.0, dummyState, *interface_->getReferenceManagerPtr());
+  }
+
+  // Check that at least one foot's zeroVelocity soft constraint has QuadraticPenalty scale = 12345
+  bool foundUpdated = false;
+  for (auto& ocp : sqp->getOcpDefinitions()) {
+    for (const auto& footName : contactNames_) {
+      try {
+        auto& softCon = ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_zeroVelocity");
+        for (auto& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
+          auto* qp = dynamic_cast<QuadraticPenalty*>(penalty.get());
+          if (qp != nullptr && std::abs(qp->getScale() - 12345.0) < 1e-3) {
+            foundUpdated = true;
+          }
+        }
+      } catch (...) {
+      }
+    }
+    if (foundUpdated) break;
+  }
+  EXPECT_TRUE(foundUpdated) << "QuadraticPenalty scale should have been updated to 12345.0";
+}
+
+/******************************************************************************************************/
+// Test: Verify that foot constraint gains (Ax/Av matrices) are updated.
+/******************************************************************************************************/
+TEST_F(MpcParameterUpdaterModuleTest, FootConstraintGainsUpdated) {
+  MpcParameterUpdaterModule updater(mpc_.get(), tmpTaskFile_, urdfFile_, referenceFile_, stateDim_, inputDim_, contactNames_);
+
+  auto* sqp = getSqpSolver();
+  ASSERT_NE(sqp, nullptr);
+
+  // Mutate model_settings.foot_constraint.linearVelocityErrorGain_xy to 99.0
+  {
+    std::ifstream in(tmpTaskFile_);
+    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.close();
+
+    auto pos = content.find("linearVelocityErrorGain_xy:");
+    if (pos == std::string::npos) {
+      GTEST_SKIP() << "linearVelocityErrorGain_xy not found in task.yaml";
+    }
+    auto valueStart = pos + std::string("linearVelocityErrorGain_xy:").size();
+    auto lineEnd = content.find('\n', valueStart);
+    content.replace(valueStart, lineEnd - valueStart, " 99.0");
+
+    std::ofstream out(tmpTaskFile_);
+    out << content;
+  }
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+  // Trigger update
+  vector_t dummyState = vector_t::Zero(stateDim_);
+  for (size_t i = 0; i < 101; ++i) {
+    updater.preSolverRun(0.0, 1.0, dummyState, *interface_->getReferenceManagerPtr());
+  }
+
+  // Check that at least one constraint's Av(0,0) was updated
+  bool foundUpdated = false;
+  for (auto& ocp : sqp->getOcpDefinitions()) {
+    for (const auto& footName : contactNames_) {
+      // Check hard constraint path
+      try {
+        auto& con = ocp.equalityConstraintPtr->get<ZeroVelocityConstraintCppAd>(footName + "_zeroVelocity");
+        auto& cfg = con.getTwistConstraint().getConfig();
+        if (std::abs(cfg.Av(0, 0) - 99.0) < 1e-3) {
+          foundUpdated = true;
+        }
+      } catch (...) {
+      }
+      // Check soft constraint path
+      try {
+        auto& softCon = ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_zeroVelocity");
+        auto* zeroVelCon = dynamic_cast<ZeroVelocityConstraintCppAd*>(softCon.getConstraintPtr().get());
+        if (zeroVelCon != nullptr) {
+          auto& cfg = zeroVelCon->getTwistConstraint().getConfig();
+          if (std::abs(cfg.Av(0, 0) - 99.0) < 1e-3) {
+            foundUpdated = true;
+          }
+        }
+      } catch (...) {
+      }
+    }
+    if (foundUpdated) break;
+  }
+  EXPECT_TRUE(foundUpdated) << "Av(0,0) should have been updated to 99.0 (linearVelocityErrorGain_xy)";
 }
 
 }  // namespace ocs2::humanoid

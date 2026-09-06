@@ -127,8 +127,11 @@ def _update_single_key(
                 if hash_idx != -1:
                     comment_part = "  " + after_colon[hash_idx:]
 
-                # Format new numeric value
+                # Format new numeric value (ensuring scientific notation has a dot so YAML 1.1 parses as float)
                 val_str = f"{new_val:.6g}"
+                if ("e" in val_str or "E" in val_str) and "." not in val_str:
+                    parts = re.split(r"([eE])", val_str, maxsplit=1)
+                    val_str = parts[0] + ".0" + "".join(parts[1:])
                 new_line = prefix + val_str + comment_part + "\n"
                 new_lines.append(new_line)
                 updated = True

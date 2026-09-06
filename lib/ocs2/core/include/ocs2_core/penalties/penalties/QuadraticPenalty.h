@@ -58,10 +58,20 @@ class QuadraticPenalty final : public PenaltyBase {
   scalar_t getDerivative(scalar_t t, scalar_t h) const override { return scale_ * h; }
   scalar_t getSecondDerivative(scalar_t t, scalar_t h) const override { return scale_; }
 
+  /** Update the penalty scale at runtime (e.g. for online parameter tuning). */
+  void setScale(scalar_t scale) { scale_ = scale; }
+  scalar_t getScale() const { return scale_; }
+
+  void setParameters(const vector_t& parameters) override { scale_ = parameters[0]; }
+  void getParameters(vector_t& parameters) const override {
+    parameters.resize(1);
+    parameters[0] = scale_;
+  }
+
  private:
   QuadraticPenalty(const QuadraticPenalty& other) = default;
 
-  const scalar_t scale_;
+  scalar_t scale_;
 };
 
 }  // namespace ocs2

@@ -118,9 +118,9 @@ int main(int argc, char** argv) {
   mpc.getSolverPtr()->addSynchronizedModule(ros2ProceduralMpcMotionManager);
 
   // Register real-time MPC parameter hot-reloading
-  auto mpcParameterUpdater =
-      std::make_shared<MpcParameterUpdaterModule>(&mpc, taskFile, urdfFile, referenceFile, interface.getMpcRobotModel().getStateDim(),
-                                                  interface.getMpcRobotModel().getInputDim(), interface.modelSettings().contactNames);
+  auto mpcParameterUpdater = std::make_shared<MpcParameterUpdaterModule>(
+      &mpc, taskFile, urdfFile, referenceFile, interface.getMpcRobotModel().getStateDim(), interface.getMpcRobotModel().getInputDim(),
+      interface.modelSettings().contactNames, dynamic_cast<const SwitchedModelReferenceManager*>(interface.getReferenceManagerPtr().get()));
   mpcParameterUpdater->subscribe(nodeHandle);
   mpc.getSolverPtr()->addSynchronizedModule(mpcParameterUpdater);
 
@@ -148,6 +148,19 @@ int main(int argc, char** argv) {
                                                      interface.getMpcRobotModel(), mpc, interface.getPinocchioInterface(),
                                                      interface.mpcSettings().mpcDesiredFrequency_, humanoidVisualizer, pdGainsFile);
   mpcJointController.subscribePdGains(nodeHandle);
+
+  // Read gravity-comp feedforward fallback flag from task.yaml
+  // Set `useGravityCompFeedforward: true` in task.yaml to use pure gravity comp
+  // instead of full inverse dynamics in WB_MPC mode (for debugging ID issues).
+  try {
+    YAML::Node taskYaml = YAML::LoadFile(taskFile);
+    if (taskYaml["useGravityCompFeedforward"] && taskYaml["useGravityCompFeedforward"].as<bool>()) {
+      mpcJointController.setUseGravityCompFeedforward(true);
+      LOG(INFO) << "Using gravity-comp feedforward in WB_MPC mode (useGravityCompFeedforward=true).";
+    }
+  } catch (...) {
+  }
+
   bool enableTelemetry = true;
   std::vector<std::string> telemetryFrames;
   const scalar_t mrtDesiredFrequency = interface.mpcSettings().mrtDesiredFrequency_;

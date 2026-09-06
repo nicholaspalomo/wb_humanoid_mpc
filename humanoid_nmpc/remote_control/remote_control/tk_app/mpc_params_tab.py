@@ -220,6 +220,18 @@ class MpcParamsTab(ttk.Frame):
             for row in self.slider_rows.values():
                 row.set_state("normal")
 
+    @staticmethod
+    def _to_float(v):
+        """Convert int, float, or numeric/scientific-notation string (e.g. '1e4', '1e0') to float."""
+        if isinstance(v, (int, float)):
+            return float(v)
+        if isinstance(v, str):
+            try:
+                return float(v)
+            except ValueError:
+                return None
+        return None
+
     def _build_category_nav_ui(self):
         nav_frame = ttk.Frame(self)
         nav_frame.pack(fill="x", padx=10, pady=(0, 6))
@@ -231,6 +243,7 @@ class MpcParamsTab(ttk.Frame):
             "Terminal Cost (Q_final)",
             "Task Space Costs",
             "Constraints & Barriers",
+            "Solver & Horizon",
         ]
 
         for cat in self.categories:
@@ -330,6 +343,8 @@ class MpcParamsTab(ttk.Frame):
             self._render_task_space_costs()
         elif cat == "Constraints & Barriers":
             self._render_constraints_and_barriers()
+        elif cat == "Solver & Horizon":
+            self._render_solver_and_horizon()
 
         # Restore saved slider values and defaults (from previous edits on this tab)
         for key, row in self.slider_rows.items():
@@ -671,8 +686,8 @@ class MpcParamsTab(ttk.Frame):
             )
             f_frame.pack(fill="x", padx=6, pady=4)
             for k, v in foot_costs.items():
-                if isinstance(v, (int, float)):
-                    val = float(v)
+                val = self._to_float(v)
+                if val is not None:
                     row = SliderRow(
                         f_frame,
                         name=k,
@@ -698,8 +713,8 @@ class MpcParamsTab(ttk.Frame):
             )
             t_frame.pack(fill="x", padx=6, pady=4)
             for k, v in torso_costs.items():
-                if isinstance(v, (int, float)):
-                    val = float(v)
+                val = self._to_float(v)
+                if val is not None:
                     row = SliderRow(
                         t_frame,
                         name=f"torso_{k}",
@@ -733,6 +748,88 @@ class MpcParamsTab(ttk.Frame):
             row.pack(fill="x", padx=4, pady=2)
             self.slider_rows["icp_cost_weights.icpErrorWeight"] = row
 
+        # Left leg joint torque cost
+        left_tc = self.raw_data.get("left_leg_torque_cost", {})
+        if left_tc:
+            ll_frame = ttk.LabelFrame(
+                self.scroll_container.scrollable_content,
+                text="• Left Leg Joint Torque Costs",
+            )
+            ll_frame.pack(fill="x", padx=6, pady=4)
+            ll_weights = left_tc.get("weights", {})
+            ll_scaling = self._to_float(ll_weights.get("scaling", 1e-6))
+            if ll_scaling is not None:
+                row = SliderRow(
+                    ll_frame,
+                    name="left_leg_torque_cost.weights.scaling",
+                    initial_value=ll_scaling,
+                    min_val=1e-8,
+                    max_val=max(ll_scaling * 10.0, 1e-3),
+                    label_width=28,
+                    on_change=self._on_any_slider_change,
+                )
+                row.pack(fill="x", padx=4, pady=1)
+                self.slider_rows["left_leg_torque_cost.weights.scaling"] = row
+
+            joint_names = left_tc.get("activeJointNames", [])
+            for i, jname in enumerate(joint_names):
+                key = f"({i},0)"
+                if key in ll_weights:
+                    val = self._to_float(ll_weights[key])
+                    if val is not None:
+                        row = SliderRow(
+                            ll_frame,
+                            name=jname,
+                            initial_value=val,
+                            min_val=0.0,
+                            max_val=max(val * 4.0, 20.0),
+                            label_width=28,
+                            on_change=self._on_any_slider_change,
+                        )
+                        row.pack(fill="x", padx=4, pady=1)
+                        self.slider_rows[f'left_leg_torque_cost.weights."{key}"'] = row
+
+        # Right leg joint torque cost
+        right_tc = self.raw_data.get("right_leg_torque_cost", {})
+        if right_tc:
+            rl_frame = ttk.LabelFrame(
+                self.scroll_container.scrollable_content,
+                text="• Right Leg Joint Torque Costs",
+            )
+            rl_frame.pack(fill="x", padx=6, pady=4)
+            rl_weights = right_tc.get("weights", {})
+            rl_scaling = self._to_float(rl_weights.get("scaling", 1e-6))
+            if rl_scaling is not None:
+                row = SliderRow(
+                    rl_frame,
+                    name="right_leg_torque_cost.weights.scaling",
+                    initial_value=rl_scaling,
+                    min_val=1e-8,
+                    max_val=max(rl_scaling * 10.0, 1e-3),
+                    label_width=28,
+                    on_change=self._on_any_slider_change,
+                )
+                row.pack(fill="x", padx=4, pady=1)
+                self.slider_rows["right_leg_torque_cost.weights.scaling"] = row
+
+            joint_names = right_tc.get("activeJointNames", [])
+            for i, jname in enumerate(joint_names):
+                key = f"({i},0)"
+                if key in rl_weights:
+                    val = self._to_float(rl_weights[key])
+                    if val is not None:
+                        row = SliderRow(
+                            rl_frame,
+                            name=jname,
+                            initial_value=val,
+                            min_val=0.0,
+                            max_val=max(val * 4.0, 20.0),
+                            label_width=28,
+                            on_change=self._on_any_slider_change,
+                        )
+                        row.pack(fill="x", padx=4, pady=1)
+                        self.slider_rows[f'right_leg_torque_cost.weights."{key}"'] = row
+
     def _render_constraints_and_barriers(self):
         # Foot constraint gains
         foot_cfg = self.raw_data.get("model_settings", {}).get("foot_constraint", {})
@@ -742,14 +839,20 @@ class MpcParamsTab(ttk.Frame):
             )
             fc_frame.pack(fill="x", padx=6, pady=4)
             for k, v in foot_cfg.items():
-                if isinstance(v, (int, float)):
-                    val = float(v)
+                val = self._to_float(v)
+                if val is not None:
+                    # softConstraintWeight is a quadratic penalty weight (typical range 1-100k),
+                    # not an error gain, so it needs a much larger slider range.
+                    if k == "softConstraintWeight":
+                        s_min, s_max = 0.0, max(val * 5.0, 100000.0)
+                    else:
+                        s_min, s_max = 0.0, max(val * 3.0, 50.0)
                     row = SliderRow(
                         fc_frame,
                         name=k,
                         initial_value=val,
-                        min_val=0.0,
-                        max_val=max(val * 3.0, 50.0),
+                        min_val=s_min,
+                        max_val=s_max,
                         label_width=26,
                         on_change=self._on_any_slider_change,
                     )
@@ -765,8 +868,8 @@ class MpcParamsTab(ttk.Frame):
             )
             sw_frame.pack(fill="x", padx=6, pady=4)
             for k, v in swing_cfg.items():
-                if isinstance(v, (int, float)):
-                    val = float(v)
+                val = self._to_float(v)
+                if val is not None:
                     # Handle signed parameters like liftOffVelocity, touchDownVelocity
                     min_val = min(val * 2.0, -0.5) if val < 0 else 0.0
                     max_val = max(val * 2.5, 0.5) if val > 0 else 0.0
@@ -860,6 +963,218 @@ class MpcParamsTab(ttk.Frame):
                 )
                 row.pack(fill="x", padx=4, pady=1)
                 self.slider_rows[f"collision_constraint.{k}"] = row
+
+        # Foot contact frame translation (parent joint to contact frame)
+        c_trans = self.raw_data.get("contacts", {}).get("contact_frame_translation", {})
+        if c_trans:
+            ct_frame = ttk.LabelFrame(
+                self.scroll_container.scrollable_content,
+                text="• Foot Contact Frame Translation ⚠ restart",
+            )
+            ct_frame.pack(fill="x", padx=6, pady=4)
+            for axis in ["x", "y", "z"]:
+                if axis in c_trans:
+                    val = self._to_float(c_trans[axis])
+                    if val is not None:
+                        row = SliderRow(
+                            ct_frame,
+                            name=f"contact_trans_{axis}",
+                            initial_value=val,
+                            min_val=min(val * 2.0, -0.2) if val < 0 else -0.1,
+                            max_val=max(val * 2.0, 0.2) if val > 0 else 0.1,
+                            label_width=26,
+                            on_change=self._on_any_slider_change,
+                        )
+                        row.pack(fill="x", padx=4, pady=1)
+                        self.slider_rows[
+                            f"contacts.contact_frame_translation.{axis}"
+                        ] = row
+
+        # Foot support polygon bounds (contact rectangle)
+        c_rect = self.raw_data.get("contacts", {}).get("contact_rectangle", {})
+        if c_rect:
+            cr_frame = ttk.LabelFrame(
+                self.scroll_container.scrollable_content,
+                text="• Foot Support Polygon Bounds ⚠ restart",
+            )
+            cr_frame.pack(fill="x", padx=6, pady=4)
+            for k in ["x_min", "x_max", "y_min", "y_max"]:
+                if k in c_rect:
+                    val = self._to_float(c_rect[k])
+                    if val is not None:
+                        row = SliderRow(
+                            cr_frame,
+                            name=k,
+                            initial_value=val,
+                            min_val=min(val * 2.0, -0.3) if val < 0 else 0.0,
+                            max_val=max(val * 2.0, 0.3) if val > 0 else 0.0,
+                            label_width=26,
+                            on_change=self._on_any_slider_change,
+                        )
+                        row.pack(fill="x", padx=4, pady=1)
+                        self.slider_rows[f"contacts.contact_rectangle.{k}"] = row
+
+        # Collision sphere radii
+        foot_rad = col_cfg.get("foot", {}).get("footCollisionSphereRadius")
+        knee_rad = col_cfg.get("knee", {}).get("kneeCollisionSphereRadius")
+        if foot_rad is not None or knee_rad is not None:
+            cs_frame = ttk.LabelFrame(
+                self.scroll_container.scrollable_content,
+                text="• Self-Collision Sphere Radii",
+            )
+            cs_frame.pack(fill="x", padx=6, pady=4)
+            if foot_rad is not None:
+                val = self._to_float(foot_rad)
+                if val is not None:
+                    row = SliderRow(
+                        cs_frame,
+                        name="footCollisionSphereRadius",
+                        initial_value=val,
+                        min_val=0.01,
+                        max_val=max(val * 3.0, 0.2),
+                        label_width=26,
+                        on_change=self._on_any_slider_change,
+                    )
+                    row.pack(fill="x", padx=4, pady=1)
+                    self.slider_rows[
+                        "collision_constraint.foot.footCollisionSphereRadius"
+                    ] = row
+            if knee_rad is not None:
+                val = self._to_float(knee_rad)
+                if val is not None:
+                    row = SliderRow(
+                        cs_frame,
+                        name="kneeCollisionSphereRadius",
+                        initial_value=val,
+                        min_val=0.01,
+                        max_val=max(val * 3.0, 0.2),
+                        label_width=26,
+                        on_change=self._on_any_slider_change,
+                    )
+                    row.pack(fill="x", padx=4, pady=1)
+                    self.slider_rows[
+                        "collision_constraint.knee.kneeCollisionSphereRadius"
+                    ] = row
+
+    def _render_solver_and_horizon(self):
+        """Render MPC loop frequencies, horizon, SQP multiple shooting, and rollout settings."""
+        # MPC & MRT loop settings
+        mpc_cfg = self.raw_data.get("mpc", {})
+        if mpc_cfg:
+            mpc_frame = ttk.LabelFrame(
+                self.scroll_container.scrollable_content,
+                text="• MPC Loop Rates & Prediction Horizon",
+            )
+            mpc_frame.pack(fill="x", padx=6, pady=4)
+            if "timeHorizon" in mpc_cfg:
+                val = self._to_float(mpc_cfg["timeHorizon"])
+                if val is not None:
+                    row = SliderRow(
+                        mpc_frame,
+                        name="timeHorizon (s) ⚠ restart",
+                        initial_value=val,
+                        min_val=0.1,
+                        max_val=max(val * 3.0, 3.0),
+                        label_width=28,
+                        on_change=self._on_any_slider_change,
+                    )
+                    row.pack(fill="x", padx=4, pady=1)
+                    self.slider_rows["mpc.timeHorizon"] = row
+
+            for freq_key, label in [
+                ("mpcDesiredFrequency", "mpcDesiredFrequency (Hz) ⚠ restart"),
+                ("mrtDesiredFrequency", "mrtDesiredFrequency (Hz) ⚠ restart"),
+            ]:
+                if freq_key in mpc_cfg:
+                    val = self._to_float(mpc_cfg[freq_key])
+                    if val is not None:
+                        row = SliderRow(
+                            mpc_frame,
+                            name=label,
+                            initial_value=val,
+                            min_val=10.0,
+                            max_val=max(val * 3.0, 200.0),
+                            label_width=28,
+                            on_change=self._on_any_slider_change,
+                        )
+                        row.pack(fill="x", padx=4, pady=1)
+                        self.slider_rows[f"mpc.{freq_key}"] = row
+
+        # SQP Multiple Shooting settings
+        ms_cfg = self.raw_data.get("multiple_shooting", {})
+        if ms_cfg:
+            ms_frame = ttk.LabelFrame(
+                self.scroll_container.scrollable_content,
+                text="• SQP Multiple Shooting Algorithm Settings",
+            )
+            ms_frame.pack(fill="x", padx=6, pady=4)
+            for k, (min_v, max_v) in [
+                ("sqpIteration", (1.0, 20.0)),
+                (
+                    "dt",
+                    (0.005, 0.1),
+                ),  # ⚠ restart required — changes time discretization grid
+                ("deltaTol", (1e-6, 1e-2)),
+                ("g_max", (1e-4, 1.0)),
+                ("g_min", (1e-8, 1e-3)),
+                ("inequalityConstraintMu", (0.001, 2.0)),
+                ("inequalityConstraintDelta", (0.1, 20.0)),
+            ]:
+                if k in ms_cfg:
+                    val = self._to_float(ms_cfg[k])
+                    if val is not None:
+                        row = SliderRow(
+                            ms_frame,
+                            name=(k + " \u26a0 restart" if k == "dt" else k),
+                            initial_value=val,
+                            min_val=min_v,
+                            max_val=max(val * 3.0, max_v),
+                            label_width=28,
+                            on_change=self._on_any_slider_change,
+                        )
+                        row.pack(fill="x", padx=4, pady=1)
+                        self.slider_rows[f"multiple_shooting.{k}"] = row
+
+        # Model & Rollout Timing
+        rollout_cfg = self.raw_data.get("rollout", {})
+        stance_time = self.raw_data.get("model_settings", {}).get(
+            "phaseTransitionStanceTime"
+        )
+        if rollout_cfg or stance_time is not None:
+            time_frame = ttk.LabelFrame(
+                self.scroll_container.scrollable_content,
+                text="• Stance & Rollout Timing",
+            )
+            time_frame.pack(fill="x", padx=6, pady=4)
+            if stance_time is not None:
+                val = self._to_float(stance_time)
+                if val is not None:
+                    row = SliderRow(
+                        time_frame,
+                        name="phaseTransitionStanceTime (s) ⚠ restart",
+                        initial_value=val,
+                        min_val=0.0,
+                        max_val=max(val * 3.0, 0.5),
+                        label_width=28,
+                        on_change=self._on_any_slider_change,
+                    )
+                    row.pack(fill="x", padx=4, pady=1)
+                    self.slider_rows["model_settings.phaseTransitionStanceTime"] = row
+
+            if "timeStep" in rollout_cfg:
+                val = self._to_float(rollout_cfg["timeStep"])
+                if val is not None:
+                    row = SliderRow(
+                        time_frame,
+                        name="rollout.timeStep (s) ⚠ restart",
+                        initial_value=val,
+                        min_val=0.001,
+                        max_val=max(val * 3.0, 0.1),
+                        label_width=28,
+                        on_change=self._on_any_slider_change,
+                    )
+                    row.pack(fill="x", padx=4, pady=1)
+                    self.slider_rows["rollout.timeStep"] = row
 
     def reset_all_defaults(self):
         if not self.enable_online_tuning:

@@ -63,6 +63,8 @@ class ZeroVelocityConstraintCppAd final : public StateInputConstraint {
   bool isActive(scalar_t time) const override;
   void setActive(bool isActive) override { isActive_ = isActive; }
   bool getActive() const override { return isActive_; }
+  /** Access the inner twist constraint to allow runtime config updates (e.g. foot error gains). */
+  EndEffectorKinematicsTwistConstraint& getTwistConstraint() { return *eeTwistConstraintPtr_; }
   size_t getNumConstraints(scalar_t time) const override { return 6; }
   vector_t getValue(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) const override;
   VectorFunctionLinearApproximation getLinearApproximation(scalar_t time,

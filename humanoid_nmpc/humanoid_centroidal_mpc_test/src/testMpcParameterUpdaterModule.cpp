@@ -60,7 +60,10 @@ class MpcParameterUpdaterModuleTest : public ::testing::Test {
 
 TEST_F(MpcParameterUpdaterModuleTest, testFileWatcher) {
   // Pass a nullptr for MPC_BASE. The module should safely handle this.
-  MpcParameterUpdaterModule updater(nullptr, tempTaskFile_.string(), testingModelInterface.urdfFile, testingModelInterface.referenceFile);
+  MpcParameterUpdaterModule updater(nullptr, tempTaskFile_.string(), testingModelInterface.urdfFile, testingModelInterface.referenceFile,
+                                    testingModelInterface.getMpcRobotModel().getStateDim(),
+                                    testingModelInterface.getMpcRobotModel().getInputDim(),
+                                    testingModelInterface.getModelSettings().contactNames);
 
   ReferenceManager referenceManager;
   vector_t state = vector_t::Zero(testingModelInterface.getMpcRobotModel().getStateDim());
