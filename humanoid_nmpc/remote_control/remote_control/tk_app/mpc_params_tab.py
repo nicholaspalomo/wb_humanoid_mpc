@@ -691,6 +691,25 @@ class MpcParamsTab(ttk.Frame):
                 row.pack(fill="x", padx=4, pady=1)
                 self.slider_rows[f"contacts.frictionForceConeSoftConstraint.{k}"] = row
 
+        # Contact moment XY barrier
+        moment_cfg = self.raw_data.get("contacts", {}).get(
+            "contactMomentXYSoftConstraint", {}
+        )
+        for k in ["mu", "delta"]:
+            if k in moment_cfg:
+                val = float(moment_cfg[k])
+                row = SliderRow(
+                    bar_frame,
+                    name=f"contactMomentXY_{k}",
+                    initial_value=val,
+                    min_val=0.001,
+                    max_val=max(val * 4.0, 5.0),
+                    label_width=26,
+                    on_change=self._on_any_slider_change,
+                )
+                row.pack(fill="x", padx=4, pady=1)
+                self.slider_rows[f"contacts.contactMomentXYSoftConstraint.{k}"] = row
+
         # Joint limits barrier
         jl_cfg = self.raw_data.get("jointLimits", {})
         for k in ["mu", "delta"]:
