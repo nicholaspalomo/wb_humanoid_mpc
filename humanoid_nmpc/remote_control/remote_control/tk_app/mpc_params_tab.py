@@ -587,8 +587,35 @@ class MpcParamsTab(ttk.Frame):
                 row.pack(fill="x", padx=4, pady=1)
                 self.slider_rows[f'Q_final."{key}"'] = row
 
+        # Terminal Joint Position Weights (12+)
+        joint_frame = ttk.LabelFrame(
+            self.scroll_container.scrollable_content,
+            text="• Terminal Joint Position Tracking (12+)",
+        )
+        joint_frame.pack(fill="x", padx=6, pady=4)
+        i = 12
+        while True:
+            key = f"({i},{i})"
+            if key not in qf_data:
+                break
+            val = float(qf_data[key])
+            comment = self.comment_map.get(key, "")
+            name = f"Final Joint {i}: {comment}" if comment else f"Final Joint {key}"
+            row = SliderRow(
+                joint_frame,
+                name=name,
+                initial_value=val,
+                min_val=0.0,
+                max_val=max(val * 5.0, 5.0),
+                label_width=28,
+                on_change=self._on_any_slider_change,
+            )
+            row.pack(fill="x", padx=4, pady=1)
+            self.slider_rows[f'Q_final."{key}"'] = row
+            i += 1
+
     def _sync_q_final_from_q(self):
-        """Copy Q diagonal values (0..11) and scaling into Q_final sliders."""
+        """Copy ALL Q diagonal values and scaling into Q_final sliders."""
         if not self.enable_online_tuning:
             self._show_status("Online tuning is disabled.", error=True)
             return
