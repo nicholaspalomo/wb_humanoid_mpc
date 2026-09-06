@@ -178,47 +178,47 @@ Q:
   scaling: 1e+0
 
   # ; Normalized Centroidal Momentum: [linear, angular] ;;
-  "(0,0)": 2  # h_com_x / robotMass
-  "(1,1)": 2  # h_com_y / robotMass
-  "(2,2)": 15  # h_com_z / robotMass
-  "(3,3)": 50  # L_x / robotMass
-  "(4,4)": 15  # L_y / robotMass
-  "(5,5)": 4  # L_z / robotMass
+  "(0,0)": 2.0  # h_com_x / robotMass
+  "(1,1)": 2.0  # h_com_y / robotMass
+  "(2,2)": 15.0  # h_com_z / robotMass
+  "(3,3)": 50.0  # L_x / robotMass
+  "(4,4)": 15.0  # L_y / robotMass
+  "(5,5)": 4.0  # L_z / robotMass
 
   # ; Base Pose: [position, orientation] ;;
-  "(6,6)": 0  # p_base_x
-  "(7,7)": 0  # p_base_y
-  "(8,8)": 15  # p_base_z
+  "(6,6)": 0.0  # p_base_x
+  "(7,7)": 0.0  # p_base_y
+  "(8,8)": 15.0  # p_base_z
   # euler angles for base to world rotation
-  "(9,9)": 0  # theta_base_z
-  "(10,10)": 5  # theta_base_y
-  "(11,11)": 20  # theta_base_x
+  "(9,9)": 0.0  # theta_base_z
+  "(10,10)": 5.0  # theta_base_y
+  "(11,11)": 20.0  # theta_base_x
 
   # ; Joint Positions ;;
-  "(12,12)": 10  # back_bkz
-  "(13,13)": 10  # back_bky
-  "(14,14)": 10  # back_bkx
-  "(15,15)": 5  # l_arm_shz
-  "(16,16)": 20  # l_arm_shx
-  "(17,17)": 10  # l_arm_ely
-  "(18,18)": 5  # l_arm_elx
-  "(19,19)": 2  # neck_ry
-  "(20,20)": 5  # r_arm_shz
-  "(21,21)": 20  # r_arm_shx
-  "(22,22)": 10  # r_arm_ely
-  "(23,23)": 5  # r_arm_elx
-  "(24,24)": 10  # l_leg_hpz
-  "(25,25)": 50  # l_leg_hpx
-  "(26,26)": 10  # l_leg_hpy
-  "(27,27)": 10  # l_leg_kny
-  "(28,28)": 5  # l_leg_aky
-  "(29,29)": 5  # l_leg_akx
-  "(30,30)": 10  # r_leg_hpz
-  "(31,31)": 50  # r_leg_hpx
-  "(32,32)": 10  # r_leg_hpy
-  "(33,33)": 10  # r_leg_kny
-  "(34,34)": 5  # r_leg_aky
-  "(35,35)": 5  # r_leg_akx
+  "(12,12)": 10.0  # back_bkz
+  "(13,13)": 10.0  # back_bky
+  "(14,14)": 10.0  # back_bkx
+  "(15,15)": 5.0  # l_arm_shz
+  "(16,16)": 20.0  # l_arm_shx
+  "(17,17)": 10.0  # l_arm_ely
+  "(18,18)": 5.0  # l_arm_elx
+  "(19,19)": 2.0  # neck_ry
+  "(20,20)": 5.0  # r_arm_shz
+  "(21,21)": 20.0  # r_arm_shx
+  "(22,22)": 10.0  # r_arm_ely
+  "(23,23)": 5.0  # r_arm_elx
+  "(24,24)": 10.0  # l_leg_hpz
+  "(25,25)": 50.0  # l_leg_hpx
+  "(26,26)": 10.0  # l_leg_hpy
+  "(27,27)": 10.0  # l_leg_kny
+  "(28,28)": 5.0  # l_leg_aky
+  "(29,29)": 5.0  # l_leg_akx
+  "(30,30)": 10.0  # r_leg_hpz
+  "(31,31)": 50.0  # r_leg_hpx
+  "(32,32)": 10.0  # r_leg_hpy
+  "(33,33)": 10.0  # r_leg_kny
+  "(34,34)": 5.0  # r_leg_aky
+  "(35,35)": 5.0  # r_leg_akx
 
 # control weight matrix
 R:
