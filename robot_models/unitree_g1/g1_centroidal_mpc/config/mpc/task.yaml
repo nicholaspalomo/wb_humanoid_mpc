@@ -33,6 +33,8 @@ costs:
   - task_space_torso_cost
   - external_torque_cost
 
+useGravityCompFeedforward: false
+
 interface:
   verbose: true  # show the loaded parameters
   useAnalyticalGradientsDynamics: false
@@ -41,6 +43,7 @@ interface:
 model_settings:
   robotName: g1
 
+  # LINT.IfChange(foot_constraint_section)
   foot_constraint:
     positionErrorGain_z: 5.0
     orientationErrorGain: 20.0
@@ -50,6 +53,7 @@ model_settings:
     linearAccelerationErrorGain_z: 0.0
     linearAccelerationErrorGain_xy: 0.0
     angularAccelerationErrorGain: 0.0
+  # LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/src/mrt/MpcParameterUpdaterModule.cpp:softConstraintWeight_yaml_path)
 
   phaseTransitionStanceTime: 0.0
 

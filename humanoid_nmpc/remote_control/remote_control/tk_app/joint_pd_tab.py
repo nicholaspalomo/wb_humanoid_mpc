@@ -492,18 +492,39 @@ class JointPdGainsTab(ttk.Frame):
     def _publish_to_topic(self):
         """Publish current slider values as a YAML string to /pd_gains_updates."""
         self._debounce_publish_id = None
+        print(
+            f"[JointPdTab] _publish_to_topic called. "
+            f"enable_online_tuning={self.enable_online_tuning}, "
+            f"param_publisher={self.param_publisher is not None}, "
+            f"pd_gains_file={self.pd_gains_file}"
+        )
         if not self.enable_online_tuning or not self.param_publisher:
+            print(
+                "[JointPdTab] Skipping publish: online tuning disabled or no publisher"
+            )
             return
 
         try:
             yaml_content = self._build_yaml_with_slider_values()
+            print(f"[JointPdTab] Built YAML content: {len(yaml_content)} chars")
             if yaml_content:
                 from std_msgs.msg import String
 
                 msg = String()
                 msg.data = yaml_content
                 self.param_publisher.publish(msg)
+                print(
+                    f"[JointPdTab] Published {len(yaml_content)} chars to /pd_gains_updates"
+                )
+            else:
+                print(
+                    "[JointPdTab] WARNING: _build_yaml_with_slider_values returned empty string"
+                )
         except Exception as e:
+            print(f"[JointPdTab] ERROR in _publish_to_topic: {e}")
+            import traceback
+
+            traceback.print_exc()
             self._show_status(f"Error publishing to topic: {e}", error=True)
 
     def save_to_yaml(self):

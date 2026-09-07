@@ -39,7 +39,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_core/misc/LoadData.h>
 #include <ocs2_core/misc/Numerics.h>
 #include <ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h>
-#include <ocs2_core/penalties/penalties/QuadraticPenalty.h>
 #include <ocs2_core/penalties/penalties/RelaxedBarrierPenalty.h>
 #include <ocs2_core/soft_constraint/StateInputSoftConstraint.h>
 #include <ocs2_core/soft_constraint/StateSoftConstraint.h>
@@ -273,7 +272,6 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
   }
   // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:foot_constraint_section,
   // //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.yaml:foot_constraint_section)
-
   // ────────────────────────────────────────────────────────────────
   // 3b. Parse foot constraint error gains
   // ────────────────────────────────────────────────────────────────
@@ -354,22 +352,42 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
     // ── Quadratic costs ──
     try {
       ocp.costPtr->get<QuadraticStateInputCost>("stateInputQuadraticCost").setGains(Q, R);
+    } catch (const std::out_of_range&) {
+      // Expected if not used in task.yaml
+    } catch (const std::exception& e) {
+      LOG(WARNING) << "Failed to update stateInputQuadraticCost: " << e.what();
     } catch (...) {
+      LOG(WARNING) << "Failed to update stateInputQuadraticCost: unknown exception";
     }
 
     try {
       ocp.costPtr->get<QuadraticStateInputCost>("stateQuadraticCost").setGains(Q, zeroR);
+    } catch (const std::out_of_range&) {
+      // Expected if not used in task.yaml
+    } catch (const std::exception& e) {
+      LOG(WARNING) << "Failed to update stateQuadraticCost: " << e.what();
     } catch (...) {
+      LOG(WARNING) << "Failed to update stateQuadraticCost: unknown exception";
     }
 
     try {
       ocp.costPtr->get<QuadraticStateInputCost>("inputQuadraticCost").setGains(zeroQ, R);
+    } catch (const std::out_of_range&) {
+      // Expected if not used in task.yaml
+    } catch (const std::exception& e) {
+      LOG(WARNING) << "Failed to update inputQuadraticCost: " << e.what();
     } catch (...) {
+      LOG(WARNING) << "Failed to update inputQuadraticCost: unknown exception";
     }
 
     try {
       ocp.finalCostPtr->get<QuadraticStateCost>("terminalCost").setGains(Q_final);
+    } catch (const std::out_of_range&) {
+      // Expected if not used in task.yaml
+    } catch (const std::exception& e) {
+      LOG(WARNING) << "Failed to update terminalCost: " << e.what();
     } catch (...) {
+      LOG(WARNING) << "Failed to update terminalCost: unknown exception";
     }
 
     // ── Foot tracking costs ──
@@ -377,7 +395,10 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
       for (const auto& footName : contactNames_) {
         try {
           ocp.costPtr->get<CentroidalMpcEndEffectorFootCost>(footName + "_TaskSpaceKinematicsCost").setWeights(footTrackingWeightsVec);
+        } catch (const std::exception& e) {
+          LOG(WARNING) << "Failed to update " << footName << "_TaskSpaceKinematicsCost: " << e.what();
         } catch (...) {
+          LOG(WARNING) << "Failed to update " << footName << "_TaskSpaceKinematicsCost: unknown exception";
         }
       }
     }
@@ -386,7 +407,10 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
     for (const auto& [costName, weightsVec] : taskSpaceCostUpdates) {
       try {
         ocp.costPtr->get<EndEffectorKinematicsQuadraticCost>(costName).setWeights(weightsVec);
+      } catch (const std::exception& e) {
+        LOG(WARNING) << "Failed to update " << costName << ": " << e.what();
       } catch (...) {
+        LOG(WARNING) << "Failed to update " << costName << ": unknown exception";
       }
     }
 
@@ -394,7 +418,10 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
     if (hasIcpWeights) {
       try {
         ocp.costPtr->get<ICPCost>("icp_Cost").setWeights(icpWeights);
+      } catch (const std::exception& e) {
+        LOG(WARNING) << "Failed to update icp_Cost: " << e.what();
       } catch (...) {
+        LOG(WARNING) << "Failed to update icp_Cost: unknown exception";
       }
     }
 
@@ -402,7 +429,10 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
     for (const auto& [costName, config] : extTorqueConfigs) {
       try {
         ocp.costPtr->get<ExternalTorqueQuadraticCostAD>(costName).setWeights(config.weights);
+      } catch (const std::exception& e) {
+        LOG(WARNING) << "Failed to update " << costName << ": " << e.what();
       } catch (...) {
+        LOG(WARNING) << "Failed to update " << costName << ": unknown exception";
       }
     }
 
@@ -420,7 +450,10 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
         for (auto& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
           penalty->setParameters(wrenchConeParams);
         }
+      } catch (const std::exception& e) {
+        LOG(WARNING) << "Failed to update " << footName << "_contactWrenchCone: " << e.what();
       } catch (...) {
+        LOG(WARNING) << "Failed to update " << footName << "_contactWrenchCone: unknown exception";
       }
 
       // Friction force cone
@@ -429,7 +462,10 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
         for (auto& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
           penalty->setParameters(frictionConeParams);
         }
+      } catch (const std::exception& e) {
+        LOG(WARNING) << "Failed to update " << footName << "_frictionForceCone: " << e.what();
       } catch (...) {
+        LOG(WARNING) << "Failed to update " << footName << "_frictionForceCone: unknown exception";
       }
 
       // Contact moment XY
@@ -438,14 +474,20 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
         for (auto& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
           penalty->setParameters(contactMomentParams);
         }
+      } catch (const std::exception& e) {
+        LOG(WARNING) << "Failed to update " << footName << "_contactMomentXY: " << e.what();
       } catch (...) {
+        LOG(WARNING) << "Failed to update " << footName << "_contactMomentXY: unknown exception";
       }
     }
 
     // ── Joint limits ──
     try {
       ocp.stateSoftConstraintPtr->get<JointLimitsSoftConstraint>("jointLimits").setGains(jointLimitsBarrier.mu, jointLimitsBarrier.delta);
+    } catch (const std::exception& e) {
+      LOG(WARNING) << "Failed to update jointLimits: " << e.what();
     } catch (...) {
+      LOG(WARNING) << "Failed to update jointLimits: unknown exception";
     }
 
     // ── Foot collision ──
@@ -455,21 +497,28 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
       for (auto& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
         penalty->setParameters(collisionParams);
       }
+    } catch (const std::exception& e) {
+      LOG(WARNING) << "Failed to update FootCollisionSoftConstraint: " << e.what();
     } catch (...) {
+      LOG(WARNING) << "Failed to update FootCollisionSoftConstraint: unknown exception";
     }
 
     // ── Zero velocity soft constraint weight ──
     if (zeroVelWeight > 0.0) {
+      // The QuadraticPenalty is wrapped inside a PenaltyBaseWrapper (AugmentedPenaltyBase).
+      // Use setParameters() which delegates through the wrapper to QuadraticPenalty::setParameters().
+      vector_t scaleParam(1);
+      scaleParam[0] = zeroVelWeight;
       for (const auto& footName : contactNames_) {
         try {
           auto& softCon = ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_zeroVelocity");
           for (auto& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
-            auto* quadPenalty = dynamic_cast<QuadraticPenalty*>(penalty.get());
-            if (quadPenalty != nullptr) {
-              quadPenalty->setScale(zeroVelWeight);
-            }
+            penalty->setParameters(scaleParam);
           }
+        } catch (const std::exception& e) {
+          LOG(WARNING) << "Failed to update " << footName << "_zeroVelocity (soft): " << e.what();
         } catch (...) {
+          LOG(WARNING) << "Failed to update " << footName << "_zeroVelocity (soft): unknown exception";
         }
       }
     }
@@ -481,7 +530,10 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
         try {
           auto& con = ocp.equalityConstraintPtr->get<ZeroVelocityConstraintCppAd>(footName + "_zeroVelocity");
           con.getTwistConstraint().configure(EndEffectorKinematicsTwistConstraint::Config(footTwistConfig));
+        } catch (const std::exception& e) {
+          LOG(WARNING) << "Failed to update " << footName << "_zeroVelocity (hard): " << e.what();
         } catch (...) {
+          LOG(WARNING) << "Failed to update " << footName << "_zeroVelocity (hard): unknown exception";
         }
         // Soft constraint path: the inner constraint is wrapped in StateInputSoftConstraint.
         // ZeroVelocityConstraintCppAd is reached via dynamic_cast through the soft constraint wrapper.
@@ -491,7 +543,10 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
           if (zeroVelCon != nullptr) {
             zeroVelCon->getTwistConstraint().configure(EndEffectorKinematicsTwistConstraint::Config(footTwistConfig));
           }
+        } catch (const std::exception& e) {
+          LOG(WARNING) << "Failed to update " << footName << "_zeroVelocity (soft config): " << e.what();
         } catch (...) {
+          LOG(WARNING) << "Failed to update " << footName << "_zeroVelocity (soft config): unknown exception";
         }
       }
     }

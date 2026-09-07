@@ -477,25 +477,17 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
       // MPC planned base vs actual base
       vector_t q_planned = mpcRobotModelPtr_->getGeneralizedCoordinates(mpcPolicyState);
       vector_t q_actual = mpcRobotModelPtr_->getGeneralizedCoordinates(currentMpcObservation_.state);
-      std::cerr << "[ACTIVE_MPC] Base planned: " << q_planned.head(7).transpose()
-                << "\n             Base actual:  " << q_actual.head(7).transpose() << std::endl;
 
       // Compare planned vs actual joint positions (first 6 joints = spine + arms)
       vector_t qj_planned = mpcRobotModelPtr_->getJointAngles(mpcPolicyState);
       vector_t qj_actual = mpcRobotModelPtr_->getJointAngles(currentMpcObservation_.state);
-      std::cerr << "[ACTIVE_MPC] Joint planned: " << qj_planned.head(std::min<int>(6, qj_planned.size())).transpose()
-                << "\n             Joint actual:  " << qj_actual.head(std::min<int>(6, qj_actual.size())).transpose() << std::endl;
 
       // Total vertical contact force vs robot weight
       double Fz_total = footWrenches[0][2] + footWrenches[1][2];
-      std::cerr << "[ACTIVE_MPC] Fz_total=" << Fz_total << " (expect ~mg for free-floating)" << std::endl;
 
       // Also compute and print gravity compensation torques for comparison
       vector_t gravTorques = computeGravityCompensation(robotState);
-      std::cerr << "[ACTIVE_MPC] gravTorques: " << gravTorques.transpose() << std::endl;
 
-      std::cerr << "[ACTIVE_MPC] Foot wrenches: L=" << footWrenches[0].transpose() << " R=" << footWrenches[1].transpose() << std::endl;
-      std::cerr << "[ACTIVE_MPC] ID Torques:  " << mpcJointTorques.transpose() << std::endl;
       for (size_t i = 0; i < mpcJointIndices_.size(); i++) {
         size_t index = mpcJointIndices_[i];
         double q_cur = robotState.getJointPosition(index);

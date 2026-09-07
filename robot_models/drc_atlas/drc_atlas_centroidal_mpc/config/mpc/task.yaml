@@ -13,26 +13,28 @@ telemetryFrames:
 centroidalModelType: 0  # 0: FullCentroidalDynamics, 1: Single Rigid Body Dynamics
 
 # MPC Problem Formulation Tasks
-# hard_constraints:
-#   - zero_wrench
-#   - normal_velocity
-#   # - zero_velocity
+hard_constraints:
+  - zero_wrench
+  - normal_velocity
+  # - zero_velocity
 
-# soft_constraints:
-#   - joint_limits
-#   - foot_collision
-#   - friction_force_cone
-#   - contact_moment_xy
-#   - zero_velocity
+soft_constraints:
+  - joint_limits
+  - foot_collision
+  - friction_force_cone
+  - contact_moment_xy
+  - zero_velocity
 
 costs:
   - state_quadratic_cost
   - input_quadratic_cost
-  # - terminal_cost
+  - terminal_cost
   # - icp_cost
   # - task_space_foot_cost
   # - task_space_torso_cost
   # - external_torque_cost
+
+useGravityCompFeedforward: false
 
 interface:
   verbose: true  # show the loaded parameters
@@ -42,18 +44,20 @@ interface:
 model_settings:
   robotName: atlas
 
+  # LINT.IfChange(foot_constraint_section)
   foot_constraint:
-    positionErrorGain_z: 5.0
-    orientationErrorGain: 20.0
-    linearVelocityErrorGain_z: 1.0
-    linearVelocityErrorGain_xy: 10.0
-    angularVelocityErrorGain: 1.0
-    linearAccelerationErrorGain_z: 0.0
-    linearAccelerationErrorGain_xy: 5.0
-    angularAccelerationErrorGain: 2.0
-    softConstraintWeight: 1e4
+    positionErrorGain_z: 5
+    orientationErrorGain: 0
+    linearVelocityErrorGain_z: 1
+    linearVelocityErrorGain_xy: 10
+    angularVelocityErrorGain: 0
+    linearAccelerationErrorGain_z: 0
+    linearAccelerationErrorGain_xy: 5
+    angularAccelerationErrorGain: 2
+    softConstraintWeight: 250
+  # LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/src/mrt/MpcParameterUpdaterModule.cpp:softConstraintWeight_yaml_path)
 
-  phaseTransitionStanceTime: 0.0
+  phaseTransitionStanceTime: 0
 
   verboseCppAd: true
   recompileLibrariesCppAd: false
@@ -87,22 +91,22 @@ swing_trajectory_config:
   liftOffVelocity: 0.05
   touchDownVelocity: -0.05
   swingHeight: 0.08
-  touchDownHeightOffset: 0.0
+  touchDownHeightOffset: 0
   swingTimeScale: 0.4
   impactProximityFactorLiftOffVelocity: -0.15
   impactProximityFactorTouchDownVelocity: 0.3
-  impactProximityFactorMidPointValue: 0.0
+  impactProximityFactorMidPointValue: 0
 
 # multiple_shooting settings
 multiple_shooting:
   nThreads: 8
   dt: 0.025
   sqpIteration: 4
-  deltaTol: 1e-4
-  g_max: 1e-2
-  g_min: 1e-6
+  deltaTol: 0.0001
+  g_max: 0.01
+  g_min: 1.0e-06
   inequalityConstraintMu: 0.1
-  inequalityConstraintDelta: 5.0
+  inequalityConstraintDelta: 5
   projectStateInputEqualityConstraints: true
   printSolverStatistics: true
   printSolverStatus: false
@@ -121,7 +125,7 @@ rollout:
   checkNumericalStability: false
 
 mpc:
-  timeHorizon: 1.0  # [s]
+  timeHorizon: 1  # [s]
   solutionTimeWindow: -1  # maximum [s]
   coldStart: false
 
@@ -175,14 +179,14 @@ initialState:
 
 # standard state weight matrix
 Q:
-  scaling: 5
+  scaling: 85
 
   # ; Normalized Centroidal Momentum: [linear, angular] ;;
   "(0,0)": 2  # h_com_x / robotMass
   "(1,1)": 2  # h_com_y / robotMass
   "(2,2)": 15  # h_com_z / robotMass
   "(3,3)": 50  # L_x / robotMass
-  "(4,4)": 15  # L_y / robotMass
+  "(4,4)": 75  # L_y / robotMass
   "(5,5)": 4  # L_z / robotMass
 
   # ; Base Pose: [position, orientation] ;;
@@ -191,13 +195,13 @@ Q:
   "(8,8)": 15  # p_base_z
   # euler angles for base to world rotation
   "(9,9)": 25  # theta_base_z
-  "(10,10)": 25  # theta_base_y
-  "(11,11)": 25  # theta_base_x
+  "(10,10)": 100  # theta_base_y
+  "(11,11)": 15  # theta_base_x
 
   # ; Joint Positions ;;
   "(12,12)": 10  # back_bkz
-  "(13,13)": 50  # back_bky
-  "(14,14)": 15  # back_bkx
+  "(13,13)": 25  # back_bky
+  "(14,14)": 25  # back_bkx
   "(15,15)": 5  # l_arm_shz
   "(16,16)": 20  # l_arm_shx
   "(17,17)": 10  # l_arm_ely
@@ -222,59 +226,59 @@ Q:
 
 # control weight matrix
 R:
-  scaling: 1e-1
+  scaling: 1
 
   # ; Feet Contact Forces: [LF, RF, LH, RH] ;;
-  "(0,0)": 0.01  # left_force_x
-  "(1,1)": 0.02  # left_force_y
-  "(2,2)": 0.05  # left_force_z
-  "(3,3)": 0.02  # left_moment_x
-  "(4,4)": 0.01  # left_moment_y
+  "(0,0)": 0.001  # left_force_x
+  "(1,1)": 0.002  # left_force_y
+  "(2,2)": 0.005  # left_force_z
+  "(3,3)": 0.002  # left_moment_x
+  "(4,4)": 0.001  # left_moment_y
   "(5,5)": 0.02  # left_moment_z
-  "(6,6)": 0.01  # right_force_x
-  "(7,7)": 0.02  # right_force_y
-  "(8,8)": 0.05  # right_force_z
-  "(9,9)": 0.02  # right_moment_x
-  "(10,10)": 0.01  # right_moment_y
+  "(6,6)": 0.001  # right_force_x
+  "(7,7)": 0.002  # right_force_y
+  "(8,8)": 0.005  # right_force_z
+  "(9,9)": 0.002  # right_moment_x
+  "(10,10)": 0.001  # right_moment_y
   "(11,11)": 0.02  # right_moment_z
 
   # ; Joint Velocities ;;
-  "(12,12)": 1000.0  # back_bkz
-  "(13,13)": 1000.0  # back_bky
-  "(14,14)": 5.0  # back_bkx
-  "(15,15)": 100.0  # l_arm_shz
-  "(16,16)": 100.0  # l_arm_shx
-  "(17,17)": 200.0  # l_arm_ely
-  "(18,18)": 200.0  # l_arm_elx
-  "(19,19)": 100.0  # neck_ry
-  "(20,20)": 100.0  # r_arm_shz
-  "(21,21)": 100.0  # r_arm_shx
-  "(22,22)": 200.0  # r_arm_ely
-  "(23,23)": 200.0  # r_arm_elx
-  "(24,24)": 500.0  # l_leg_hpz
-  "(25,25)": 5.0  # l_leg_hpx
-  "(26,26)": 5.0  # l_leg_hpy
-  "(27,27)": 5.0  # l_leg_kny
-  "(28,28)": 50.0  # l_leg_aky
-  "(29,29)": 50.0  # l_leg_akx
-  "(30,30)": 500.0  # r_leg_hpz
-  "(31,31)": 5.0  # r_leg_hpx
-  "(32,32)": 5.0  # r_leg_hpy
-  "(33,33)": 5.0  # r_leg_kny
-  "(34,34)": 50.0  # r_leg_aky
-  "(35,35)": 50.0  # r_leg_akx
+  "(12,12)": 1000  # back_bkz
+  "(13,13)": 1000  # back_bky
+  "(14,14)": 25  # back_bkx
+  "(15,15)": 100  # l_arm_shz
+  "(16,16)": 100  # l_arm_shx
+  "(17,17)": 200  # l_arm_ely
+  "(18,18)": 200  # l_arm_elx
+  "(19,19)": 100  # neck_ry
+  "(20,20)": 100  # r_arm_shz
+  "(21,21)": 100  # r_arm_shx
+  "(22,22)": 200  # r_arm_ely
+  "(23,23)": 200  # r_arm_elx
+  "(24,24)": 500  # l_leg_hpz
+  "(25,25)": 5  # l_leg_hpx
+  "(26,26)": 5  # l_leg_hpy
+  "(27,27)": 5  # l_leg_kny
+  "(28,28)": 50  # l_leg_aky
+  "(29,29)": 50  # l_leg_akx
+  "(30,30)": 500  # r_leg_hpz
+  "(31,31)": 5  # r_leg_hpx
+  "(32,32)": 5  # r_leg_hpy
+  "(33,33)": 5  # r_leg_kny
+  "(34,34)": 50  # r_leg_aky
+  "(35,35)": 50  # r_leg_akx
 
 
 terminalCostScaling: 4
 Q_final:
-  scaling: 5
+  scaling: 85
 
   # ; Normalized Centroidal Momentum: [linear, angular] ;;
   "(0,0)": 2  # h_com_x / robotMass
   "(1,1)": 2  # h_com_y / robotMass
   "(2,2)": 15  # h_com_z / robotMass
   "(3,3)": 50  # L_x / robotMass
-  "(4,4)": 15  # L_y / robotMass
+  "(4,4)": 75  # L_y / robotMass
   "(5,5)": 4  # L_z / robotMass
 
   # ; Base Pose: [position, orientation] ;;
@@ -283,13 +287,13 @@ Q_final:
   "(8,8)": 15  # p_base_z
   # euler angles for base to world rotation
   "(9,9)": 25  # theta_base_z
-  "(10,10)": 25  # theta_base_y
-  "(11,11)": 25  # theta_base_x
+  "(10,10)": 100  # theta_base_y
+  "(11,11)": 15  # theta_base_x
 
   # ; Joint Positions ;;
   "(12,12)": 10  # back_bkz
-  "(13,13)": 50  # back_bky
-  "(14,14)": 15  # back_bkx
+  "(13,13)": 25  # back_bky
+  "(14,14)": 25  # back_bkx
   "(15,15)": 5  # l_arm_shz
   "(16,16)": 20  # l_arm_shx
   "(17,17)": 10  # l_arm_ely
@@ -313,50 +317,50 @@ Q_final:
   "(35,35)": 5  # r_leg_akx
 
 icp_cost_weights:
-  icpErrorWeight: 0.0
+  icpErrorWeight: 0
 
 task_space_foot_cost_weights:
-  pos_x: 0.0
-  pos_y: 0.0
-  pos_z: 0.0
-  orientation_x: 1000.0
-  orientation_y: 1000.0
-  orientation_z: 0.0
-  lin_velocity_x: 10.0
-  lin_velocity_y: 10.0
-  lin_velocity_z: 0.0
-  ang_velocity_x: 1.0
-  ang_velocity_y: 1.0
+  pos_x: 0
+  pos_y: 0
+  pos_z: 0
+  orientation_x: 1000
+  orientation_y: 1000
+  orientation_z: 0
+  lin_velocity_x: 10
+  lin_velocity_y: 10
+  lin_velocity_z: 0
+  ang_velocity_x: 1
+  ang_velocity_y: 1
   ang_velocity_z: 0.005
-  lin_acceleration_x: 0.0
-  lin_acceleration_y: 0.0
-  lin_acceleration_z: 0.0
-  ang_acceleration_x: 0.0
-  ang_acceleration_y: 0.0
-  ang_acceleration_z: 0.0
+  lin_acceleration_x: 0
+  lin_acceleration_y: 0
+  lin_acceleration_z: 0
+  ang_acceleration_x: 0
+  ang_acceleration_y: 0
+  ang_acceleration_z: 0
 
 task_space_costs:
   torso:
     link_name: utorso
     weights:
-      pos_x: 0.0
-      pos_y: 0.0
-      pos_z: 0.0
-      orientation_x: 50.0
-      orientation_y: 50.0
-      orientation_z: 0.0
+      pos_x: 0
+      pos_y: 0
+      pos_z: 0
+      orientation_x: 50
+      orientation_y: 50
+      orientation_z: 0
       lin_velocity_x: 0.1
       lin_velocity_y: 0.1
       lin_velocity_z: 0.005
-      ang_velocity_x: 5.0
-      ang_velocity_y: 5.0
-      ang_velocity_z: 2.0
-      lin_acceleration_x: 0.0
-      lin_acceleration_y: 0.0
-      lin_acceleration_z: 0.0
-      ang_acceleration_x: 0.0
-      ang_acceleration_y: 0.0
-      ang_acceleration_z: 0.0
+      ang_velocity_x: 5
+      ang_velocity_y: 5
+      ang_velocity_z: 2
+      lin_acceleration_x: 0
+      lin_acceleration_y: 0
+      lin_acceleration_z: 0
+      ang_acceleration_x: 0
+      ang_acceleration_y: 0
+      ang_acceleration_z: 0
 
 left_leg_torque_cost:
   activeJointNames:
@@ -368,12 +372,12 @@ left_leg_torque_cost:
     - l_leg_akx
 
   weights:
-    scaling: 1e-6
+    scaling: 1.0e-06
 
-    "(0,0)": 1.0
-    "(1,0)": 2.0
-    "(2,0)": 2.0
-    "(3,0)": 8.0
+    "(0,0)": 1
+    "(1,0)": 2
+    "(2,0)": 2
+    "(3,0)": 8
     "(4,0)": 0.2
     "(5,0)": 0.2
 
@@ -387,12 +391,12 @@ right_leg_torque_cost:
     - r_leg_akx
 
   weights:
-    scaling: 1e-6
+    scaling: 1.0e-06
 
-    "(0,0)": 1.0
-    "(1,0)": 2.0
-    "(2,0)": 2.0
-    "(3,0)": 8.0
+    "(0,0)": 1
+    "(1,0)": 2
+    "(2,0)": 2
+    "(3,0)": 8
     "(4,0)": 0.2
     "(5,0)": 0.2
 
@@ -400,7 +404,7 @@ contacts:
   contact_frame_translation:
     # ; Translation vector from parent joint to contact frame (center of foot support polygon) ;;
     x: 0.04
-    y: 0.0
+    y: 0
     z: -0.082
   contact_rectangle:
     # ; length specified in contact frame ;;
@@ -413,7 +417,7 @@ contacts:
     frictionCoefficient: 0.5
     # relaxed log barrier parameters
     mu: 0.2
-    delta: 5.0
+    delta: 5
   contactMomentXYSoftConstraint:
     # relaxed log barrier parameters
     mu: 0.6
@@ -421,7 +425,7 @@ contacts:
 
 jointLimits:
   # relaxed log barrier parameters
-  mu: 1200.0
+  mu: 1200
   delta: 0.1
 
 collision_constraint:

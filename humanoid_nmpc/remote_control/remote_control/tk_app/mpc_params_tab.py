@@ -1233,11 +1233,6 @@ class MpcParamsTab(ttk.Frame):
     def _publish_to_topic(self):
         """Publish current slider values as a YAML string to /mpc_parameter_updates."""
         self._debounce_publish_id = None
-        print(
-            f"[MpcParamsTab] _publish_to_topic called. "
-            f"enable_online_tuning={self.enable_online_tuning}, "
-            f"param_publisher={self.param_publisher is not None}"
-        )
         if not self.enable_online_tuning or not self.param_publisher:
             print(
                 "[MpcParamsTab] Skipping publish: online tuning disabled or no publisher"
@@ -1246,15 +1241,37 @@ class MpcParamsTab(ttk.Frame):
 
         try:
             yaml_content = self._build_yaml_with_slider_values()
-            print(f"[MpcParamsTab] Built YAML content: {len(yaml_content)} chars")
             if yaml_content:
                 from std_msgs.msg import String
 
                 msg = String()
                 msg.data = yaml_content
                 self.param_publisher.publish(msg)
+
+                # Debug: show which values changed from their defaults
+                changed = []
+                for key, val in self._live_values.items():
+                    if key in self._default_values:
+                        if abs(val - self._default_values[key]) > 1e-6:
+                            changed.append(
+                                f"  {key}: {self._default_values[key]} → {val}"
+                            )
+                if changed:
+                    print(
+                        f"[MpcParamsTab] Published {len(yaml_content)} chars to /mpc_parameter_updates. "
+                        f"Changed params ({len(changed)}):"
+                    )
+                    for c in changed[:10]:  # Limit to first 10 for readability
+                        print(c)
+                    if len(changed) > 10:
+                        print(f"  ... and {len(changed) - 10} more")
+                else:
+                    print(
+                        f"[MpcParamsTab] Published {len(yaml_content)} chars (no changes from defaults)"
+                    )
+            else:
                 print(
-                    f"[MpcParamsTab] Published {len(yaml_content)} chars to /mpc_parameter_updates"
+                    "[MpcParamsTab] WARNING: _build_yaml_with_slider_values returned empty"
                 )
         except Exception as e:
             print(f"[MpcParamsTab] ERROR in _publish_to_topic: {e}")
