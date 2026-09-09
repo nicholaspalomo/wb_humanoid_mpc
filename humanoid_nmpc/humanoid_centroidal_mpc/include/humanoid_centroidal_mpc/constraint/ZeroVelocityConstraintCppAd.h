@@ -50,11 +50,13 @@ class ZeroVelocityConstraintCppAd final : public StateInputConstraint {
    * @param [in] referenceManager : Switched model ReferenceManager
    * @param [in] endEffectorKinematics: The kinematic interface to the target end-effector.
    * @param [in] contactPointIndex : The 3 DoF contact index.
+   * @param [in] numConstraints : Number of constraint rows (3 = translation-only, 6 = full pose).
    * @param [in] config: The constraint coefficients
    */
   ZeroVelocityConstraintCppAd(const SwitchedModelReferenceManager& referenceManager,
                               const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
                               size_t contactPointIndex,
+                              size_t numConstraints = 6,
                               EndEffectorKinematicsTwistConstraint::Config config = EndEffectorKinematicsTwistConstraint::Config());
 
   ~ZeroVelocityConstraintCppAd() override = default;
@@ -65,7 +67,7 @@ class ZeroVelocityConstraintCppAd final : public StateInputConstraint {
   bool getActive() const override { return isActive_; }
   /** Access the inner twist constraint to allow runtime config updates (e.g. foot error gains). */
   EndEffectorKinematicsTwistConstraint& getTwistConstraint() { return *eeTwistConstraintPtr_; }
-  size_t getNumConstraints(scalar_t time) const override { return 6; }
+  size_t getNumConstraints(scalar_t time) const override { return numConstraints_; }
   vector_t getValue(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) const override;
   VectorFunctionLinearApproximation getLinearApproximation(scalar_t time,
                                                            const vector_t& state,
@@ -78,6 +80,7 @@ class ZeroVelocityConstraintCppAd final : public StateInputConstraint {
   const SwitchedModelReferenceManager* referenceManagerPtr_;
   std::unique_ptr<EndEffectorKinematicsTwistConstraint> eeTwistConstraintPtr_;
   const size_t contactPointIndex_;
+  size_t numConstraints_;
   bool isActive_ = true;
 };
 

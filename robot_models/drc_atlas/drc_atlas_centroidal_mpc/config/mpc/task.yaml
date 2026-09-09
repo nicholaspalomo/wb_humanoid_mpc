@@ -16,14 +16,13 @@ centroidalModelType: 0  # 0: FullCentroidalDynamics, 1: Single Rigid Body Dynami
 hard_constraints:
   - zero_wrench
   - normal_velocity
-  # - zero_velocity
+  - zero_velocity
 
 soft_constraints:
   - joint_limits
   - foot_collision
   - friction_force_cone
   - contact_moment_xy
-  - zero_velocity
 
 costs:
   - state_quadratic_cost
@@ -46,15 +45,16 @@ model_settings:
 
   # LINT.IfChange(foot_constraint_section)
   foot_constraint:
-    positionErrorGain_z: 5
-    orientationErrorGain: 0
-    linearVelocityErrorGain_z: 1
-    linearVelocityErrorGain_xy: 10
-    angularVelocityErrorGain: 0
-    linearAccelerationErrorGain_z: 0
-    linearAccelerationErrorGain_xy: 5
-    angularAccelerationErrorGain: 2
+    positionErrorGain_z: 1.0
+    orientationErrorGain: 0.1
+    linearVelocityErrorGain_z: 0.1
+    linearVelocityErrorGain_xy: 0.1
+    angularVelocityErrorGain: 0.01
+    linearAccelerationErrorGain_z: 0.0
+    linearAccelerationErrorGain_xy: 0.0
+    angularAccelerationErrorGain: 0.0
     softConstraintWeight: 250
+    constrainOrientation: false
   # LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/src/mrt/MpcParameterUpdaterModule.cpp:softConstraintWeight_yaml_path)
 
   phaseTransitionStanceTime: 0
@@ -100,8 +100,8 @@ swing_trajectory_config:
 # multiple_shooting settings
 multiple_shooting:
   nThreads: 8
-  dt: 0.025
-  sqpIteration: 4
+  dt: 0.02
+  sqpIteration: 1
   deltaTol: 0.0001
   g_max: 0.01
   g_min: 1.0e-06
@@ -112,7 +112,7 @@ multiple_shooting:
   printSolverStatus: false
   printLinesearch: false
   useFeedbackPolicy: true
-  integratorType: RK2
+  integratorType: RK4
   threadPriority: 50
 
 # Rollout settings
@@ -305,33 +305,34 @@ Q_final:
   "(23,23)": 5  # r_arm_elx
   "(24,24)": 10  # l_leg_hpz
   "(25,25)": 50  # l_leg_hpx
-  "(26,26)": 10  # l_leg_hpy
-  "(27,27)": 10  # l_leg_kny
-  "(28,28)": 5  # l_leg_aky
+  "(26,26)": 1  # l_leg_hpy
+  "(27,27)": 1  # l_leg_kny
+  "(28,28)": 0.5  # l_leg_aky
   "(29,29)": 5  # l_leg_akx
   "(30,30)": 10  # r_leg_hpz
   "(31,31)": 50  # r_leg_hpx
-  "(32,32)": 10  # r_leg_hpy
-  "(33,33)": 10  # r_leg_kny
-  "(34,34)": 5  # r_leg_aky
+  "(32,32)": 1  # r_leg_hpy
+  "(33,33)": 1  # r_leg_kny
+  "(34,34)": 0.5  # r_leg_aky
   "(35,35)": 5  # r_leg_akx
 
 icp_cost_weights:
   icpErrorWeight: 0
 
 task_space_foot_cost_weights:
+  activeInStance: true
   pos_x: 0
   pos_y: 0
-  pos_z: 0
-  orientation_x: 1000
-  orientation_y: 1000
-  orientation_z: 0
-  lin_velocity_x: 10
-  lin_velocity_y: 10
-  lin_velocity_z: 0
-  ang_velocity_x: 1
-  ang_velocity_y: 1
-  ang_velocity_z: 0.005
+  pos_z: 10000
+  orientation_x: 10
+  orientation_y: 10
+  orientation_z: 1
+  lin_velocity_x: 500
+  lin_velocity_y: 500
+  lin_velocity_z: 500
+  ang_velocity_x: 10
+  ang_velocity_y: 10
+  ang_velocity_z: 50
   lin_acceleration_x: 0
   lin_acceleration_y: 0
   lin_acceleration_z: 0

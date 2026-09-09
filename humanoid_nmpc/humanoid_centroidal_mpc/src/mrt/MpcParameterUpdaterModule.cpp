@@ -179,6 +179,12 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
   // ────────────────────────────────────────────────────────────────
   // 2. Parse task-space tracking cost weights
   // ────────────────────────────────────────────────────────────────
+  boost::property_tree::ptree pt;
+  try {
+    loadData::readPropertyTree(yamlFile, pt);
+  } catch (...) {
+  }
+
   EndEffectorKinematicsWeights footTrackingWeights;
   vector12_t footTrackingWeightsVec = vector12_t::Zero();
   bool hasFootTrackingWeights = false;
@@ -186,6 +192,14 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
     footTrackingWeights = EndEffectorKinematicsWeights::getWeights(yamlFile, "task_space_foot_cost_weights.", false);
     footTrackingWeightsVec = footTrackingWeights.toVector();
     hasFootTrackingWeights = true;
+  } catch (...) {
+  }
+
+  bool footActiveInStance = false;
+  bool hasFootActiveInStance = false;
+  try {
+    loadData::loadPtreeValue(pt, footActiveInStance, "task_space_foot_cost_weights.activeInStance", false);
+    hasFootActiveInStance = true;
   } catch (...) {
   }
 
@@ -198,10 +212,8 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
   }
 
   // Parse task-space torso/body tracking cost weights
-  boost::property_tree::ptree pt;
   std::vector<std::pair<std::string, vector12_t>> taskSpaceCostUpdates;
   try {
-    loadData::readPropertyTree(yamlFile, pt);
     auto taskSpaceCostsIt = pt.find("task_space_costs");
     if (taskSpaceCostsIt != pt.not_found()) {
       for (auto& task_space_cost : taskSpaceCostsIt->second) {
@@ -270,8 +282,9 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
     loadData::loadPtreeValue(pt, zeroVelWeight, "model_settings.foot_constraint.softConstraintWeight", false);
   } catch (...) {
   }
-  // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:foot_constraint_section,
-  // //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.yaml:foot_constraint_section)
+  // clang-format off
+  // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:foot_constraint_section, //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.yaml:foot_constraint_section)
+  // clang-format on
   // ────────────────────────────────────────────────────────────────
   // 3b. Parse foot constraint error gains
   // ────────────────────────────────────────────────────────────────
@@ -287,6 +300,7 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
     loadData::loadPtreeValue(pt, footCfg.linearAccelerationErrorGain_z, fcPrefix + "linearAccelerationErrorGain_z", false);
     loadData::loadPtreeValue(pt, footCfg.linearAccelerationErrorGain_xy, fcPrefix + "linearAccelerationErrorGain_xy", false);
     loadData::loadPtreeValue(pt, footCfg.angularAccelerationErrorGain, fcPrefix + "angularAccelerationErrorGain", false);
+    loadData::loadPtreeValue(pt, footCfg.constrainOrientation, fcPrefix + "constrainOrientation", false);
     hasFootConstraintGains = true;
   } catch (...) {
   }
@@ -391,10 +405,16 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
     }
 
     // ── Foot tracking costs ──
-    if (hasFootTrackingWeights) {
+    if (hasFootTrackingWeights || hasFootActiveInStance) {
       for (const auto& footName : contactNames_) {
         try {
-          ocp.costPtr->get<CentroidalMpcEndEffectorFootCost>(footName + "_TaskSpaceKinematicsCost").setWeights(footTrackingWeightsVec);
+          auto& footCost = ocp.costPtr->get<CentroidalMpcEndEffectorFootCost>(footName + "_TaskSpaceKinematicsCost");
+          if (hasFootTrackingWeights) {
+            footCost.setWeights(footTrackingWeightsVec);
+          }
+          if (hasFootActiveInStance) {
+            footCost.setActiveInStance(footActiveInStance);
+          }
         } catch (const std::exception& e) {
           LOG(WARNING) << "Failed to update " << footName << "_TaskSpaceKinematicsCost: " << e.what();
         } catch (...) {
@@ -529,6 +549,7 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
         // Hard constraint path
         try {
           auto& con = ocp.equalityConstraintPtr->get<ZeroVelocityConstraintCppAd>(footName + "_zeroVelocity");
+          con.getTwistConstraint().setNumConstraints(footCfg.constrainOrientation ? 6 : 3);
           con.getTwistConstraint().configure(EndEffectorKinematicsTwistConstraint::Config(footTwistConfig));
         } catch (const std::exception& e) {
           LOG(WARNING) << "Failed to update " << footName << "_zeroVelocity (hard): " << e.what();
@@ -541,6 +562,7 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
           auto& softCon = ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_zeroVelocity");
           auto* zeroVelCon = dynamic_cast<ZeroVelocityConstraintCppAd*>(softCon.getConstraintPtr().get());
           if (zeroVelCon != nullptr) {
+            zeroVelCon->getTwistConstraint().setNumConstraints(footCfg.constrainOrientation ? 6 : 3);
             zeroVelCon->getTwistConstraint().configure(EndEffectorKinematicsTwistConstraint::Config(footTwistConfig));
           }
         } catch (const std::exception& e) {

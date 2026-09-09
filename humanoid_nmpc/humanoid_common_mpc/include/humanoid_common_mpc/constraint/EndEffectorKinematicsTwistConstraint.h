@@ -1,4 +1,5 @@
 /******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
 Copyright (c) 2024, 1X Technologies. All rights reserved.
 
@@ -33,6 +34,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 
 #include <ocs2_core/constraint/StateInputConstraint.h>
+#include <ocs2_robotic_tools/common/AngularVelocityMapping.h>
+#include <ocs2_robotic_tools/common/RotationTransforms.h>
 #include <ocs2_robotic_tools/end_effector/EndEffectorKinematics.h>
 
 #include "humanoid_common_mpc/common/Types.h"
@@ -44,6 +47,11 @@ namespace ocs2::humanoid {
  * g(xee, vee) = Ax * xee + Av * vee + b
  * - For defining constraint of type g(xee), set Av to matrix_t(0, 0)
  * - For defining constraint of type g(vee), set Ax to matrix_t(0, 0)
+ *
+ * When orientation rows are active (numConstraints == 6), the angular velocity part of Av is mapped
+ * through the quaternion kinematic Jacobian so that the constraint expresses a proper PD law:
+ *   Kp * orientationError + Kd * d(orientationError)/dt = 0
+ * rather than mixing quaternion distance with raw angular velocity.
  */
 class EndEffectorKinematicsTwistConstraint final : public StateInputConstraint {
  public:
@@ -60,7 +68,7 @@ class EndEffectorKinematicsTwistConstraint final : public StateInputConstraint {
   /**
    * Constructor
    * @param [in] endEffectorKinematics: The kinematic interface to the target end-effector.
-   * @param [in] numConstraints: The number of constraints {1, 2, 3, 4, 5, 6}
+   * @param [in] numConstraints: The number of constraints {3, 6}. 3 = translation-only, 6 = full pose.
    * @param [in] config: The constraint coefficients, g(xee, vee) = Ax * xee + Av * vee + b
    */
   EndEffectorKinematicsTwistConstraint(const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
@@ -77,6 +85,9 @@ class EndEffectorKinematicsTwistConstraint final : public StateInputConstraint {
   /** Gets a reference of the config to allow to modify it. */
   Config& getConfig() { return config_; }
 
+  /** Sets the number of constraint rows (3 = translation-only, 6 = full pose). */
+  void setNumConstraints(size_t numConstraints) { numConstraints_ = numConstraints; }
+
   /** Gets the underlying end-effector kinematics interface. */
   EndEffectorKinematics<scalar_t>& getEndEffectorKinematics() { return *endEffectorKinematicsPtr_; }
 
@@ -89,9 +100,17 @@ class EndEffectorKinematicsTwistConstraint final : public StateInputConstraint {
 
  private:
   EndEffectorKinematicsTwistConstraint(const EndEffectorKinematicsTwistConstraint& rhs);
+
+  /**
+   * Compute the 3x3 mapping matrix M such that d(orientationError)/dt = M * omega.
+   * M = quaternionDistanceJacobian(q_corr, I) * angularVelocityToQuaternionTimeDerivative(q_frame)
+   * where q_corr is the correction quaternion from the foot z-axis to the ground plane normal.
+   */
+  matrix3_t getOrientationErrorRateMapping(const vector_t& state) const;
+
   vector3_t ground_plane_normal_;
   std::unique_ptr<EndEffectorKinematics<scalar_t>> endEffectorKinematicsPtr_;
-  const size_t numConstraints_;
+  size_t numConstraints_;
   Config config_;
 };
 

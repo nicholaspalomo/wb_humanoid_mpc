@@ -23,7 +23,7 @@ cleanup_trap := trap 'pkill -P $$$$ 2>/dev/null; wait' EXIT INT TERM
         launch-g1-dummy-sim launch-g1-sim launch-wb-g1-dummy-sim launch-wb-g1-sim \
         launch-drc-atlas-dummy-sim launch-drc-atlas-sim launch-drc-atlas-sandbox test-pinocchio-model-atlas \
         launch-r1-dummy-sim launch-r1-sim launch-r1-sandbox test-pinocchio-model-r1 \
-        start-vnc stop-vnc kill-sims \
+        start-vnc stop-vnc kill-sims kill-builds \
         launch-g1-dummy-sim-vnc launch-g1-sim-vnc launch-wb-g1-dummy-sim-vnc launch-wb-g1-sim-vnc \
         launch-drc-atlas-dummy-sim-vnc launch-drc-atlas-sim-vnc launch-drc-atlas-sandbox-vnc \
         launch-r1-dummy-sim-vnc launch-r1-sim-vnc launch-r1-sandbox-vnc \
@@ -33,9 +33,25 @@ cleanup_trap := trap 'pkill -P $$$$ 2>/dev/null; wait' EXIT INT TERM
 jupyter:
 	@tools/launch_jupyter.sh
 
+## Kill any running Bazel builds, compilers, and stale server locks
+kill-builds:
+	@echo "🧹 Cleaning up background Bazel builds and stale locks..."
+	@pkill -9 -x bazel 2>/dev/null || true
+	@pkill -9 -x bazelisk 2>/dev/null || true
+	@pkill -9 -x cc1plus 2>/dev/null || true
+	@for pid_file in $$HOME/.cache/bazel/_bazel_*/*/server/server.pid.txt; do \
+		[ -f "$$pid_file" ] || continue; \
+		b_pid=$$(cat "$$pid_file" 2>/dev/null); \
+		if [ -n "$$b_pid" ]; then \
+			kill -9 "$$b_pid" 2>/dev/null || true; \
+			rm -rf "$$(dirname "$$pid_file")"; \
+		fi; \
+	done
+	@echo "✅ Build cleanup done."
+
 ## Kill any running or zombie sim processes before launching a new one.
 ## Note: The [x] character-class trick prevents pkill -f from matching its own shell.
-kill-sims:
+kill-sims: kill-builds
 	@echo "🧹 Cleaning up previous sim processes..."
 	@pkill -9 -f 'humanoid_centroidal_mpc_si[m]|humanoid_centroidal_mpc_sq[p]|humanoid_wb_mpc_si[m]|humanoid_wb_mpc_sq[p]' 2>/dev/null || true
 	@pkill -9 -f 'robot_state_publishe[r]|base_velocity_controlle[r]' 2>/dev/null || true

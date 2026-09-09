@@ -52,6 +52,7 @@ class ModelSettings {
     scalar_t linearAccelerationErrorGain_xy{1.0};
     scalar_t angularAccelerationErrorGain{1.0};
     scalar_t softConstraintWeight{10.0};
+    bool constrainOrientation{true};  // When true, constraint is 6D (position+orientation); when false, 3D (position-only)
   };
 
   ModelSettings(const std::string& configFile, const std::string& urdfFile, const std::string& mpcName, bool verbose = "false");

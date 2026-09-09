@@ -50,6 +50,7 @@ model_settings:
     linearAccelerationErrorGain_z: 0.0
     linearAccelerationErrorGain_xy: 0.0
     angularAccelerationErrorGain: 0.0
+    constrainOrientation: true
 
   phaseTransitionStanceTime: 0.0
 

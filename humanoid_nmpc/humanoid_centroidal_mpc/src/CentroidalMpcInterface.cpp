@@ -229,8 +229,16 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
 
   // Constraint terms
   EndEffectorKinematicsWeights footTrackingCostWeights;
+  bool footCostActiveInStance = false;
   if (formulationTasks.hasCost(MpcCostType::TaskSpaceFootCost)) {
     footTrackingCostWeights = EndEffectorKinematicsWeights::getWeights(taskFile_, "task_space_foot_cost_weights.", verbose_);
+    try {
+      boost::property_tree::ptree pt;
+      loadData::readPropertyTree(taskFile_, pt);
+      loadData::loadPtreeValue(pt, footCostActiveInStance, "task_space_foot_cost_weights.activeInStance", verbose_);
+    } catch (...) {
+      footCostActiveInStance = false;
+    }
   }
 
   for (size_t i = 0; i < N_CONTACTS; i++) {
@@ -279,9 +287,10 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
 
     if (formulationTasks.hasCost(MpcCostType::TaskSpaceFootCost)) {
       std::string footTrackingCostName = absl::StrCat(footName, "_TaskSpaceKinematicsCost");
-      problemPtr_->costPtr->add(footTrackingCostName, std::unique_ptr<StateInputCost>(new CentroidalMpcEndEffectorFootCost(
-                                                          *referenceManagerPtr_, footTrackingCostWeights, *pinocchioInterfacePtr_,
-                                                          *mpcRobotModelADPtr_, i, footTrackingCostName, modelSettings_)));
+      problemPtr_->costPtr->add(footTrackingCostName,
+                                std::unique_ptr<StateInputCost>(new CentroidalMpcEndEffectorFootCost(
+                                    *referenceManagerPtr_, footTrackingCostWeights, *pinocchioInterfacePtr_, *mpcRobotModelADPtr_, i,
+                                    footTrackingCostName, modelSettings_, footCostActiveInStance)));
     }
     if (formulationTasks.hasCost(MpcCostType::ExternalTorqueCost)) {
       problemPtr_->costPtr->add(absl::StrCat(footName, "_ExternalTorqueQuadraticCost"), factory.getExternalTorqueQuadraticCost(i));
@@ -309,7 +318,10 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
 
 std::unique_ptr<StateInputConstraint> CentroidalMpcInterface::getStanceFootConstraint(const EndEffectorKinematics<scalar_t>& eeKinematics,
                                                                                       size_t contactPointIndex) {
-  auto eeZeroVelConConfig = [](const ModelSettings::FootConstraintConfig& footConfig) {
+  const auto& footConfig = modelSettings_.footConstraintConfig;
+  const size_t numConstraints = footConfig.constrainOrientation ? 6 : 3;
+
+  auto eeZeroVelConConfig = [numConstraints](const ModelSettings::FootConstraintConfig& footConfig) {
     EndEffectorKinematicsTwistConstraint::Config config;
     config.b.setZero(6);
     config.Ax.setZero(6, 6);
@@ -319,7 +331,7 @@ std::unique_ptr<StateInputConstraint> CentroidalMpcInterface::getStanceFootConst
     if (!numerics::almost_eq(footConfig.positionErrorGain_z, 0.0)) {
       config.Ax(2, 2) = footConfig.positionErrorGain_z;
     }
-    // Orientation error gain: all 3 rotation axes
+    // Orientation error gain: all 3 rotation axes (only effective when constrainOrientation is true)
     if (!numerics::almost_eq(footConfig.orientationErrorGain, 0.0)) {
       config.Ax.block(3, 3, 3, 3) = Eigen::MatrixXd::Identity(3, 3) * footConfig.orientationErrorGain;
     }
@@ -329,7 +341,7 @@ std::unique_ptr<StateInputConstraint> CentroidalMpcInterface::getStanceFootConst
     config.Av(1, 1) = footConfig.linearVelocityErrorGain_xy;
     config.Av(2, 2) = footConfig.linearVelocityErrorGain_z;
 
-    // Angular velocity gain: all 3 rotation axes
+    // Angular velocity gain: all 3 rotation axes (only effective when constrainOrientation is true)
     config.Av(3, 3) = footConfig.angularVelocityErrorGain;
     config.Av(4, 4) = footConfig.angularVelocityErrorGain;
     config.Av(5, 5) = footConfig.angularVelocityErrorGain;
@@ -338,7 +350,7 @@ std::unique_ptr<StateInputConstraint> CentroidalMpcInterface::getStanceFootConst
   };
 
   return std::unique_ptr<StateInputConstraint>(new ZeroVelocityConstraintCppAd(*referenceManagerPtr_, eeKinematics, contactPointIndex,
-                                                                               eeZeroVelConConfig(modelSettings_.footConstraintConfig)));
+                                                                               numConstraints, eeZeroVelConConfig(footConfig)));
 }
 
 /******************************************************************************************************/

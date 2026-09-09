@@ -23,6 +23,8 @@ _TEST_DEPS = [
 _TEST_DATA = [
     "//robot_models/unitree_g1/g1_description",
     "//robot_models/unitree_g1/g1_centroidal_mpc",
+    "//robot_models/drc_atlas/drc_atlas_description",
+    "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
 ]
 
 _TEST_COPTS = [
@@ -104,6 +106,15 @@ cc_test(
 )
 
 
+
+cc_test(
+    name = "test_active_in_stance",
+    size = "large",
+    srcs = ["src/testActiveInStance.cpp"],
+    copts = _TEST_COPTS,
+    data = _TEST_DATA,
+    deps = _TEST_DEPS,
+)
 
 cc_library(
     name = "humanoid_centroidal_mpc_test_headers",
