@@ -81,19 +81,32 @@ void EndEffectorKinematicsTwistConstraint::configure(Config&& config) {
 /******************************************************************************************************/
 
 matrix3_t EndEffectorKinematicsTwistConstraint::getOrientationErrorRateMapping(const vector_t& state) const {
-  // Get the current frame orientation as a quaternion
+  // Get the current frame orientation
   const auto q_frame = endEffectorKinematicsPtr_->getOrientation(state).front();
-
-  // Compute the correction quaternion: rotates foot z-axis to ground plane normal
   const Eigen::Matrix<scalar_t, 3, 3> R = q_frame.toRotationMatrix();
-  Eigen::Quaternion<scalar_t> q_correction;
-  q_correction.setFromTwoVectors(R * ground_plane_normal_, ground_plane_normal_);
+  const vector3_t v = R * ground_plane_normal_;  // foot z-axis in world frame (unit vector)
 
-  // M = d(quaternionDistance)/d(q_corr) * d(q_frame)/d(omega)
-  // quaternionDistanceJacobian: 3x4, angularVelocityToQuaternionTimeDerivative: 4x3 → M: 3x3
-  const Eigen::Matrix<scalar_t, 3, 4> dEdQ = quaternionDistanceJacobian(q_correction, Eigen::Quaternion<scalar_t>::Identity());
-  const Eigen::Matrix<scalar_t, 4, 3> dQdOmega = angularVelocityToQuaternionTimeDerivative(q_frame);
-  return dEdQ * dQdOmega;
+  // Baseline orientation error: e0 = rotationMatrixDistanceToPlane(R, planeNormal)
+  const vector3_t e0 = rotationMatrixDistanceToPlane<scalar_t>(R, ground_plane_normal_);
+
+  // Compute M via tangent-space perturbation:
+  // For each axis i, a perturbation δω = eps·eᵢ causes δv = (eps·eᵢ) × v on the unit sphere.
+  // We evaluate the orientation error at the perturbed v to get M_col_i = (e_pert - e0) / eps.
+  const scalar_t eps = 1e-7;
+  matrix3_t M;
+  for (int i = 0; i < 3; i++) {
+    vector3_t omega_i = vector3_t::Zero();
+    omega_i(i) = eps;
+    vector3_t v_pert = v + omega_i.cross(v);
+    v_pert.normalize();
+
+    // Compute orientation error at the perturbed foot z-axis
+    const Eigen::Quaternion<scalar_t> q_corr_pert = getQuaternionFromUnitVectors<scalar_t>(v_pert, ground_plane_normal_);
+    const vector3_t e_pert = quaternionDistance<scalar_t>(q_corr_pert, Eigen::Quaternion<scalar_t>::Identity());
+
+    M.col(i) = (e_pert - e0) / eps;
+  }
+  return M;
 }
 
 /******************************************************************************************************/

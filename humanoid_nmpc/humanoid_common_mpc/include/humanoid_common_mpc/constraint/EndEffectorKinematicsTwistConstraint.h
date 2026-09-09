@@ -34,7 +34,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 
 #include <ocs2_core/constraint/StateInputConstraint.h>
-#include <ocs2_robotic_tools/common/AngularVelocityMapping.h>
 #include <ocs2_robotic_tools/common/RotationTransforms.h>
 #include <ocs2_robotic_tools/end_effector/EndEffectorKinematics.h>
 
@@ -91,6 +90,12 @@ class EndEffectorKinematicsTwistConstraint final : public StateInputConstraint {
   /** Gets the underlying end-effector kinematics interface. */
   EndEffectorKinematics<scalar_t>& getEndEffectorKinematics() { return *endEffectorKinematicsPtr_; }
 
+  /** Sets the ground contact plane normal (default: {0, 0, 1} for flat ground). */
+  void setGroundPlaneNormal(const vector3_t& normal) { ground_plane_normal_ = normal.normalized(); }
+
+  /** Gets the current ground contact plane normal. */
+  const vector3_t& getGroundPlaneNormal() const { return ground_plane_normal_; }
+
   size_t getNumConstraints(scalar_t time) const override { return numConstraints_; }
   vector_t getValue(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) const override;
   VectorFunctionLinearApproximation getLinearApproximation(scalar_t time,
@@ -103,8 +108,9 @@ class EndEffectorKinematicsTwistConstraint final : public StateInputConstraint {
 
   /**
    * Compute the 3x3 mapping matrix M such that d(orientationError)/dt = M * omega.
-   * M = quaternionDistanceJacobian(q_corr, I) * angularVelocityToQuaternionTimeDerivative(q_frame)
-   * where q_corr is the correction quaternion from the foot z-axis to the ground plane normal.
+   * Uses tangent-space perturbation: for each axis i, perturbs omega by eps*e_i,
+   * computes the resulting change in rotationMatrixDistanceToPlane, and forms M by finite differences.
+   * This correctly captures the full chain: R*z -> getQuaternionFromUnitVectors -> quaternionDistance.
    */
   matrix3_t getOrientationErrorRateMapping(const vector_t& state) const;
 
