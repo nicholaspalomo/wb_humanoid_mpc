@@ -46,6 +46,7 @@ from remote_control.tk_app import (
     JoystickGui,
     LEDIndicatorGui,
     JointPdGainsTab,
+    JointTargetsTab,
     MpcParamsTab,
 )
 
@@ -55,20 +56,25 @@ class App(tk.Tk):
         self,
         pd_gains_file: str = "",
         task_file: str = "",
+        reference_file: str = "",
         enable_online_tuning: bool = True,
         enable_telemetry: bool = True,
         param_publisher=None,
         pd_gains_publisher=None,
+        joint_targets_publisher=None,
     ):
         super().__init__()
         self.title("Robot Base Controller & Tuning")
         self.pd_gains_file = pd_gains_file
         self.task_file = task_file
+        self.reference_file = reference_file
         self.enable_online_tuning = enable_online_tuning
         self.enable_telemetry = enable_telemetry
         self._fsm_command_callback = None
+        self.fsm_mode_var = tk.StringVar(value="ZERO_TORQUE")
         self.param_publisher = param_publisher
         self.pd_gains_publisher = pd_gains_publisher
+        self.joint_targets_publisher = joint_targets_publisher
 
         # Position window on the left side of the screen on top of the RVIZ window
         gui_width = 960
@@ -193,6 +199,18 @@ class App(tk.Tk):
         )
         self.mpc_params_tab.pack(fill="both", expand=True)
 
+        # Tab 4: Joint Targets (for JOINT_PD mode)
+        tab_targets = ttk.Frame(self.notebook)
+        self.notebook.add(tab_targets, text="🎯 Joint Targets")
+        self.joint_targets_tab = JointTargetsTab(
+            tab_targets,
+            pd_gains_file=self.pd_gains_file,
+            reference_file=self.reference_file,
+            fsm_mode_var=self.fsm_mode_var,
+            param_publisher=self.joint_targets_publisher,
+        )
+        self.joint_targets_tab.pack(fill="both", expand=True)
+
         # Build Tab 1: Base Controller contents
         self.auto_center_var = tk.BooleanVar(value=False)
 
@@ -259,7 +277,6 @@ class App(tk.Tk):
             font=("Helvetica", 9, "bold"),
         ).pack(side="left", padx=(0, 4))
 
-        self.fsm_mode_var = tk.StringVar(value="ZERO_TORQUE")
         self.fsm_dropdown = ttk.Combobox(
             fsm_frame,
             textvariable=self.fsm_mode_var,
@@ -385,6 +402,9 @@ class App(tk.Tk):
         mode = self.fsm_mode_var.get()
         if self._fsm_command_callback:
             self._fsm_command_callback(mode)
+        # Notify Joint Targets tab of mode change
+        if hasattr(self, "joint_targets_tab"):
+            self.joint_targets_tab.on_mode_changed()
 
     def _on_gantry_toggle(self):
         """Handle gantry lock checkbox toggle."""
@@ -407,6 +427,9 @@ class App(tk.Tk):
                 )
                 if fsm_state in valid_modes and self.fsm_mode_var.get() != fsm_state:
                     self.fsm_mode_var.set(fsm_state)
+                    # Notify Joint Targets tab of mode change
+                    if hasattr(self, "joint_targets_tab"):
+                        self.joint_targets_tab.on_mode_changed()
             if len(parts) >= 2:
                 gantry_state = parts[1]
                 target_gantry = gantry_state == "GANTRY_LOCKED"
@@ -579,6 +602,22 @@ class RosJoystickApp(Node):
         if pd_gains_file:
             self.get_logger().info(f"Using Joint PD gains file: {pd_gains_file}")
 
+        # 4. Autodetect reference_file (sibling command/reference.yaml relative to task_file)
+        reference_file = ""
+        if task_file and os.path.exists(task_file):
+            cand = os.path.abspath(
+                os.path.join(
+                    os.path.dirname(task_file),
+                    "..",
+                    "command",
+                    "reference.yaml",
+                )
+            )
+            if os.path.exists(cand):
+                reference_file = cand
+        if reference_file:
+            self.get_logger().info(f"Using reference file: {reference_file}")
+
         qos_profile = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, depth=25)
 
         self.publisher_ = self.create_publisher(
@@ -611,6 +650,11 @@ class RosJoystickApp(Node):
             String, "/pd_gains_updates", param_qos
         )
 
+        # Publisher for real-time joint target position updates (slider -> ROS topic -> C++)
+        self.joint_targets_publisher = self.create_publisher(
+            String, "/joint_pd_target_positions", param_qos
+        )
+
         enable_online_tuning = True
         enable_telemetry = True
         if task_file and os.path.exists(task_file):
@@ -639,10 +683,12 @@ class RosJoystickApp(Node):
         self.app = App(
             pd_gains_file=pd_gains_file,
             task_file=task_file,
+            reference_file=reference_file,
             enable_online_tuning=enable_online_tuning,
             enable_telemetry=enable_telemetry,
             param_publisher=self.param_publisher,
             pd_gains_publisher=self.pd_gains_publisher,
+            joint_targets_publisher=self.joint_targets_publisher,
         )
         self.app.set_default_pelvis_height(default_height)
         self.app._fsm_command_callback = self._send_fsm_command

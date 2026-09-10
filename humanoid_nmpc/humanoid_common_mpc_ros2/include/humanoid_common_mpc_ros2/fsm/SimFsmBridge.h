@@ -46,6 +46,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <std_msgs/msg/string.hpp>
 #include <string_view>
 
+#include "humanoid_common_mpc_ros2/ros_comm/JointTargetSubscriber.h"
+
 namespace ocs2::humanoid {
 
 /**
@@ -101,6 +103,18 @@ class SimFsmBridge {
    */
   const std::vector<scalar_t>& getNominalJointPositions() const { return nominalJointPositions_; }
 
+  /**
+   * @brief Subscribe to the /joint_pd_target_positions ROS 2 topic for real-time
+   *        joint target updates from the GUI slider tab.
+   */
+  void subscribeJointTargets(rclcpp::Node::SharedPtr node);
+
+  /**
+   * @brief Apply any pending joint target updates received via ROS topic.
+   *        Call this from the control loop, ideally before reading nominalJointPositions_.
+   */
+  void applyJointTargetUpdates();
+
  private:
   void fsmCommandCallback(const std_msgs::msg::String::ConstSharedPtr& msg);
   void walkingVelocityCallback(const humanoid_mpc_msgs::msg::WalkingVelocityCommand::ConstSharedPtr& msg);
@@ -111,6 +125,9 @@ class SimFsmBridge {
   rclcpp::Subscription<humanoid_mpc_msgs::msg::WalkingVelocityCommand>::SharedPtr walkingVelSub_;
 
   std::vector<scalar_t> nominalJointPositions_;
+  std::vector<std::string> allJointNames_;  ///< All robot joint names (for joint target subscriber lookup)
+  std::vector<size_t> allJointIndices_;     ///< All robot joint indices (parallel to allJointNames_)
+  JointTargetSubscriber jointTargetSubscriber_;
   std::mutex commandMutex_;
   std::optional<std::string> pendingCommand_;
   std::atomic<double> desiredGantryHeight_{0.0};      ///< Desired gantry height from walking velocity command slider.

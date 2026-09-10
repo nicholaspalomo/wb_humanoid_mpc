@@ -10,17 +10,17 @@ targetJointStateInterpolationTimeConstant: 0.5
 defaultBaseHeight: 0.7405
 
 defaultJointState:
-  "(0,0)": -0.05  # left_hip_pitch_joint
+  "(0,0)": -0.15  # left_hip_pitch_joint
   "(1,0)": 0.0   # left_hip_roll_joint
   "(2,0)": 0.0   # left_hip_yaw_joint
-  "(3,0)": 0.1   # left_knee_joint
-  "(4,0)": -0.05 # left_ankle_pitch_joint
+  "(3,0)": 0.30   # left_knee_joint
+  "(4,0)": -0.15 # left_ankle_pitch_joint
   "(5,0)": 0.0   # left_ankle_roll_joint
-  "(6,0)": -0.05 # right_hip_pitch_joint
+  "(6,0)": -0.15 # right_hip_pitch_joint
   "(7,0)": 0.0   # right_hip_roll_joint
   "(8,0)": 0.0   # right_hip_yaw_joint
-  "(9,0)": 0.1   # right_knee_joint
-  "(10,0)": -0.05 # right_ankle_pitch_joint
+  "(9,0)": 0.30   # right_knee_joint
+  "(10,0)": -0.15 # right_ankle_pitch_joint
   "(11,0)": 0.0  # right_ankle_roll_joint
   "(12,0)": 0.0  # waist_roll_joint
   "(13,0)": 0.0  # waist_yaw_joint

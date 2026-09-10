@@ -139,6 +139,7 @@ int main(int argc, char** argv) {
                                              interface.getPinocchioInterface(), interface.mpcSettings().mpcDesiredFrequency_,
                                              humanoidVisualizer, pdGainsFile);
   mpcJointController.subscribePdGains(nodeHandle);
+  fsmBridge.subscribeJointTargets(nodeHandle);
   bool enableTelemetry = true;
   std::vector<std::string> telemetryFrames;
   const scalar_t mrtDesiredFrequency = interface.mpcSettings().mrtDesiredFrequency_;
@@ -215,6 +216,9 @@ int main(int argc, char** argv) {
     // keeping the MPC solver warm for instant transitions back to active mode.
     robotInterface.updateInterfaceStateFromRobot();
     mpcJointController.computeJointControlAction(0.0, robotInterface.getRobotState(), robotInterface.getRobotJointAction());
+
+    // Apply any pending joint target position updates from the GUI
+    fsmBridge.applyJointTargetUpdates();
 
     // Apply mode-specific overrides (e.g. pure nominal position tracking in JOINT_PD mode)
     fsmBridge.applyModeAction(currentModeName, robotDescription, robotInterface.getRobotJointAction());

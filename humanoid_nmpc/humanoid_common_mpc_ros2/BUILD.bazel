@@ -15,6 +15,7 @@ cc_library(
         "src/ros_comm/MRTPolicySubscriber.cpp",
         "src/ros_comm/Ros2ProceduralMpcMotionManager.cpp",
         "src/ros_comm/VelocityCommandKeyboardPublisher.cpp",
+        "src/ros_comm/JointTargetSubscriber.cpp",
         "src/benchmarks/SqpBenchmarksPublisher.cpp",
         "src/benchmarks/DdpBenchmarksPublisher.cpp",
         "src/fsm/SimFsmBridge.cpp",

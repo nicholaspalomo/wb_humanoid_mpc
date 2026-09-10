@@ -148,6 +148,7 @@ int main(int argc, char** argv) {
                                                      interface.getMpcRobotModel(), mpc, interface.getPinocchioInterface(),
                                                      interface.mpcSettings().mpcDesiredFrequency_, humanoidVisualizer, pdGainsFile);
   mpcJointController.subscribePdGains(nodeHandle);
+  fsmBridge.subscribeJointTargets(nodeHandle);
 
   // Read gravity-comp feedforward fallback flag from task.yaml
   // Set `useGravityCompFeedforward: true` in task.yaml to use pure gravity comp
@@ -239,6 +240,7 @@ int main(int argc, char** argv) {
 
     // Propagate FSM mode to the controller so it can handle JOINT_PD with gravity comp internally.
     mpcJointController.setControlMode(currentModeName);
+    fsmBridge.applyJointTargetUpdates();
     mpcJointController.setNominalJointPositions(fsmBridge.getNominalJointPositions());
     mpcJointController.computeJointControlAction(0.0, robotInterface.getRobotState(), robotInterface.getRobotJointAction());
 

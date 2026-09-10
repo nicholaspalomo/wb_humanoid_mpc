@@ -42,6 +42,9 @@ SimFsmBridge::SimFsmBridge(const robot::model::RobotDescription& robotDescriptio
                            rclcpp::Node::SharedPtr nodeHandle)
     : nodeHandle_(std::move(nodeHandle)) {
   nominalJointPositions_.resize(robotDescription.getNumJoints(), 0.0);
+  allJointNames_ = robotDescription.getJointNames();
+  const auto& jointIdxVec = robotDescription.getJointIndices();
+  allJointIndices_.assign(jointIdxVec.begin(), jointIdxVec.end());
   for (size_t i = 0; i < robotDescription.getNumJoints(); ++i) {
     nominalJointPositions_[i] = initState.getJointPosition(i);
   }
@@ -195,6 +198,22 @@ robot::model::RobotState createInitialSimState(const robot::model::RobotDescript
   }
 
   return initState;
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+void SimFsmBridge::subscribeJointTargets(rclcpp::Node::SharedPtr node) {
+  jointTargetSubscriber_.subscribe(std::move(node));
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+void SimFsmBridge::applyJointTargetUpdates() {
+  jointTargetSubscriber_.applyPendingUpdates(nominalJointPositions_, allJointNames_, allJointIndices_);
 }
 
 }  // namespace ocs2::humanoid
