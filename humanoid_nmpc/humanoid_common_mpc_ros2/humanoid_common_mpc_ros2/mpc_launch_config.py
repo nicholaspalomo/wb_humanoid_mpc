@@ -213,11 +213,17 @@ class MPCLaunchConfig:
             arguments=["-d", LaunchConfiguration("rvizconfig")],
         )
 
+        plotjuggler_env = {}
+        pj_display = os.environ.get("PLOTJUGGLER_DISPLAY", "")
+        if pj_display:
+            plotjuggler_env["DISPLAY"] = pj_display
+
         self.plotjuggler_node = launch_ros.actions.Node(
             package="plotjuggler",
             executable="plotjuggler",
             name="plotjuggler",
             output="screen",
+            additional_env=plotjuggler_env if plotjuggler_env else None,
             arguments=[
                 "--buffer_size",
                 "60",

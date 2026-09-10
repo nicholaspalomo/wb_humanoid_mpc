@@ -225,10 +225,13 @@ telemetryFrames:
 
 ### 📊 Real-Time Telemetry & PlotJuggler
 
-Simulations automatically launch **PlotJuggler** alongside **RViz2** and the **Base Controller GUI** inside the desktop / VNC session (`http://localhost:6080/vnc.html`):
+Simulations automatically launch **PlotJuggler** in its own dedicated noVNC browser window (`http://localhost:6082/vnc.html`), keeping the main simulation desktop (`http://localhost:6080/vnc.html`) focused on **RViz2** and the **Base Controller GUI**:
 
 ```bash
-# Or launch PlotJuggler manually anytime with pre-configured layout:
+# Launch PlotJuggler in its dedicated noVNC window (Display :100, port 6082):
+make plotjuggler-vnc
+
+# Or launch PlotJuggler on your current active display:
 make plotjuggler
 ```
 *(Or click the **📊 PlotJuggler** button in the Base Controller GUI)*.
@@ -266,21 +269,27 @@ make plotjuggler
 
 ---
 
-### MuJoCo 3D Viewer Hotkeys
-When focused in the MuJoCo simulation viewport, use these keyboard shortcuts:
+### MuJoCo 3D Viewer Hotkeys & Controls
+When focused in the MuJoCo simulation viewport, use these keyboard shortcuts and mouse inputs:
 
-| Key | Action |
-|:---:|---|
-| **`1`** | Toggle **Visual Meshes** on/off (hides STL shells to inspect collision primitives) |
-| **`2`** | Toggle **Collision Primitives** on/off |
-| **`0`** | Toggle **Floor / Ground Plane** on/off |
-| **`t`** | Toggle **Model Transparency** (sets 30% alpha for x-ray inspection) |
-| **`c`** | Toggle **Contact Points** visualization |
-| **`f`** | Toggle **Contact Force** 3D vectors |
-| **`m`** | Toggle **Center of Mass (CoM)** indicator |
-| **`i`** | Toggle **Link Inertia Ellipsoids** |
-| **`h`** | Toggle **Convex Hulls** |
-| **`p`** | Print hotkey cheatsheet to the console |
+| Key / Input | Action | Effect |
+|:---:|---|---|
+| **`k`** | Toggle **Camera Tracking** | Switches between robot tracking mode (`mjCAMERA_TRACKING` locked on pelvis/torso) and free manual camera (`mjCAMERA_FREE`) |
+| **`0`** | Toggle **Floor / Ground** | Shows/hides ground plane (geom group 0) |
+| **`1`** | Toggle **Visual Meshes** | Shows/hides high-res surface meshes (group 1) to inspect underlying collision geoms |
+| **`2`** | Toggle **Collision Primitives** | Shows/hides collision capsules, boxes, and spheres (group 2) |
+| **`3` - `5`** | Toggle **Auxiliary Groups** | Shows/hides user/sensor geom groups (groups 3–5) |
+| **`t`** | Toggle **Model Transparency** | Alternates between 30% alpha (x-ray mode for internal joint/actuator inspection) and 100% opaque |
+| **`c`** | Toggle **Contact Points** | Renders small colored spheres at active physical collision contact points |
+| **`f`** | Toggle **Contact Forces** | Renders 3D vector arrows depicting normal and friction contact forces |
+| **`m`** | Toggle **Center of Mass (CoM)** | Displays CoM indicator spheres for kinematic bodies / links |
+| **`i`** | Toggle **Inertia Ellipsoids** | Renders equivalent inertia ellipsoids depicting principal moments of inertia |
+| **`h`** | Toggle **Convex Hulls** | Displays computed convex hulls enclosing the link meshes |
+| **`p`** | **Print Cheatsheet** | Prints the hotkey and mouse control guide to the terminal |
+| **Left Click + Drag** | **Orbit Camera** | Rotates camera viewpoint around the robot or focal point |
+| **Right Click + Drag** | **Pan Camera** | Translates camera position horizontally and vertically |
+| **Scroll / Mid Drag** | **Zoom Camera** | Zooms camera toward or away from the target |
+| **Shift + Click + Drag** | **Constrained Pan/Orbit** | Constrains mouse orbit/pan motion to the horizontal plane |
 
 ---
 

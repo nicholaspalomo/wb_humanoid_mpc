@@ -58,9 +58,14 @@ services:
       - "7400:7400/udp"
       - "7447:7447/udp"
       - "7410:7410/udp"
-      # VNC and noVNC ports for GUI visualization on macOS
+      # LINT.IfChange(vnc_ports)
+      # VNC and noVNC ports for GUI visualization on macOS (Display :99)
       - "5901:5901"
       - "6080:6080"
+      # Dedicated VNC and noVNC ports for PlotJuggler (Display :100)
+      - "5903:5903"
+      - "6082:6082"
+      # LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_ports, //.devcontainer/devcontainer.json:vnc_ports, //.devcontainer/VISUALIZATION.md:vnc_ports, //Makefile:vnc_ports)
       # Jupyter Notebook Dashboard port
       - "8888:8888"
 

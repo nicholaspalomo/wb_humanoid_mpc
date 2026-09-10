@@ -27,7 +27,7 @@ cleanup_trap := trap 'pkill -P $$$$ 2>/dev/null; wait' EXIT INT TERM
         launch-g1-dummy-sim-vnc launch-g1-sim-vnc launch-wb-g1-dummy-sim-vnc launch-wb-g1-sim-vnc \
         launch-drc-atlas-dummy-sim-vnc launch-drc-atlas-sim-vnc launch-drc-atlas-sandbox-vnc \
         launch-r1-dummy-sim-vnc launch-r1-sim-vnc launch-r1-sandbox-vnc \
-        run-ocs2-tests run-mpc-tests test-rl train-rl train-cartpole train-cartpole-vnc train-bc export-rollouts lock-rl-deps echo-packages update-submodules git-lfs install-hooks jupyter
+        run-ocs2-tests run-mpc-tests test-rl train-rl train-cartpole train-cartpole-vnc train-bc export-rollouts lock-rl-deps echo-packages update-submodules git-lfs install-hooks jupyter plotjuggler-vnc
 
 ## Launch interactive Jupyter notebook dashboard
 jupyter:
@@ -242,13 +242,16 @@ stop-vnc:
 	@chmod +x $(current_path)/.devcontainer/start_vnc.sh && \
 	$(current_path)/.devcontainer/start_vnc.sh stop
 
+# LINT.IfChange(vnc_ports)
 # Environment overrides for VNC display + Mesa software GLX
 VNC_GL_ENV := export DISPLAY=:99 && \
+	export PLOTJUGGLER_DISPLAY=:100 && \
 	export LIBGL_ALWAYS_SOFTWARE=1 && \
 	export LIBGL_ALWAYS_INDIRECT=0 && \
 	export GALLIUM_DRIVER=llvmpipe && \
 	export MESA_GL_VERSION_OVERRIDE=3.3 && \
 	export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
+# LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_ports, //docker-compose.yaml:vnc_ports, //.devcontainer/devcontainer.json:vnc_ports, //.devcontainer/VISUALIZATION.md:vnc_ports)
 
 launch-g1-dummy-sim-vnc: kill-sims start-vnc
 	@echo "🚀 Building targets and launching G1 Centroidal MPC Dummy Simulation..."
@@ -300,5 +303,17 @@ launch-r1-sandbox-vnc: kill-sims start-vnc
 # LINT.ThenChange(//setup_env.sh:registered_packages, //.devcontainer/VISUALIZATION.md:launch_targets)
 
 plotjuggler:
+	@echo "📊 Ensuring ROS2 message dependencies are built..."
+	bazel build //humanoid_nmpc/humanoid_mpc_msgs
 	@echo "📊 Launching PlotJuggler with Humanoid Telemetry layout..."
 	$(source_env) && ros2 run plotjuggler plotjuggler --buffer_size 60 --layout tools/plotjuggler/humanoid_telemetry.xml
+
+# LINT.IfChange(plotjuggler_vnc)
+plotjuggler-vnc: start-vnc
+	@echo "📊 Ensuring ROS2 message dependencies are built..."
+	$(source_env) && bazel build //humanoid_nmpc/humanoid_mpc_msgs
+	@echo "📊 Launching PlotJuggler in dedicated VNC display (:100, port 6082)..."
+	@echo "👉 Open http://localhost:6082/vnc.html in your browser"
+	@pkill -9 plotjuggler 2>/dev/null || true
+	$(source_env) && DISPLAY=:100 ros2 run plotjuggler plotjuggler --buffer_size 60 --layout tools/plotjuggler/humanoid_telemetry.xml
+# LINT.ThenChange(//.devcontainer/VISUALIZATION.md:plotjuggler_vnc)

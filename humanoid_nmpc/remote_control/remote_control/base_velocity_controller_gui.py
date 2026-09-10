@@ -378,11 +378,15 @@ class App(tk.Tk):
             if os.path.exists(layout_candidate):
                 cmd.extend(["--layout", layout_candidate])
 
+            pj_env = os.environ.copy()
+            if "PLOTJUGGLER_DISPLAY" in pj_env:
+                pj_env["DISPLAY"] = pj_env["PLOTJUGGLER_DISPLAY"]
+
             subprocess.Popen(
                 cmd,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                env=os.environ.copy(),
+                env=pj_env,
             )
         except FileNotFoundError:
             import tkinter.messagebox as mb

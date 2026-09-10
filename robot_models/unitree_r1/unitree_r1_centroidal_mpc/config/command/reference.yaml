@@ -24,14 +24,14 @@ defaultJointState:
   "(11,0)": 0.0  # right_ankle_roll_joint
   "(12,0)": 0.0  # waist_roll_joint
   "(13,0)": 0.0  # waist_yaw_joint
-  "(14,0)": 0.0  # left_shoulder_pitch_joint
-  "(15,0)": 0.0  # left_shoulder_roll_joint
+  "(14,0)": 0.12  # left_shoulder_pitch_joint
+  "(15,0)": 0.15  # left_shoulder_roll_joint
   "(16,0)": 0.0  # left_shoulder_yaw_joint
-  "(17,0)": 0.0  # left_elbow_joint
-  "(18,0)": 0.0  # right_shoulder_pitch_joint
-  "(19,0)": 0.0  # right_shoulder_roll_joint
+  "(17,0)": 1.2  # left_elbow_joint
+  "(18,0)": 0.12  # right_shoulder_pitch_joint
+  "(19,0)": -0.15  # right_shoulder_roll_joint
   "(20,0)": 0.0  # right_shoulder_yaw_joint
-  "(21,0)": 0.0  # right_elbow_joint
+  "(21,0)": 1.2  # right_elbow_joint
 
 initialModeSchedule:
   modeSequence:
