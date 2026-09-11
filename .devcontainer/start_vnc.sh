@@ -7,24 +7,34 @@
 # Secondary Display (:100, port 6082): PlotJuggler (dedicated window)
 #
 # Usage:
-#   ./start_vnc.sh              # start both displays (1920x1080)
-#   ./start_vnc.sh 2560x1440   # custom resolution
+#   ./start_vnc.sh              # start both displays (auto-detect resolution)
+#   ./start_vnc.sh 2560x1440   # custom resolution override
 #   ./start_vnc.sh plotjuggler  # start only PlotJuggler display (:100)
 #   ./start_vnc.sh stop         # tear down all VNC services
 # ------------------------------------------------------------------
 set -euo pipefail
 
 MODE="all"
-RESOLUTION="1920x1080"
+# Resolution priority: CLI arg > VNC_RESOLUTION env var > host monitor auto-detect > 1920x1080
+# LINT.IfChange(vnc_resolution)
+if [ -n "${VNC_RESOLUTION:-}" ]; then
+    DEFAULT_RESOLUTION="${VNC_RESOLUTION}"
+else
+    # Auto-detect from host monitor via DRM (available in privileged containers)
+    _detected=$(cat /sys/class/drm/*/modes 2>/dev/null | head -1)
+    DEFAULT_RESOLUTION="${_detected:-1920x1080}"
+fi
+# LINT.ThenChange(//docker-compose.yaml:vnc_resolution, //Makefile:vnc_resolution)
+RESOLUTION="${DEFAULT_RESOLUTION}"
 
 if [ "${1:-}" = "stop" ]; then
     MODE="stop"
 elif [ "${1:-}" = "plotjuggler" ]; then
     MODE="plotjuggler"
-    RESOLUTION="${2:-1920x1080}"
+    RESOLUTION="${2:-${DEFAULT_RESOLUTION}}"
 elif [ "${1:-}" = "main" ]; then
     MODE="main"
-    RESOLUTION="${2:-1920x1080}"
+    RESOLUTION="${2:-${DEFAULT_RESOLUTION}}"
 elif [ -n "${1:-}" ]; then
     RESOLUTION="$1"
 fi
@@ -133,39 +143,49 @@ export GALLIUM_DRIVER=llvmpipe
 export MESA_GL_VERSION_OVERRIDE=3.3
 export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
 
-# Setup Openbox window layout rules
+# Setup Openbox window layout rules (dynamically sized from $RESOLUTION)
 mkdir -p "${HOME}/.config/openbox"
 if [ -f "/etc/xdg/openbox/rc.xml" ]; then
     cp /etc/xdg/openbox/rc.xml "${HOME}/.config/openbox/rc.xml"
-    python3 -c '
-import os
-rc_path = os.path.expanduser("~/.config/openbox/rc.xml")
-with open(rc_path, "r") as f:
+    python3 -c "
+import os, sys
+resolution = '${RESOLUTION}'
+try:
+    w, h = [int(x) for x in resolution.split('x')]
+except ValueError:
+    w, h = 1920, 1080
+
+# Split the main display into two side-by-side panes (RViz left, MuJoCo right)
+half_w = w // 2
+pane_h = h - 40  # leave room for window bar
+
+rc_path = os.path.expanduser('~/.config/openbox/rc.xml')
+with open(rc_path, 'r') as f:
     content = f.read()
-rules = """
-  <application class="*rviz*" title="*rviz*" name="*rviz*">
-    <position force="yes"><x>0</x><y>0</y></position>
-    <size><width>950</width><height>1040</height></size>
+rules = f'''
+  <application class=\"*rviz*\" title=\"*rviz*\" name=\"*rviz*\">
+    <position force=\"yes\"><x>0</x><y>0</y></position>
+    <size><width>{half_w - 10}</width><height>{pane_h}</height></size>
     <maximized>no</maximized>
   </application>
-  <application title="*Mujoco*" name="*" class="*">
-    <position force="yes"><x>960</x><y>0</y></position>
-    <size><width>950</width><height>1040</height></size>
+  <application title=\"*Mujoco*\" name=\"*\" class=\"*\">
+    <position force=\"yes\"><x>{half_w}</x><y>0</y></position>
+    <size><width>{half_w - 10}</width><height>{pane_h}</height></size>
     <maximized>no</maximized>
     <focus>yes</focus>
   </application>
-  <application class="*plotjuggler*" title="*plotjuggler*" name="*plotjuggler*">
+  <application class=\"*plotjuggler*\" title=\"*plotjuggler*\" name=\"*plotjuggler*\">
     <maximized>yes</maximized>
   </application>
-  <application class="*PlotJuggler*" title="*PlotJuggler*" name="*PlotJuggler*">
+  <application class=\"*PlotJuggler*\" title=\"*PlotJuggler*\" name=\"*PlotJuggler*\">
     <maximized>yes</maximized>
   </application>
-"""
-if "</applications>" in content:
-    content = content.replace("</applications>", rules + "\n</applications>")
-    with open(rc_path, "w") as f:
+'''
+if '</applications>' in content:
+    content = content.replace('</applications>', rules + '\n</applications>')
+    with open(rc_path, 'w') as f:
         f.write(content)
-' 2>/dev/null || true
+" 2>/dev/null || true
 fi
 
 # --- Start Main Display (:99) ---

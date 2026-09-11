@@ -234,6 +234,9 @@ launch-r1-sandbox: kill-sims
 ############################################################
 # VNC visualization (for macOS host)
 ############################################################
+# LINT.IfChange(vnc_resolution)
+RESOLUTION ?= $(VNC_RESOLUTION)
+# LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_resolution, //docker-compose.yaml:vnc_resolution)
 start-vnc:
 	@chmod +x $(current_path)/.devcontainer/start_vnc.sh && \
 	$(current_path)/.devcontainer/start_vnc.sh $(RESOLUTION)

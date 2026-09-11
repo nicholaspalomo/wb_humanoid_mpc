@@ -74,10 +74,21 @@ ros2 launch g1_centroidal_mpc dummy_sim.launch.py
 
 > **Note:** The `-vnc` make targets automatically source `setup_env.sh` and set all GL environment variables. The manual exports above are only needed if you run `ros2 launch` or `rviz2` directly.
 
-## Custom Resolution
+## Resolution
+
+The VNC display resolution **automatically matches your host monitor**. The
+container detects the connected display's native resolution via the kernel DRM
+interface (`/sys/class/drm/*/modes`), which is available because the container
+runs in privileged mode. If no monitor is detected, the fallback is `1920x1080`.
+
+To **override** the auto-detected resolution (optional):
 
 ```bash
+# One-off override via make
 make start-vnc RESOLUTION=2560x1440
+
+# Or set the env var on the host before starting the container
+export VNC_RESOLUTION=2560x1440
 ```
 
 ## Stopping VNC

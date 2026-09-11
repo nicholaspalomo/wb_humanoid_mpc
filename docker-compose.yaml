@@ -53,6 +53,10 @@ services:
       NVIDIA_DRIVER_CAPABILITIES: "all"
       # Tell bash to source our shell init on interactive shells
       BASH_ENV: /etc/profile.d/wb_humanoid_mpc.sh
+      # LINT.IfChange(vnc_resolution)
+      # VNC virtual framebuffer resolution (auto-detected from host or override)
+      VNC_RESOLUTION: "${VNC_RESOLUTION:-1920x1080}"
+      # LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_resolution, //Makefile:vnc_resolution)
 
     ports:
       - "7400:7400/udp"
