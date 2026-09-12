@@ -67,6 +67,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/dynamics/CentroidalDynamicsAD.h"
 #include "humanoid_centroidal_mpc/dynamics/CentroidalDynamicsBasisInputsAD.h"
 
+#include "humanoid_common_mpc/common/BasisInputsMappingDecorator.h"
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
 
@@ -274,8 +275,34 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
     problemPtr_->finalCostPtr->add("terminalCost", factory.getTerminalCost());
   }
 
-  const auto infoCppAd = centroidalModelInfo_.toCppAd();
-  const CentroidalModelPinocchioMappingCppAd pinocchioMappingCppAd(infoCppAd);
+  const CentroidalModelInfoCppAd infoCppAd = centroidalModelInfo_.toCppAd();
+  const CentroidalModelPinocchioMappingCppAd pinocchioMappingCppAdBase(infoCppAd);
+
+  // When using basis-vector inputs, wrap the pinocchio mapping so that CppAD-compiled
+  // EE kinematics (zero-velocity, normal-velocity constraints, foot tracking cost)
+  // first convert λ → W = M * u_basis before extracting joint velocities at wrench-space
+  // offsets.  Without this, getJointVelocities(input, info) reads from the wrong offset.
+  std::unique_ptr<PinocchioStateInputMapping<ad_scalar_t>> effectiveMappingPtr;
+  if (useContactBasisVectorInputs_) {
+    const size_t wrenchInputDim = centroidalModelInfo_.inputDim;
+    const size_t basisInputDim = effectiveMpcRobotModelPtr_->getInputDim();
+    const size_t numBasisPerFoot = basisDecoratorPtr_->getNumBasisPerFoot();
+    const size_t jointDim = modelSettings_.mpc_joint_dim;
+
+    matrix_t M = matrix_t::Zero(wrenchInputDim, basisInputDim);
+    for (size_t i = 0; i < N_CONTACTS; ++i) {
+      const matrix_t& B = basisDecoratorPtr_->getBasisMatrix(i);
+      M.block(kWrenchDim * i, numBasisPerFoot * i, kWrenchDim, numBasisPerFoot) = B;
+    }
+    M.block(kWrenchDim * N_CONTACTS, numBasisPerFoot * N_CONTACTS, jointDim, jointDim).setIdentity();
+
+    effectiveMappingPtr = std::make_unique<BasisInputsMappingDecorator<ad_scalar_t>>(
+        std::unique_ptr<PinocchioStateInputMapping<ad_scalar_t>>(pinocchioMappingCppAdBase.clone()), std::move(M), wrenchInputDim,
+        jointDim);
+  } else {
+    effectiveMappingPtr = std::unique_ptr<PinocchioStateInputMapping<ad_scalar_t>>(pinocchioMappingCppAdBase.clone());
+  }
+  const PinocchioStateInputMapping<ad_scalar_t>& pinocchioMappingCppAd = *effectiveMappingPtr;
 
   auto velocityUpdateCallback = [&infoCppAd](const ad_vector_t& state, PinocchioInterfaceCppAd& pinocchioInterfaceAd) {
     const ad_vector_t q = centroidal_model::getGeneralizedCoordinates(state, infoCppAd);
@@ -512,7 +539,7 @@ std::unique_ptr<StateInputConstraint> CentroidalMpcInterface::getJointMimicConst
 /******************************************************************************************************/
 /******************************************************************************************************/
 void CentroidalMpcInterface::addTaskSpaceKinematicsCosts(
-    const CentroidalModelPinocchioMappingCppAd& pinocchioMappingCppAd,
+    const PinocchioStateInputMapping<ad_scalar_t>& pinocchioMappingCppAd,
     const PinocchioEndEffectorKinematicsCppAd::update_pinocchio_interface_callback& velocityUpdateCallback) {
   boost::property_tree::ptree pt;
   loadData::readPropertyTree(taskFile_, pt);

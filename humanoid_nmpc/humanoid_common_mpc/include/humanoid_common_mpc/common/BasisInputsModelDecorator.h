@@ -124,7 +124,16 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
     return input.tail(this->modelSettings.mpc_joint_dim);
   }
   VECTOR_T<SCALAR_T> getGeneralizedVelocities(const VECTOR_T<SCALAR_T>& state, const VECTOR_T<SCALAR_T>& input) override {
-    return wrappedModel_->getGeneralizedVelocities(state, input);
+    assert(input.size() == this->input_dim);
+    // The wrapped model expects wrench-space input. Reconstruct it:
+    // [W_0, W_1, ..., joint_velocities] where W_i = B_i * λ_i.
+    const size_t wrenchInputDim = wrappedModel_->getInputDim();
+    VECTOR_T<SCALAR_T> wrenchInput = VECTOR_T<SCALAR_T>::Zero(wrenchInputDim);
+    for (size_t i = 0; i < N_CONTACTS; ++i) {
+      wrenchInput.segment(wrappedModel_->getContactWrenchStartIndices(i), kWrenchDim) = getContactWrench(input, i);
+    }
+    wrenchInput.tail(this->modelSettings.mpc_joint_dim) = input.tail(this->modelSettings.mpc_joint_dim);
+    return wrappedModel_->getGeneralizedVelocities(state, wrenchInput);
   }
 
   /******* Setters (delegated to wrapped model) *******/
@@ -176,13 +185,20 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
   }
 
   /**
-   * Sets the wrench by computing λ = B⁺ * W and writing it into the input vector.
-   * The pseudoinverse gives the minimum-norm λ that reproduces the desired wrench.
+   * Sets the wrench by computing λ = max(0, B⁺ * W) and writing it into the input vector.
+   * The pseudoinverse gives the minimum-norm λ, but it can produce negative scalings
+   * (e.g., torsion rays canceling each other for a pure vertical force). We clamp to
+   * zero to maintain the λ ≥ 0 structural constraint. The resulting wrench W' = B * λ'
+   * is an approximation of the requested wrench, but is always inside the friction cone.
+   * The MPC solver refines from this feasible starting point.
    */
   void setContactWrench(VECTOR_T<SCALAR_T>& input, const VECTOR6_T<SCALAR_T>& wrench, size_t contactIndex) const override {
     assert(input.size() == this->input_dim);
-    input.segment(getContactWrenchStartIndices(contactIndex), numBasisPerFoot_) =
-        B_pinv_local_[contactIndex].template cast<SCALAR_T>() * wrench;
+    VECTOR_T<SCALAR_T> lambda = B_pinv_local_[contactIndex].template cast<SCALAR_T>() * wrench;
+    // Clamp negative scalings to zero — the pseudoinverse does not guarantee
+    // non-negativity, but the basis-vector formulation requires λ ≥ 0.
+    lambda = lambda.cwiseMax(static_cast<SCALAR_T>(0));
+    input.segment(getContactWrenchStartIndices(contactIndex), numBasisPerFoot_) = lambda;
   }
 
   void setContactForce(VECTOR_T<SCALAR_T>& input, const VECTOR3_T<SCALAR_T>& force, size_t contactIndex) const override {

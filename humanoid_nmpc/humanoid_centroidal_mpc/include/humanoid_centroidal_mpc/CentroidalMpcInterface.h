@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_oc/rollout/TimeTriggeredRollout.h>
 #include <ocs2_pinocchio_interface/PinocchioEndEffectorKinematicsCppAd.h>
 #include <ocs2_pinocchio_interface/PinocchioInterface.h>
+#include <ocs2_pinocchio_interface/PinocchioStateInputMapping.h>
 #include <ocs2_robotic_tools/common/RobotInterface.h>
 #include <ocs2_robotic_tools/end_effector/EndEffectorKinematics.h>
 #include <ocs2_sqp/SqpSettings.h>
@@ -120,7 +121,7 @@ class CentroidalMpcInterface final : public RobotInterface {
                                                                     size_t contactPointIndex);
   std::unique_ptr<StateInputConstraint> getJointMimicConstraint(size_t mimicIndex);
 
-  void addTaskSpaceKinematicsCosts(const CentroidalModelPinocchioMappingCppAd& pinocchioMappingCppAd,
+  void addTaskSpaceKinematicsCosts(const PinocchioStateInputMapping<ad_scalar_t>& pinocchioMappingCppAd,
                                    const PinocchioEndEffectorKinematicsCppAd::update_pinocchio_interface_callback& velocityUpdateCallback);
 
   ModelSettings modelSettings_;

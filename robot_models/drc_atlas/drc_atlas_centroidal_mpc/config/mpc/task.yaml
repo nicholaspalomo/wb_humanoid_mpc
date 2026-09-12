@@ -2,7 +2,7 @@
 enableTelemetry: true        # Enable high-rate ROS 2 telemetry publishing for PlotJuggler
 telemetryFrequency: 100      # [Hz] Telemetry publishing frequency (decimated from MRT loop)
 enableOnlineTuning: true     # Enable runtime parameter and gain tuning in Controller GUI
-useContactBasisVectorInputs: false  # Set true to use basis-vector scalings λ as MPC contact inputs (instead of direct wrenches)
+useContactBasisVectorInputs: true  # Set true to use basis-vector scalings λ as MPC contact inputs (instead of direct wrenches)
 
 # Targeted Pinocchio frames for telemetry logging (position, orientation, twist, accel, wrench)
 telemetryFrames:
@@ -195,7 +195,7 @@ Q:
   "(8,8)": 15  # p_base_z
   # euler angles for base to world rotation
   "(9,9)": 25  # theta_base_z
-  "(10,10)": 100  # theta_base_y
+  "(10,10)": 15  # theta_base_y
   "(11,11)": 15  # theta_base_x
 
   # ; Joint Positions ;;
