@@ -239,6 +239,7 @@ std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getContactWrenchC
   loadData::loadPtreeValue(pt, config.torsionalFrictionCoefficient, absl::StrCat(prefix, "torsionalFrictionCoefficient"), verbose_);
   loadData::loadPtreeValue(pt, config.minNormalForce, absl::StrCat(prefix, "minNormalForce"), verbose_);
   loadData::loadPtreeValue(pt, config.gripperForce, absl::StrCat(prefix, "gripperForce"), verbose_);
+  loadData::loadPtreeValue(pt, config.numBasisVectors, absl::StrCat(prefix, "numBasisVectors"), verbose_);
 
   std::unique_ptr<ContactWrenchConeConstraint> contactWrenchConeConstraintPtr(new ContactWrenchConeConstraint(
       *referenceManagerPtr_, ContactRectangle::loadContactRectangle(taskFile_, mpcRobotModelPtr_->modelSettings, contactPointIndex),

@@ -21,8 +21,7 @@ hard_constraints:
 soft_constraints:
   - joint_limits
   - foot_collision
-  - friction_force_cone
-  - contact_moment_xy
+  - contact_wrench_cone
 
 costs:
   - state_quadratic_cost
@@ -414,12 +413,23 @@ contacts:
     y_max: 0.065
     y_min: -0.065
 
+  contactWrenchConeSoftConstraint:
+    frictionCoefficient: 0.5
+    torsionalFrictionCoefficient: 0.05
+    minNormalForce: 5.0
+    gripperForce: 0.0
+    numBasisVectors: 4
+    # relaxed log barrier parameters
+    mu: 0.2
+    delta: 5.0
+
   frictionForceConeSoftConstraint:
     frictionCoefficient: 0.5
     # relaxed log barrier parameters
     mu: 0.2
-    delta: 5
-  contactMomentXYSoftConstraint:
+    delta: 5.0
+
+    contactMomentXYSoftConstraint:
     # relaxed log barrier parameters
     mu: 0.6
     delta: 0.03
