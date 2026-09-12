@@ -138,7 +138,7 @@ vector6_t TargetTrajectoriesCalculatorBase::integrateTargetBasePose(const vector
 
   targetPose[0] += averageVel[0] * deltaT;
   targetPose[1] += averageVel[1] * deltaT;
-  targetPose[2] = deltaPelvisHeight;
+  targetPose[2] = (deltaPelvisHeight > 0.1) ? deltaPelvisHeight : defaultBaseHeight_;
   targetPose[3] += averageVel[2] * deltaT;
   targetPose[4] = 0.0;
   targetPose[5] = 0.0;

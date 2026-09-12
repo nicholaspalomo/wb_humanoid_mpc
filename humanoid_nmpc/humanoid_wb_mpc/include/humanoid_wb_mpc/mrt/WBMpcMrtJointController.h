@@ -1,4 +1,5 @@
 /******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -36,6 +37,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 #include "robot_model/RobotDescription.h"
 
+#include <atomic>
+#include <mutex>
+#include <rclcpp/rclcpp.hpp>
+#include <std_msgs/msg/string.hpp>
+
 namespace ocs2::humanoid {
 
 class WBMpcMrtJointController final : public ::robot::model::ControlBase {
@@ -52,7 +58,8 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
                           MPC_BASE& mpc,
                           PinocchioInterface pinocchioInterface,
                           scalar_t mpcDesiredFrequency = -1,
-                          std::shared_ptr<DummyObserver> rVizVisualizerPtr = nullptr);
+                          std::shared_ptr<DummyObserver> rVizVisualizerPtr = nullptr,
+                          const std::string& pdGainsFile = "");
 
   /**
    * Destructor.
@@ -70,6 +77,18 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
                                  ::robot::model::RobotJointAction& robotJointAction) override;
 
   void startMpcThread(const ::robot::model::RobotState& initRobotState);
+
+  void loadPdGains(const std::string& pdGainsFile, const ModelSettings& modelSettings);
+
+  /**
+   * Subscribe to the /pd_gains_updates ROS topic for real-time
+   * PD gain updates from the GUI (without writing to joint_pd_gains.yaml).
+   */
+  void subscribePdGains(rclcpp::Node::SharedPtr node);
+
+  const ocs2::SystemObservation& getCurrentObservation() const { return currentMpcObservation_; }
+  const vector_t& getLatestPolicyInput() const { return latestPolicyInput_; }
+  const CommandData& getCommandData() const { return mcpMrtInterface_.getCommand(); }
 
  private:
   /**
@@ -103,6 +122,25 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
   std::jthread solver_worker_;
 
   std::shared_ptr<DummyObserver> visualizerPtr_;
+
+  vector_t mpcJointKp_;
+  vector_t mpcJointKd_;
+  vector_t otherJointKp_;
+  vector_t otherJointKd_;
+
+  scalar_t previousObservationTime_{0.0};  ///< Previous sim time for computing actual dt
+  vector_t latestPolicyInput_;             ///< Latest MPC policy input
+
+  std::string pdGainsFile_;
+  const ModelSettings& modelSettings_;
+  std::filesystem::file_time_type pdGainsLastWriteTime_;
+  size_t fileCheckCounter_{0};
+
+  // ROS topic state for real-time PD gains updates
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr pdGainsSubscription_;
+  std::mutex pdGainsPendingMutex_;
+  std::string pdGainsPendingYamlContent_;
+  std::atomic<bool> hasNewPdGainsTopicData_{false};
 };
 
 }  // namespace ocs2::humanoid

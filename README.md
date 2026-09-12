@@ -1,248 +1,370 @@
 # Whole-Body Humanoid MPC
 
-This repository contains a Whole-Body Nonlinear Model Predictive Controller (NMPC) for humanoid loco-manipulation control. This approach enables to directly optimize through the **full-order torque-level dynamics in realtime** to generate a wide range of humanoid behaviors building up on an extended & updated version of [OCS2](https://github.com/leggedrobotics/ocs2) integrated natively into a **Bazel monorepo**.
+This repository contains a Whole-Body Nonlinear Model Predictive Controller (NMPC) for humanoid loco-manipulation control. This approach directly optimizes through the **full-order torque-level dynamics in real time** to generate dynamic humanoid behaviors, building upon an extended and updated version of [OCS2](https://github.com/leggedrobotics/ocs2) integrated natively into a **Bazel monorepo**.
 
 **Interactive Velocity and Base Height Control via Joystick:**
 
 ![vokoscreenNG-2025-12-21_20-35-31-ezgif com-optimize](https://github.com/user-attachments/assets/daf374ba-fe82-469d-9270-63d18a51bb53)
 
+---
 
-It contains the following hardware platform agnostic MPC formulations:
+## 🤖 MPC Formulations
 
 ### Centroidal Dynamics MPC
-The centroidal MPC optimizes over the **whole-body kinematics** and the center of mass dynamics, with a choice to either use a single rigid body model or the full centroidal dynamics. This specific approach builds up on the centroidal model in OCS2 by generalizing costs and constraints to a 6 DoF contact among others. A concise explanation of the OCS2 centroidal model can be found in [Sleiman et. al., A Unified MPC Framework for Whole-Body Dynamic Locomotion and Manipulation](https://arxiv.org/abs/2103.00946).
+The centroidal MPC optimizes over the **whole-body kinematics** and the center of mass dynamics, with a choice to use either a Single Rigid Body Dynamics (SRBD) model or the full centroidal dynamics. This approach extends the OCS2 centroidal formulation by generalizing costs and constraints to 6-DoF contacts and arbitrary end-effectors. For theoretical background, see [Sleiman et al., *A Unified MPC Framework for Whole-Body Dynamic Locomotion and Manipulation*](https://arxiv.org/abs/2103.00946).
 
 ### Whole-Body Dynamics MPC
-The **whole-body dynamics** MPC optimizes over the contact forces and joint accelerations with the option to compute the joint torques for each step planned across the horizon. The most relevant information on the chosen approach can currently be found in [Galliker et al., Bipedal Locomotion with Nonlinear Model Predictive Control: Online Gait Generation using Whole-Body Dynamics](http://ames.caltech.edu/galliker2022bipedal.pdf).
+The **whole-body dynamics** MPC optimizes directly over contact forces, joint accelerations, and joint torques across the planning horizon. For details on the optimization and dynamic consistency formulation, see [Galliker et al., *Bipedal Locomotion with Nonlinear Model Predictive Control: Online Gait Generation using Whole-Body Dynamics*](http://ames.caltech.edu/galliker2022bipedal.pdf).
 
-### Robot Examples
+---
 
-The project supports the following robot examples:
+## 🦾 Supported Robot Models
 
-- Unitree G1
-- DRC Atlas
-- 1X Neo (Coming soon)
+| Robot Platform | Centroidal NMPC | Whole-Body NMPC | MuJoCo Physics Sim | RViz Dummy Sim |
+|---|:---:|:---:|:---:|:---:|
+| **Unitree G1** | ✅ | ✅ | ✅ | ✅ |
+| **Unitree R1** | ✅ | — | ✅ | ✅ |
+| **DRC Atlas** | ✅ | — | ✅ | ✅ |
+| **1X Neo** | *Coming Soon* | *Coming Soon* | *Coming Soon* | *Coming Soon* |
 
 ![Screencast2024-12-16180254-ezgif com-optimize(3)](https://github.com/user-attachments/assets/d4b1f0da-39ca-4ce1-b53c-e1d040abe1be)
 
-## Get Started
+---
 
-### Repository Setup
+## 🚀 Getting Started
 
-Clone the repository:
+### 1. Repository Setup
 
 ```bash
 git clone https://github.com/1x-technologies/wb-humanoid-mpc.git
 cd wb-humanoid-mpc
 ```
 
-> **Note:** The repository uses **Bazel 9.x** with `bzlmod` for native dependency resolution. Legacy ROS/colcon submodules are fully integrated into the monorepo structure.
+> **Note:** The repository uses **Bazel 9.x** with `bzlmod` for hermetic dependency management. ROS 2 packages and dependencies are built directly within the Bazel workspace.
 
-### Install Dependencies & Workspace Setup
-The project supports both Dockerized workspaces (recommended) or a local installation for developing and running the humanoid MPC.
+### 2. Environment Setup
 
-**Platform Support:** The Docker setup is fully compatible with **Linux** and **macOS** (including Apple Silicon via Rosetta 2 x86 emulation). On macOS, GUI visualization uses VNC instead of native X11 forwarding — see the [Visualization Guide](.devcontainer/VISUALIZATION.md) for details.
+The recommended way to develop and run the simulation is using the provided Docker container.
 
 <details>
-<summary>Build & run Dockerized workspace in VS Code</summary>
+<summary><b>Option A: VS Code Dev Containers (Recommended)</b></summary>
 
-We provide a [Dockerfile](docker/Dockerfile) to enable running and developing the project from a containerized environment. Check out [devcontainer.json](.devcontainer/devcontainer.json) for environment configuration.
-
-For working in **Visual Studio Code**, install the [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) extension. Open the repository in VS Code, press `Ctrl + Shift + P` (or `Cmd + Shift + P`), and select `Dev Containers: Rebuild and Reopen in Container`.
-
-Once the container starts, the Git pre-commit hooks and Bazel environment are automatically configured.
+1. Install the [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) extension in VS Code.
+2. Open the repository in VS Code, press `Ctrl+Shift+P` (or `Cmd+Shift+P` on macOS), and select **Dev Containers: Reopen in Container**.
+3. Once the container builds, the environment is automatically set up.
 
 </details>
 
 <details>
-<summary>Build & run Dockerized workspace in alternative IDE (e.g. Antigravity / Cursor)</summary>
+<summary><b>Option B: Docker Compose / Remote SSH (Antigravity / Cursor / Terminal)</b></summary>
 
-If you are not using VS Code or are connected via Remote SSH:
-
-1. Spin up the container from the repository root (`docker-compose.yaml`):
-
-```bash
-docker compose up -d --build
-```
-
-2. Attach your IDE terminal to the container:
-
-```bash
-docker compose exec app bash
-```
-
-Alternatively, use the provided helper scripts:
-```bash
-./docker/image_build.bash
-./docker/launch_wb_mpc.bash
-```
+1. Start the container in detached mode:
+   ```bash
+   docker compose up -d --build
+   ```
+2. Attach a terminal into the container:
+   ```bash
+   docker compose exec app bash
+   ```
+3. (Optional) Run `./docker/image_build.bash` and `./docker/launch_wb_mpc.bash` helper scripts.
 
 </details>
 
 <details>
-<summary>Install Dependencies Locally</summary>
+<summary><b>Option C: Local Installation (Ubuntu 24.04 / ROS 2 Jazzy)</b></summary>
 
-Make sure you have **ROS 2** installed on your system (e.g. ROS 2 Jazzy as specified in the [installation guide](https://docs.ros.org/en/jazzy/Installation/Ubuntu-Install-Debs.html)).
-
-Install system dependencies and Bazel (via Bazelisk):
-
+Ensure **ROS 2 Jazzy** is installed on your machine. Then install system packages and Bazelisk:
 ```bash
 envsubst < dependencies.txt | xargs sudo apt-get install -y --no-install-recommends
 curl -sSL -o /usr/local/bin/bazel https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64
 sudo chmod +x /usr/local/bin/bazel
-```
-
-Install Git pre-commit formatting hooks:
-```bash
 make install-hooks
 ```
 
 </details>
 
-### Building the MPC with Bazel
+---
 
-The repository uses **Bazel** for high-performance parallel compilation. Build limits are pre-configured in `.bazelrc` (`--jobs=8`) to optimize build times while preventing system RAM exhaustion.
+## 🛠️ Build & Test Commands
+
+The repository includes a top-level `Makefile` for streamlined building and testing:
 
 ```bash
 # Build all Bazel targets across the monorepo
 make build-all
 
-# Run all unit tests
+# Run all unit and integration tests
 make test-all
 
-# Auto-format C++ and Python source files
+# Run code formatters (Clang-Format, Black, whitespace)
 make format
+
+# Run linter and verify IFTTT directives
+make lint
+
+# Clean build artifacts
+make clean        # Incremental clean
+make clean-all    # Deep clean including external caches
 ```
 
-## Running the Examples
+---
 
-Once you launch the NMPC, an RViz visualization window will appear. The first time you start the MPC for a robot model, CppAD auto-differentiation code generation will run (which may take a few minutes depending on your system). Subsequent runs reuse generated dynamic libraries instantly.
+## 🖥️ Launching Simulations
 
-### Visualization Setup
+### Visualization Options
+- **Local Linux:** GUI windows (MuJoCo / RViz / Controller GUI) render via X11 forwarding.
+- **macOS / Remote SSH:** Use the `-vnc` targets to stream the desktop directly to your browser. Navigate to **`http://localhost:6080/vnc.html`** and click **Connect**. See the [Visualization Guide](.devcontainer/VISUALIZATION.md) for full details.
 
-- **Linux:** GUI applications render directly via X11 forwarding (`DISPLAY=:99` or host display).
-- **macOS / Remote SSH:** Use the `-vnc` suffixed Makefile targets which automatically launch the built-in VNC server. Open **http://localhost:6080/vnc.html** in your browser and click **Connect**. See the [Visualization Guide](.devcontainer/VISUALIZATION.md) for complete details.
+### Launch Targets
 
-### Launch Commands
-
-For **Centroidal Dynamics MPC**:
-
+#### 1. Unitree G1
 ```bash
-# G1 Robot Dummy Simulation
-make launch-g1-dummy-sim          # X11 Forwarding (Linux)
-make launch-g1-dummy-sim-vnc      # VNC Browser Display (macOS / Remote)
+# Centroidal MPC
+make launch-g1-sim-vnc          # MuJoCo Physics Sim (Browser / macOS / Remote)
+make launch-g1-dummy-sim-vnc    # RViz Dummy Sim (Browser / macOS / Remote)
+make launch-g1-sim              # MuJoCo Physics Sim (Native X11)
+make launch-g1-dummy-sim        # RViz Dummy Sim (Native X11)
 
-# DRC Atlas Robot Simulation
-make launch-drc-atlas-dummy-sim     # Dummy simulation (Linux)
-make launch-drc-atlas-dummy-sim-vnc # Dummy simulation (macOS / VNC)
-make launch-drc-atlas-sim           # MuJoCo simulation (Linux)
-make launch-drc-atlas-sim-vnc       # MuJoCo simulation (macOS / VNC)
+# Whole-Body Dynamics MPC
+make launch-wb-g1-sim-vnc       # MuJoCo Physics Sim (Browser / macOS / Remote)
+make launch-wb-g1-dummy-sim-vnc # RViz Dummy Sim (Browser / macOS / Remote)
+make launch-wb-g1-sim           # MuJoCo Physics Sim (Native X11)
+make launch-wb-g1-dummy-sim     # RViz Dummy Sim (Native X11)
 ```
 
-For **Whole-Body Dynamics MPC**:
-
+#### 2. Unitree R1
 ```bash
-# G1 Robot Whole-Body Simulation
-make launch-wb-g1-dummy-sim       # X11 Forwarding (Linux)
-make launch-wb-g1-dummy-sim-vnc   # VNC Browser Display (macOS / Remote)
+make launch-r1-sim-vnc         # MuJoCo Physics Sim (Browser / macOS / Remote)
+make launch-r1-dummy-sim-vnc   # RViz Dummy Sim (Browser / macOS / Remote)
+make launch-r1-sim             # MuJoCo Physics Sim (Native X11)
+make launch-r1-dummy-sim       # RViz Dummy Sim (Native X11)
+make launch-r1-sandbox-vnc     # Interactive URDF Model Viewer
 ```
 
-#### Interactive Robot Control
-Command a desired base velocity and root link height via the **Robot Base Controller GUI** and an **Xbox Controller Joystick**. For the joystick, connect via USB or Bluetooth. The GUI automatically detects connected joysticks and provides interactive velocity sliders.
+#### 3. DRC Atlas
+```bash
+make launch-drc-atlas-sim-vnc       # MuJoCo Physics Sim (Browser / macOS / Remote)
+make launch-drc-atlas-dummy-sim-vnc # RViz Dummy Sim (Browser / macOS / Remote)
+make launch-drc-atlas-sim           # MuJoCo Physics Sim (Native X11)
+make launch-drc-atlas-dummy-sim     # RViz Dummy Sim (Native X11)
+make launch-drc-atlas-sandbox-vnc   # Interactive URDF Model Viewer
+```
+
+> **Cleanup Tip:** Run `make kill-sims` at any time to clean up any orphaned simulation, publisher, or ROS 2 background processes.
+
+---
+
+## 🕹️ Interactive Controls & Simulation Lifecycle
+
+### Supervisory Finite State Machine (FSM)
+Simulations launch in a safe **Zero-Torque Mode** suspended on a virtual gantry so the robot settles safely while the MPC solver initializes:
+
+| FSM State / Mode | Description |
+|---|---|
+| `ZERO_TORQUE` | Passive spawn state; solver warms up without commanding torques. |
+| `JOINT_PD` | Joint-space proportional-derivative posture control tracking nominal stance. |
+| `WB_MPC` / `MPC_ACTIVE` | Active Whole-Body / Centroidal MPC solver closed-loop control. |
+| `LOCK_GANTRY` / `UNLOCK_GANTRY` | Suspends or releases the virtual gantry holding the floating base. |
+
+State transitions are managed natively over ROS 2 topics:
+- **Command Topic:** `/humanoid/fsm_command` (`std_msgs/msg/String`)
+- **State Topic:** `/humanoid/fsm_state` (`std_msgs/msg/String`, Transient Local QoS)
+
+### Teleoperation & Root Height Control
+- Use the **Robot Base Controller GUI** or connect an **Xbox Controller** to command velocity vectors ($v_x, v_y, \omega_z$).
+- The **Height Slider** controls the **Virtual Gantry Height** when locked (allowing you to lift and lower the robot above the ground) and sets the **Desired Pelvis Height** when walking.
 
 ![robot_remote_control](https://github.com/user-attachments/assets/779be1da-97a1-4d0c-8f9b-b9d2df88384f)
 
-## Reinforcement Learning with MuJoCo Playground (`humanoid_learning`)
+### 🎛️ Interactive Controller GUI & Parameter Tuning Tabs
 
-The repository includes a GPU-accelerated Reinforcement Learning pipeline built on **Google DeepMind's [MuJoCo Playground](https://github.com/google-deepmind/mujoco_playground)**, **MuJoCo MJX**, **JAX**, and **Brax**.
+The joystick GUI (`base_velocity_controller_gui`) features a dark-themed tabbed interface organized into three specialized workstations:
+
+1. **🕹️ Base Controller:**
+   - Command planar velocities ($v_x, v_y, \omega_z$) via interactive virtual joysticks or physical Xbox gamepad.
+   - Adjust root pelvis height and virtual gantry suspension.
+   - Switch supervisory FSM modes (`ZERO_TORQUE`, `JOINT_PD`, `GRAVITY_COMP`, `WB_MPC`, `SAFETY`).
+   - Instant-launch **PlotJuggler** pre-configured with telemetry stream tabs.
+
+2. **⚙️ Joint PD Gains Tuning (`joint_pd_gains.yaml`):**
+   - Individual real-time sliders and numeric input boxes for joint proportional ($K_p$) and derivative ($K_d$) feedback gains.
+   - **Limb Grouping:** Organized collapsible accordion categories for Spine, Left Arm, Right Arm, Left Leg, and Right Leg.
+   - **Master Scaling:** Global scale multipliers ($\times 0.5 \dots \times 2.0$) to scale all $K_p$ and $K_d$ gains simultaneously.
+   - **Robot Model Presets:** Instantly switch between Unitree G1, DRC Atlas, and Unitree R1 gain files.
+   - **Comment-Preserving Save:** Saves modifications directly into `joint_pd_gains.yaml` preserving all existing comments, whitespace, and formatting, with automated timestamped `.bak` safety backups.
+
+3. **📈 MPC Parameters Tuning (`task.yaml`):**
+   - Real-time sliders and numeric entry for diagonal state cost weights ($Q$), control input penalties ($R$), and terminal state weights ($Q_{\text{final}}$).
+   - Category filtering across **State Costs (Q)**, **Input Costs (R)**, **Terminal Costs (Q_final)**, **Task-Space Costs** (foot/torso tracking), and **Constraints & Barriers** (friction cone $\mu$, relaxed barrier parameters).
+   - In-place YAML updater preserving all section headers, inline documentation, and matrix layouts with `.bak` safety backups.
+
+---
+
+### ⚙️ Telemetry & Online Tuning Configuration (`task.yaml`)
+
+Each robot model's MPC task configuration file (`task.yaml`) includes runtime flags at the very top:
+
+```yaml
+# Simulation & Telemetry Configuration
+enableTelemetry: true        # Enable high-rate ROS 2 telemetry publishing for PlotJuggler
+enableOnlineTuning: true     # Enable runtime parameter and gain tuning in Controller GUI
+
+# Targeted Pinocchio frames for telemetry logging (position, orientation, twist, accel, wrench)
+telemetryFrames:
+  - "foot_l_contact"
+  - "foot_r_contact"
+  - "pelvis"
+  - "torso_link"
+```
+
+- **`enableTelemetry`:** When `false`, the C++ simulation node completely skips instantiating and publishing the telemetry bridge, eliminating overhead. In the Joystick GUI, the **PlotJuggler** button will also be disabled.
+- **`enableOnlineTuning`:** When `false`, the GUI disables all sliders, quick multipliers, and YAML save buttons in both the **⚙️ Joint PD Gains** and **📈 MPC Parameters** tabs, displaying an orange safety badge `🔒 Online Tuning Disabled`.
+- **`telemetryFrames`:** Optional targeted list of Pinocchio frames to monitor. The telemetry engine automatically computes forward kinematics, spatial twists, frame accelerations, and contact wrenches for both measured and MPC desired states.
+
+---
+
+### 📊 Real-Time Telemetry & PlotJuggler
+
+Simulations automatically launch **PlotJuggler** in its own dedicated noVNC browser window (`http://localhost:6082/vnc.html`), keeping the main simulation desktop (`http://localhost:6080/vnc.html`) focused on **RViz2** and the **Base Controller GUI**:
+
+```bash
+# Launch PlotJuggler in its dedicated noVNC window (Display :100, port 6082):
+make plotjuggler-vnc
+
+# Or launch PlotJuggler on your current active display:
+make plotjuggler
+```
+*(Or click the **📊 PlotJuggler** button in the Base Controller GUI)*.
+
+#### Pre-Configured Telemetry Layout Tabs
+1. **Base Pose & Euler Angles:** Robot actual floating-base position and orientation (Roll, Pitch, Yaw in degrees) vs. MPC planned trajectory.
+2. **Base Twist:** Actual base linear ($v_x, v_y, v_z$) and angular ($\omega_x, \omega_y, \omega_z$) velocities vs. MPC target velocities.
+3. **Contact Forces:** Commanded 3D foot contact forces from MPC vs. simulated sensor forces measured directly from MuJoCo foot force sensors.
+4. **Joint Dynamics:** Current joint positions, velocities, applied motor torques, and MPC target position/velocity trajectories.
+5. **Generalized Coordinates (Pinocchio):** Full-order generalized coordinates ($q$), velocities ($v$), and forces ($\tau$) for both measured robot state and MPC desired trajectory, formatted per degree-of-freedom.
+6. **Frame Kinematics & Acceleration:** Cartesian position, orientation, linear/angular velocity, acceleration, and contact wrenches for targeted Pinocchio frames (e.g. feet, pelvis, torso).
+
+#### Published ROS 2 Telemetry Topics
+| Topic Pattern | Type | Description |
+|---|---|---|
+| `/robot/generalized_coordinates/[dof_name]` | `std_msgs/msg/Float64` | Measured robot generalized coordinate for specified DOF (e.g. `base_z`, joint angles) |
+| `/robot/generalized_velocities/[dof_name]` | `std_msgs/msg/Float64` | Measured robot generalized velocity for specified DOF |
+| `/robot/generalized_forces/[dof_name]` | `std_msgs/msg/Float64` | Measured / applied generalized force for specified DOF |
+| `/mpc/desired/generalized_coordinates/[dof_name]` | `std_msgs/msg/Float64` | MPC desired generalized coordinate for specified DOF |
+| `/mpc/desired/generalized_velocities/[dof_name]` | `std_msgs/msg/Float64` | MPC desired generalized velocity for specified DOF |
+| `/mpc/desired/generalized_forces/[dof_name]` | `std_msgs/msg/Float64` | MPC desired feedforward torque / force for specified DOF |
+| `/robot/frames/[frame_name]/pose` | `geometry_msgs/msg/PoseStamped` | Forward kinematics pose of targeted frame |
+| `/robot/frames/[frame_name]/euler` | `geometry_msgs/msg/Vector3Stamped` | Orientation of targeted frame (Roll, Pitch, Yaw) |
+| `/robot/frames/[frame_name]/twist` | `geometry_msgs/msg/TwistStamped` | Spatial twist (linear & angular velocity) of frame |
+| `/robot/frames/[frame_name]/accel` | `geometry_msgs/msg/AccelStamped` | Linear and angular acceleration of targeted frame |
+| `/robot/frames/[frame_name]/wrench` | `geometry_msgs/msg/WrenchStamped` | Measured contact wrench acting at frame |
+| `/mpc/desired/frames/[frame_name]/*` | Various | MPC desired pose, euler, twist, accel, wrench at frame |
+| `/joint_states` | `sensor_msgs/msg/JointState` | Current robot joint positions, velocities, and applied torques |
+| `/mpc/joint_targets` | `sensor_msgs/msg/JointState` | MPC target joint positions, velocities, and feedforward torques |
+| `/robot/base_pose`, `/robot/base_euler`, `/robot/base_twist` | Various | Measured floating-base position, euler, and twist |
+| `/mpc/target_base_pose`, `_euler`, `_twist` | Various | MPC optimal reference base position, euler, and twist |
+| `/mpc/contact_wrench/left`, `/mpc/contact_wrench/right` | `geometry_msgs/msg/WrenchStamped` | Left & right foot contact wrenches commanded by MPC |
+| `/sensors/contact_wrench/left`, `/right` | `geometry_msgs/msg/WrenchStamped` | Measured foot contact wrenches from simulation |
+| `/mpc/observation` | `ocs2_ros2_msgs/msg/MpcObservation` | Latest full system observation tracked by MPC solver |
+
+---
+
+### MuJoCo 3D Viewer Hotkeys & Controls
+When focused in the MuJoCo simulation viewport, use these keyboard shortcuts and mouse inputs:
+
+| Key / Input | Action | Effect |
+|:---:|---|---|
+| **`k`** | Toggle **Camera Tracking** | Switches between robot tracking mode (`mjCAMERA_TRACKING` locked on pelvis/torso) and free manual camera (`mjCAMERA_FREE`) |
+| **`0`** | Toggle **Floor / Ground** | Shows/hides ground plane (geom group 0) |
+| **`1`** | Toggle **Visual Meshes** | Shows/hides high-res surface meshes (group 1) to inspect underlying collision geoms |
+| **`2`** | Toggle **Collision Primitives** | Shows/hides collision capsules, boxes, and spheres (group 2) |
+| **`3` - `5`** | Toggle **Auxiliary Groups** | Shows/hides user/sensor geom groups (groups 3–5) |
+| **`t`** | Toggle **Model Transparency** | Alternates between 30% alpha (x-ray mode for internal joint/actuator inspection) and 100% opaque |
+| **`c`** | Toggle **Contact Points** | Renders small colored spheres at active physical collision contact points |
+| **`f`** | Toggle **Contact Forces** | Renders 3D vector arrows depicting normal and friction contact forces |
+| **`m`** | Toggle **Center of Mass (CoM)** | Displays CoM indicator spheres for kinematic bodies / links |
+| **`i`** | Toggle **Inertia Ellipsoids** | Renders equivalent inertia ellipsoids depicting principal moments of inertia |
+| **`h`** | Toggle **Convex Hulls** | Displays computed convex hulls enclosing the link meshes |
+| **`p`** | **Print Cheatsheet** | Prints the hotkey and mouse control guide to the terminal |
+| **Left Click + Drag** | **Orbit Camera** | Rotates camera viewpoint around the robot or focal point |
+| **Right Click + Drag** | **Pan Camera** | Translates camera position horizontally and vertically |
+| **Scroll / Mid Drag** | **Zoom Camera** | Zooms camera toward or away from the target |
+| **Shift + Click + Drag** | **Constrained Pan/Orbit** | Constrains mouse orbit/pan motion to the horizontal plane |
+
+---
+
+## 🎮 Interactive Jupyter Control Dashboard
+
+Launch the unified browser-based teleoperation and diagnostics dashboard:
+
+```bash
+make jupyter
+```
+
+Open **`http://localhost:8888`** and load [`notebooks/humanoid_control_dashboard.ipynb`](notebooks/humanoid_control_dashboard.ipynb).
+
+### Dashboard Highlights:
+1. **Simulation Process Manager:** One-click startup, monitoring, and shutdown of any robot model and solver backend with live terminal logs.
+2. **Virtual Joystick:** Directional D-pad and continuous analog velocity sliders streaming commands at 25 Hz.
+3. **Angular Center of Mass (aCOM) Studio:** Train JAX/SIREN networks on Centroidal Momentum Matrices and export static C++ headers (`AngularCenterOfMassWeights.h`).
+4. **Live Telemetry:** Real-time strip charts plotting base Euler angles, aCOM decoupling metrics, and ground reaction forces.
+
+---
+
+## 🧠 Reinforcement Learning with MuJoCo Playground (`humanoid_learning`)
+
+The repository includes a GPU-accelerated RL and imitation learning pipeline built on **Google DeepMind's [MuJoCo Playground](https://github.com/google-deepmind/mujoco_playground)**, **MJX**, **JAX**, and **Brax**.
 
 <details>
 <summary><b>GPU Training Setup & Hardware Prerequisites</b></summary>
 
-### 1. Host Machine GPU Prerequisites
-To train RL policies on an **NVIDIA GPU** inside the container, ensure your host has:
-1. An **NVIDIA GPU Driver** installed (`nvidia-smi` works on host).
-2. The **[NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)** installed.
+### 1. Host Machine Prerequisites
+Ensure your host machine has an NVIDIA driver and the **[NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)** installed.
 
-**Verify Host GPU Docker Passthrough:**
-Run this verification command on your **host terminal**:
+Verify passthrough from the host:
 ```bash
 docker run --rm --gpus all ubuntu nvidia-smi
 ```
-If this prints your GPU details, Docker has full access to your GPU.
 
-### 2. Starting the Container with GPU Acceleration
-Start the container using the GPU compose override:
+### 2. Starting with GPU Passthrough
 ```bash
 docker compose -f docker-compose.yaml -f docker-compose.gpu.yaml up -d
 docker compose exec app bash
 ```
 
-> **CPU Fallback:** Users without an NVIDIA GPU (e.g. macOS Apple Silicon or CPU Linux) can still run the default container (`docker compose up -d`). JAX will automatically fall back to CPU execution.
+*(Non-GPU hosts automatically fall back to multi-threaded CPU execution).*
 
 </details>
 
 <details>
-<summary><b>Running RL Training & Imitation Learning</b></summary>
+<summary><b>Training Commands & Trajectory Export</b></summary>
 
-Once inside the container (or Dev Container), use the following commands:
-
-### Run RL Unit & Smoke Tests
-Validates JAX JIT compilation, MuJoCo MJX simulation stepping, and device backend discovery:
 ```bash
+# Run RL unit and smoke tests
 make test-rl
-```
 
-### Launch PPO Policy Training (MJX / Playground)
-Trains a velocity-tracking policy using parallelized MJX physics simulation:
-```bash
-# Default quick start
+# Launch PPO Policy Training (MJX / Playground)
 make train-rl
-
-# Or configure environment batch size and total training steps:
+# Or with customized parameters:
 bazel run //humanoid_learning/training:train_ppo -- --num_envs=4096 --total_timesteps=10000000
-```
 
-### Export MPC Trajectories to RL Demos
-Convert recorded observations from `mpc_observation_logger` into HDF5 demonstration datasets:
-```bash
+# Export recorded MPC rollouts to HDF5 demonstration datasets
 make export-rollouts
-# Or specify custom input/output paths:
-python3 humanoid_nmpc/humanoid_common_mpc_pyutils/humanoid_common_mpc_pyutils/export_rollouts.py \
-    --input_path=. \
-    --output_path=data/r1_mpc_demos.h5
-```
 
-### Behavioral Cloning (BC) Warmstart
-Pretrain an actor policy using supervised imitation learning on MPC demonstration rollouts before fine-tuning with PPO:
-```bash
+# Behavioral Cloning (BC) imitation learning warmstart
 make train-bc
-# Or with specific demo dataset:
-bazel run //humanoid_learning/training:bc_warmstart -- --demos_path=data/r1_mpc_demos.h5 --epochs=20
-```
 
-### Export Trained Policy to ONNX
-Serialize trained JAX/Flax actor weights to ONNX for C++ runtime deployment:
-```bash
+# Export trained policy to ONNX format for C++ deployment
 bazel run //humanoid_learning/export:export_onnx -- --output_path=models/humanoid_policy.onnx
 ```
 
 </details>
 
-<details>
-<summary><b>Managing Python Dependencies (rules_python)</b></summary>
+---
 
-The RL pipeline uses **Bazel `rules_python`** with an isolated, hermetic Python 3.11 toolchain:
-- Edit dependencies in [`humanoid_learning/requirements.txt`](humanoid_learning/requirements.txt).
-- Recompile and lock dependencies reproducibly across platforms:
-  ```bash
-  make lock-rl-deps
-  ```
+## 📚 Citation
 
-</details>
-
-## Citing Whole-Body Humanoid MPC
-To cite Whole-Body Humanoid MPC in your academic research, please use the following BibTeX entry:
+If you use Whole-Body Humanoid MPC in your academic research, please cite:
 
 ```bibtex
 @misc{wholebodyhumanoidmpcweb,
@@ -253,10 +375,12 @@ To cite Whole-Body Humanoid MPC in your academic research, please use the follow
 }
 ```
 
-## Acknowledgements
-The project was originally started by my friend and colleague, [Manuel Yves Galliker](https://github.com/manumerous) and was open-sourced as part of his work at 1X Technologies. Please check out his profile on Github/LinkedIn.
+## 👥 Acknowledgements
 
-This project is founded on the great work of many open-source contributors:
-- [ocs2](https://github.com/leggedrobotics/ocs2)
-- [pinocchio](https://github.com/stack-of-tasks/pinocchio)
-- [hpipm](https://github.com/giaf/hpipm)
+This project was originally created by [Manuel Yves Galliker](https://github.com/manumerous) and open-sourced in collaboration with 1X Technologies.
+
+Special thanks to the open-source robotics community:
+- [OCS2](https://github.com/leggedrobotics/ocs2)
+- [Pinocchio](https://github.com/stack-of-tasks/pinocchio)
+- [HPIPM](https://github.com/giaf/hpipm)
+- [MuJoCo & MuJoCo Playground](https://github.com/google-deepmind/mujoco_playground)

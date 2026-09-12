@@ -25,7 +25,8 @@
         },
         "[c]": {
           "editor.defaultFormatter": "xaver.clang-format"
-        }
+        },
+        "python.defaultInterpreterPath": "/usr/bin/python3"
       },
       "extensions": [
         "ms-vscode.cpptools",
@@ -34,6 +35,9 @@
         "ms-azuretools.vscode-docker",
         "ms-python.python",
         "ms-python.vscode-pylance",
+        "ms-toolsai.jupyter",
+        "ms-toolsai.jupyter-renderers",
+        "ms-toolsai.jupyter-keymap",
         "xaver.clang-format",
         "eamodio.gitlens",
         "GitHub.copilot",
@@ -65,9 +69,13 @@
     "MESA_LOADER_DRIVER_OVERRIDE": "llvmpipe",
     "LIBGL_ALWAYS_INDIRECT": "0"
   },
+  // LINT.IfChange(vnc_ports)
   "forwardPorts": [
     5901,
-    6080
+    6080,
+    5903,
+    6082,
+    8888
   ],
   "portsAttributes": {
     "6080": {
@@ -77,7 +85,20 @@
     "5901": {
       "label": "VNC",
       "onAutoForward": "silent"
+    },
+    "6082": {
+      "label": "noVNC (PlotJuggler)",
+      "onAutoForward": "notify"
+    },
+    "5903": {
+      "label": "VNC (PlotJuggler)",
+      "onAutoForward": "silent"
+    },
+    "8888": {
+      "label": "Jupyter Notebook Dashboard",
+      "onAutoForward": "notify"
     }
   },
+  // LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_ports, //docker-compose.yaml:vnc_ports, //.devcontainer/VISUALIZATION.md:vnc_ports, //Makefile:vnc_ports)
   "postCreateCommand": "bash -c 'chmod +x ${containerWorkspaceFolder}/.devcontainer/post_create.sh && ${containerWorkspaceFolder}/.devcontainer/post_create.sh'"
 }

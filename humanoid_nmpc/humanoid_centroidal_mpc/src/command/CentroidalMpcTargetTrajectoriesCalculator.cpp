@@ -48,7 +48,10 @@ CentroidalMpcTargetTrajectoriesCalculator::CentroidalMpcTargetTrajectoriesCalcul
     : TargetTrajectoriesCalculatorBase(referenceFile, mpcRobotModel, mpcHorizon),
       pinocchioInterface_(pinocchioInterface),
       info_(info),
-      mass_(pinocchio::computeTotalMass(pinocchioInterface.getModel())) {}
+      mass_(pinocchio::computeTotalMass(pinocchioInterface.getModel())) {
+  targetJointStateInterpolationTimeConstant_ = 0.5;  // default
+  ocs2::loadData::loadCppDataType(referenceFile, "targetJointStateInterpolationTimeConstant", targetJointStateInterpolationTimeConstant_);
+}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -124,9 +127,10 @@ TargetTrajectories CentroidalMpcTargetTrajectoriesCalculator::commandedVelocityT
   averageVel(1) = (baseVel[1] + commVelTargetGlobal[1]) / 2;
   averageVel(2) = (baseVel[5] + commVelTargetGlobal[3]) / 2;
 
-  currentPoseTarget[2] = commVelTargetGlobal[2];
+  scalar_t targetHeight = (commVelTargetGlobal[2] > 0.1) ? commVelTargetGlobal[2] : defaultBaseHeight_;
+  currentPoseTarget[2] = targetHeight;
   scalar_t intermediateTargetTime = 0.7 * mpcHorizon_;
-  vector6_t intermediateTargetPose = integrateTargetBasePose(currentPoseTarget, averageVel, commVelTargetGlobal(2), intermediateTargetTime);
+  vector6_t intermediateTargetPose = integrateTargetBasePose(currentPoseTarget, averageVel, targetHeight, intermediateTargetTime);
 
   //////////////////
   // Final Target //
@@ -137,15 +141,32 @@ TargetTrajectories CentroidalMpcTargetTrajectoriesCalculator::commandedVelocityT
   averageVel(2) = (commVelTargetGlobal[3]);
 
   vector6_t finalTargetPose =
-      integrateTargetBasePose(intermediateTargetPose, averageVel, commVelTargetGlobal(2), (mpcHorizon_ - intermediateTargetTime));
+      integrateTargetBasePose(intermediateTargetPose, averageVel, targetHeight, (mpcHorizon_ - intermediateTargetTime));
 
   // desired time trajectory
   const scalar_array_t timeTrajectory{initTime, initTime + intermediateTargetTime, initTime + mpcHorizon_};
 
+  // Extract current joint state from the provided initial state observation
+  vector_t currentJointState = initState.tail(targetJointState_.size());
+
+  // Initialize filter if empty or time jumps (e.g., reset/restart)
+  if (filteredJointState_.size() != targetJointState_.size() || initTime < lastTime_ || (initTime - lastTime_) > 0.1) {
+    filteredJointState_ = currentJointState;
+  }
+
+  // Exponentially decay the filtered state toward the nominal targetJointState_
+  scalar_t dt = initTime - lastTime_;
+  if (dt > 0.0) {
+    scalar_t timeConstant = targetJointStateInterpolationTimeConstant_;
+    scalar_t alpha = std::exp(-dt / timeConstant);
+    filteredJointState_ = alpha * filteredJointState_ + (1.0 - alpha) * targetJointState_;
+  }
+  lastTime_ = initTime;
+
   // desired state trajectory
   vector_array_t stateTrajectory(3, vector_t::Zero(mpcRobotModelPtr_->getStateDim()));
-  stateTrajectory[0] << targetMomentum, currentPoseTarget, targetJointState_;
-  stateTrajectory[1] << targetMomentum, intermediateTargetPose, targetJointState_;
+  stateTrajectory[0] << targetMomentum, currentPoseTarget, filteredJointState_;
+  stateTrajectory[1] << targetMomentum, intermediateTargetPose, filteredJointState_;
   stateTrajectory[2] << targetMomentum, finalTargetPose, targetJointState_;
 
   // desired input trajectory (just right dimensions, they are not used)

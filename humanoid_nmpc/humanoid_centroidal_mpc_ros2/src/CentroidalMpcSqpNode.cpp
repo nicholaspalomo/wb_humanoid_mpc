@@ -1,4 +1,5 @@
 /******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
 Copyright (c) 2024, 1X Technologies. All rights reserved.
 
@@ -35,8 +36,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_sqp/SqpMpc.h>
 
 #include <humanoid_centroidal_mpc/CentroidalMpcInterface.h>
+#include "absl/log/check.h"
 
 #include <humanoid_centroidal_mpc/command/CentroidalMpcTargetTrajectoriesCalculator.h>
+#include <humanoid_centroidal_mpc/mrt/MpcParameterUpdaterModule.h>
 #include "humanoid_common_mpc_ros2/ros_comm/Ros2ProceduralMpcMotionManager.h"
 
 using namespace ocs2;
@@ -58,7 +61,9 @@ int main(int argc, char** argv) {
   rclcpp::init(argc, argv);
 
   // Robot interface
-  CentroidalMpcInterface interface(taskFile, urdfFile, referenceFile, true);
+  absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> create_result = CentroidalMpcInterface::Create(taskFile, urdfFile, referenceFile);
+  CHECK(create_result.ok()) << "Failed to create CentroidalMpcInterface: " << create_result.status();
+  CentroidalMpcInterface& interface = **create_result;
 
   // MPC
   SqpMpc mpc(interface.mpcSettings(), interface.sqpSettings(), interface.getOptimalControlProblem(), interface.getInitializer());
@@ -85,6 +90,13 @@ int main(int argc, char** argv) {
 
   mpc.getSolverPtr()->setReferenceManager(interface.getReferenceManagerPtr());
   mpc.getSolverPtr()->addSynchronizedModule(ros2ProceduralMpcMotionManager);
+
+  // Register real-time MPC parameter hot-reloading
+  auto mpcParameterUpdater = std::make_shared<MpcParameterUpdaterModule>(
+      &mpc, taskFile, urdfFile, referenceFile, interface.getMpcRobotModel().getStateDim(), interface.getMpcRobotModel().getInputDim(),
+      interface.modelSettings().contactNames, dynamic_cast<const SwitchedModelReferenceManager*>(interface.getReferenceManagerPtr().get()));
+  mpcParameterUpdater->subscribe(nodeHandle);
+  mpc.getSolverPtr()->addSynchronizedModule(mpcParameterUpdater);
 
   MPC_ROS_Interface mpcNode(mpc, robotName);
   mpcNode.launchNodes(nodeHandle, qos);

@@ -39,7 +39,7 @@ services:
 
     environment:
       # VNC display (start with `make start-vnc`, view at http://localhost:6080/vnc.html)
-      DISPLAY: ":1"
+      DISPLAY: ":99"
       QT_X11_NO_MITSHM: "1"
       # Mesa software rendering (llvmpipe) for RViz2/OGRE inside Xvfb
       LIBGL_ALWAYS_SOFTWARE: "1"
@@ -53,14 +53,25 @@ services:
       NVIDIA_DRIVER_CAPABILITIES: "all"
       # Tell bash to source our shell init on interactive shells
       BASH_ENV: /etc/profile.d/wb_humanoid_mpc.sh
+      # LINT.IfChange(vnc_resolution)
+      # VNC virtual framebuffer resolution (auto-detected from host or override)
+      VNC_RESOLUTION: "${VNC_RESOLUTION:-1920x1080}"
+      # LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_resolution, //Makefile:vnc_resolution)
 
     ports:
       - "7400:7400/udp"
       - "7447:7447/udp"
       - "7410:7410/udp"
-      # VNC and noVNC ports for GUI visualization on macOS
+      # LINT.IfChange(vnc_ports)
+      # VNC and noVNC ports for GUI visualization on macOS (Display :99)
       - "5901:5901"
       - "6080:6080"
+      # Dedicated VNC and noVNC ports for PlotJuggler (Display :100)
+      - "5903:5903"
+      - "6082:6082"
+      # LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_ports, //.devcontainer/devcontainer.json:vnc_ports, //.devcontainer/VISUALIZATION.md:vnc_ports, //Makefile:vnc_ports)
+      # Jupyter Notebook Dashboard port
+      - "8888:8888"
 
     dns:
       - 8.8.8.8

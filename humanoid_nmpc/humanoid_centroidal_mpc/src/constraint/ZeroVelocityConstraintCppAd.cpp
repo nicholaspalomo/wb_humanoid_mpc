@@ -40,11 +40,13 @@ namespace ocs2::humanoid {
 ZeroVelocityConstraintCppAd::ZeroVelocityConstraintCppAd(const SwitchedModelReferenceManager& referenceManager,
                                                          const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
                                                          size_t contactPointIndex,
+                                                         size_t numConstraints,
                                                          EndEffectorKinematicsTwistConstraint::Config config)
     : StateInputConstraint(ConstraintOrder::Linear),
       referenceManagerPtr_(&referenceManager),
-      eeTwistConstraintPtr_(new EndEffectorKinematicsTwistConstraint(endEffectorKinematics, 6, std::move(config))),
-      contactPointIndex_(contactPointIndex) {}
+      eeTwistConstraintPtr_(new EndEffectorKinematicsTwistConstraint(endEffectorKinematics, numConstraints, std::move(config))),
+      contactPointIndex_(contactPointIndex),
+      numConstraints_(numConstraints) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -53,7 +55,8 @@ ZeroVelocityConstraintCppAd::ZeroVelocityConstraintCppAd(const ZeroVelocityConst
     : StateInputConstraint(rhs),
       referenceManagerPtr_(rhs.referenceManagerPtr_),
       eeTwistConstraintPtr_(rhs.eeTwistConstraintPtr_->clone()),
-      contactPointIndex_(rhs.contactPointIndex_) {}
+      contactPointIndex_(rhs.contactPointIndex_),
+      numConstraints_(rhs.numConstraints_) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/

@@ -1,4 +1,5 @@
 /******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
 Copyright (c) 2024, 1X Technologies. All rights reserved.
 
@@ -29,20 +30,44 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <ocs2_sqp/SqpMpc.h>
+#include <fstream>
 #include <rclcpp/rclcpp.hpp>
 
 #include <humanoid_centroidal_mpc/CentroidalMpcInterface.h>
 #include <mujoco_sim_interface/MujocoSimInterface.h>
+#include <ocs2_robotic_tools/common/RotationTransforms.h>
+#include "absl/log/check.h"
 
+#include <absl/log/log.h>
 #include <humanoid_centroidal_mpc/command/CentroidalMpcTargetTrajectoriesCalculator.h>
 #include <humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h>
+#include <humanoid_centroidal_mpc/mrt/MpcParameterUpdaterModule.h>
+#include <humanoid_common_mpc/common/ThreadAffinity.h>
+#include "humanoid_common_mpc_ros2/fsm/SimFsmBridge.h"
 #include "humanoid_common_mpc_ros2/ros_comm/Ros2ProceduralMpcMotionManager.h"
+#include "humanoid_common_mpc_ros2/telemetry/PinocchioTelemetryPublisher.h"
 #include "humanoid_common_mpc_ros2/visualization/HumanoidVisualizer.h"
 
 using namespace ocs2;
 using namespace ocs2::humanoid;
 
 int main(int argc, char** argv) {
+  std::set_terminate([]() {
+    std::exception_ptr ex = std::current_exception();
+    if (ex) {
+      try {
+        std::rethrow_exception(ex);
+      } catch (const std::exception& e) {
+        std::cerr << "\nFATAL: Unhandled exception in CentroidalMpcRobotSim: " << e.what() << std::endl;
+      } catch (...) {
+        std::cerr << "\nFATAL: Unknown unhandled exception in CentroidalMpcRobotSim." << std::endl;
+      }
+    } else {
+      std::cerr << "\nFATAL: std::terminate called without active exception in CentroidalMpcRobotSim." << std::endl;
+    }
+    std::abort();
+  });
+
   std::vector<std::string> programArgs;
   programArgs = rclcpp::remove_ros_arguments(argc, argv);
   if (programArgs.size() < 6) {
@@ -59,7 +84,9 @@ int main(int argc, char** argv) {
   rclcpp::init(argc, argv);
 
   // Robot interface
-  CentroidalMpcInterface interface(taskFile, urdfFile, referenceFile);
+  absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> create_result = CentroidalMpcInterface::Create(taskFile, urdfFile, referenceFile);
+  CHECK(create_result.ok()) << "Failed to create CentroidalMpcInterface: " << create_result.status();
+  CentroidalMpcInterface& interface = **create_result;
 
   // MPC
   SqpMpc mpc(interface.mpcSettings(), interface.sqpSettings(), interface.getOptimalControlProblem(), interface.getInitializer());
@@ -90,23 +117,21 @@ int main(int argc, char** argv) {
   mpc.getSolverPtr()->setReferenceManager(interface.getReferenceManagerPtr());
   mpc.getSolverPtr()->addSynchronizedModule(ros2ProceduralMpcMotionManager);
 
+  // Register real-time MPC parameter hot-reloading
+  auto mpcParameterUpdater = std::make_shared<MpcParameterUpdaterModule>(
+      &mpc, taskFile, urdfFile, referenceFile, interface.getMpcRobotModel().getStateDim(), interface.getMpcRobotModel().getInputDim(),
+      interface.modelSettings().contactNames, dynamic_cast<const SwitchedModelReferenceManager*>(interface.getReferenceManagerPtr().get()));
+  mpcParameterUpdater->subscribe(nodeHandle);
+  mpc.getSolverPtr()->addSynchronizedModule(mpcParameterUpdater);
+
   // Init Sim state
   robot::model::RobotDescription robotDescription(urdfFile);
-  robot::model::RobotState initState(robotDescription, 2);
-  initState.setConfigurationToZero();
+  robot::model::RobotState initState =
+      createInitialSimState(robotDescription, interface.modelSettings(), interface.getMpcRobotModel(), interface.getInitialState());
 
-  const vector_t& initMpcState = interface.getInitialState();
-  const auto& mpcModel = interface.getMpcRobotModel();
-  initState.setRootPositionInWorldFrame(mpcModel.getBasePosition(initMpcState));
+  LOG(INFO) << "initState: " << initState.getRootPositionInWorldFrame().transpose();
 
-  vector_t mpcJointAngles = mpcModel.getJointAngles(initMpcState);
-  // Todo set non zero orientation;
-  std::vector<robot::joint_index_t> mpcJointIndices = robotDescription.getJointIndices(interface.modelSettings().mpcModelJointNames);
-  for (size_t i = 0; i < mpcJointIndices.size(); i++) {
-    initState.setJointPosition(mpcJointIndices[i], mpcJointAngles[i]);
-  }
-
-  std::cerr << "initState: " << initState.getRootPositionInWorldFrame().transpose() << std::endl;
+  SimFsmBridge fsmBridge(robotDescription, initState, nodeHandle);
 
   robot::mujoco_sim_interface::MujocoSimConfig config;
 
@@ -116,14 +141,69 @@ int main(int argc, char** argv) {
 
   robot::mujoco_sim_interface::MujocoSimInterface robotInterface(config, urdfFile);
 
+  std::filesystem::path configDir = std::filesystem::path(taskFile).parent_path().parent_path();
+  std::string pdGainsFile = (configDir / "controller" / "joint_pd_gains.yaml").string();
+
   CentroidalMpcMrtJointController mpcJointController(robotInterface.getRobotDescription(), interface.modelSettings(),
                                                      interface.getMpcRobotModel(), mpc, interface.getPinocchioInterface(),
-                                                     interface.mpcSettings().mpcDesiredFrequency_, humanoidVisualizer);
+                                                     interface.mpcSettings().mpcDesiredFrequency_, humanoidVisualizer, pdGainsFile);
+  mpcJointController.subscribePdGains(nodeHandle);
+  fsmBridge.subscribeJointTargets(nodeHandle);
 
-  std::cout << "MPC MRT joint controller is set up. " << std::endl;
+  // Read gravity-comp feedforward fallback flag from task.yaml
+  // Set `useGravityCompFeedforward: true` in task.yaml to use pure gravity comp
+  // instead of full inverse dynamics in WB_MPC mode (for debugging ID issues).
+  try {
+    YAML::Node taskYaml = YAML::LoadFile(taskFile);
+    if (taskYaml["useGravityCompFeedforward"] && taskYaml["useGravityCompFeedforward"].as<bool>()) {
+      mpcJointController.setUseGravityCompFeedforward(true);
+      LOG(INFO) << "Using gravity-comp feedforward in WB_MPC mode (useGravityCompFeedforward=true).";
+    }
+  } catch (...) {
+  }
 
-  // size_t mrtDeltaTMicroSeconds_ = 1000000 / (interface.mpcSettings().mrtDesiredFrequency_);
-  size_t mrtDeltaTMicroSeconds_ = 1000000 / (500);
+  bool enableTelemetry = true;
+  std::vector<std::string> telemetryFrames;
+  const scalar_t mrtDesiredFrequency = interface.mpcSettings().mrtDesiredFrequency_;
+  double telemetryFrequency = std::min(100.0, static_cast<double>(mrtDesiredFrequency > 0.0 ? mrtDesiredFrequency : 100.0));
+  try {
+    YAML::Node taskYaml = YAML::LoadFile(taskFile);
+    if (taskYaml["enableTelemetry"]) {
+      enableTelemetry = taskYaml["enableTelemetry"].as<bool>();
+    } else if (taskYaml["enable_telemetry"]) {
+      enableTelemetry = taskYaml["enable_telemetry"].as<bool>();
+    }
+    if (taskYaml["telemetryFrequency"]) {
+      telemetryFrequency = taskYaml["telemetryFrequency"].as<double>();
+    } else if (taskYaml["telemetry_frequency"]) {
+      telemetryFrequency = taskYaml["telemetry_frequency"].as<double>();
+    }
+    if (taskYaml["telemetryFrames"]) {
+      telemetryFrames = taskYaml["telemetryFrames"].as<std::vector<std::string>>();
+    }
+  } catch (const std::exception& e) {
+    LOG(WARNING) << "Failed to read telemetry config from " << taskFile << ": " << e.what();
+  }
+
+  const size_t mrtDeltaTMicroSeconds_ = 1000000 / static_cast<size_t>(mrtDesiredFrequency > 0.0 ? mrtDesiredFrequency : 100.0);
+  const size_t telemetryDecimation = (telemetryFrequency > 0.0 && mrtDesiredFrequency > 0.0)
+                                         ? std::max<size_t>(1, static_cast<size_t>(std::round(mrtDesiredFrequency / telemetryFrequency)))
+                                         : 1;
+
+  std::unique_ptr<PinocchioTelemetryPublisher> telemetryPublisher;
+  if (enableTelemetry) {
+    telemetryPublisher = std::make_unique<PinocchioTelemetryPublisher>(nodeHandle, interface.getPinocchioInterface(),
+                                                                       interface.getMpcRobotModel().modelSettings,
+                                                                       interface.getMpcRobotModel(), robotDescription, telemetryFrames);
+    LOG(INFO) << "Pinocchio telemetry publishing enabled (" << (mrtDesiredFrequency / telemetryDecimation)
+              << " Hz, decimation=" << telemetryDecimation << ").";
+  } else {
+    LOG(INFO) << "Telemetry publishing disabled in task.yaml.";
+  }
+
+  LOG(INFO) << "MPC MRT joint controller is set up with PD gains from: " << pdGainsFile;
+  LOG(INFO) << "MRT joint control loop configured at " << mrtDesiredFrequency << " Hz (" << mrtDeltaTMicroSeconds_ << " us).";
+
   robotInterface.initSim();
   robotInterface.updateInterfaceStateFromRobot();
   mpcJointController.startMpcThread(robotInterface.getRobotState());
@@ -131,28 +211,88 @@ int main(int argc, char** argv) {
   while (!mpcJointController.ready()) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
-  std::cout << "Initial MPC policy received. " << std::endl;
+  LOG(INFO) << "Initial MPC policy received.";
 
   // Wait to allow MPC policy to initialize
   std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+  // Start sim loop in zero-torque mode: the robot spawns passively held by the gantry.
+  // The MPC solver continues to receive state feedback and refine its policy.
+  const auto coreAlloc = ocs2::humanoid::getDefaultCoreAllocation();
   robotInterface.startSim();
+  ocs2::humanoid::setThreadCpuAffinity(coreAlloc.simCores, robotInterface.getSimulationThread().native_handle(), "MuJoCo Simulation");
+  ocs2::humanoid::setThreadCpuAffinity(coreAlloc.mrtCores, pthread_self(), "MRT Joint Control Loop");
 
   rclcpp::spin_some(nodeHandle);
+  LOG(INFO) << "Zero-torque mode: robot spawned. Waiting for FSM command to enable torques...";
 
+  // Unified control loop: processes /humanoid/fsm_command ROS 2 topics for mode transitions.
+  std::string currentModeName = "ZERO_TORQUE";
+  size_t mrtSlowCount = 0;
+  size_t telemetryCounter = 0;
   while (true) {
     auto targetTimeForNextIteration = std::chrono::steady_clock::now() + std::chrono::microseconds(mrtDeltaTMicroSeconds_);
 
+    // Always publish state to MPC so the solver's plan stays current.
+    // In zero-torque mode, we still compute the control action but don't apply it,
+    // keeping the MPC solver warm for instant transitions back to active mode.
     robotInterface.updateInterfaceStateFromRobot();
+
+    // Propagate FSM mode to the controller so it can handle JOINT_PD with gravity comp internally.
+    mpcJointController.setControlMode(currentModeName);
+    fsmBridge.applyJointTargetUpdates();
+    mpcJointController.setNominalJointPositions(fsmBridge.getNominalJointPositions());
     mpcJointController.computeJointControlAction(0.0, robotInterface.getRobotState(), robotInterface.getRobotJointAction());
-    robotInterface.applyJointAction();
+
+    // Apply mode-specific overrides for modes other than JOINT_PD (which is handled by the controller)
+    fsmBridge.applyModeAction(currentModeName, robotDescription, robotInterface.getRobotJointAction());
+
+    if (!robotInterface.isZeroTorqueMode()) {
+      robotInterface.applyJointAction();
+    }
+
+    // Publish telemetry for PlotJuggler visualization at configured rate
+    if (telemetryPublisher && (++telemetryCounter % telemetryDecimation == 0)) {
+      try {
+        telemetryPublisher->publish(robotInterface.getRobotState(), robotInterface.getRobotJointAction(),
+                                    mpcJointController.getCurrentObservation(), mpcJointController.getLatestPolicyInput(),
+                                    mpcJointController.getCommandData(), robotInterface.getLeftFootMeasuredForce(),
+                                    robotInterface.getRightFootMeasuredForce());
+      } catch (const std::exception& e) {
+        LOG_EVERY_N(ERROR, 100) << "Telemetry publish exception caught in sim loop: " << e.what();
+      } catch (...) {
+        LOG_EVERY_N(ERROR, 100) << "Telemetry publish unknown exception caught in sim loop";
+      }
+    }
 
     rclcpp::spin_some(nodeHandle);
+    bool gantryBefore = robotInterface.isGantryLocked();
+    fsmBridge.processCommands(currentModeName, robotInterface);
+    bool gantryAfter = robotInterface.isGantryLocked();
+
+    // Reset MPC and switch to JOINT_PD when gantry is locked
+    if (gantryBefore != gantryAfter) {
+      mpcJointController.requestMpcReset();
+      if (gantryAfter) {
+        // Gantry locked: switch to safe PD mode (MPC is overconstrained on the gantry)
+        currentModeName = "JOINT_PD";
+        fsmBridge.publishFsmState(currentModeName, gantryAfter);
+        LOG(INFO) << "Gantry locked — switching to JOINT_PD mode and resetting MPC.";
+      } else {
+        LOG(INFO) << "Gantry unlocked — resetting MPC.";
+      }
+    }
 
     auto currentTime = std::chrono::steady_clock::now();
     if (currentTime > targetTimeForNextIteration) {
-      auto delay = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - targetTimeForNextIteration).count();
-
-      std::cerr << "Warning: MRT loop running slow by " << delay << " microseconds." << std::endl;
+      // Only warn in MPC-active mode and for significant delays (>1ms).
+      // Sub-millisecond overruns are normal OS scheduling jitter.
+      if (!robotInterface.isZeroTorqueMode()) {
+        auto delay = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - targetTimeForNextIteration).count();
+        if (delay > 1000 && (++mrtSlowCount % 20 == 0)) {
+          LOG(WARNING) << "MRT loop running slow by " << delay << " microseconds.";
+        }
+      }
     } else {
       // Sleep in case sim loop is faster than specified
       std::this_thread::sleep_until(targetTimeForNextIteration);

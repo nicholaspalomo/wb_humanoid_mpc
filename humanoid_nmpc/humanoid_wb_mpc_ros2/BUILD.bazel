@@ -5,6 +5,7 @@ package(default_visibility = ["//visibility:public"])
 
 _COMMON_DEPS = [
     "//humanoid_nmpc/humanoid_wb_mpc",
+    "//humanoid_nmpc/humanoid_common_mpc",
     "//humanoid_nmpc/humanoid_common_mpc_ros2",
     "//robot_runtime/mujoco_sim_interface",
     "//lib/ocs2:ocs2_core",
@@ -15,6 +16,7 @@ _COMMON_DEPS = [
     "//lib/ocs2:ocs2_pinocchio_interface",
     "//lib/ocs2:ocs2_ros2_interfaces",
     "//lib/ocs2:ocs2_ros2_msgs",
+    "@abseil-cpp//absl/log:log",
     "@eigen",
     "@boost",
     "@pinocchio",
@@ -27,6 +29,7 @@ _COMMON_DEPS = [
     "@ros2_visualization_msgs",
     "@ros2_geometry_msgs",
     "@ros2_sensor_msgs",
+    "@ros2_std_msgs",
 ]
 
 _COMMON_COPTS = [

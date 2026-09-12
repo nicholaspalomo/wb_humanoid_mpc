@@ -54,21 +54,25 @@ void MujocoRenderer::keyboard(GLFWwindow* window, int key, int, int act, int mod
   auto* renderer = static_cast<MujocoRenderer*>(glfwGetWindowUserPointer(window));
 
   // 'c' key: toggle contact point visualization
+  // Effect: Renders small colored spheres at active physical collision contact points
   if (act == GLFW_PRESS && key == GLFW_KEY_C) {
     renderer->mujocoOptions_.flags[mjVIS_CONTACTPOINT] = !renderer->mujocoOptions_.flags[mjVIS_CONTACTPOINT];
   }
 
   // 'f' key: toggle contact force visualization
+  // Effect: Renders 3D arrows depicting normal and friction forces at contacts
   if (act == GLFW_PRESS && key == GLFW_KEY_F) {
     renderer->mujocoOptions_.flags[mjVIS_CONTACTFORCE] = !renderer->mujocoOptions_.flags[mjVIS_CONTACTFORCE];
   }
 
-  // 'm' key: toggle centre of mass visualization
+  // 'm' key: toggle center of mass (CoM) visualization
+  // Effect: Renders CoM indicator spheres for kinematic bodies/links
   if (act == GLFW_PRESS && key == GLFW_KEY_M) {
     renderer->mujocoOptions_.flags[mjVIS_COM] = !renderer->mujocoOptions_.flags[mjVIS_COM];
   }
 
   // 't' key: toggle model transparency
+  // Effect: Switches between 30% alpha (x-ray mode for internal joint/geom inspection) and 100% opaque
   if (act == GLFW_PRESS && key == GLFW_KEY_T) {
     renderer->model_transparent = !renderer->model_transparent;
     if (renderer->model_transparent) {
@@ -79,25 +83,51 @@ void MujocoRenderer::keyboard(GLFWwindow* window, int key, int, int act, int mod
   }
 
   // 'i' key: toggle inertia visualization
+  // Effect: Renders equivalent inertia ellipsoids depicting principal moments of inertia
   if (act == GLFW_PRESS && key == GLFW_KEY_I) {
     renderer->mujocoOptions_.flags[mjVIS_INERTIA] = !renderer->mujocoOptions_.flags[mjVIS_INERTIA];
   }
 
-  // 'h' key: toggle hull visualization
+  // 'h' key: toggle convex hull visualization
+  // Effect: Renders computed convex hulls enclosing the link meshes
   if (act == GLFW_PRESS && key == GLFW_KEY_H) {
     renderer->mujocoOptions_.flags[mjVIS_CONVEXHULL] = !renderer->mujocoOptions_.flags[mjVIS_CONVEXHULL];
   }
 
-  // 'p' key: print hotkeys
+  // Number keys '0'-'5': toggle geom groups
+  // Effect: Group 0 = Floor/ground plane, Group 1 = Visual meshes, Group 2 = Collision primitives, Groups 3-5 = Aux
+  if (act == GLFW_PRESS && key >= GLFW_KEY_0 && key <= GLFW_KEY_5) {
+    int group = key - GLFW_KEY_0;
+    renderer->mujocoOptions_.geomgroup[group] = !renderer->mujocoOptions_.geomgroup[group];
+  }
+
+  // 'k' key: toggle camera tracking mode (tracking robot vs free camera)
+  // Effect: Switches between mjCAMERA_TRACKING (locks camera to follow robot base/pelvis) and mjCAMERA_FREE
+  if (act == GLFW_PRESS && key == GLFW_KEY_K) {
+    renderer->toggleCameraTracking();
+  }
+
+  // 'p' key: print hotkeys cheatsheet
+  // Effect: Prints all interactive viewer hotkeys, toggle states, and mouse gestures to console
   if (act == GLFW_PRESS && key == GLFW_KEY_P) {
     std::cerr << "\n\n==========================================================="
-              << "\nHotkeys\n===========================================================\n"
-              << "c => toggle contact point visualization\n"
-              << "f => toggle contact force visualization\n"
-              << "m => toggle center of mass visualization\n"
-              << "t => toggle model transparency\n"
-              << "i => toggle interia visualization\n"
-              << "h => toggle hull visualization\n";
+              << "\nMuJoCo 3D Viewer Hotkeys & Controls\n===========================================================\n"
+              << "  0-5 => toggle geom groups (0: Floor, 1: Visual Mesh, 2: Collision, 3-5: Aux)\n"
+              << "  c   => toggle contact point visualization (spheres at collision contacts)\n"
+              << "  f   => toggle contact force vectors (3D normal & friction force arrows)\n"
+              << "  m   => toggle center of mass (CoM) indicators\n"
+              << "  t   => toggle model transparency (30% x-ray mode vs 100% opaque)\n"
+              << "  i   => toggle link inertia ellipsoids (principal moments of inertia)\n"
+              << "  h   => toggle convex hull visualization\n"
+              << "  k   => toggle camera tracking mode (mjCAMERA_TRACKING vs mjCAMERA_FREE)\n"
+              << "  p   => print this hotkey cheatsheet\n"
+              << "-----------------------------------------------------------\n"
+              << "Mouse Controls:\n"
+              << "  Left Drag        => rotate / orbit camera around focal point\n"
+              << "  Right Drag       => pan / translate camera horizontally & vertically\n"
+              << "  Scroll / MidDrag => zoom camera in / out\n"
+              << "  Shift + Drag     => constrain orbit / pan motion to horizontal plane\n"
+              << "===========================================================\n\n";
   }
 }
 
@@ -204,7 +234,7 @@ void renderMetrics(const mjrContext* con, const mjrRect& viewport, const MjState
   metrics << "Sim  Time[s]: " << std::fixed << std::setprecision(3) << state.data->time << "\n\n";
 
   // Real-time tracking
-  metrics << "RTF: " << std::fixed << std::setprecision(3) << state.metrics.rtfTick << "\n";
+  metrics << "RTF: " << std::fixed << std::setprecision(3) << state.metrics.rtfSmoothed << "\n";
   metrics << "Drift[ms]: " << std::fixed << std::setprecision(3) << state.metrics.driftTick * 1e3 << "\n";
   metrics << "Cummulative Drift[ms]: " << std::fixed << std::setprecision(3) << state.metrics.driftCumulative * 1e3;
 
@@ -291,10 +321,10 @@ void MujocoRenderer::renderLoop() {
     glfwGetFramebufferSize(window_, &viewport_.width, &viewport_.height);
 
     // Copy physics data to render data
-    simInterface_->copyMjState(simState_);
+    simInterface_->readLatestMjState(simState_);
     mj_forward(simInterface_->getModel(), simState_.data);
 
-    mjv_updateScene(simInterface_->getModel(), simState_.data, &mujocoOptions_, nullptr, nullptr, mjCAT_ALL, &mujocoScene_);
+    mjv_updateScene(simInterface_->getModel(), simState_.data, &mujocoOptions_, nullptr, &mujocoCam_, mjCAT_ALL, &mujocoScene_);
 
     renderExternalForces();
 
@@ -322,6 +352,49 @@ void MujocoRenderer::renderLoop() {
 
   window_closed_.store(true);
   cleanup();
+}
+
+void MujocoRenderer::toggleCameraTracking() {
+  if (mujocoCam_.type == mjCAMERA_TRACKING) {
+    mujocoCam_.type = mjCAMERA_FREE;
+    std::cerr << "Camera mode: FREE (manual)" << std::endl;
+  } else {
+    mujocoCam_.type = mjCAMERA_TRACKING;
+    std::cerr << "Camera mode: TRACKING (following robot body " << mujocoCam_.trackbodyid << ")" << std::endl;
+  }
+}
+
+void MujocoRenderer::setupCamera() {
+  // Setup Tracking Camera (follows the robot)
+  mujocoCam_.type = mjCAMERA_TRACKING;
+  int trackbodyid = 1;
+  const mjModel* m = simInterface_->getModel();
+  if (m && m->nbody > 1) {
+    int pelvis_id = mj_name2id(m, mjOBJ_BODY, "pelvis");
+    if (pelvis_id > 0) {
+      trackbodyid = pelvis_id;
+    } else {
+      int pelvis_link_id = mj_name2id(m, mjOBJ_BODY, "pelvis_link");
+      if (pelvis_link_id > 0) {
+        trackbodyid = pelvis_link_id;
+      } else {
+        int torso_id = mj_name2id(m, mjOBJ_BODY, "torso");
+        if (torso_id > 0) {
+          trackbodyid = torso_id;
+        }
+      }
+    }
+  }
+  mujocoCam_.trackbodyid = trackbodyid;
+  mujocoCam_.fixedcamid = -1;
+
+  double arr_view[] = {89.608063, -5.588379, 3, 0.000000, 0.000000, 0.500000};  // view the left side (for ll, lh, left_side)
+  mujocoCam_.azimuth = arr_view[0];
+  mujocoCam_.elevation = arr_view[1];
+  mujocoCam_.distance = arr_view[2];
+  mujocoCam_.lookat[0] = arr_view[3];
+  mujocoCam_.lookat[1] = arr_view[4];
+  mujocoCam_.lookat[2] = arr_view[5];
 }
 
 void MujocoRenderer::initialize() {
@@ -362,16 +435,9 @@ void MujocoRenderer::initialize() {
   glfwSetMouseButtonCallback(window_, mouse_button);
   glfwSetScrollCallback(window_, scroll);
 
-  // Setup Camera
-  double arr_view[] = {89.608063, -5.588379, 3, 0.000000, 0.000000, 0.500000};  // view the left side (for ll, lh, left_side)
-  mujocoCam_.azimuth = arr_view[0];
-  mujocoCam_.elevation = arr_view[1];
-  mujocoCam_.distance = arr_view[2];
-  mujocoCam_.lookat[0] = arr_view[3];
-  mujocoCam_.lookat[1] = arr_view[4];
-  mujocoCam_.lookat[2] = arr_view[5];
+  setupCamera();
 
-  simInterface_->copyMjState(simState_);
+  simInterface_->readLatestMjState(simState_);
 
   // get framebuffer viewport
   // We don't want to step the actual simulation here, as it screws up the initialization of the IMU's

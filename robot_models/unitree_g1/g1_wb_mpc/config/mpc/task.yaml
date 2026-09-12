@@ -1,3 +1,33 @@
+# Simulation & Telemetry Configuration
+enableTelemetry: true        # Enable high-rate ROS 2 telemetry publishing for PlotJuggler
+telemetryFrequency: 100      # [Hz] Telemetry publishing frequency (decimated from MRT loop)
+enableOnlineTuning: true     # Enable runtime parameter and gain tuning in Controller GUI
+
+# Targeted Pinocchio frames for telemetry logging (position, orientation, twist, accel, wrench)
+telemetryFrames:
+  - "foot_l_contact"
+  - "foot_r_contact"
+  - "pelvis"
+  - "torso_link"
+
+# MPC Problem Formulation Tasks
+hard_constraints:
+  - zero_wrench
+  - zero_velocity
+  - normal_velocity
+
+soft_constraints:
+  - joint_limits
+  - foot_collision
+  - friction_force_cone
+  - contact_moment_xy
+
+costs:
+  - state_quadratic_cost
+  - input_quadratic_cost
+  - terminal_cost
+  - task_space_foot_cost
+
 interface:
   verbose: false  # show the loaded parameters
   useAnalyticalGradientsDynamics: false
@@ -99,7 +129,7 @@ initialState:
   # ; Base Pose: [position, orientation] ;;
   "(0,0)": 0.0  # p_base_x
   "(1,0)": 0.0  # p_base_y
-  "(2,0)": 0.8  # p_base_z
+  "(2,0)": 0.7911  # p_base_z
   "(3,0)": 0.0  # theta_base_z
   "(4,0)": 0.0  # theta_base_y
   "(5,0)": 0.0  # theta_base_x

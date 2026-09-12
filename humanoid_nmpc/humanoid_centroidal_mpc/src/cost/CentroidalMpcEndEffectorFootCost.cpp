@@ -56,10 +56,12 @@ CentroidalMpcEndEffectorFootCost::CentroidalMpcEndEffectorFootCost(const Switche
                                                                    const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
                                                                    size_t contactIndex,
                                                                    std::string costName,
-                                                                   const ModelSettings& modelSettings)
+                                                                   const ModelSettings& modelSettings,
+                                                                   bool activeInStance)
     : StateInputCostGaussNewtonAd(),
       referenceManagerPtr_(&referenceManager),
       sqrtWeights_(weights.toVector().cwiseSqrt()),
+      activeInStance_(activeInStance),
       frameID_(pinocchioInterface.getModel().getFrameId(modelSettings.contactNames[contactIndex])),
       pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
       mpcRobotModelAdPtr_(mpcRobotModelAD.clone()),
@@ -67,7 +69,8 @@ CentroidalMpcEndEffectorFootCost::CentroidalMpcEndEffectorFootCost(const Switche
   initialize(mpcRobotModelAD.getStateDim(), mpcRobotModelAD.getInputDim(), 25, costName, modelSettings.modelFolderCppAd,
              modelSettings.recompileLibrariesCppAd);
   std::cout << "Frame ID: " << frameID_ << std::endl;
-  std::cout << "Initialized CentroidalMpcEndEffectorFootCost with weights: " << weights.toVector().transpose() << std::endl;
+  std::cout << "Initialized CentroidalMpcEndEffectorFootCost (activeInStance=" << (activeInStance_ ? "true" : "false")
+            << ") with weights: " << weights.toVector().transpose() << std::endl;
 }
 
 /******************************************************************************************************/
@@ -78,6 +81,7 @@ CentroidalMpcEndEffectorFootCost::CentroidalMpcEndEffectorFootCost(const Centroi
     : StateInputCostGaussNewtonAd(other),
       referenceManagerPtr_(other.referenceManagerPtr_),
       sqrtWeights_(other.sqrtWeights_),
+      activeInStance_(other.activeInStance_),
       frameID_(other.frameID_),
       contactIndex_(other.contactIndex_),
       pinocchioInterfaceCppAd_(other.pinocchioInterfaceCppAd_),

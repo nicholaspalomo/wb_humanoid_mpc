@@ -52,7 +52,8 @@ class CentroidalMpcEndEffectorFootCost final : public StateInputCostGaussNewtonA
                                    const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
                                    size_t contactIndex,
                                    std::string costName,
-                                   const ModelSettings& modelSettings);
+                                   const ModelSettings& modelSettings,
+                                   bool activeInStance = false);
 
   ~CentroidalMpcEndEffectorFootCost() override = default;
   CentroidalMpcEndEffectorFootCost* clone() const override { return new CentroidalMpcEndEffectorFootCost(*this); }
@@ -61,11 +62,14 @@ class CentroidalMpcEndEffectorFootCost final : public StateInputCostGaussNewtonA
 
   bool isActive(scalar_t time) const override {
     if (!isActive_) return false;
-    return !referenceManagerPtr_->isInContact(time, contactIndex_);
+    return activeInStance_ || !referenceManagerPtr_->isInContact(time, contactIndex_);
   }
 
   void setActive(bool active) { isActive_ = active; }
   bool getActive() const { return isActive_; }
+
+  void setActiveInStance(bool activeInStance) { activeInStance_ = activeInStance; }
+  bool getActiveInStance() const { return activeInStance_; }
 
   void setWeights(const vector12_t& weights) { sqrtWeights_ = weights.cwiseSqrt(); }
   void getWeights(vector12_t& weights) const { weights = sqrtWeights_.cwiseProduct(sqrtWeights_); }
@@ -82,6 +86,7 @@ class CentroidalMpcEndEffectorFootCost final : public StateInputCostGaussNewtonA
 
   vector12_t sqrtWeights_;
   bool isActive_ = true;
+  bool activeInStance_ = false;
 
   size_t contactIndex_;
   const pinocchio::FrameIndex frameID_;

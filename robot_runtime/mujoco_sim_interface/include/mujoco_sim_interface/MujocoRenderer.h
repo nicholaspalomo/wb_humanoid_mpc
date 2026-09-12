@@ -64,7 +64,34 @@ class MujocoRenderer {
   /// These callbacks are required to be static by glfw3 and are hence not part of the visualizer class. They have access to the visualizer
   /// through the window user pointer.
 
-  // keyboard callback
+  /**
+   * @brief GLFW keyboard callback for interactive MuJoCo 3D viewer viewport controls.
+   *
+   * Supported toggle keys and their effects:
+   *  - '0'-'5' : Toggle geometry groups in mujocoOptions_.geomgroup:
+   *                '0' -> Floor / ground plane geometries
+   *                '1' -> Visual meshes (high-resolution STL/OBJ surface meshes)
+   *                '2' -> Collision primitives (capsules, boxes, cylinders, spheres)
+   *                '3'-'5' -> Auxiliary/sensor geometry groups
+   *  - 'c'     : Toggle Contact Points (mjVIS_CONTACTPOINT)
+   *                Renders small spheres at active physical collision contacts.
+   *  - 'f'     : Toggle Contact Forces (mjVIS_CONTACTFORCE)
+   *                Renders 3D vector arrows depicting normal and friction forces at contacts.
+   *  - 'm'     : Toggle Center of Mass (mjVIS_COM)
+   *                Displays CoM indicator spheres for kinematic bodies/links.
+   *  - 't'     : Toggle Model Transparency
+   *                Toggles between 30% alpha (x-ray mode for internal joint/geom inspection)
+   *                and 100% opaque.
+   *  - 'i'     : Toggle Inertia Ellipsoids (mjVIS_INERTIA)
+   *                Visualizes equivalent inertia ellipsoids depicting principal moments of inertia.
+   *  - 'h'     : Toggle Convex Hulls (mjVIS_CONVEXHULL)
+   *                Renders computed convex hulls enclosing the link meshes.
+   *  - 'k'     : Toggle Camera Tracking Mode
+   *                Switches between mjCAMERA_TRACKING (locks camera view to translate with the
+   *                robot base/pelvis) and mjCAMERA_FREE (stationary manual free-look camera).
+   *  - 'p'     : Print Hotkeys Cheatsheet
+   *                Prints all supported hotkeys and mouse bindings to the console.
+   */
   static void keyboard(GLFWwindow* window, int key, int scancode, int act, int mods);
 
   // mouse button callback
@@ -83,6 +110,9 @@ class MujocoRenderer {
   void renderLoop();
 
   void renderExternalForces();
+
+  void toggleCameraTracking();
+  void setupCamera();
 
   // Init must occur in the same thread that uses the opengl context.
   void initialize();

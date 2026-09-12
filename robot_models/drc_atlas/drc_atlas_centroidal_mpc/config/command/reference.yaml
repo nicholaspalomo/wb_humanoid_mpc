@@ -5,8 +5,9 @@ maxDisplacementVelocityX: 1.2
 maxDisplacementVelocityY: 0.8
 maxDeltaPelvisHeight: 0.4
 maxRotationVelocity: 1.0
+targetJointStateInterpolationTimeConstant: 2.0
 
-defaultBaseHeight: 0.7
+defaultBaseHeight: 0.8952
 
 defaultJointState:
   "(0,0)": 0.0  # back_bkz

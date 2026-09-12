@@ -15,8 +15,12 @@ cc_library(
         "src/ros_comm/MRTPolicySubscriber.cpp",
         "src/ros_comm/Ros2ProceduralMpcMotionManager.cpp",
         "src/ros_comm/VelocityCommandKeyboardPublisher.cpp",
+        "src/ros_comm/JointTargetSubscriber.cpp",
         "src/benchmarks/SqpBenchmarksPublisher.cpp",
         "src/benchmarks/DdpBenchmarksPublisher.cpp",
+        "src/fsm/SimFsmBridge.cpp",
+        "src/telemetry/HumanoidTelemetryPublisher.cpp",
+        "src/telemetry/PinocchioTelemetryPublisher.cpp",
     ],
     hdrs = glob(["include/**"], allow_empty = True),
     includes = ["include"],
@@ -35,9 +39,12 @@ cc_library(
     deps = [
         "//humanoid_nmpc/humanoid_common_mpc",
         "//humanoid_nmpc/humanoid_mpc_msgs",
+        "//robot_runtime/mujoco_sim_interface",
+        "//robot_runtime/robot_model",
         "//lib/ocs2:ocs2_ros2_interfaces",
         "//lib/ocs2:ocs2_ros2_msgs",
         "//lib/ocs2:ocs2_sqp",
+        "@abseil-cpp//absl/log:log",
         "@eigen",
         "@boost",
         "@pinocchio",
@@ -50,6 +57,7 @@ cc_library(
         "@ros2_visualization_msgs",
         "@ros2_geometry_msgs",
         "@ros2_sensor_msgs",
+        "@ros2_std_msgs",
     ],
 )
 

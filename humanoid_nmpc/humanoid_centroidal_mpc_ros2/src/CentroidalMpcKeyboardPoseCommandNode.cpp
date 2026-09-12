@@ -1,4 +1,5 @@
 /******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
 Copyright (c) 2024, 1X Technologies. All rights reserved.
 
@@ -40,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <humanoid_common_mpc/common/Types.h>
 
 #include <humanoid_centroidal_mpc/CentroidalMpcInterface.h>
+#include "absl/log/check.h"
 
 using namespace ocs2;
 using namespace ocs2::humanoid;
@@ -59,7 +61,9 @@ int main(int argc, char* argv[]) {
 
   rclcpp::init(argc, argv);
 
-  CentroidalMpcInterface interface(taskFile, urdfFile, referenceFile);
+  absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> create_result = CentroidalMpcInterface::Create(taskFile, urdfFile, referenceFile);
+  CHECK(create_result.ok()) << "Failed to create CentroidalMpcInterface: " << create_result.status();
+  CentroidalMpcInterface& interface = **create_result;
 
   CentroidalMpcTargetTrajectoriesCalculator mpcTargetTrajectoriesCalculator(
       referenceFile, interface.getMpcRobotModel(), interface.getPinocchioInterface(), interface.getCentroidalModelInfo(),

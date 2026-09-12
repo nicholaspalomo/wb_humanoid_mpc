@@ -8,9 +8,12 @@ mkfile_path := $(abspath $(lastword $(MAKEFILE_LIST)))
 current_path := $(dir $(mkfile_path))
 
 # Source the Bazel+ROS2 environment
-define source_env
-	source $(current_path)/setup_env.sh
-endef
+source_env := source $(current_path)/setup_env.sh
+
+# Wrapper for ros2 launch that kills the entire process group on exit.
+# Prevents zombie processes when Jupyter notebook cells are interrupted.
+# Prepend to any ros2 launch command: $(cleanup_trap) && ros2 launch ...
+cleanup_trap := trap 'pkill -P $$$$ 2>/dev/null; wait' EXIT INT TERM
 
 ############################################################
 # Build targets
@@ -18,13 +21,42 @@ endef
 .PHONY: build-all build-debug build-release build-relwithdebinfo build \
         test-all test clean clean-all format lint ci-local \
         launch-g1-dummy-sim launch-g1-sim launch-wb-g1-dummy-sim launch-wb-g1-sim \
-        launch-drc-atlas-dummy-sim launch-drc-atlas-sandbox test-pinocchio-model-atlas \
+        launch-drc-atlas-dummy-sim launch-drc-atlas-sim launch-drc-atlas-sandbox test-pinocchio-model-atlas \
         launch-r1-dummy-sim launch-r1-sim launch-r1-sandbox test-pinocchio-model-r1 \
-        start-vnc stop-vnc \
+        start-vnc stop-vnc kill-sims kill-builds \
         launch-g1-dummy-sim-vnc launch-g1-sim-vnc launch-wb-g1-dummy-sim-vnc launch-wb-g1-sim-vnc \
-        launch-drc-atlas-dummy-sim-vnc launch-drc-atlas-sandbox-vnc \
+        launch-drc-atlas-dummy-sim-vnc launch-drc-atlas-sim-vnc launch-drc-atlas-sandbox-vnc \
         launch-r1-dummy-sim-vnc launch-r1-sim-vnc launch-r1-sandbox-vnc \
-        run-ocs2-tests run-mpc-tests test-rl train-rl train-cartpole train-cartpole-vnc train-bc export-rollouts lock-rl-deps echo-packages update-submodules git-lfs install-hooks
+        run-ocs2-tests run-mpc-tests test-rl train-rl train-cartpole train-cartpole-vnc train-bc export-rollouts lock-rl-deps echo-packages update-submodules git-lfs install-hooks jupyter plotjuggler-vnc
+
+## Launch interactive Jupyter notebook dashboard
+jupyter:
+	@tools/launch_jupyter.sh
+
+## Kill any running Bazel builds, compilers, and stale server locks
+kill-builds:
+	@echo "🧹 Cleaning up background Bazel builds and stale locks..."
+	@pkill -9 -x bazel 2>/dev/null || true
+	@pkill -9 -x bazelisk 2>/dev/null || true
+	@pkill -9 -x cc1plus 2>/dev/null || true
+	@for pid_file in $$HOME/.cache/bazel/_bazel_*/*/server/server.pid.txt; do \
+		[ -f "$$pid_file" ] || continue; \
+		b_pid=$$(cat "$$pid_file" 2>/dev/null); \
+		if [ -n "$$b_pid" ]; then \
+			kill -9 "$$b_pid" 2>/dev/null || true; \
+			rm -rf "$$(dirname "$$pid_file")"; \
+		fi; \
+	done
+	@echo "✅ Build cleanup done."
+
+## Kill any running or zombie sim processes before launching a new one.
+## Note: The [x] character-class trick prevents pkill -f from matching its own shell.
+kill-sims: kill-builds
+	@echo "🧹 Cleaning up previous sim processes..."
+	@pkill -9 -f 'humanoid_centroidal_mpc_si[m]|humanoid_centroidal_mpc_sq[p]|humanoid_wb_mpc_si[m]|humanoid_wb_mpc_sq[p]' 2>/dev/null || true
+	@pkill -9 -f 'robot_state_publishe[r]|base_velocity_controlle[r]' 2>/dev/null || true
+	@sleep 0.5
+	@echo "✅ Cleanup done."
 
 ## Build everything
 build-all:
@@ -153,49 +185,58 @@ git-lfs:
 ############################################################
 
 # LINT.IfChange(launch_targets)
-launch-g1-dummy-sim:
-	@bazel build //... && \
-	$(source_env) && ros2 launch g1_centroidal_mpc dummy_sim.launch.py
+launch-g1-dummy-sim: kill-sims
+	$(source_env) && \
+	bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_dummy_sim_node && \
+	ros2 launch g1_centroidal_mpc dummy_sim.launch.py
 
-launch-g1-sim:
-	@bazel build //... && \
-	$(source_env) && ros2 launch g1_centroidal_mpc mujoco_sim.launch.py
+launch-g1-sim: kill-sims
+	$(source_env) && \
+	bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sim && \
+	ros2 launch g1_centroidal_mpc mujoco_sim.launch.py
 
-launch-wb-g1-dummy-sim:
-	@bazel build //... && \
-	$(source_env) && ros2 launch g1_wb_mpc dummy_sim.launch.py
+launch-wb-g1-dummy-sim: kill-sims
+	$(source_env) && \
+	bazel build //humanoid_nmpc/humanoid_wb_mpc_ros2:humanoid_wb_mpc_sqp_node //humanoid_nmpc/humanoid_wb_mpc_ros2:humanoid_wb_mpc_dummy_sim_node && \
+	ros2 launch g1_wb_mpc dummy_sim.launch.py
 
-launch-wb-g1-sim:
-	@bazel build //... && \
-	$(source_env) && ros2 launch g1_wb_mpc mujoco_sim.launch.py
+launch-wb-g1-sim: kill-sims
+	$(source_env) && \
+	bazel build //humanoid_nmpc/humanoid_wb_mpc_ros2:humanoid_wb_mpc_sqp_node //humanoid_nmpc/humanoid_wb_mpc_ros2:humanoid_wb_mpc_sim && \
+	ros2 launch g1_wb_mpc mujoco_sim.launch.py
 
-launch-drc-atlas-dummy-sim:
-	@bazel build //... && \
-	$(source_env) && ros2 launch drc_atlas_centroidal_mpc dummy_sim.launch.py
+launch-drc-atlas-dummy-sim: kill-sims
+	$(source_env) && \
+	bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_dummy_sim_node && \
+	ros2 launch drc_atlas_centroidal_mpc dummy_sim.launch.py
 
-launch-drc-atlas-sim:
-	@bazel build //... && \
-	$(source_env) && ros2 launch drc_atlas_centroidal_mpc mujoco_sim.launch.py
+launch-drc-atlas-sim: kill-sims
+	$(source_env) && \
+	bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sim && \
+	ros2 launch drc_atlas_centroidal_mpc mujoco_sim.launch.py
 
-launch-drc-atlas-sandbox:
-	@bazel build //... && \
+launch-drc-atlas-sandbox: kill-sims
 	$(source_env) && ros2 launch drc_atlas_description display.launch.py
 
-launch-r1-dummy-sim:
-	@bazel build //... && \
-	$(source_env) && ros2 launch unitree_r1_centroidal_mpc dummy_sim.launch.py
+launch-r1-dummy-sim: kill-sims
+	$(source_env) && \
+	bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_dummy_sim_node && \
+	ros2 launch unitree_r1_centroidal_mpc dummy_sim.launch.py
 
-launch-r1-sim:
-	@bazel build //... && \
-	$(source_env) && ros2 launch unitree_r1_centroidal_mpc mujoco_sim.launch.py
+launch-r1-sim: kill-sims
+	$(source_env) && \
+	bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sim && \
+	ros2 launch unitree_r1_centroidal_mpc mujoco_sim.launch.py
 
-launch-r1-sandbox:
-	@bazel build //... && \
+launch-r1-sandbox: kill-sims
 	$(source_env) && ros2 launch unitree_r1_description display.launch.py
 
 ############################################################
 # VNC visualization (for macOS host)
 ############################################################
+# LINT.IfChange(vnc_resolution)
+RESOLUTION ?= $(VNC_RESOLUTION)
+# LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_resolution, //docker-compose.yaml:vnc_resolution)
 start-vnc:
 	@chmod +x $(current_path)/.devcontainer/start_vnc.sh && \
 	$(current_path)/.devcontainer/start_vnc.sh $(RESOLUTION)
@@ -204,61 +245,78 @@ stop-vnc:
 	@chmod +x $(current_path)/.devcontainer/start_vnc.sh && \
 	$(current_path)/.devcontainer/start_vnc.sh stop
 
+# LINT.IfChange(vnc_ports)
 # Environment overrides for VNC display + Mesa software GLX
 VNC_GL_ENV := export DISPLAY=:99 && \
+	export PLOTJUGGLER_DISPLAY=:100 && \
 	export LIBGL_ALWAYS_SOFTWARE=1 && \
 	export LIBGL_ALWAYS_INDIRECT=0 && \
 	export GALLIUM_DRIVER=llvmpipe && \
 	export MESA_GL_VERSION_OVERRIDE=3.3 && \
 	export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
+# LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_ports, //docker-compose.yaml:vnc_ports, //.devcontainer/devcontainer.json:vnc_ports, //.devcontainer/VISUALIZATION.md:vnc_ports)
 
-launch-g1-dummy-sim-vnc: start-vnc
+launch-g1-dummy-sim-vnc: kill-sims start-vnc
 	@echo "🚀 Building targets and launching G1 Centroidal MPC Dummy Simulation..."
-	@bazel build //... && \
-	$(source_env) && $(VNC_GL_ENV) && ros2 launch g1_centroidal_mpc dummy_sim.launch.py
+	@bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_dummy_sim_node && \
+	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch g1_centroidal_mpc dummy_sim.launch.py
 
-launch-g1-sim-vnc: start-vnc
+launch-g1-sim-vnc: kill-sims start-vnc
 	@echo "🚀 Building targets and launching G1 Centroidal MPC MuJoCo Simulation..."
-	@bazel build //... && \
-	$(source_env) && $(VNC_GL_ENV) && ros2 launch g1_centroidal_mpc mujoco_sim.launch.py
+	@bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sim && \
+	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch g1_centroidal_mpc mujoco_sim.launch.py
 
-launch-wb-g1-dummy-sim-vnc: start-vnc
+launch-wb-g1-dummy-sim-vnc: kill-sims start-vnc
 	@echo "🚀 Building targets and launching G1 Whole-Body MPC Dummy Simulation..."
-	@bazel build //... && \
-	$(source_env) && $(VNC_GL_ENV) && ros2 launch g1_wb_mpc dummy_sim.launch.py
+	@bazel build //humanoid_nmpc/humanoid_wb_mpc_ros2:humanoid_wb_mpc_sqp_node //humanoid_nmpc/humanoid_wb_mpc_ros2:humanoid_wb_mpc_dummy_sim_node && \
+	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch g1_wb_mpc dummy_sim.launch.py
 
-launch-wb-g1-sim-vnc: start-vnc
+launch-wb-g1-sim-vnc: kill-sims start-vnc
 	@echo "🚀 Building targets and launching G1 Whole-Body MPC MuJoCo Simulation..."
-	@bazel build //... && \
-	$(source_env) && $(VNC_GL_ENV) && ros2 launch g1_wb_mpc mujoco_sim.launch.py
+	@bazel build //humanoid_nmpc/humanoid_wb_mpc_ros2:humanoid_wb_mpc_sqp_node //humanoid_nmpc/humanoid_wb_mpc_ros2:humanoid_wb_mpc_sim && \
+	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch g1_wb_mpc mujoco_sim.launch.py
 
-launch-drc-atlas-dummy-sim-vnc: start-vnc
+launch-drc-atlas-dummy-sim-vnc: kill-sims start-vnc
 	@echo "🚀 Building targets and launching DRC Atlas Dummy Simulation..."
-	@bazel build //... && \
-	$(source_env) && $(VNC_GL_ENV) && ros2 launch drc_atlas_centroidal_mpc dummy_sim.launch.py
+	@bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_dummy_sim_node && \
+	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch drc_atlas_centroidal_mpc dummy_sim.launch.py
 
-launch-drc-atlas-sim-vnc: start-vnc
+launch-drc-atlas-sim-vnc: kill-sims start-vnc
 	@echo "🚀 Building targets and launching DRC Atlas MuJoCo Simulation..."
-	@bazel build //... && \
-	$(source_env) && $(VNC_GL_ENV) && ros2 launch drc_atlas_centroidal_mpc mujoco_sim.launch.py
+	@bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sim && \
+	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch drc_atlas_centroidal_mpc mujoco_sim.launch.py
 
-launch-drc-atlas-sandbox-vnc: start-vnc
+launch-drc-atlas-sandbox-vnc: kill-sims start-vnc
 	@echo "🚀 Building targets and launching DRC Atlas URDF Viewer..."
-	@bazel build //... && \
-	$(source_env) && $(VNC_GL_ENV) && ros2 launch drc_atlas_description display.launch.py
+	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch drc_atlas_description display.launch.py
 
-launch-r1-dummy-sim-vnc: start-vnc
+launch-r1-dummy-sim-vnc: kill-sims start-vnc
 	@echo "🚀 Building targets and launching Unitree R1 Centroidal MPC Dummy Simulation..."
-	@bazel build //... && \
-	$(source_env) && $(VNC_GL_ENV) && ros2 launch unitree_r1_centroidal_mpc dummy_sim.launch.py
+	@bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_dummy_sim_node && \
+	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch unitree_r1_centroidal_mpc dummy_sim.launch.py
 
-launch-r1-sim-vnc: start-vnc
+launch-r1-sim-vnc: kill-sims start-vnc
 	@echo "🚀 Building targets and launching Unitree R1 Centroidal MPC MuJoCo Simulation..."
-	@bazel build //... && \
-	$(source_env) && $(VNC_GL_ENV) && ros2 launch unitree_r1_centroidal_mpc mujoco_sim.launch.py
+	@bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sim && \
+	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch unitree_r1_centroidal_mpc mujoco_sim.launch.py
 
-launch-r1-sandbox-vnc: start-vnc
+launch-r1-sandbox-vnc: kill-sims start-vnc
 	@echo "🚀 Building targets and launching Unitree R1 URDF Viewer..."
-	@bazel build //... && \
-	$(source_env) && $(VNC_GL_ENV) && ros2 launch unitree_r1_description display.launch.py
+	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch unitree_r1_description display.launch.py
 # LINT.ThenChange(//setup_env.sh:registered_packages, //.devcontainer/VISUALIZATION.md:launch_targets)
+
+plotjuggler:
+	@echo "📊 Ensuring ROS2 message dependencies are built..."
+	bazel build //humanoid_nmpc/humanoid_mpc_msgs
+	@echo "📊 Launching PlotJuggler with Humanoid Telemetry layout..."
+	$(source_env) && ros2 run plotjuggler plotjuggler --buffer_size 60 --layout tools/plotjuggler/humanoid_telemetry.xml
+
+# LINT.IfChange(plotjuggler_vnc)
+plotjuggler-vnc: start-vnc
+	@echo "📊 Ensuring ROS2 message dependencies are built..."
+	$(source_env) && bazel build //humanoid_nmpc/humanoid_mpc_msgs
+	@echo "📊 Launching PlotJuggler in dedicated VNC display (:100, port 6082)..."
+	@echo "👉 Open http://localhost:6082/vnc.html in your browser"
+	@pkill -9 plotjuggler 2>/dev/null || true
+	$(source_env) && DISPLAY=:100 ros2 run plotjuggler plotjuggler --buffer_size 60 --layout tools/plotjuggler/humanoid_telemetry.xml
+# LINT.ThenChange(//.devcontainer/VISUALIZATION.md:plotjuggler_vnc)

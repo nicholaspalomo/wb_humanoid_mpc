@@ -1,4 +1,5 @@
 /******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -36,6 +37,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 #include "robot_model/RobotDescription.h"
 
+#include <atomic>
+#include <mutex>
+#include <rclcpp/rclcpp.hpp>
+#include <std_msgs/msg/string.hpp>
+
 namespace ocs2::humanoid {
 
 class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase {
@@ -53,13 +59,18 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
                                   MPC_BASE& mpc,
                                   PinocchioInterface pinocchioInterface,
                                   scalar_t mpcDesiredFrequency = -1,
-                                  std::shared_ptr<DummyObserver> rVizVisualizerPtr = nullptr);
+                                  std::shared_ptr<DummyObserver> rVizVisualizerPtr = nullptr,
+                                  const std::string& pdGainsFile = "");
 
   /**
    * Destructor.
    */
   ~CentroidalMpcMrtJointController();
 
+  bool ready() {
+    mcpMrtInterface_.updatePolicy();
+    return mcpMrtInterface_.initialPolicyReceived();
+  }
   bool ready() const { return mcpMrtInterface_.initialPolicyReceived(); }
 
   /**
@@ -71,6 +82,54 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
                                  ::robot::model::RobotJointAction& robotJointAction) override;
 
   void startMpcThread(const ::robot::model::RobotState& initRobotState);
+
+  void loadPdGains(const std::string& pdGainsFile);
+
+  /**
+   * Subscribe to the /pd_gains_updates ROS topic for real-time
+   * PD gain updates from the GUI (without writing to joint_pd_gains.yaml).
+   */
+  void subscribePdGains(rclcpp::Node::SharedPtr node);
+
+  /**
+   * @brief Set the active control mode. When set to "JOINT_PD", the controller
+   *        computes Pinocchio-based gravity compensation + PD tracking to nominal positions.
+   */
+  void setControlMode(std::string_view mode) {
+    std::string newMode(mode);
+    if (newMode != controlMode_) {
+      if ((controlMode_ == "ZERO_TORQUE" || controlMode_ == "JOINT_PD" || controlMode_ == "GRAVITY_COMP") &&
+          (newMode == "WB_MPC" || newMode == "MPC_ACTIVE")) {
+        requestMpcReset();
+        transitionCounter_ = 0;  // Reset for transition diagnostics
+      }
+      controlMode_ = newMode;
+    }
+  }
+  const std::string& getControlMode() const { return controlMode_; }
+
+  /**
+   * @brief Request an asynchronous MPC reset. The solver thread will reset the MPC
+   *        to a stable trajectory from the current observation on its next iteration.
+   *        Use this when external conditions change (e.g. gantry lock/unlock) to
+   *        prevent the solver from using a stale warm-start.
+   */
+  void requestMpcReset() { resetMpcRequested_.store(true); }
+
+  /**
+   * @brief Set nominal joint positions for JOINT_PD mode.
+   */
+  void setNominalJointPositions(const std::vector<scalar_t>& positions) { nominalJointPositions_ = positions; }
+
+  const ocs2::SystemObservation& getCurrentObservation() const { return currentMpcObservation_; }
+  const vector_t& getLatestPolicyInput() const { return latestPolicyInput_; }
+  const CommandData& getCommandData() const { return mcpMrtInterface_.getCommand(); }
+
+  /**
+   * @brief Enable/disable using gravity compensation instead of full inverse dynamics feedforward torques in WB_MPC mode.
+   */
+  void setUseGravityCompFeedforward(bool enable) { useGravityCompFeedforward_ = enable; }
+  bool getUseGravityCompFeedforward() const { return useGravityCompFeedforward_; }
 
  private:
   /**
@@ -101,12 +160,43 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   bool realtime_;  // True if MPC is to be run as fast as possible
 
   std::atomic_bool terminateThread_{false};
+  std::atomic_bool resetMpcRequested_{false};
   std::jthread solver_worker_;
 
   std::shared_ptr<DummyObserver> visualizerPtr_;
 
-  vector_t inverse_dynamics_kp_;
-  vector_t inverse_dynamics_kd_;
+  vector_t mpcJointKp_;
+  vector_t mpcJointKd_;
+  vector_t mpcJointTorqueLimit_;
+  vector_t otherJointKp_;
+  vector_t otherJointKd_;
+  vector_t otherJointTorqueLimit_;
+
+  std::string controlMode_{"WB_MPC"};            ///< Active control mode (JOINT_PD, WB_MPC, etc.)
+  std::vector<scalar_t> nominalJointPositions_;  ///< Nominal positions for JOINT_PD mode
+  scalar_t previousObservationTime_{0.0};        ///< Previous sim time for computing actual dt
+  vector_t latestPolicyInput_;                   ///< Latest MPC policy input (e.g. contact forces, joint accelerations)
+  size_t transitionCounter_{100};                ///< Counts cycles since last WB_MPC mode entry (starts past threshold)
+
+  std::string pdGainsFile_;
+  std::vector<std::string> mpcModelJointNames_;
+  std::vector<std::string> fixedJointNames_;
+  std::filesystem::file_time_type pdGainsLastWriteTime_;
+  size_t fileCheckCounter_{0};
+
+  bool useGravityCompFeedforward_{false};  ///< When true, use gravity comp instead of full ID torques in WB_MPC mode
+
+  // ROS topic state for real-time PD gains updates
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr pdGainsSubscription_;
+  std::mutex pdGainsPendingMutex_;
+  std::string pdGainsPendingYamlContent_;
+  std::atomic<bool> hasNewPdGainsTopicData_{false};
+
+  /**
+   * @brief Compute per-joint gravity compensation torques via Pinocchio.
+   * Uses nonLinearEffects with zero velocity for pure gravity torques.
+   */
+  vector_t computeGravityCompensation(const ::robot::model::RobotState& robotState);
 };
 
 }  // namespace ocs2::humanoid

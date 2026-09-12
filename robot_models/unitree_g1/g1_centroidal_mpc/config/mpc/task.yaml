@@ -1,4 +1,39 @@
+# Simulation & Telemetry Configuration
+enableTelemetry: true        # Enable high-rate ROS 2 telemetry publishing for PlotJuggler
+telemetryFrequency: 100      # [Hz] Telemetry publishing frequency (decimated from MRT loop)
+enableOnlineTuning: true     # Enable runtime parameter and gain tuning in Controller GUI
+
+# Targeted Pinocchio frames for telemetry logging (position, orientation, twist, accel, wrench)
+telemetryFrames:
+  - "foot_l_contact"
+  - "foot_r_contact"
+  - "pelvis"
+  - "torso_link"
+
 centroidalModelType: 0  # 0: FullCentroidalDynamics, 1: Single Rigid Body Dynamics
+
+# MPC Problem Formulation Tasks
+hard_constraints:
+  - zero_wrench
+  - zero_velocity
+  - normal_velocity
+
+soft_constraints:
+  - joint_limits
+  - foot_collision
+  - friction_force_cone
+  - contact_moment_xy
+
+costs:
+  - state_quadratic_cost
+  - input_quadratic_cost
+  - terminal_cost
+  - icp_cost
+  - task_space_foot_cost
+  - task_space_torso_cost
+  - external_torque_cost
+
+useGravityCompFeedforward: false
 
 interface:
   verbose: true  # show the loaded parameters
@@ -8,6 +43,7 @@ interface:
 model_settings:
   robotName: g1
 
+  # LINT.IfChange(foot_constraint_section)
   foot_constraint:
     positionErrorGain_z: 5.0
     orientationErrorGain: 20.0
@@ -17,6 +53,8 @@ model_settings:
     linearAccelerationErrorGain_z: 0.0
     linearAccelerationErrorGain_xy: 0.0
     angularAccelerationErrorGain: 0.0
+    constrainOrientation: true
+  # LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/src/mrt/MpcParameterUpdaterModule.cpp:softConstraintWeight_yaml_path)
 
   phaseTransitionStanceTime: 0.0
 
@@ -110,7 +148,7 @@ initialState:
   # ; Base Pose: [position, orientation] ;;
   "(6,0)": 0.0  # p_base_x
   "(7,0)": 0.0  # p_base_y
-  "(8,0)": 0.7925  # p_base_z
+  "(8,0)": 0.7911  # p_base_z
   "(9,0)": 0.0  # theta_base_z
   "(10,0)": 0.0  # theta_base_y
   "(11,0)": 0.0  # theta_base_x

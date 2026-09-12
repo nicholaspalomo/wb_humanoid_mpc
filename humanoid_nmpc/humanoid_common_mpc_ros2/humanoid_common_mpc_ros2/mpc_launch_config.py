@@ -59,12 +59,46 @@ class MPCLaunchConfig:
             self.common_mpc_dir, "config/command/gait.yaml"
         )
 
+        # Prefer source-tree configs over ament install-space copies so that
+        # GUI edits and the C++ file-watcher both operate on the canonical file.
+        source_root = self._find_workspace_root()
+        if source_root:
+            for suffix in [
+                f"{mpc_config_pkg}/config/mpc/task.yaml",
+                f"{mpc_config_pkg}/config/command/reference.yaml",
+            ]:
+                # Walk robot_models/ to find the matching package directory
+                rm_dir = os.path.join(source_root, "robot_models")
+                if os.path.isdir(rm_dir):
+                    for root_dir, dirs, files in os.walk(rm_dir):
+                        if os.path.basename(root_dir) == mpc_config_pkg:
+                            rel = suffix[len(mpc_config_pkg) + 1 :]
+                            src = os.path.join(root_dir, rel)
+                            if os.path.exists(src):
+                                if "task.yaml" in rel:
+                                    default_mpc_config_path = src
+                                    print(
+                                        f"[MPCLaunchConfig] Using source-tree task.yaml: {src}"
+                                    )
+                                elif "reference.yaml" in rel:
+                                    default_target_command_path = src
+                                    print(
+                                        f"[MPCLaunchConfig] Using source-tree reference.yaml: {src}"
+                                    )
+                            break
+
         print("MPC config urdf file path: ", self.urdf_path)
 
         ### RVIZ Config ###
         default_rviz_config_path = os.path.join(
             get_package_share_directory("humanoid_common_mpc_ros2"),
             "rviz/humanoid.rviz",
+        )
+
+        ### PlotJuggler Config ###
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
+        default_plotjuggler_layout_path = os.path.join(
+            repo_root, "tools", "plotjuggler", "humanoid_telemetry.xml"
         )
 
         ### Termianl Prefix ###
@@ -179,6 +213,25 @@ class MPCLaunchConfig:
             arguments=["-d", LaunchConfiguration("rvizconfig")],
         )
 
+        plotjuggler_env = {}
+        pj_display = os.environ.get("PLOTJUGGLER_DISPLAY", "")
+        if pj_display:
+            plotjuggler_env["DISPLAY"] = pj_display
+
+        self.plotjuggler_node = launch_ros.actions.Node(
+            package="plotjuggler",
+            executable="plotjuggler",
+            name="plotjuggler",
+            output="screen",
+            additional_env=plotjuggler_env if plotjuggler_env else None,
+            arguments=[
+                "--buffer_size",
+                "60",
+                "--layout",
+                LaunchConfiguration("plotjuggler_layout"),
+            ],
+        )
+
         self.robot_state_publisher_node = launch_ros.actions.Node(
             package="robot_state_publisher",
             executable="robot_state_publisher",
@@ -239,6 +292,13 @@ class MPCLaunchConfig:
             executable="base_velocity_controller_gui",
             name="base_velocity_controller_gui",
             output="screen",
+            parameters=[
+                {
+                    "target_command_file": LaunchConfiguration("target_command_file"),
+                    "task_file": LaunchConfiguration("config_name"),
+                    "robot_name": LaunchConfiguration("robot_name"),
+                }
+            ],
         )
 
         self.mpc_observation_logger_node = launch_ros.actions.Node(
@@ -288,5 +348,43 @@ class MPCLaunchConfig:
             default_value=default_rviz_config_path,
             description="Absolute path to rviz config file",
         )
+        self.declare_plotjuggler_layout_path = DeclareLaunchArgument(
+            "plotjuggler_layout",
+            default_value=default_plotjuggler_layout_path,
+            description="Path to PlotJuggler XML layout",
+        )
 
         print("Finished launch config initialization")
+
+    @staticmethod
+    def _find_workspace_root() -> str:
+        """Find the wb_humanoid_mpc workspace root by searching for marker files.
+
+        Tries known devcontainer bind-mount locations first, then walks up from CWD.
+        Returns empty string if not found.
+        """
+        markers = ["WORKSPACE.bazel", "Makefile"]
+
+        # Known devcontainer bind-mount locations
+        candidates = [
+            "/wb_humanoid_mpc_ws/workspace/wb_humanoid_mpc",
+            "/wb_humanoid_mpc_ws/src/wb_humanoid_mpc",
+        ]
+        for c in candidates:
+            if os.path.isdir(c) and any(
+                os.path.exists(os.path.join(c, m)) for m in markers
+            ):
+                return c
+
+        # Walk up from CWD
+        d = os.path.abspath(os.getcwd())
+        for _ in range(10):
+            if any(os.path.exists(os.path.join(d, m)) for m in markers):
+                if os.path.isdir(os.path.join(d, "robot_models")):
+                    return d
+            parent = os.path.dirname(d)
+            if parent == d:
+                break
+            d = parent
+
+        return ""

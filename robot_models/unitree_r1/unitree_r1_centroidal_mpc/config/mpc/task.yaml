@@ -1,4 +1,37 @@
+# Simulation & Telemetry Configuration
+enableTelemetry: true        # Enable high-rate ROS 2 telemetry publishing for PlotJuggler
+telemetryFrequency: 100      # [Hz] Telemetry publishing frequency (decimated from MRT loop)
+enableOnlineTuning: true     # Enable runtime parameter and gain tuning in Controller GUI
+
+# Targeted Pinocchio frames for telemetry logging (position, orientation, twist, accel, wrench)
+telemetryFrames:
+  - "foot_l_contact"
+  - "foot_r_contact"
+  - "pelvis"
+  - "torso_link"
+
 centroidalModelType: 0  # 0: FullCentroidalDynamics, 1: Single Rigid Body Dynamics
+
+# MPC Problem Formulation Tasks
+hard_constraints:
+  - zero_wrench
+  - zero_velocity
+  - normal_velocity
+
+soft_constraints:
+  - joint_limits
+  - foot_collision
+  - friction_force_cone
+  - contact_moment_xy
+
+costs:
+  - state_quadratic_cost
+  - input_quadratic_cost
+  - terminal_cost
+  - icp_cost
+  - task_space_foot_cost
+  - task_space_torso_cost
+  - external_torque_cost
 
 interface:
   verbose: true  # show the loaded parameters
@@ -17,6 +50,7 @@ model_settings:
     linearAccelerationErrorGain_z: 0.0
     linearAccelerationErrorGain_xy: 0.0
     angularAccelerationErrorGain: 0.0
+    constrainOrientation: true
 
   phaseTransitionStanceTime: 0.0
 
@@ -108,83 +142,82 @@ initialState:
   # Base Pose: [position, orientation]
   "(6,0)": 0.0  # p_base_x
   "(7,0)": 0.0  # p_base_y
-  "(8,0)": 0.68  # p_base_z
+  "(8,0)": 0.7405  # p_base_z
   "(9,0)": 0.0  # theta_base_z
   "(10,0)": 0.0  # theta_base_y
   "(11,0)": 0.0  # theta_base_x
 
   # Joint Positions:
-  "(12,0)": -0.05  # left_hip_pitch_joint
+  "(12,0)": -0.15  # left_hip_pitch_joint
   "(13,0)": 0.0   # left_hip_roll_joint
   "(14,0)": 0.0   # left_hip_yaw_joint
-  "(15,0)": 0.1   # left_knee_joint
-  "(16,0)": -0.05 # left_ankle_pitch_joint
+  "(15,0)": 0.30   # left_knee_joint
+  "(16,0)": -0.15 # left_ankle_pitch_joint
   "(17,0)": 0.0   # left_ankle_roll_joint
-  "(18,0)": -0.05 # right_hip_pitch_joint
+  "(18,0)": -0.15 # right_hip_pitch_joint
   "(19,0)": 0.0   # right_hip_roll_joint
   "(20,0)": 0.0   # right_hip_yaw_joint
-  "(21,0)": 0.1   # right_knee_joint
-  "(22,0)": -0.05 # right_ankle_pitch_joint
+  "(21,0)": 0.3   # right_knee_joint
+  "(22,0)": -0.15 # right_ankle_pitch_joint
   "(23,0)": 0.0   # right_ankle_roll_joint
   "(24,0)": 0.0   # waist_roll_joint
   "(25,0)": 0.0   # waist_yaw_joint
-  "(26,0)": 0.0   # left_shoulder_pitch_joint
-  "(27,0)": 0.0   # left_shoulder_roll_joint
+  "(26,0)": 0.12   # left_shoulder_pitch_joint
+  "(27,0)": 0.15   # left_shoulder_roll_joint
   "(28,0)": 0.0   # left_shoulder_yaw_joint
-  "(29,0)": 0.0   # left_elbow_joint
-  "(30,0)": 0.0   # right_shoulder_pitch_joint
-  "(31,0)": 0.0   # right_shoulder_roll_joint
+  "(29,0)": 1.2   # left_elbow_joint
+  "(30,0)": 0.12   # right_shoulder_pitch_joint
+  "(31,0)": -0.15  # right_shoulder_roll_joint
   "(32,0)": 0.0   # right_shoulder_yaw_joint
-  "(33,0)": 0.0   # right_elbow_joint
+  "(33,0)": 1.2   # right_elbow_joint
 
 # standard state weight matrix
 Q:
-  scaling: 1e+0
+  scaling: 1
 
   # Normalized Centroidal Momentum: [linear, angular]
-  "(0,0)": 8.0   # h_com_x / robotMass
-  "(1,1)": 8.0   # h_com_y / robotMass
-  "(2,2)": 15.0  # h_com_z / robotMass
-  "(3,3)": 15.0  # L_x / robotMass
-  "(4,4)": 15.0  # L_y / robotMass
-  "(5,5)": 4.0   # L_z / robotMass
+  "(0,0)": 15.0  # h_com_x / robotMass
+  "(1,1)": 15.0  # h_com_y / robotMass
+  "(2,2)": 15  # h_com_z / robotMass
+  "(3,3)": 15  # L_x / robotMass
+  "(4,4)": 40  # L_y / robotMass
+  "(5,5)": 4  # L_z / robotMass
 
   # Base Pose: [position, orientation]
-  "(6,6)": 0.0   # p_base_x
-  "(7,7)": 0.0   # p_base_y
-  "(8,8)": 15.0  # p_base_z
-  "(9,9)": 0.0   # theta_base_z
-  "(10,10)": 5.0 # theta_base_y
-  "(11,11)": 5.0 # theta_base_x
+  "(6,6)": 20.0  # p_base_x
+  "(7,7)": 20.0  # p_base_y
+  "(8,8)": 30.0  # p_base_z
+  "(9,9)": 0  # theta_base_z
+  "(10,10)": 5  # theta_base_y
+  "(11,11)": 85.0  # theta_base_x
 
   # Joint Positions
   "(12,12)": 0.02  # left_hip_pitch_joint
-  "(13,13)": 0.06  # left_hip_roll_joint
-  "(14,14)": 4.0   # left_hip_yaw_joint
+  "(13,13)": 1.25  # left_hip_roll_joint
+  "(14,14)": 4  # left_hip_yaw_joint
   "(15,15)": 0.02  # left_knee_joint
   "(16,16)": 0.01  # left_ankle_pitch_joint
   "(17,17)": 0.01  # left_ankle_roll_joint
   "(18,18)": 0.02  # right_hip_pitch_joint
-  "(19,19)": 0.06  # right_hip_roll_joint
-  "(20,20)": 4.0   # right_hip_yaw_joint
+  "(19,19)": 1.25  # right_hip_roll_joint
+  "(20,20)": 4  # right_hip_yaw_joint
   "(21,21)": 0.02  # right_knee_joint
   "(22,22)": 0.01  # right_ankle_pitch_joint
   "(23,23)": 0.01  # right_ankle_roll_joint
-  "(24,24)": 0.5   # waist_roll_joint
-  "(25,25)": 2.0   # waist_yaw_joint
-  "(26,26)": 10.0  # left_shoulder_pitch_joint
-  "(27,27)": 20.0  # left_shoulder_roll_joint
-  "(28,28)": 2.0   # left_shoulder_yaw_joint
-  "(29,29)": 2.0   # left_elbow_joint
-  "(30,30)": 10.0  # right_shoulder_pitch_joint
-  "(31,31)": 20.0  # right_shoulder_roll_joint
-  "(32,32)": 2.0   # right_shoulder_yaw_joint
-  "(33,33)": 2.0   # right_elbow_joint
-
+  "(24,24)": 0.5  # waist_roll_joint
+  "(25,25)": 2  # waist_yaw_joint
+  "(26,26)": 10  # left_shoulder_pitch_joint
+  "(27,27)": 20  # left_shoulder_roll_joint
+  "(28,28)": 2  # left_shoulder_yaw_joint
+  "(29,29)": 2  # left_elbow_joint
+  "(30,30)": 10  # right_shoulder_pitch_joint
+  "(31,31)": 20  # right_shoulder_roll_joint
+  "(32,32)": 2  # right_shoulder_yaw_joint
+  "(33,33)": 2  # right_elbow_joint
 
 # control weight matrix
 R:
-  scaling: 1e-3
+  scaling: 0.01
 
   # Feet Contact Forces: [LF, RF]
   "(0,0)": 0.05  # left_force_x
@@ -192,81 +225,81 @@ R:
   "(2,2)": 0.01  # left_force_z
   "(3,3)": 0.05  # left_moment_x
   "(4,4)": 0.05  # left_moment_y
-  "(5,5)": 0.2   # left_moment_z
+  "(5,5)": 0.2  # left_moment_z
   "(6,6)": 0.05  # right_force_x
   "(7,7)": 0.05  # right_force_y
   "(8,8)": 0.01  # right_force_z
   "(9,9)": 0.05  # right_moment_x
-  "(10,10)": 0.05 # right_moment_y
+  "(10,10)": 0.05  # right_moment_y
   "(11,11)": 0.2  # right_moment_z
 
   # Joint Velocities
-  "(12,12)": 20.0  # left_hip_pitch_joint
-  "(13,13)": 20.0  # left_hip_roll_joint
-  "(14,14)": 200.0 # left_hip_yaw_joint
-  "(15,15)": 20.0  # left_knee_joint
-  "(16,16)": 20.0  # left_ankle_pitch_joint
-  "(17,17)": 20.0  # left_ankle_roll_joint
-  "(18,18)": 20.0  # right_hip_pitch_joint
-  "(19,19)": 20.0  # right_hip_roll_joint
-  "(20,20)": 200.0 # right_hip_yaw_joint
-  "(21,21)": 20.0  # right_knee_joint
-  "(22,22)": 20.0  # right_ankle_pitch_joint
-  "(23,23)": 20.0  # right_ankle_roll_joint
-  "(24,24)": 800.0 # waist_roll_joint
-  "(25,25)": 2000.0 # waist_yaw_joint
-  "(26,26)": 200.0 # left_shoulder_pitch_joint
-  "(27,27)": 100.0 # left_shoulder_roll_joint
-  "(28,28)": 100.0 # left_shoulder_yaw_joint
-  "(29,29)": 200.0 # left_elbow_joint
-  "(30,30)": 200.0 # right_shoulder_pitch_joint
-  "(31,31)": 100.0 # right_shoulder_roll_joint
-  "(32,32)": 100.0 # right_shoulder_yaw_joint
-  "(33,33)": 200.0 # right_elbow_joint
+  "(12,12)": 10.0  # left_hip_pitch_joint
+  "(13,13)": 20  # left_hip_roll_joint
+  "(14,14)": 200  # left_hip_yaw_joint
+  "(15,15)": 10.0  # left_knee_joint
+  "(16,16)": 20  # left_ankle_pitch_joint
+  "(17,17)": 20  # left_ankle_roll_joint
+  "(18,18)": 10.0 # right_hip_pitch_joint
+  "(19,19)": 20  # right_hip_roll_joint
+  "(20,20)": 200  # right_hip_yaw_joint
+  "(21,21)": 10.0  # right_knee_joint
+  "(22,22)": 20  # right_ankle_pitch_joint
+  "(23,23)": 20  # right_ankle_roll_joint
+  "(24,24)": 100.0  # waist_roll_joint
+  "(25,25)": 2000  # waist_yaw_joint
+  "(26,26)": 200  # left_shoulder_pitch_joint
+  "(27,27)": 100  # left_shoulder_roll_joint
+  "(28,28)": 100  # left_shoulder_yaw_joint
+  "(29,29)": 200  # left_elbow_joint
+  "(30,30)": 200  # right_shoulder_pitch_joint
+  "(31,31)": 100  # right_shoulder_roll_joint
+  "(32,32)": 100  # right_shoulder_yaw_joint
+  "(33,33)": 200  # right_elbow_joint
 
-terminalCostScaling: 3.0
+terminalCostScaling: 3
 Q_final:
-  scaling: 1e+0
+  scaling: 1
 
   # Normalized Centroidal Momentum: [linear, angular]
-  "(0,0)": 25.0  # h_com_x / robotMass
-  "(1,1)": 25.0  # h_com_y / robotMass
-  "(2,2)": 25.0  # h_com_z / robotMass
-  "(3,3)": 25.0  # L_x / robotMass
-  "(4,4)": 25.0  # L_y / robotMass
-  "(5,5)": 25.0  # L_z / robotMass
+  "(0,0)": 15.0  # h_com_x / robotMass
+  "(1,1)": 15.0  # h_com_y / robotMass
+  "(2,2)": 15  # h_com_z / robotMass
+  "(3,3)": 15  # L_x / robotMass
+  "(4,4)": 40  # L_y / robotMass
+  "(5,5)": 4  # L_z / robotMass
 
   # Base Pose: [position, orientation]
-  "(6,6)": 0.0   # p_base_x
-  "(7,7)": 0.0   # p_base_y
-  "(8,8)": 20.0  # p_base_z
-  "(9,9)": 0.0   # theta_base_z
-  "(10,10)": 5.0 # theta_base_y
-  "(11,11)": 5.0 # theta_base_x
+  "(6,6)": 0  # p_base_x
+  "(7,7)": 0  # p_base_y
+  "(8,8)": 30.0  # p_base_z
+  "(9,9)": 0  # theta_base_z
+  "(10,10)": 5  # theta_base_y
+  "(11,11)": 85.0  # theta_base_x
 
   # Joint Positions
   "(12,12)": 0.02  # left_hip_pitch_joint
-  "(13,13)": 0.06  # left_hip_roll_joint
-  "(14,14)": 8.0   # left_hip_yaw_joint
+  "(13,13)": 1.25  # left_hip_roll_joint
+  "(14,14)": 4  # left_hip_yaw_joint
   "(15,15)": 0.02  # left_knee_joint
   "(16,16)": 0.01  # left_ankle_pitch_joint
   "(17,17)": 0.01  # left_ankle_roll_joint
   "(18,18)": 0.02  # right_hip_pitch_joint
-  "(19,19)": 0.06  # right_hip_roll_joint
-  "(20,20)": 8.0   # right_hip_yaw_joint
+  "(19,19)": 1.25  # right_hip_roll_joint
+  "(20,20)": 4  # right_hip_yaw_joint
   "(21,21)": 0.02  # right_knee_joint
   "(22,22)": 0.01  # right_ankle_pitch_joint
   "(23,23)": 0.01  # right_ankle_roll_joint
-  "(24,24)": 0.5   # waist_roll_joint
-  "(25,25)": 2.0   # waist_yaw_joint
-  "(26,26)": 10.0  # left_shoulder_pitch_joint
-  "(27,27)": 20.0  # left_shoulder_roll_joint
-  "(28,28)": 2.0   # left_shoulder_yaw_joint
-  "(29,29)": 2.0   # left_elbow_joint
-  "(30,30)": 10.0  # right_shoulder_pitch_joint
-  "(31,31)": 20.0  # right_shoulder_roll_joint
-  "(32,32)": 2.0   # right_shoulder_yaw_joint
-  "(33,33)": 2.0   # right_elbow_joint
+  "(24,24)": 0.5  # waist_roll_joint
+  "(25,25)": 2  # waist_yaw_joint
+  "(26,26)": 10  # left_shoulder_pitch_joint
+  "(27,27)": 20  # left_shoulder_roll_joint
+  "(28,28)": 2  # left_shoulder_yaw_joint
+  "(29,29)": 2  # left_elbow_joint
+  "(30,30)": 10  # right_shoulder_pitch_joint
+  "(31,31)": 20  # right_shoulder_roll_joint
+  "(32,32)": 2  # right_shoulder_yaw_joint
+  "(33,33)": 2  # right_elbow_joint
 
 icp_cost_weights:
   icpErrorWeight: 0.0
@@ -355,16 +388,16 @@ right_leg_torque_cost:
 
 contacts:
   contact_frame_translation:
-    # Translation vector from parent joint to contact frame
-    x: 0.03
+    # Translation vector from parent joint to contact frame (center of foot support polygon)
+    x: 0.04
     y: 0.0
-    z: -0.03
+    z: -0.05324
   contact_rectangle:
     # length specified in contact frame
-    x_max: 0.08
-    x_min: -0.08
-    y_max: 0.03
-    y_min: -0.03
+    x_max: 0.095
+    x_min: -0.095
+    y_max: 0.035
+    y_min: -0.035
 
   frictionForceConeSoftConstraint:
     frictionCoefficient: 0.4

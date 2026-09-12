@@ -1,3 +1,5 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
 # humanoid_centroidal_mpc_test - Test package for centroidal MPC
@@ -8,6 +10,8 @@ _TEST_DEPS = [
     ":humanoid_centroidal_mpc_test_headers",
     "//humanoid_nmpc/humanoid_centroidal_mpc",
     "//humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_dummy_sim_node",
+    "//humanoid_nmpc/humanoid_common_mpc_ros2",
+    "//robot_runtime/robot_model",
     "@eigen",
     "@boost",
     "@pinocchio",
@@ -19,6 +23,8 @@ _TEST_DEPS = [
 _TEST_DATA = [
     "//robot_models/unitree_g1/g1_description",
     "//robot_models/unitree_g1/g1_centroidal_mpc",
+    "//robot_models/drc_atlas/drc_atlas_description",
+    "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
 ]
 
 _TEST_COPTS = [
@@ -60,6 +66,51 @@ cc_test(
     name = "test_contact_wrench_cone_constraint",
     size = "small",
     srcs = ["src/testContactWrenchConeConstraint.cpp"],
+    copts = _TEST_COPTS,
+    data = _TEST_DATA,
+    deps = _TEST_DEPS,
+)
+
+cc_test(
+    name = "test_angular_center_of_mass",
+    size = "small",
+    srcs = ["src/testAngularCenterOfMass.cpp"],
+    copts = _TEST_COPTS,
+    data = _TEST_DATA,
+    deps = _TEST_DEPS,
+)
+
+cc_test(
+    name = "test_pinocchio_telemetry_publisher",
+    size = "small",
+    srcs = ["src/testPinocchioTelemetryPublisher.cpp"],
+    copts = _TEST_COPTS,
+    data = _TEST_DATA,
+    deps = _TEST_DEPS,
+)
+cc_test(
+    name = "test_mpc_parameter_updater_module",
+    size = "large",
+    srcs = ["src/testMpcParameterUpdaterModule.cpp"],
+    copts = _TEST_COPTS,
+    data = _TEST_DATA,
+    deps = _TEST_DEPS,
+)
+cc_test(
+    name = "test_centroidal_mpc_mrt_joint_controller",
+    size = "small",
+    srcs = ["src/testCentroidalMpcMrtJointController.cpp"],
+    copts = _TEST_COPTS,
+    data = _TEST_DATA,
+    deps = _TEST_DEPS,
+)
+
+
+
+cc_test(
+    name = "test_active_in_stance",
+    size = "large",
+    srcs = ["src/testActiveInStance.cpp"],
     copts = _TEST_COPTS,
     data = _TEST_DATA,
     deps = _TEST_DEPS,

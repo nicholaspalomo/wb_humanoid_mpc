@@ -48,6 +48,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     sudo \
     ccache \
     bash-completion \
+    python3-pip \
+    python3-venv \
     && rm -rf /var/lib/apt/lists/*
 # LINT.ThenChange(//dependencies.txt:system_dependencies, //.github/workflows/build_test.yml:system_dependencies)
 

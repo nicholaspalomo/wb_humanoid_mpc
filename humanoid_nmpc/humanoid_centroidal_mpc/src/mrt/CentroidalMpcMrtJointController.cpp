@@ -1,4 +1,5 @@
 /******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -27,7 +28,11 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include <pinocchio/fwd.hpp>
+
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h"
+
+#include <fstream>
 
 #include <ocs2_robotic_tools/common/RotationDerivativesTransforms.h>
 #include <ocs2_robotic_tools/common/RotationTransforms.h>
@@ -35,10 +40,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "ocs2_centroidal_model/AccessHelperFunctions.h"
 
+#include <humanoid_common_mpc/common/ThreadAffinity.h>
 #include <humanoid_common_mpc/gait/MotionPhaseDefinition.h>
 #include <humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h>
 #include <humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h>
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
+
+#include <yaml-cpp/yaml.h>
+#include <filesystem>
+
+#include "absl/log/log.h"
+#include "absl/status/status.h"
+
+// Pinocchio algorithm headers (must come after pinocchio/fwd.hpp)
+#include <pinocchio/algorithm/rnea.hpp>
 
 namespace ocs2::humanoid {
 
@@ -48,23 +63,123 @@ CentroidalMpcMrtJointController::CentroidalMpcMrtJointController(const ::robot::
                                                                  MPC_BASE& mpc,
                                                                  PinocchioInterface pinocchioInterface,
                                                                  scalar_t mpcDesiredFrequency,
-                                                                 std::shared_ptr<DummyObserver> rVizVisualizerPtr)
+                                                                 std::shared_ptr<DummyObserver> rVizVisualizerPtr,
+                                                                 const std::string& pdGainsFile)
     : mcpMrtInterface_(mpc),
       pinocchioInterface_(pinocchioInterface),
       mpcRobotModelPtr_(mpcRobotModel.clone()),
       mpcDeltaTMicroSeconds_(1000000 / mpcDesiredFrequency),
       realtime_(mpcDesiredFrequency <= 0),
       visualizerPtr_(rVizVisualizerPtr),
-      inverse_dynamics_kp_(mpcRobotModel.getJointDim()),
-      inverse_dynamics_kd_(mpcRobotModel.getJointDim()) {
+      pdGainsFile_(pdGainsFile),
+      mpcModelJointNames_(modelSettings.mpcModelJointNames),
+      fixedJointNames_(modelSettings.fixedJointNames) {
   mpcJointIndices_ = robotDescription.getJointIndices(modelSettings.mpcModelJointNames);
   otherJointIndices_ = robotDescription.getJointIndices(modelSettings.fixedJointNames);
   currentMpcObservation_.state = vector_t::Zero(mpcRobotModelPtr_->getStateDim());
   currentMpcObservation_.input = vector_t::Zero(mpcRobotModelPtr_->getInputDim());
+  latestPolicyInput_ = vector_t::Zero(mpcRobotModelPtr_->getInputDim());
 
-  // Currently set to 0. There is still a bug in the momentum computation of the inverse dynamics.
-  inverse_dynamics_kp_.fill(0.0);
-  inverse_dynamics_kd_.fill(0.0);
+  if (!pdGainsFile_.empty() && std::filesystem::exists(pdGainsFile_)) {
+    std::error_code ec;
+    pdGainsLastWriteTime_ = std::filesystem::last_write_time(pdGainsFile_, ec);
+  }
+
+  loadPdGains(pdGainsFile);
+
+  // Register MPC Parameter Updater Module
+  // We need taskFile, urdfFile, referenceFile. Unfortunately these aren't directly available in the constructor signature.
+  // Wait! The constructor doesn't take taskFile, urdfFile, referenceFile!
+}
+
+void CentroidalMpcMrtJointController::loadPdGains(const std::string& pdGainsFile) {
+  mpcJointKp_.resize(mpcJointIndices_.size());
+  mpcJointKd_.resize(mpcJointIndices_.size());
+  mpcJointTorqueLimit_.resize(mpcJointIndices_.size());
+  otherJointKp_.resize(otherJointIndices_.size());
+  otherJointKd_.resize(otherJointIndices_.size());
+  otherJointTorqueLimit_.resize(otherJointIndices_.size());
+
+  scalar_t defaultKp = 250.0;
+  scalar_t defaultKd = 15.0;
+  scalar_t defaultTorqueLimit = 500.0;
+  std::unordered_map<std::string, std::tuple<scalar_t, scalar_t, scalar_t>> jointGainsMap;
+
+  if (!pdGainsFile.empty() && std::filesystem::exists(pdGainsFile)) {
+    try {
+      YAML::Node root = YAML::LoadFile(pdGainsFile);
+      if (root["default_gains"]) {
+        if (root["default_gains"]["kp"]) defaultKp = root["default_gains"]["kp"].as<scalar_t>();
+        if (root["default_gains"]["kd"]) defaultKd = root["default_gains"]["kd"].as<scalar_t>();
+        if (root["default_gains"]["torque_limit"]) defaultTorqueLimit = root["default_gains"]["torque_limit"].as<scalar_t>();
+      }
+      if (root["joint_gains"]) {
+        for (const auto& kv : root["joint_gains"]) {
+          std::string jname = kv.first.as<std::string>();
+          scalar_t kp = defaultKp;
+          scalar_t kd = defaultKd;
+          scalar_t tl = defaultTorqueLimit;
+          if (kv.second["kp"]) kp = kv.second["kp"].as<scalar_t>();
+          if (kv.second["kd"]) kd = kv.second["kd"].as<scalar_t>();
+          if (kv.second["torque_limit"]) tl = kv.second["torque_limit"].as<scalar_t>();
+          jointGainsMap[jname] = {kp, kd, tl};
+        }
+      }
+      LOG(INFO) << "[CentroidalMpcMrtJointController] Loaded joint PD gains from " << pdGainsFile;
+    } catch (const std::exception& e) {
+      LOG(WARNING) << "[CentroidalMpcMrtJointController] Failed to parse " << pdGainsFile << ": " << e.what();
+    }
+  }
+
+  for (size_t i = 0; i < mpcJointIndices_.size(); ++i) {
+    const std::string& jname = mpcModelJointNames_[i];
+    auto it = jointGainsMap.find(jname);
+    if (it != jointGainsMap.end()) {
+      mpcJointKp_[i] = std::get<0>(it->second);
+      mpcJointKd_[i] = std::get<1>(it->second);
+      mpcJointTorqueLimit_[i] = std::get<2>(it->second);
+    } else {
+      mpcJointKp_[i] = defaultKp;
+      mpcJointKd_[i] = defaultKd;
+      mpcJointTorqueLimit_[i] = defaultTorqueLimit;
+    }
+  }
+
+  for (size_t i = 0; i < otherJointIndices_.size(); ++i) {
+    const std::string& jname = fixedJointNames_[i];
+    auto it = jointGainsMap.find(jname);
+    if (it != jointGainsMap.end()) {
+      otherJointKp_[i] = std::get<0>(it->second);
+      otherJointKd_[i] = std::get<1>(it->second);
+      otherJointTorqueLimit_[i] = std::get<2>(it->second);
+    } else {
+      otherJointKp_[i] = defaultKp * 0.3;
+      otherJointKd_[i] = defaultKd * 0.3;
+      otherJointTorqueLimit_[i] = defaultTorqueLimit;
+    }
+  }
+
+  // Diagnostic: print actual gain values after loading
+  std::cerr << "[PD_GAINS_DEBUG] default_kp=" << defaultKp << " default_kd=" << defaultKd << std::endl;
+  for (size_t i = 0; i < mpcJointIndices_.size(); ++i) {
+    std::cerr << "  mpc_joint[" << i << "] " << mpcModelJointNames_[i] << " kp=" << mpcJointKp_[i] << " kd=" << mpcJointKd_[i] << std::endl;
+  }
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+void CentroidalMpcMrtJointController::subscribePdGains(rclcpp::Node::SharedPtr node) {
+  auto qos = rclcpp::QoS(1).best_effort();
+  pdGainsSubscription_ =
+      node->create_subscription<std_msgs::msg::String>("/pd_gains_updates", qos, [this](const std_msgs::msg::String::SharedPtr msg) {
+        std::lock_guard<std::mutex> lock(pdGainsPendingMutex_);
+        pdGainsPendingYamlContent_ = msg->data;
+        hasNewPdGainsTopicData_.store(true);
+        std::cerr << "[CentroidalMpcMrtJointController] topicCallback received " << msg->data.size() << " chars" << std::endl;
+      });
+  LOG(INFO) << "[CentroidalMpcMrtJointController] Subscribed to /pd_gains_updates topic.";
 }
 
 /******************************************************************************************************/
@@ -127,7 +242,8 @@ void CentroidalMpcMrtJointController::updateMpcObservation(ocs2::SystemObservati
                                                            const ::robot::model::RobotState& robotState) {
   updateMpcState(mpcObservation.state, robotState);
   mpcObservation.time = robotState.getTime();
-  mpcObservation.input = vector_t::Zero(mpcRobotModelPtr_->getInputDim());  // Add contact forces later.
+  mpcObservation.input = vector_t::Zero(mpcRobotModelPtr_->getInputDim());
+  mpcObservation.input.tail(mpcRobotModelPtr_->getJointDim()) = robotState.getJointVelocities(mpcJointIndices_, 0.0);
   std::vector<bool> configContacts = robotState.getContactFlags();
   assert(configContacts.size() == 2);
   contact_flag_t contactFlags;
@@ -142,39 +258,172 @@ void CentroidalMpcMrtJointController::updateMpcObservation(ocs2::SystemObservati
 void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
                                                                 const ::robot::model::RobotState& robotState,
                                                                 ::robot::model::RobotJointAction& robotJointAction) {
+  // Check for ROS topic-based PD gains update (takes priority over file-watcher)
+  if (hasNewPdGainsTopicData_.load()) {
+    hasNewPdGainsTopicData_.store(false);
+    std::string yamlContent;
+    {
+      std::lock_guard<std::mutex> lock(pdGainsPendingMutex_);
+      yamlContent = std::move(pdGainsPendingYamlContent_);
+    }
+    if (!yamlContent.empty()) {
+      // Write to a temp file and call loadPdGains
+      std::string tempFile = pdGainsFile_ + ".live.yaml";
+      {
+        std::ofstream ofs(tempFile);
+        ofs << yamlContent;
+      }
+      loadPdGains(tempFile);
+      std::cerr << "[CentroidalMpcMrtJointController] Applied PD gains from topic." << std::endl;
+    }
+  }
+
+  // Hot-reload Joint PD Gains at ~1Hz (assuming ~100Hz control loop)
+  if (!pdGainsFile_.empty() && fileCheckCounter_++ % 100 == 0) {
+    std::error_code ec;
+    auto last_write = std::filesystem::last_write_time(pdGainsFile_, ec);
+    if (!ec && last_write != pdGainsLastWriteTime_) {
+      LOG(INFO) << "[CentroidalMpcMrtJointController] PD gains file changed (old=" << pdGainsLastWriteTime_.time_since_epoch().count()
+                << " new=" << last_write.time_since_epoch().count() << "). Reloading...";
+      pdGainsLastWriteTime_ = last_write;
+      loadPdGains(pdGainsFile_);
+    }
+  }
+
+  // Always update MPC observation so the solver continues tracking robot state and time in all modes.
   updateMpcObservation(currentMpcObservation_, robotState);
-  // Set observation to MPC
   mcpMrtInterface_.setCurrentObservation(currentMpcObservation_);
+
+  // JOINT_PD mode: PD tracking to nominal positions + Pinocchio gravity compensation.
+  // This code path is shared between sim and real hardware.
+  if (controlMode_ == "JOINT_PD") {
+    vector_t gravTorques = computeGravityCompensation(robotState);
+
+    for (size_t i = 0; i < mpcJointIndices_.size(); i++) {
+      size_t index = mpcJointIndices_[i];
+      robot::model::JointAction& action = robotJointAction.at(index).value();
+      action.q_des = nominalJointPositions_.empty() ? 0.0 : nominalJointPositions_[index];
+      action.qd_des = 0.0;
+      action.kp = mpcJointKp_[i];
+      action.kd = mpcJointKd_[i];
+      action.feed_forward_effort = gravTorques[i];
+    }
+
+    for (size_t i = 0; i < otherJointIndices_.size(); i++) {
+      size_t index = otherJointIndices_[i];
+      robot::model::JointAction& action = robotJointAction.at(index).value();
+      action.q_des = nominalJointPositions_.empty() ? 0.0 : nominalJointPositions_[index];
+      action.qd_des = 0.0;
+      action.kp = otherJointKp_[i];
+      action.kd = otherJointKd_[i];
+      action.feed_forward_effort = 0.0;  // Non-MPC joints don't get gravity comp
+    }
+
+    // Debug: print gravity comp torques and position errors (throttled)
+    static size_t debugCount = 0;
+    if (++debugCount % 500 == 1) {
+      std::cerr << "[JOINT_PD] gravTorques: " << gravTorques.transpose() << std::endl;
+      for (size_t i = 0; i < mpcJointIndices_.size(); i++) {
+        size_t index = mpcJointIndices_[i];
+        double q_cur = robotState.getJointPosition(index);
+        double q_des = nominalJointPositions_.empty() ? 0.0 : nominalJointPositions_[index];
+        if (std::abs(q_des - q_cur) > 0.05) {
+          std::cerr << "  joint[" << index << "] err=" << (q_des - q_cur) << " q_cur=" << q_cur << " q_des=" << q_des
+                    << " kp=" << mpcJointKp_[i] << " gravFF=" << gravTorques[i] << std::endl;
+        }
+      }
+    }
+
+    return;
+  }
+
+  // GRAVITY_COMP mode: Zero-G compliant mode using pure gravity compensation torques + light damping.
+  // Limbs can be moved compliantly by hand or external forces.
+  if (controlMode_ == "GRAVITY_COMP") {
+    vector_t gravTorques = computeGravityCompensation(robotState);
+
+    for (size_t i = 0; i < mpcJointIndices_.size(); i++) {
+      size_t index = mpcJointIndices_[i];
+      robot::model::JointAction& action = robotJointAction.at(index).value();
+      action.q_des = robotState.getJointPosition(index);
+      action.qd_des = 0.0;
+      action.kp = 0.0;
+      action.kd = mpcJointKd_[i] * 0.2;  // Soft damping to prevent free-fall oscillation
+      action.feed_forward_effort = std::clamp(gravTorques[i], -mpcJointTorqueLimit_[i], mpcJointTorqueLimit_[i]);
+    }
+
+    for (size_t i = 0; i < otherJointIndices_.size(); i++) {
+      size_t index = otherJointIndices_[i];
+      robot::model::JointAction& action = robotJointAction.at(index).value();
+      action.q_des = nominalJointPositions_.empty() ? 0.0 : nominalJointPositions_[index];
+      action.qd_des = 0.0;
+      action.kp = otherJointKp_[i] * 0.5;
+      action.kd = otherJointKd_[i];
+      action.feed_forward_effort = 0.0;
+    }
+
+    return;
+  }
+
+  // Active MPC control path
+  mcpMrtInterface_.updatePolicy();
 
   vector_t mpcPolicyState;
   vector_t mpcPolicyInput;
   size_t mpcPolicyMode;
 
   if (mcpMrtInterface_.initialPolicyReceived()) {
+    // Compute actual sim dt from elapsed simulation time (respects RTF)
+    scalar_t simDt = currentMpcObservation_.time - previousObservationTime_;
+    // Clamp to sane range: avoid zero/negative (first call, time resets) and excessive lookahead
+    simDt = std::clamp(simDt, 0.001, 0.02);
+
     // Evaluate policy with feedback if activated in config
-    mcpMrtInterface_.evaluatePolicy(currentMpcObservation_.time + 0.005, currentMpcObservation_.state, mpcPolicyState, mpcPolicyInput,
+    mcpMrtInterface_.evaluatePolicy(currentMpcObservation_.time + simDt, currentMpcObservation_.state, mpcPolicyState, mpcPolicyInput,
                                     mpcPolicyMode);
+    latestPolicyInput_ = mpcPolicyInput;
 
     // TODO something seems wrong with the inverse dynamics. You should correct that.
     vector_t mpc_q_j_des = mpcRobotModelPtr_->getJointAngles(mpcPolicyState);
     vector_t mpc_qd_j_des = mpcRobotModelPtr_->getJointVelocities(mpcPolicyState, mpcPolicyInput);
     vector_t q_j = mpcRobotModelPtr_->getJointAngles(currentMpcObservation_.state);
     vector_t qd_j = mpcRobotModelPtr_->getJointVelocities(currentMpcObservation_.state, currentMpcObservation_.input);
-    vector_t qdd_j_des = inverse_dynamics_kp_ * (mpc_q_j_des - q_j) + inverse_dynamics_kd_ * (mpc_qd_j_des - qd_j);
+
+    // Sanity check: detect divergence in MPC policy state to prevent violent actuator thrashing
+    scalar_t maxJointError = (mpc_q_j_des - q_j).cwiseAbs().maxCoeff();
+    bool policyDiverged = !mpcPolicyState.allFinite() || !mpcPolicyInput.allFinite() || maxJointError > 0.5;
+    if (policyDiverged) {
+      static size_t divergeWarnCount = 0;
+      if (++divergeWarnCount % 50 == 1) {
+        LOG(WARNING) << "[CentroidalMPC] MPC policy diverged from actual state (max joint error=" << maxJointError
+                     << " rad). Triggering MPC reset and clamping joint targets.";
+      }
+      requestMpcReset();
+      for (int k = 0; k < mpc_q_j_des.size(); ++k) {
+        mpc_q_j_des[k] = std::clamp(mpc_q_j_des[k], q_j[k] - 0.2, q_j[k] + 0.2);
+      }
+      mpc_qd_j_des.setZero();
+    }
+
+    // Feedforward joint acceleration is set to zero so feedforward torques act as pure
+    // dynamic cancellation (gravity, Coriolis, and contact forces) and do not fight actuator PD loops.
+    vector_t qdd_j_des = vector_t::Zero(mpcRobotModelPtr_->getJointDim());
 
     std::array<vector6_t, 2> footWrenches{mpcRobotModelPtr_->getContactWrench(mpcPolicyInput, 0),
                                           mpcRobotModelPtr_->getContactWrench(mpcPolicyInput, 1)};
 
+    // Evaluate inverse dynamics using measured robot state for physical consistency
     vector_t q = mpcRobotModelPtr_->getGeneralizedCoordinates(currentMpcObservation_.state);
     vector_t qd = mpcRobotModelPtr_->getGeneralizedVelocities(currentMpcObservation_.state, currentMpcObservation_.input);
-    // std::cerr << qd.head(6).transpose() << std::endl;
-
-    // This did not help.
-    // qd.head(6) = vector6_t::Zero();
 
     vector_t mpcJointTorques = computeJointTorques<scalar_t>(q, qd, qdd_j_des, footWrenches, pinocchioInterface_);
 
-    // std::cout << "mpcJointTorques: " << mpcJointTorques.transpose() << std::endl;
+    // Gravity-comp fallback: use pure gravity compensation instead of full ID torques.
+    // Enable via `useGravityCompFeedforward: true` in task.yaml to isolate ID issues.
+    vector_t feedforwardTorques = mpcJointTorques;
+    if (useGravityCompFeedforward_) {
+      feedforwardTorques = computeGravityCompensation(robotState);
+    }
 
     for (size_t i = 0; i < mpcJointIndices_.size(); i++) {
       size_t index = mpcJointIndices_[i];
@@ -182,15 +431,82 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
 
       action.q_des = mpc_q_j_des[i];
       action.qd_des = mpc_qd_j_des[i];
-      action.kp = 1200.0;
-      action.kd = 10.0;
-      action.feed_forward_effort = mpcJointTorques[i];
-
-      // std::cerr << "MPCtorque!: " << mpcJointTorques[i] << std::endl;
+      action.kp = mpcJointKp_[i];
+      action.kd = mpcJointKd_[i];
+      action.feed_forward_effort = std::clamp(feedforwardTorques[i], -mpcJointTorqueLimit_[i], mpcJointTorqueLimit_[i]);
     };
 
-    if (visualizerPtr_ != nullptr) {
-      visualizerPtr_->update(currentMpcObservation_, mcpMrtInterface_.getPolicy(), mcpMrtInterface_.getCommand());
+    // ──── Transition diagnostics: first 50 cycles after WB_MPC mode entry ────
+    // Decomposes total torque into PD vs feedforward components to isolate
+    // whether instability comes from MPC tracking targets (PD) or inverse dynamics (FF).
+    ++transitionCounter_;
+    if (transitionCounter_ <= 50 && transitionCounter_ % 5 == 1) {
+      vector_t gravTorques = computeGravityCompensation(robotState);
+      double Fz_total = footWrenches[0][2] + footWrenches[1][2];
+
+      std::cerr << "\n[TRANSITION t=" << currentMpcObservation_.time << " cycle=" << transitionCounter_ << "]"
+                << "\n  Base z: planned=" << mpcRobotModelPtr_->getGeneralizedCoordinates(mpcPolicyState)(2)
+                << " actual=" << mpcRobotModelPtr_->getGeneralizedCoordinates(currentMpcObservation_.state)(2)
+                << "\n  Base pitch: planned=" << mpcRobotModelPtr_->getGeneralizedCoordinates(mpcPolicyState)(4)
+                << " actual=" << mpcRobotModelPtr_->getGeneralizedCoordinates(currentMpcObservation_.state)(4)
+                << "\n  Fz_total=" << Fz_total << " (mg≈" << (9.81 * pinocchioInterface_.getModel().inertias[0].mass()) << ")" << std::endl;
+
+      // Per-joint breakdown for leg joints (indices 12..23 in MPC joint order = leg joints)
+      std::cerr << "  Joint breakdown (leg joints): q_des | q_cur | err | PD_tau | FF_tau | grav_tau" << std::endl;
+      for (size_t i = 0; i < mpcJointIndices_.size(); i++) {
+        size_t index = mpcJointIndices_[i];
+        double q_cur = robotState.getJointPosition(index);
+        double qd_cur = robotState.getJointVelocity(index);
+        double q_des = mpc_q_j_des[i];
+        double qd_des = mpc_qd_j_des[i];
+
+        double pd_torque = mpcJointKp_[i] * (q_des - q_cur) + mpcJointKd_[i] * (qd_des - qd_cur);
+        double ff_torque = mpcJointTorques[i];
+        double total = pd_torque + ff_torque;
+
+        // Only print if significant error or large torque
+        if (std::abs(q_des - q_cur) > 0.02 || std::abs(total) > 50.0) {
+          std::cerr << "    [" << mpcModelJointNames_[i] << "] q_des=" << q_des << " q_cur=" << q_cur << " err=" << (q_des - q_cur)
+                    << " PD=" << pd_torque << " FF=" << ff_torque << " grav=" << gravTorques[i] << " total=" << total << std::endl;
+        }
+      }
+    }
+
+    static size_t mpcDebugCount = 0;
+    if (++mpcDebugCount % 200 == 1) {
+      // MPC planned base vs actual base
+      vector_t q_planned = mpcRobotModelPtr_->getGeneralizedCoordinates(mpcPolicyState);
+      vector_t q_actual = mpcRobotModelPtr_->getGeneralizedCoordinates(currentMpcObservation_.state);
+
+      // Compare planned vs actual joint positions (first 6 joints = spine + arms)
+      vector_t qj_planned = mpcRobotModelPtr_->getJointAngles(mpcPolicyState);
+      vector_t qj_actual = mpcRobotModelPtr_->getJointAngles(currentMpcObservation_.state);
+
+      // Total vertical contact force vs robot weight
+      double Fz_total = footWrenches[0][2] + footWrenches[1][2];
+
+      // Also compute and print gravity compensation torques for comparison
+      vector_t gravTorques = computeGravityCompensation(robotState);
+
+      for (size_t i = 0; i < mpcJointIndices_.size(); i++) {
+        size_t index = mpcJointIndices_[i];
+        double q_cur = robotState.getJointPosition(index);
+        double q_des = mpc_q_j_des[i];
+        if (std::abs(q_des - q_cur) > 0.05 || std::abs(mpcJointTorques[i]) > 100.0) {
+          // Temporarily suppressed: std::cerr inside 500Hz RT loop causes massive blocking
+          // std::cerr << "  mpc_joint[" << index << "] des=" << q_des << " cur=" << q_cur << " err=" << (q_des - q_cur)
+          //          << " ID_tau=" << mpcJointTorques[i] << " grav_tau=" << gravTorques[i] << std::endl;
+        }
+      }
+    }
+
+    static size_t vizCounter = 0;
+    if (visualizerPtr_ != nullptr && (++vizCounter % 16 == 0)) {
+      try {
+        visualizerPtr_->update(currentMpcObservation_, mcpMrtInterface_.getPolicy(), mcpMrtInterface_.getCommand());
+      } catch (const std::exception& e) {
+        // Suppress transient visualization exceptions during mode switches to protect real-time loop
+      }
     }
   }
 
@@ -210,11 +526,11 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
       size_t index = mpcJointIndices_[i];
       robot::model::JointAction& action = robotJointAction.at(index).value();
 
-      action.q_des = 0;
-      action.qd_des = 0;
-      action.kp = 1200;
-      action.kd = 10;
-      action.feed_forward_effort = weightCompensatingTorques[i];
+      action.q_des = nominalJointPositions_.empty() ? robotState.getJointPosition(index) : nominalJointPositions_[index];
+      action.qd_des = 0.0;
+      action.kp = mpcJointKp_[i];
+      action.kd = mpcJointKd_[i];
+      action.feed_forward_effort = std::clamp(weightCompensatingTorques[i], -mpcJointTorqueLimit_[i], mpcJointTorqueLimit_[i]);
     };
   }
 
@@ -222,44 +538,51 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
     size_t index = otherJointIndices_[i];
     robot::model::JointAction& action = robotJointAction.at(index).value();
 
-    action.q_des = 0;
+    action.q_des = nominalJointPositions_.empty() ? 0.0 : nominalJointPositions_[index];
     action.qd_des = 0;
-    action.kp = 100;
-    action.kd = 1.0;
+    action.kp = otherJointKp_[i];
+    action.kd = otherJointKd_[i];
     action.feed_forward_effort = 0.0;
   };
+
+  // Track observation time for next call's dt computation
+  previousObservationTime_ = currentMpcObservation_.time;
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 void CentroidalMpcMrtJointController::solverWorker() {
-  // while (!isInitialized_.load()) {
-  //   std::this_thread::sleep_for(std::chrono::milliseconds(100));
-  // }
+  const auto coreAlloc = ocs2::humanoid::getDefaultCoreAllocation();
+  ocs2::humanoid::setThreadCpuAffinity(coreAlloc.mpcCores, pthread_self(), "Centroidal MPC Solver Thread");
 
   mcpMrtInterface_.resetMpcNode(currentObservationToResetTrajectory(mcpMrtInterface_.getCurrentObservation()));
   std::cerr << "MPC is reset. NMPC solver started!" << std::endl;
 
-  while (true) {
+  size_t slowWarningCount = 0;
+  while (!terminateThread_.load()) {
     auto targetTimeForNextIteration = std::chrono::steady_clock::now() + std::chrono::microseconds(mpcDeltaTMicroSeconds_);
 
-    mcpMrtInterface_.advanceMpc();
-
-    // Publish if Policy has been updated
-    if (!mcpMrtInterface_.updatePolicy()) {
-      std::cerr << "The solver has failed to update!!" << std::endl;
-      return;
+    // Handle externally-requested MPC reset (e.g. gantry lock/unlock)
+    if (resetMpcRequested_.exchange(false)) {
+      mcpMrtInterface_.resetMpcNode(currentObservationToResetTrajectory(mcpMrtInterface_.getCurrentObservation()));
+      std::cerr << "MPC reset to current observation (external request)." << std::endl;
     }
 
-    // std::cerr << "MPC policy computed!" << std::endl;
+    absl::Status mpcStatus = mcpMrtInterface_.advanceMpc();
+    if (!mpcStatus.ok()) {
+      // MPC solver failed — log, request reset, and continue with previous solution.
+      LOG(ERROR) << "MPC solver error: " << mpcStatus.message() << " — requesting reset and retrying.";
+      resetMpcRequested_.store(true);
+    }
 
     if (!realtime_) {
       auto currentTime = std::chrono::steady_clock::now();
       if (currentTime > targetTimeForNextIteration) {
         auto delay = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - targetTimeForNextIteration).count();
-
-        std::cerr << "Warning: MPC loop running slow by " << delay << " microseconds." << std::endl;
+        if (delay > 1000 && (++slowWarningCount % 20 == 0)) {
+          std::cerr << "Warning: MPC loop running slow by " << delay << " microseconds." << std::endl;
+        }
       } else {
         // Sleep in case sim loop is faster than specified
         std::this_thread::sleep_until(targetTimeForNextIteration);
@@ -273,19 +596,57 @@ void CentroidalMpcMrtJointController::solverWorker() {
 /******************************************************************************************************/
 /******************************************************************************************************/
 TargetTrajectories CentroidalMpcMrtJointController::currentObservationToResetTrajectory(const SystemObservation& currentObservation) {
+  const auto& info = mpcRobotModelPtr_->getCentroidalModelInfo();
   vector_t targetState = currentObservation.state;
 
-  // zero out velocities
-  targetState.tail(mpcRobotModelPtr_->getGenCoordinatesDim()) = vector_t::Zero(mpcRobotModelPtr_->getGenCoordinatesDim());
+  // Zero out normalized momentum (linear and angular momentum: first 6 DOFs)
+  centroidal_model::getNormalizedMomentum(targetState, info).setZero();
 
-  // zero out pitch + roll angles
-  targetState.segment<2>(4) = vector_t::Zero(2);
+  // Zero out base pitch (idx 10) and roll (idx 11) so target base is upright
+  targetState(10) = 0.0;
+  targetState(11) = 0.0;
 
-  const TargetTrajectories resetTargetTrajectories({currentObservation.time}, {targetState},
-                                                   {vector_t::Zero(currentObservation.input.size())});
+  // Keep current joint positions from observation — do NOT overwrite with nominal.
+  // Using nominal positions here creates a kinematically inconsistent target
+  // (current base height + nominal joint angles) that makes the MPC try to
+  // "correct" the inconsistency, shooting the base upward.
 
-  std::cerr << "Resetting MPC to current state: \n" << targetState << std::endl;
+  // Weight-compensating vertical contact forces (forces = mg/2 per foot in stance)
+  vector_t targetInput = weightCompensatingInput(pinocchioInterface_, {true, true}, *mpcRobotModelPtr_);
+
+  scalar_t t0 = currentObservation.time;
+  scalar_t t1 = t0 + 2.0;
+
+  const TargetTrajectories resetTargetTrajectories({t0, t1}, {targetState, targetState}, {targetInput, targetInput});
+
+  std::cerr << "[CentroidalMPC] Resetting MPC target trajectory. Base pos: " << targetState.segment<3>(6).transpose()
+            << " Base z: " << targetState(8) << " Input forces: " << targetInput.head(3).transpose() << " / "
+            << targetInput.segment<3>(6).transpose() << std::endl;
   return resetTargetTrajectories;
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+vector_t CentroidalMpcMrtJointController::computeGravityCompensation(const ::robot::model::RobotState& robotState) {
+  const auto& info = mpcRobotModelPtr_->getCentroidalModelInfo();
+  const auto& model = pinocchioInterface_.getModel();
+  auto& data = pinocchioInterface_.getData();
+
+  // Build Pinocchio generalized coordinates from robot state
+  const vector3_t euler_zyx = quaternionToEulerZYX(robotState.getRootRotationLocalToWorldFrame());
+  vector_t q(info.generalizedCoordinatesNum);
+  q.head<3>() = robotState.getRootPositionInWorldFrame();
+  q.segment<3>(3) = euler_zyx;
+  q.tail(mpcRobotModelPtr_->getJointDim()) = robotState.getJointPositions(mpcJointIndices_);
+
+  // Compute gravity torques: nonLinearEffects with zero velocity gives pure gravity terms
+  vector_t zeroVelocity = vector_t::Zero(info.generalizedCoordinatesNum);
+  pinocchio::nonLinearEffects(model, data, q, zeroVelocity);
+
+  // data.nle now contains gravity torques for all generalized coordinates.
+  // Return only the joint portion (skip the 6 floating-base DOFs).
+  return data.nle.tail(mpcRobotModelPtr_->getJointDim());
 }
 
 }  // namespace ocs2::humanoid

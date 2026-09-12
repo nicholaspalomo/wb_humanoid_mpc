@@ -1,3 +1,5 @@
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 # humanoid_centroidal_mpc - Centroidal MPC library
 
@@ -16,6 +18,7 @@ cc_library(
         "src/CentroidalMpcInterface.cpp",
         "src/command/CentroidalMpcTargetTrajectoriesCalculator.cpp",
         "src/mrt/CentroidalMpcMrtJointController.cpp",
+        "src/mrt/MpcParameterUpdaterModule.cpp",
     ],
     hdrs = glob(["include/**"], allow_empty = True),
     includes = ["include"],
@@ -40,10 +43,39 @@ cc_library(
         "//lib/ocs2:ocs2_mpc",
         "//lib/ocs2:ocs2_sqp",
         "//lib/ocs2:ocs2_pinocchio_interface",
+        "@abseil-cpp//absl/log:log",
+        "@abseil-cpp//absl/strings",
         "@eigen",
         "@boost",
         "@pinocchio",
         "@ros2_rclcpp",
+        "@ros2_std_msgs",
         "@ros2_ament_index_cpp",
+    ],
+)
+
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+
+cc_test(
+    name = "testMpcParameterUpdaterModule",
+    srcs = ["test/testMpcParameterUpdaterModule.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+        "-DBOOST_VARIANT_LIMIT_TYPES=50",
+        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+    ],
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":humanoid_centroidal_mpc",
+        "@gtest//:gtest_main",
     ],
 )

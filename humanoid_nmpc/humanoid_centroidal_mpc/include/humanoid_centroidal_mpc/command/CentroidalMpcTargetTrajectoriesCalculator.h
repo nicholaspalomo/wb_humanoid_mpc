@@ -76,6 +76,10 @@ class CentroidalMpcTargetTrajectoriesCalculator : public TargetTrajectoriesCalcu
   PinocchioInterface pinocchioInterface_;
   const CentroidalModelInfo& info_;
   const scalar_t mass_;
+
+  scalar_t targetJointStateInterpolationTimeConstant_;
+  scalar_t lastTime_ = 0.0;
+  vector_t filteredJointState_;
 };
 
 }  // namespace ocs2::humanoid
