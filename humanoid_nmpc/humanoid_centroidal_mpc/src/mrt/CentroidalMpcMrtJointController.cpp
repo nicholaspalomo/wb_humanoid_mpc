@@ -64,10 +64,13 @@ CentroidalMpcMrtJointController::CentroidalMpcMrtJointController(const ::robot::
                                                                  PinocchioInterface pinocchioInterface,
                                                                  scalar_t mpcDesiredFrequency,
                                                                  std::shared_ptr<DummyObserver> rVizVisualizerPtr,
-                                                                 const std::string& pdGainsFile)
+                                                                 const std::string& pdGainsFile,
+                                                                 const MpcRobotModelBase<scalar_t>* effectiveMpcRobotModel)
     : mcpMrtInterface_(mpc),
       pinocchioInterface_(pinocchioInterface),
       mpcRobotModelPtr_(mpcRobotModel.clone()),
+      effectiveModelPtr_(effectiveMpcRobotModel ? std::unique_ptr<MpcRobotModelBase<scalar_t>>(effectiveMpcRobotModel->clone())
+                                                : std::unique_ptr<MpcRobotModelBase<scalar_t>>(mpcRobotModel.clone())),
       mpcDeltaTMicroSeconds_(1000000 / mpcDesiredFrequency),
       realtime_(mpcDesiredFrequency <= 0),
       visualizerPtr_(rVizVisualizerPtr),
@@ -76,9 +79,9 @@ CentroidalMpcMrtJointController::CentroidalMpcMrtJointController(const ::robot::
       fixedJointNames_(modelSettings.fixedJointNames) {
   mpcJointIndices_ = robotDescription.getJointIndices(modelSettings.mpcModelJointNames);
   otherJointIndices_ = robotDescription.getJointIndices(modelSettings.fixedJointNames);
-  currentMpcObservation_.state = vector_t::Zero(mpcRobotModelPtr_->getStateDim());
-  currentMpcObservation_.input = vector_t::Zero(mpcRobotModelPtr_->getInputDim());
-  latestPolicyInput_ = vector_t::Zero(mpcRobotModelPtr_->getInputDim());
+  currentMpcObservation_.state = vector_t::Zero(effectiveModelPtr_->getStateDim());
+  currentMpcObservation_.input = vector_t::Zero(effectiveModelPtr_->getInputDim());
+  latestPolicyInput_ = vector_t::Zero(effectiveModelPtr_->getInputDim());
 
   if (!pdGainsFile_.empty() && std::filesystem::exists(pdGainsFile_)) {
     std::error_code ec;
@@ -242,8 +245,8 @@ void CentroidalMpcMrtJointController::updateMpcObservation(ocs2::SystemObservati
                                                            const ::robot::model::RobotState& robotState) {
   updateMpcState(mpcObservation.state, robotState);
   mpcObservation.time = robotState.getTime();
-  mpcObservation.input = vector_t::Zero(mpcRobotModelPtr_->getInputDim());
-  mpcObservation.input.tail(mpcRobotModelPtr_->getJointDim()) = robotState.getJointVelocities(mpcJointIndices_, 0.0);
+  mpcObservation.input = vector_t::Zero(effectiveModelPtr_->getInputDim());
+  mpcObservation.input.tail(effectiveModelPtr_->getJointDim()) = robotState.getJointVelocities(mpcJointIndices_, 0.0);
   std::vector<bool> configContacts = robotState.getContactFlags();
   assert(configContacts.size() == 2);
   contact_flag_t contactFlags;
@@ -384,10 +387,10 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
     latestPolicyInput_ = mpcPolicyInput;
 
     // TODO something seems wrong with the inverse dynamics. You should correct that.
-    vector_t mpc_q_j_des = mpcRobotModelPtr_->getJointAngles(mpcPolicyState);
-    vector_t mpc_qd_j_des = mpcRobotModelPtr_->getJointVelocities(mpcPolicyState, mpcPolicyInput);
-    vector_t q_j = mpcRobotModelPtr_->getJointAngles(currentMpcObservation_.state);
-    vector_t qd_j = mpcRobotModelPtr_->getJointVelocities(currentMpcObservation_.state, currentMpcObservation_.input);
+    vector_t mpc_q_j_des = effectiveModelPtr_->getJointAngles(mpcPolicyState);
+    vector_t mpc_qd_j_des = effectiveModelPtr_->getJointVelocities(mpcPolicyState, mpcPolicyInput);
+    vector_t q_j = effectiveModelPtr_->getJointAngles(currentMpcObservation_.state);
+    vector_t qd_j = effectiveModelPtr_->getJointVelocities(currentMpcObservation_.state, currentMpcObservation_.input);
 
     // Sanity check: detect divergence in MPC policy state to prevent violent actuator thrashing
     scalar_t maxJointError = (mpc_q_j_des - q_j).cwiseAbs().maxCoeff();
@@ -407,14 +410,14 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
 
     // Feedforward joint acceleration is set to zero so feedforward torques act as pure
     // dynamic cancellation (gravity, Coriolis, and contact forces) and do not fight actuator PD loops.
-    vector_t qdd_j_des = vector_t::Zero(mpcRobotModelPtr_->getJointDim());
+    vector_t qdd_j_des = vector_t::Zero(effectiveModelPtr_->getJointDim());
 
-    std::array<vector6_t, 2> footWrenches{mpcRobotModelPtr_->getContactWrench(mpcPolicyInput, 0),
-                                          mpcRobotModelPtr_->getContactWrench(mpcPolicyInput, 1)};
+    std::array<vector6_t, 2> footWrenches{effectiveModelPtr_->getContactWrench(mpcPolicyInput, 0),
+                                          effectiveModelPtr_->getContactWrench(mpcPolicyInput, 1)};
 
     // Evaluate inverse dynamics using measured robot state for physical consistency
-    vector_t q = mpcRobotModelPtr_->getGeneralizedCoordinates(currentMpcObservation_.state);
-    vector_t qd = mpcRobotModelPtr_->getGeneralizedVelocities(currentMpcObservation_.state, currentMpcObservation_.input);
+    vector_t q = effectiveModelPtr_->getGeneralizedCoordinates(currentMpcObservation_.state);
+    vector_t qd = effectiveModelPtr_->getGeneralizedVelocities(currentMpcObservation_.state, currentMpcObservation_.input);
 
     vector_t mpcJointTorques = computeJointTorques<scalar_t>(q, qd, qdd_j_des, footWrenches, pinocchioInterface_);
 
@@ -445,10 +448,10 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
       double Fz_total = footWrenches[0][2] + footWrenches[1][2];
 
       std::cerr << "\n[TRANSITION t=" << currentMpcObservation_.time << " cycle=" << transitionCounter_ << "]"
-                << "\n  Base z: planned=" << mpcRobotModelPtr_->getGeneralizedCoordinates(mpcPolicyState)(2)
-                << " actual=" << mpcRobotModelPtr_->getGeneralizedCoordinates(currentMpcObservation_.state)(2)
-                << "\n  Base pitch: planned=" << mpcRobotModelPtr_->getGeneralizedCoordinates(mpcPolicyState)(4)
-                << " actual=" << mpcRobotModelPtr_->getGeneralizedCoordinates(currentMpcObservation_.state)(4)
+                << "\n  Base z: planned=" << effectiveModelPtr_->getGeneralizedCoordinates(mpcPolicyState)(2)
+                << " actual=" << effectiveModelPtr_->getGeneralizedCoordinates(currentMpcObservation_.state)(2)
+                << "\n  Base pitch: planned=" << effectiveModelPtr_->getGeneralizedCoordinates(mpcPolicyState)(4)
+                << " actual=" << effectiveModelPtr_->getGeneralizedCoordinates(currentMpcObservation_.state)(4)
                 << "\n  Fz_total=" << Fz_total << " (mg≈" << (9.81 * pinocchioInterface_.getModel().inertias[0].mass()) << ")" << std::endl;
 
       // Per-joint breakdown for leg joints (indices 12..23 in MPC joint order = leg joints)
@@ -475,12 +478,11 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
     static size_t mpcDebugCount = 0;
     if (++mpcDebugCount % 200 == 1) {
       // MPC planned base vs actual base
-      vector_t q_planned = mpcRobotModelPtr_->getGeneralizedCoordinates(mpcPolicyState);
-      vector_t q_actual = mpcRobotModelPtr_->getGeneralizedCoordinates(currentMpcObservation_.state);
+      vector_t q_planned = effectiveModelPtr_->getGeneralizedCoordinates(mpcPolicyState);
+      vector_t q_actual = effectiveModelPtr_->getGeneralizedCoordinates(currentMpcObservation_.state);
 
-      // Compare planned vs actual joint positions (first 6 joints = spine + arms)
-      vector_t qj_planned = mpcRobotModelPtr_->getJointAngles(mpcPolicyState);
-      vector_t qj_actual = mpcRobotModelPtr_->getJointAngles(currentMpcObservation_.state);
+      vector_t qj_planned = effectiveModelPtr_->getJointAngles(mpcPolicyState);
+      vector_t qj_actual = effectiveModelPtr_->getJointAngles(currentMpcObservation_.state);
 
       // Total vertical contact force vs robot weight
       double Fz_total = footWrenches[0][2] + footWrenches[1][2];
@@ -513,13 +515,13 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
   else {
     std::cerr << "Apply weight compensating torque..." << std::endl;
     //   Apply weight compensated input around current state
-    vector_t qdd_j_des = vector_t::Zero(mpcRobotModelPtr_->getJointDim());
-    mpcPolicyInput = weightCompensatingInput(pinocchioInterface_, {true, true}, *mpcRobotModelPtr_);
-    std::array<vector6_t, 2> footWrenches{mpcRobotModelPtr_->getContactWrench(mpcPolicyInput, 0),
-                                          mpcRobotModelPtr_->getContactWrench(mpcPolicyInput, 1)};
+    vector_t qdd_j_des = vector_t::Zero(effectiveModelPtr_->getJointDim());
+    mpcPolicyInput = weightCompensatingInput(pinocchioInterface_, {true, true}, *effectiveModelPtr_);
+    std::array<vector6_t, 2> footWrenches{effectiveModelPtr_->getContactWrench(mpcPolicyInput, 0),
+                                          effectiveModelPtr_->getContactWrench(mpcPolicyInput, 1)};
     vector_t weightCompensatingTorques = computeJointTorques<scalar_t>(
-        mpcRobotModelPtr_->getGeneralizedCoordinates(currentMpcObservation_.state),
-        mpcRobotModelPtr_->getGeneralizedVelocities(currentMpcObservation_.state, currentMpcObservation_.input), qdd_j_des, footWrenches,
+        effectiveModelPtr_->getGeneralizedCoordinates(currentMpcObservation_.state),
+        effectiveModelPtr_->getGeneralizedVelocities(currentMpcObservation_.state, currentMpcObservation_.input), qdd_j_des, footWrenches,
         pinocchioInterface_);
 
     for (size_t i = 0; i < mpcJointIndices_.size(); i++) {
@@ -612,7 +614,7 @@ TargetTrajectories CentroidalMpcMrtJointController::currentObservationToResetTra
   // "correct" the inconsistency, shooting the base upward.
 
   // Weight-compensating vertical contact forces (forces = mg/2 per foot in stance)
-  vector_t targetInput = weightCompensatingInput(pinocchioInterface_, {true, true}, *mpcRobotModelPtr_);
+  vector_t targetInput = weightCompensatingInput(pinocchioInterface_, {true, true}, *effectiveModelPtr_);
 
   scalar_t t0 = currentObservation.time;
   scalar_t t1 = t0 + 2.0;
@@ -620,8 +622,9 @@ TargetTrajectories CentroidalMpcMrtJointController::currentObservationToResetTra
   const TargetTrajectories resetTargetTrajectories({t0, t1}, {targetState, targetState}, {targetInput, targetInput});
 
   std::cerr << "[CentroidalMPC] Resetting MPC target trajectory. Base pos: " << targetState.segment<3>(6).transpose()
-            << " Base z: " << targetState(8) << " Input forces: " << targetInput.head(3).transpose() << " / "
-            << targetInput.segment<3>(6).transpose() << std::endl;
+            << " Base z: " << targetState(8)
+            << " Input forces: " << effectiveModelPtr_->getContactWrench(targetInput, 0).head(3).transpose() << " / "
+            << effectiveModelPtr_->getContactWrench(targetInput, 1).head(3).transpose() << std::endl;
   return resetTargetTrajectories;
 }
 
@@ -638,7 +641,7 @@ vector_t CentroidalMpcMrtJointController::computeGravityCompensation(const ::rob
   vector_t q(info.generalizedCoordinatesNum);
   q.head<3>() = robotState.getRootPositionInWorldFrame();
   q.segment<3>(3) = euler_zyx;
-  q.tail(mpcRobotModelPtr_->getJointDim()) = robotState.getJointPositions(mpcJointIndices_);
+  q.tail(effectiveModelPtr_->getJointDim()) = robotState.getJointPositions(mpcJointIndices_);
 
   // Compute gravity torques: nonLinearEffects with zero velocity gives pure gravity terms
   vector_t zeroVelocity = vector_t::Zero(info.generalizedCoordinatesNum);
@@ -646,7 +649,7 @@ vector_t CentroidalMpcMrtJointController::computeGravityCompensation(const ::rob
 
   // data.nle now contains gravity torques for all generalized coordinates.
   // Return only the joint portion (skip the 6 floating-base DOFs).
-  return data.nle.tail(mpcRobotModelPtr_->getJointDim());
+  return data.nle.tail(effectiveModelPtr_->getJointDim());
 }
 
 }  // namespace ocs2::humanoid

@@ -44,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_centroidal_mpc/initialization/CentroidalWeightCompInitializer.h"
+#include "humanoid_common_mpc/common/BasisInputsModelDecorator.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
@@ -93,6 +94,12 @@ class CentroidalMpcInterface final : public RobotInterface {
   const CentroidalMpcRobotModel<scalar_t>& getMpcRobotModel() const { return *mpcRobotModelPtr_; }
   const CentroidalMpcRobotModel<ad_scalar_t>& getMpcRobotModelAD() const { return *mpcRobotModelADPtr_; }
 
+  /** Returns the effective model used by the OCP — either the concrete model or the basis-vector decorator. */
+  const MpcRobotModelBase<scalar_t>& getEffectiveMpcRobotModel() const { return *effectiveMpcRobotModelPtr_; }
+  const MpcRobotModelBase<ad_scalar_t>& getEffectiveMpcRobotModelAD() const { return *effectiveMpcRobotModelADPtr_; }
+
+  bool usesContactBasisVectorInputs() const { return useContactBasisVectorInputs_; }
+
   std::vector<std::string> getCostNames() const;
   std::vector<std::string> getTerminalCostNames() const;
   std::vector<std::string> getStateSoftConstraintNames() const;
@@ -129,6 +136,17 @@ class CentroidalMpcInterface final : public RobotInterface {
 
   std::unique_ptr<CentroidalMpcRobotModel<scalar_t>> mpcRobotModelPtr_;
   std::unique_ptr<CentroidalMpcRobotModel<ad_scalar_t>> mpcRobotModelADPtr_;
+
+  /// Effective model used by the OCP. Points to either the concrete model or the decorator.
+  /// Owned by either mpcRobotModelPtr_ (non-decorated) or basisDecoratorPtr_ (decorated).
+  MpcRobotModelBase<scalar_t>* effectiveMpcRobotModelPtr_ = nullptr;
+  MpcRobotModelBase<ad_scalar_t>* effectiveMpcRobotModelADPtr_ = nullptr;
+
+  /// Basis-vector decorator models (owning pointers, only populated when active).
+  std::unique_ptr<BasisInputsModelDecorator<scalar_t>> basisDecoratorPtr_;
+  std::unique_ptr<BasisInputsModelDecorator<ad_scalar_t>> basisDecoratorADPtr_;
+
+  bool useContactBasisVectorInputs_ = false;
 
   rollout::Settings rolloutSettings_;
   std::unique_ptr<RolloutBase> rolloutPtr_;

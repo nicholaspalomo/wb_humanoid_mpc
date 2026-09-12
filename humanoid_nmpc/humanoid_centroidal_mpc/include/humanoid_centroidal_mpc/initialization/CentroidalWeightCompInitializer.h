@@ -50,7 +50,7 @@ class CentroidalWeightCompInitializer final : public Initializer {
    */
   CentroidalWeightCompInitializer(CentroidalModelInfo info,
                                   const SwitchedModelReferenceManager& referenceManager,
-                                  const CentroidalMpcRobotModel<scalar_t>& mpcRobotModel,
+                                  const MpcRobotModelBase<scalar_t>& mpcRobotModel,
                                   bool extendNormalizedMomentum);
 
   ~CentroidalWeightCompInitializer() override = default;
@@ -61,7 +61,7 @@ class CentroidalWeightCompInitializer final : public Initializer {
  private:
   CentroidalWeightCompInitializer(const CentroidalWeightCompInitializer& rhs);
 
-  const CentroidalMpcRobotModel<scalar_t>* mpcRobotModelPtr_;
+  const MpcRobotModelBase<scalar_t>* mpcRobotModelPtr_;
   const CentroidalModelInfo info_;
   const SwitchedModelReferenceManager* referenceManagerPtr_;
   const bool extendNormalizedMomentum_;

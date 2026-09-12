@@ -60,7 +60,8 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
                                   PinocchioInterface pinocchioInterface,
                                   scalar_t mpcDesiredFrequency = -1,
                                   std::shared_ptr<DummyObserver> rVizVisualizerPtr = nullptr,
-                                  const std::string& pdGainsFile = "");
+                                  const std::string& pdGainsFile = "",
+                                  const MpcRobotModelBase<scalar_t>* effectiveMpcRobotModel = nullptr);
 
   /**
    * Destructor.
@@ -153,6 +154,8 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   PinocchioInterface pinocchioInterface_;
   ocs2::SystemObservation currentMpcObservation_;
   std::unique_ptr<CentroidalMpcRobotModel<scalar_t>> mpcRobotModelPtr_;
+  /// Effective model for input-related ops (basis-vector or wrench). Non-owning, points to mpcRobotModelPtr_ or external.
+  std::unique_ptr<MpcRobotModelBase<scalar_t>> effectiveModelPtr_;
   std::vector<size_t> mpcJointIndices_;
   std::vector<size_t> otherJointIndices_;
 

@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <optional>
+
 #include <ocs2_pinocchio_interface/PinocchioInterface.h>
 
 #include <ocs2_core/constraint/StateInputConstraint.h>
@@ -68,6 +70,15 @@ class HumanoidCostConstraintFactory {
   std::unique_ptr<StateInputCost> getStateQuadraticCost() const;
   std::unique_ptr<StateInputCost> getInputQuadraticCost() const;
 
+  /**
+   * Set the basis-to-wrench mapping M matrix for cost transformation.
+   * When set, R is loaded in wrench dimensions (wrenchInputDim × wrenchInputDim)
+   * and transformed: R_basis = M^T · R_wrench · M.
+   * @param M  The mapping matrix (wrenchInputDim × basisInputDim).
+   * @param wrenchInputDim  The original wrench-based input dimension.
+   */
+  void setBasisToWrenchMap(const matrix_t& M, size_t wrenchInputDim);
+
   std::unique_ptr<StateCost> getTerminalCost() const;
 
   std::unique_ptr<StateCost> getFootCollisionConstraint() const;
@@ -85,6 +96,9 @@ class HumanoidCostConstraintFactory {
   std::unique_ptr<StateInputCost> getExternalTorqueQuadraticCost(size_t contactPointIndex) const;
 
  private:
+  /** Loads the R matrix from task file, optionally transforming from wrench to basis-vector space. */
+  matrix_t loadAndTransformR() const;
+
   std::string taskFile_;
   std::string referenceFile_;
   const SwitchedModelReferenceManager* referenceManagerPtr_;
@@ -93,6 +107,10 @@ class HumanoidCostConstraintFactory {
   const MpcRobotModelBase<ad_scalar_t>* mpcRobotModelADPtr_;
   const ModelSettings& modelSettings_;
   const bool verbose_;
+
+  /// Optional: when set, R is loaded in wrench dims then transformed to basis-vector space.
+  std::optional<matrix_t> basisToWrenchMap_;  // M: wrenchInputDim × basisInputDim
+  size_t wrenchInputDim_ = 0;
 };
 
 }  // namespace ocs2::humanoid

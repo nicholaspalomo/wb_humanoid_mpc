@@ -1,6 +1,5 @@
 /******************************************************************************
-Copyright (c) 2025, Manuel Yves Galliker. All rights reserved.
-Copyright (c) 2024, 1X Technologies. All rights reserved.
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -28,56 +27,57 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include "humanoid_centroidal_mpc/initialization/CentroidalWeightCompInitializer.h"
-
-#include "humanoid_centroidal_mpc/dynamics/DynamicsHelperFunctions.h"
-
-#include <ocs2_centroidal_model/AccessHelperFunctions.h>
+#include "humanoid_centroidal_mpc/dynamics/CentroidalDynamicsBasisInputsAD.h"
 
 namespace ocs2::humanoid {
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-CentroidalWeightCompInitializer::CentroidalWeightCompInitializer(CentroidalModelInfo info,
-                                                                 const SwitchedModelReferenceManager& referenceManager,
-                                                                 const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                                                                 bool extendNormalizedMomentum)
-    : info_(std::move(info)),
-      referenceManagerPtr_(&referenceManager),
-      mpcRobotModelPtr_(&mpcRobotModel),
-      extendNormalizedMomentum_(extendNormalizedMomentum) {}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
-CentroidalWeightCompInitializer::CentroidalWeightCompInitializer(const CentroidalWeightCompInitializer& rhs)
-    : info_(rhs.info_),
-      referenceManagerPtr_(rhs.referenceManagerPtr_),
-      mpcRobotModelPtr_(rhs.mpcRobotModelPtr_),
-      extendNormalizedMomentum_(rhs.extendNormalizedMomentum_) {}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
-CentroidalWeightCompInitializer* CentroidalWeightCompInitializer::clone() const {
-  return new CentroidalWeightCompInitializer(*this);
+CentroidalDynamicsBasisInputsAD::CentroidalDynamicsBasisInputsAD(const PinocchioInterface& pinocchioInterface,
+                                                                 const CentroidalModelInfo& info,
+                                                                 const std::string& modelName,
+                                                                 const ModelSettings& modelSettings,
+                                                                 size_t basisInputDim,
+                                                                 matrix_t basisToWrenchMap)
+    : pinocchioCentroidalDynamicsAd_(pinocchioInterface,
+                                     info,
+                                     modelName,
+                                     modelSettings.modelFolderCppAd,
+                                     modelSettings.recompileLibrariesCppAd,
+                                     modelSettings.verboseCppAd),
+      M_(std::move(basisToWrenchMap)) {
+  assert(M_.rows() == static_cast<Eigen::Index>(info.inputDim));
+  assert(M_.cols() == static_cast<Eigen::Index>(basisInputDim));
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
+vector_t CentroidalDynamicsBasisInputsAD::computeFlowMap(scalar_t time,
+                                                         const vector_t& state,
+                                                         const vector_t& input,
+                                                         const PreComputation& preComp) {
+  // Map basis-vector input to wrench-based input: u_wrench = M * u_basis
+  const vector_t wrenchInput = M_ * input;
+  return pinocchioCentroidalDynamicsAd_.getValue(time, state, wrenchInput);
+}
 
-void CentroidalWeightCompInitializer::compute(
-    scalar_t time, const vector_t& state, scalar_t nextTime, vector_t& input, vector_t& nextState) {
-  const auto contactFlags = referenceManagerPtr_->getContactFlags(time);
-  input = weightCompensatingInput(info_, contactFlags, *mpcRobotModelPtr_);
-  nextState = state;
-  if (!extendNormalizedMomentum_) {
-    centroidal_model::getNormalizedMomentum(nextState, info_).setZero();
-  }
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+VectorFunctionLinearApproximation CentroidalDynamicsBasisInputsAD::linearApproximation(scalar_t time,
+                                                                                       const vector_t& state,
+                                                                                       const vector_t& input,
+                                                                                       const PreComputation& preComp) {
+  // Map basis-vector input to wrench-based input: u_wrench = M * u_basis
+  const vector_t wrenchInput = M_ * input;
+  auto approx = pinocchioCentroidalDynamicsAd_.getLinearApproximation(time, state, wrenchInput);
+
+  // Apply chain rule: df/du_basis = df/du_wrench * M
+  approx.dfdu = approx.dfdu * M_;
+
+  return approx;
 }
 
 }  // namespace ocs2::humanoid

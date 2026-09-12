@@ -119,8 +119,9 @@ int main(int argc, char** argv) {
 
   // Register real-time MPC parameter hot-reloading
   auto mpcParameterUpdater = std::make_shared<MpcParameterUpdaterModule>(
-      &mpc, taskFile, urdfFile, referenceFile, interface.getMpcRobotModel().getStateDim(), interface.getMpcRobotModel().getInputDim(),
-      interface.modelSettings().contactNames, dynamic_cast<const SwitchedModelReferenceManager*>(interface.getReferenceManagerPtr().get()));
+      &mpc, taskFile, urdfFile, referenceFile, interface.getMpcRobotModel().getStateDim(),
+      interface.getEffectiveMpcRobotModel().getInputDim(), interface.modelSettings().contactNames,
+      dynamic_cast<const SwitchedModelReferenceManager*>(interface.getReferenceManagerPtr().get()));
   mpcParameterUpdater->subscribe(nodeHandle);
   mpc.getSolverPtr()->addSynchronizedModule(mpcParameterUpdater);
 
@@ -144,9 +145,9 @@ int main(int argc, char** argv) {
   std::filesystem::path configDir = std::filesystem::path(taskFile).parent_path().parent_path();
   std::string pdGainsFile = (configDir / "controller" / "joint_pd_gains.yaml").string();
 
-  CentroidalMpcMrtJointController mpcJointController(robotInterface.getRobotDescription(), interface.modelSettings(),
-                                                     interface.getMpcRobotModel(), mpc, interface.getPinocchioInterface(),
-                                                     interface.mpcSettings().mpcDesiredFrequency_, humanoidVisualizer, pdGainsFile);
+  CentroidalMpcMrtJointController mpcJointController(
+      robotInterface.getRobotDescription(), interface.modelSettings(), interface.getMpcRobotModel(), mpc, interface.getPinocchioInterface(),
+      interface.mpcSettings().mpcDesiredFrequency_, humanoidVisualizer, pdGainsFile, &interface.getEffectiveMpcRobotModel());
   mpcJointController.subscribePdGains(nodeHandle);
   fsmBridge.subscribeJointTargets(nodeHandle);
 

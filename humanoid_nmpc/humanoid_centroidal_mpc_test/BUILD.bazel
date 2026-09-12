@@ -116,6 +116,15 @@ cc_test(
     deps = _TEST_DEPS,
 )
 
+cc_test(
+    name = "test_basis_scaling_non_negativity_constraint",
+    size = "small",
+    srcs = ["src/testBasisScalingNonNegativityConstraint.cpp"],
+    copts = _TEST_COPTS,
+    data = _TEST_DATA,
+    deps = _TEST_DEPS,
+)
+
 cc_library(
     name = "humanoid_centroidal_mpc_test_headers",
     hdrs = glob(["include/**"], allow_empty = True),

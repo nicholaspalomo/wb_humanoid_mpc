@@ -82,11 +82,41 @@ HumanoidCostConstraintFactory::HumanoidCostConstraintFactory(const std::string& 
 /******************************************************************************************************/
 /******************************************************************************************************/
 
+void HumanoidCostConstraintFactory::setBasisToWrenchMap(const matrix_t& M, size_t wrenchInputDim) {
+  basisToWrenchMap_ = M;
+  wrenchInputDim_ = wrenchInputDim;
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+matrix_t HumanoidCostConstraintFactory::loadAndTransformR() const {
+  if (basisToWrenchMap_.has_value()) {
+    // Load R in wrench dimensions, then transform: R_basis = M^T * R_wrench * M
+    matrix_t R_wrench(wrenchInputDim_, wrenchInputDim_);
+    loadData::loadEigenMatrix(taskFile_, "R", R_wrench);
+    matrix_t R_basis = basisToWrenchMap_->transpose() * R_wrench * (*basisToWrenchMap_);
+    if (verbose_) {
+      LOG(INFO) << "\n #### R cost loaded in wrench space (" << wrenchInputDim_ << "x" << wrenchInputDim_
+                << ") and transformed to basis-vector space (" << R_basis.rows() << "x" << R_basis.cols() << ")";
+    }
+    return R_basis;
+  } else {
+    matrix_t R(mpcRobotModelADPtr_->getInputDim(), mpcRobotModelADPtr_->getInputDim());
+    loadData::loadEigenMatrix(taskFile_, "R", R);
+    return R;
+  }
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
 std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getStateInputQuadraticCost() const {
   matrix_t Q(mpcRobotModelADPtr_->getStateDim(), mpcRobotModelADPtr_->getStateDim());
   loadData::loadEigenMatrix(taskFile_, "Q", Q);
-  matrix_t R(mpcRobotModelADPtr_->getInputDim(), mpcRobotModelADPtr_->getInputDim());
-  loadData::loadEigenMatrix(taskFile_, "R", R);
+  matrix_t R = loadAndTransformR();
 
   if (verbose_) {
     LOG(INFO) << "\n #### Base Tracking Cost Coefficients: \n"
@@ -126,8 +156,7 @@ std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getStateQuadratic
 /******************************************************************************************************/
 
 std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getInputQuadraticCost() const {
-  matrix_t R(mpcRobotModelADPtr_->getInputDim(), mpcRobotModelADPtr_->getInputDim());
-  loadData::loadEigenMatrix(taskFile_, "R", R);
+  matrix_t R = loadAndTransformR();
 
   if (verbose_) {
     LOG(INFO) << "\n #### Base Tracking Input Cost Coefficients: \n"

@@ -53,6 +53,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <humanoid_common_mpc/HumanoidCostConstraintFactory.h>
 #include <humanoid_common_mpc/HumanoidPreComputation.h>
 #include <humanoid_common_mpc/common/MpcFormulationConfig.h>
+#include <humanoid_common_mpc/constraint/BasisScalingNonNegativityConstraint.h>
 #include <humanoid_common_mpc/constraint/EndEffectorKinematicsTwistConstraint.h>
 #include <humanoid_common_mpc/cost/EndEffectorKinematicsQuadraticCost.h>
 #include <humanoid_common_mpc/pinocchio_model/createPinocchioModel.h>
@@ -64,6 +65,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/cost/CentroidalMpcEndEffectorFootCost.h"
 #include "humanoid_centroidal_mpc/cost/ICPCost.h"
 #include "humanoid_centroidal_mpc/dynamics/CentroidalDynamicsAD.h"
+#include "humanoid_centroidal_mpc/dynamics/CentroidalDynamicsBasisInputsAD.h"
+
+#include "humanoid_common_mpc/contact/ContactRectangle.h"
+#include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
 
 // Boost
 #include <boost/filesystem/operations.hpp>
@@ -132,13 +137,57 @@ CentroidalMpcInterface::CentroidalMpcInterface(const std::string& taskFile,
   mpcRobotModelADPtr_.reset(
       new CentroidalMpcRobotModel<ad_scalar_t>(modelSettings_, (*pinocchioInterfacePtr_).toCppAd(), centroidalModelInfo_.toCppAd()));
 
+  // Optionally wrap models with basis-vector decorator
+  useContactBasisVectorInputs_ = false;
+  try {
+    loadData::loadCppDataType(taskFile, "useContactBasisVectorInputs", useContactBasisVectorInputs_);
+  } catch (...) {
+    useContactBasisVectorInputs_ = false;
+  }
+
+  if (useContactBasisVectorInputs_) {
+    LOG(INFO) << "[CentroidalMpcInterface] Using basis-vector contact inputs";
+
+    // Load wrench cone config to build basis matrices (reuses contactWrenchConeSoftConstraint params)
+    boost::property_tree::ptree pt;
+    loadData::readPropertyTree(taskFile, pt);
+    const std::string prefix = "contacts.contactWrenchConeSoftConstraint.";
+    ContactWrenchConeConstraint::Config coneConfig;
+    loadData::loadPtreeValue(pt, coneConfig.frictionCoefficient, absl::StrCat(prefix, "frictionCoefficient"), verbose_);
+    loadData::loadPtreeValue(pt, coneConfig.torsionalFrictionCoefficient, absl::StrCat(prefix, "torsionalFrictionCoefficient"), verbose_);
+    loadData::loadPtreeValue(pt, coneConfig.minNormalForce, absl::StrCat(prefix, "minNormalForce"), verbose_);
+    loadData::loadPtreeValue(pt, coneConfig.gripperForce, absl::StrCat(prefix, "gripperForce"), verbose_);
+    loadData::loadPtreeValue(pt, coneConfig.numBasisVectors, absl::StrCat(prefix, "numBasisVectors"), verbose_);
+
+    // Build per-contact basis matrices
+    std::array<ContactWrenchConeBasisMatrix, N_CONTACTS> basisMatrices = {
+        ContactWrenchConeBasisMatrix(coneConfig, ContactRectangle::loadContactRectangle(taskFile, modelSettings_, 0, verbose_)),
+        ContactWrenchConeBasisMatrix(coneConfig, ContactRectangle::loadContactRectangle(taskFile, modelSettings_, 1, verbose_))};
+
+    const size_t numBasisPerFoot = basisMatrices[0].numBasis();
+    LOG(INFO) << "[CentroidalMpcInterface] Basis vectors per foot: " << numBasisPerFoot
+              << " (total basis input dim: " << numBasisPerFoot * N_CONTACTS + modelSettings_.mpc_joint_dim << ")";
+
+    // Create decorator models (take ownership of cloned inner models)
+    basisDecoratorPtr_ = std::make_unique<BasisInputsModelDecorator<scalar_t>>(
+        std::unique_ptr<MpcRobotModelBase<scalar_t>>(mpcRobotModelPtr_->clone()), basisMatrices);
+    basisDecoratorADPtr_ = std::make_unique<BasisInputsModelDecorator<ad_scalar_t>>(
+        std::unique_ptr<MpcRobotModelBase<ad_scalar_t>>(mpcRobotModelADPtr_->clone()), basisMatrices);
+
+    effectiveMpcRobotModelPtr_ = basisDecoratorPtr_.get();
+    effectiveMpcRobotModelADPtr_ = basisDecoratorADPtr_.get();
+  } else {
+    effectiveMpcRobotModelPtr_ = mpcRobotModelPtr_.get();
+    effectiveMpcRobotModelADPtr_ = mpcRobotModelADPtr_.get();
+  }
+
   // Swing trajectory planner
   std::unique_ptr<SwingTrajectoryPlanner> swingTrajectoryPlanner(
       new SwingTrajectoryPlanner(loadSwingTrajectorySettings(taskFile, "swing_trajectory_config", verbose_), N_CONTACTS));
 
-  referenceManagerPtr_ =
-      std::make_shared<SwitchedModelReferenceManager>(GaitSchedule::loadGaitSchedule(referenceFile, modelSettings_, verbose_),
-                                                      std::move(swingTrajectoryPlanner), *pinocchioInterfacePtr_, *mpcRobotModelPtr_);
+  referenceManagerPtr_ = std::make_shared<SwitchedModelReferenceManager>(
+      GaitSchedule::loadGaitSchedule(referenceFile, modelSettings_, verbose_), std::move(swingTrajectoryPlanner), *pinocchioInterfacePtr_,
+      *effectiveMpcRobotModelPtr_);
   referenceManagerPtr_->setArmSwingReferenceActive(true);
 
   // initial state
@@ -171,8 +220,8 @@ absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> CentroidalMpcInterface::
 
 absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
   HumanoidCostConstraintFactory factory =
-      HumanoidCostConstraintFactory(taskFile_, referenceFile_, *referenceManagerPtr_, *pinocchioInterfacePtr_, *mpcRobotModelPtr_,
-                                    *mpcRobotModelADPtr_, modelSettings_, verbose_);
+      HumanoidCostConstraintFactory(taskFile_, referenceFile_, *referenceManagerPtr_, *pinocchioInterfacePtr_, *effectiveMpcRobotModelPtr_,
+                                    *effectiveMpcRobotModelADPtr_, modelSettings_, verbose_);
 
   // Optimal control problem
   problemPtr_.reset(new OptimalControlProblem);
@@ -180,7 +229,32 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
   // Dynamics
   std::unique_ptr<SystemDynamicsBase> dynamicsPtr;
   const std::string modelName = "dynamics";
-  dynamicsPtr.reset(new CentroidalDynamicsAD(*pinocchioInterfacePtr_, centroidalModelInfo_, modelName, modelSettings_));
+  if (useContactBasisVectorInputs_) {
+    // Build the M matrix that maps basis-vector input → wrench-based input
+    // M = [ B_0   0     0           ]
+    //     [ 0     B_1   0           ]
+    //     [ 0     0     I_{n_joints}]
+    const size_t wrenchInputDim = centroidalModelInfo_.inputDim;
+    const size_t basisInputDim = effectiveMpcRobotModelPtr_->getInputDim();
+    const size_t numBasisPerFoot = basisDecoratorPtr_->getNumBasisPerFoot();
+    const size_t jointDim = modelSettings_.mpc_joint_dim;
+
+    matrix_t M = matrix_t::Zero(wrenchInputDim, basisInputDim);
+    for (size_t i = 0; i < N_CONTACTS; ++i) {
+      const matrix_t& B = basisDecoratorPtr_->getBasisMatrix(i);  // 6 × numBasisPerFoot
+      M.block(kWrenchDim * i, numBasisPerFoot * i, kWrenchDim, numBasisPerFoot) = B;
+    }
+    // Joint velocities pass through unchanged
+    M.block(kWrenchDim * N_CONTACTS, numBasisPerFoot * N_CONTACTS, jointDim, jointDim).setIdentity();
+
+    // Set M on the factory so R costs are loaded in wrench dims and transformed: R_basis = M^T * R_wrench * M
+    factory.setBasisToWrenchMap(M, wrenchInputDim);
+
+    dynamicsPtr.reset(new CentroidalDynamicsBasisInputsAD(*pinocchioInterfacePtr_, centroidalModelInfo_, modelName, modelSettings_,
+                                                          basisInputDim, std::move(M)));
+  } else {
+    dynamicsPtr.reset(new CentroidalDynamicsAD(*pinocchioInterfacePtr_, centroidalModelInfo_, modelName, modelSettings_));
+  }
   problemPtr_->dynamicsPtr = std::move(dynamicsPtr);
 
   // Load configured MPC formulation tasks
@@ -216,7 +290,7 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
     const vector2_t icpWeights = ICPCost::getWeights(taskFile_, "icp_cost_weights.", verbose_);
     problemPtr_->costPtr->add(
         "icp_Cost", std::unique_ptr<StateInputCost>(new ICPCost(*referenceManagerPtr_, std::move(icpWeights), *pinocchioInterfacePtr_,
-                                                                *mpcRobotModelADPtr_, "icp_Cost", modelSettings_)));
+                                                                *effectiveMpcRobotModelADPtr_, "icp_Cost", modelSettings_)));
   }
 
   // Soft constraints
@@ -249,14 +323,50 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
                              formulationTasks.hasSoftConstraint(MpcSoftConstraintType::ZeroVelocity) ||
                              formulationTasks.hasHardConstraint(MpcHardConstraintType::NormalVelocity);
     if (needsEeKinematics) {
+      const size_t effectiveInputDim = effectiveMpcRobotModelPtr_->getInputDim();
       eeKinematicsPtr.reset(new PinocchioEndEffectorKinematicsCppAd(*pinocchioInterfacePtr_, pinocchioMappingCppAd, {footName},
-                                                                    centroidalModelInfo_.stateDim, centroidalModelInfo_.inputDim,
+                                                                    centroidalModelInfo_.stateDim, effectiveInputDim,
                                                                     velocityUpdateCallback, footName, modelSettings_.modelFolderCppAd,
                                                                     modelSettings_.recompileLibrariesCppAd, modelSettings_.verboseCppAd));
     }
 
     if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::ContactWrenchCone)) {
-      problemPtr_->softConstraintPtr->add(absl::StrCat(footName, "_contactWrenchCone"), factory.getContactWrenchConeConstraint(i));
+      if (useContactBasisVectorInputs_) {
+        // In basis-vector mode the wrench cone is enforced structurally:
+        // all basis vectors lie inside the cone, so λ ≥ 0 ⟹ W ∈ cone.
+        // The ContactWrenchConeConstraint is wrench-space specific and
+        // cannot operate on basis-vector inputs.
+        LOG(INFO) << "[CentroidalMPC] Skipping contact_wrench_cone soft constraint for " << footName
+                  << " (enforced structurally via basis-vector inputs).";
+
+        // Add λ ≥ 0 non-negativity constraint as a barrier penalty.
+        // This is the structural enforcement: all basis scalings must be non-negative
+        // for the wrench to remain inside the friction/wrench cone.
+        // Load barrier parameters from YAML; fall back to defaults if absent.
+        constexpr scalar_t kDefaultLambdaBarrierMu = 1e-2;
+        constexpr scalar_t kDefaultLambdaBarrierDelta = 1e-3;
+        // LINT.IfChange(basis_barrier_yaml_path)
+        const std::string barrierPrefix = "contacts.basisNonNegativityBarrier.";
+        // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:basis_barrier_config)
+        scalar_t lambdaBarrierMu = kDefaultLambdaBarrierMu;
+        scalar_t lambdaBarrierDelta = kDefaultLambdaBarrierDelta;
+        boost::property_tree::ptree barrierPt;
+        loadData::readPropertyTree(taskFile_, barrierPt);
+        loadData::loadPtreeValue(barrierPt, lambdaBarrierMu, absl::StrCat(barrierPrefix, "mu"), verbose_);
+        loadData::loadPtreeValue(barrierPt, lambdaBarrierDelta, absl::StrCat(barrierPrefix, "delta"), verbose_);
+        const PieceWisePolynomialBarrierPenalty::Config lambdaBarrierConfig(lambdaBarrierMu, lambdaBarrierDelta);
+        const size_t lambdaStartIdx = basisDecoratorPtr_->getContactWrenchStartIndices(i);
+        const size_t numBasis = basisDecoratorPtr_->getNumBasisPerFoot();
+
+        problemPtr_->costPtr->add(
+            absl::StrCat(footName, "_basisNonNegativity"),
+            std::make_unique<BasisScalingNonNegativityConstraint>(*referenceManagerPtr_, i, lambdaStartIdx, numBasis, lambdaBarrierConfig));
+
+        LOG(INFO) << "[CentroidalMPC] Added λ ≥ 0 non-negativity barrier for " << footName << " (" << numBasis
+                  << " basis vectors, start idx " << lambdaStartIdx << ").";
+      } else {
+        problemPtr_->softConstraintPtr->add(absl::StrCat(footName, "_contactWrenchCone"), factory.getContactWrenchConeConstraint(i));
+      }
     }
     if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::FrictionForceCone)) {
       problemPtr_->softConstraintPtr->add(absl::StrCat(footName, "_frictionForceCone"), factory.getFrictionForceConeConstraint(i));
@@ -289,8 +399,8 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
       std::string footTrackingCostName = absl::StrCat(footName, "_TaskSpaceKinematicsCost");
       problemPtr_->costPtr->add(footTrackingCostName,
                                 std::unique_ptr<StateInputCost>(new CentroidalMpcEndEffectorFootCost(
-                                    *referenceManagerPtr_, footTrackingCostWeights, *pinocchioInterfacePtr_, *mpcRobotModelADPtr_, i,
-                                    footTrackingCostName, modelSettings_, footCostActiveInStance)));
+                                    *referenceManagerPtr_, footTrackingCostWeights, *pinocchioInterfacePtr_, *effectiveMpcRobotModelADPtr_,
+                                    i, footTrackingCostName, modelSettings_, footCostActiveInStance)));
     }
     if (formulationTasks.hasCost(MpcCostType::ExternalTorqueCost)) {
       problemPtr_->costPtr->add(absl::StrCat(footName, "_ExternalTorqueQuadraticCost"), factory.getExternalTorqueQuadraticCost(i));
@@ -299,15 +409,15 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
 
   // Pre-computation
   problemPtr_->preComputationPtr.reset(
-      new HumanoidPreComputation(*pinocchioInterfacePtr_, *referenceManagerPtr_->getSwingTrajectoryPlanner(), *mpcRobotModelPtr_));
+      new HumanoidPreComputation(*pinocchioInterfacePtr_, *referenceManagerPtr_->getSwingTrajectoryPlanner(), *effectiveMpcRobotModelPtr_));
 
   // Rollout
   rolloutPtr_.reset(new TimeTriggeredRollout(*problemPtr_->dynamicsPtr, rolloutSettings_));
 
   // Initialization
   constexpr bool extendNormalizedMomentum = true;
-  initializerPtr_.reset(
-      new CentroidalWeightCompInitializer(centroidalModelInfo_, *referenceManagerPtr_, *mpcRobotModelPtr_, extendNormalizedMomentum));
+  initializerPtr_.reset(new CentroidalWeightCompInitializer(centroidalModelInfo_, *referenceManagerPtr_, *effectiveMpcRobotModelPtr_,
+                                                            extendNormalizedMomentum));
 
   return absl::OkStatus();
 }
@@ -418,7 +528,7 @@ void CentroidalMpcInterface::addTaskSpaceKinematicsCosts(
     std::unique_ptr<EndEffectorKinematics<scalar_t>> eeKinematicsPtr;
 
     eeKinematicsPtr.reset(new PinocchioEndEffectorKinematicsCppAd(*pinocchioInterfacePtr_, pinocchioMappingCppAd, {linkName},
-                                                                  centroidalModelInfo_.stateDim, centroidalModelInfo_.inputDim,
+                                                                  centroidalModelInfo_.stateDim, effectiveMpcRobotModelPtr_->getInputDim(),
                                                                   velocityUpdateCallback, linkName, modelSettings_.modelFolderCppAd,
                                                                   modelSettings_.recompileLibrariesCppAd, modelSettings_.verboseCppAd));
 
@@ -426,7 +536,7 @@ void CentroidalMpcInterface::addTaskSpaceKinematicsCosts(
         EndEffectorKinematicsWeights::getWeights(taskFile_, absl::StrCat("task_space_costs.", costName, ".weights."), verbose_);
 
     std::unique_ptr<StateInputCost> cost = std::make_unique<EndEffectorKinematicsQuadraticCost>(
-        weights, *pinocchioInterfacePtr_, *eeKinematicsPtr, *mpcRobotModelADPtr_, linkName, modelSettings_);
+        weights, *pinocchioInterfacePtr_, *eeKinematicsPtr, *effectiveMpcRobotModelADPtr_, linkName, modelSettings_);
 
     problemPtr_->costPtr->add(absl::StrCat(costName, "_TaskSpaceKinematicsCost"), std::move(cost));
 

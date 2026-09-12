@@ -2,6 +2,7 @@
 enableTelemetry: true        # Enable high-rate ROS 2 telemetry publishing for PlotJuggler
 telemetryFrequency: 100      # [Hz] Telemetry publishing frequency (decimated from MRT loop)
 enableOnlineTuning: true     # Enable runtime parameter and gain tuning in Controller GUI
+useContactBasisVectorInputs: false  # Set true to use basis-vector scalings λ as MPC contact inputs (instead of direct wrenches)
 
 # Targeted Pinocchio frames for telemetry logging (position, orientation, twist, accel, wrench)
 telemetryFrames:
@@ -422,6 +423,17 @@ contacts:
     # relaxed log barrier parameters
     mu: 0.2
     delta: 5.0
+
+  # Barrier penalty enforcing λ ≥ 0 for basis-vector contact inputs.
+  # Only active when useContactBasisVectorInputs: true.
+  # The PieceWisePolynomialBarrierPenalty returns non-zero cost for λ < delta,
+  # and zero cost for λ ≥ delta. Decrease delta for a tighter barrier region;
+  # increase mu for stronger penalty on constraint violation.
+  # LINT.IfChange(basis_barrier_config)
+  basisNonNegativityBarrier:
+    mu: 1.0e-2
+    delta: 1.0e-3
+  # LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/src/CentroidalMpcInterface.cpp:basis_barrier_yaml_path)
 
   frictionForceConeSoftConstraint:
     frictionCoefficient: 0.5
