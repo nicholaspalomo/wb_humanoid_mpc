@@ -429,7 +429,7 @@ contacts:
     mu: 0.2
     delta: 5.0
 
-    contactMomentXYSoftConstraint:
+  contactMomentXYSoftConstraint:
     # relaxed log barrier parameters
     mu: 0.6
     delta: 0.03

@@ -415,6 +415,11 @@ class App(tk.Tk):
         cmd = "LOCK_GANTRY" if self.gantry_var.get() else "UNLOCK_GANTRY"
         if self._fsm_command_callback:
             self._fsm_command_callback(cmd)
+        if self.gantry_var.get():
+            # Auto-center joysticks when re-locking the gantry so no residual
+            # velocity command is applied while the robot is suspended.
+            self.joystick_left.set_position()
+            self.joystick_right.set_position()
 
     def update_fsm_state(self, state_str: str):
         """Update GUI from ROS 2 state message: 'MODE,GANTRY_STATE'."""
