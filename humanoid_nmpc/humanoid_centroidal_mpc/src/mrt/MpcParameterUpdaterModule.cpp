@@ -63,7 +63,8 @@ MpcParameterUpdaterModule::MpcParameterUpdaterModule(MPC_BASE* mpcPtr,
                                                      size_t stateDim,
                                                      size_t inputDim,
                                                      const std::vector<std::string>& contactNames,
-                                                     const SwitchedModelReferenceManager* referenceManager)
+                                                     const SwitchedModelReferenceManager* referenceManager,
+                                                     std::optional<BasisInputsCostTransformConfig> basisCostTransform)
     : mpcPtr_(mpcPtr),
       taskFile_(taskFile),
       urdfFile_(urdfFile),
@@ -71,7 +72,27 @@ MpcParameterUpdaterModule::MpcParameterUpdaterModule(MPC_BASE* mpcPtr,
       stateDim_(stateDim),
       inputDim_(inputDim),
       contactNames_(contactNames),
-      referenceManagerPtr_(referenceManager) {
+      referenceManagerPtr_(referenceManager),
+      basisCostTransform_(std::move(basisCostTransform)) {
+  if (basisCostTransform_.has_value()) {
+    // The transformed R is written straight into the OCP with setGains(), which performs no size check. Catch a
+    // wrench-vs-basis dimension mix-up here, at construction, instead of silently corrupting the input cost online.
+    const auto& cfg = *basisCostTransform_;
+    if (inputDim_ != cfg.basisInputDim()) {
+      throw std::invalid_argument("[MpcParameterUpdaterModule] inputDim (" + std::to_string(inputDim_) +
+                                  ") must equal the basis-space input dimension of the cost transform (" +
+                                  std::to_string(cfg.basisInputDim()) + ").");
+    }
+    if (static_cast<size_t>(cfg.basisToWrenchMap.rows()) != cfg.wrenchInputDim) {
+      throw std::invalid_argument("[MpcParameterUpdaterModule] basisToWrenchMap has " + std::to_string(cfg.basisToWrenchMap.rows()) +
+                                  " rows but wrenchInputDim is " + std::to_string(cfg.wrenchInputDim) + ".");
+    }
+    if (cfg.numBasisInputs > inputDim_) {
+      throw std::invalid_argument("[MpcParameterUpdaterModule] numBasisInputs (" + std::to_string(cfg.numBasisInputs) +
+                                  ") exceeds inputDim (" + std::to_string(inputDim_) + ").");
+    }
+  }
+
   if (!taskFile_.empty() && std::filesystem::exists(taskFile_)) {
     std::error_code ec;
     taskFileLastWriteTime_ = std::filesystem::last_write_time(taskFile_, ec);
@@ -167,7 +188,16 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
 
   try {
     loadData::loadEigenMatrix(yamlFile, "Q", Q);
-    loadData::loadEigenMatrix(yamlFile, "R", R);
+    if (basisCostTransform_.has_value()) {
+      // The R indices in task.yaml refer to wrench-space inputs (forces/moments/joint velocities). In basis-vector mode
+      // the OCP input is [λ, joint velocities], so loading R directly at inputDim_ would put force weights on λ entries.
+      // Load at the wrench dimension and apply the same transform the OCP factory used: R_basis = Mᵀ R_wrench M + reg.
+      matrix_t R_wrench = matrix_t::Zero(basisCostTransform_->wrenchInputDim, basisCostTransform_->wrenchInputDim);
+      loadData::loadEigenMatrix(yamlFile, "R", R_wrench);
+      R = transformWrenchInputCostToBasisSpace(R_wrench, *basisCostTransform_);
+    } else {
+      loadData::loadEigenMatrix(yamlFile, "R", R);
+    }
     loadData::loadEigenMatrix(yamlFile, "Q_final", Q_final);
     loadData::loadCppDataType<scalar_t>(yamlFile, "terminalCostScaling", terminalCostScaling);
     Q_final *= terminalCostScaling;

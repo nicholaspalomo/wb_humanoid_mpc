@@ -33,13 +33,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <humanoid_centroidal_mpc_ros2/gains/GainsUpdaterInterface.h>
 #include <humanoid_centroidal_mpc_ros2/gains/GainsUpdaterUtils.h>
+#include <humanoid_common_mpc/common/MpcRobotModelBase.h>
 #include <ocs2_core/cost/QuadraticStateInputCost.h>
 
 namespace ocs2::humanoid {
 
 class QuadraticStateInputGainsUpdater : public GainsUpdaterInterface {
  public:
-  QuadraticStateInputGainsUpdater(const CentroidalMpcRobotModel<scalar_t>& mpcRobotModel,
+  /**
+   * @param mpcRobotModel The model whose state/input layout matches the OCP being edited. Pass the *effective* model
+   *                      (basis-vector decorator when active) so that R is sized and labelled in the OCP's input space.
+   */
+  QuadraticStateInputGainsUpdater(const MpcRobotModelBase<scalar_t>& mpcRobotModel,
                                   const ocs2::humanoid::ModelSettings& modelSettings,
                                   std::shared_ptr<GenericGuiInterface> gui)
       : GainsUpdaterInterface(gui), mpcRobotModel_(mpcRobotModel), modelSettings_(modelSettings) {}
@@ -102,8 +107,12 @@ class QuadraticStateInputGainsUpdater : public GainsUpdaterInterface {
         }
         return triggered;
       };
-      static const auto& stateDescriptions = utils::getStateDescriptions(modelSettings_);
-      static const auto& inputDescriptions = utils::getInputDescriptions(modelSettings_);
+      // Labels are derived from the model this updater was given, so a basis-vector OCP lists λ entries rather than
+      // wrench components. Not static: different updaters may wrap models with different input layouts.
+      if (stateDescriptions_.empty()) stateDescriptions_ = utils::getStateDescriptions(modelSettings_);
+      if (inputDescriptions_.empty()) inputDescriptions_ = utils::getInputDescriptions(modelSettings_, mpcRobotModel_.getInputDim());
+      const auto& stateDescriptions = stateDescriptions_;
+      const auto& inputDescriptions = inputDescriptions_;
 
       if (drawEntries(Q, "Q Entries", qIndices_, stateDescriptions)) hasBeenTriggered = true;
       if (drawEntries(R, "R Entries", rIndices_, inputDescriptions)) hasBeenTriggered = true;
@@ -150,7 +159,8 @@ class QuadraticStateInputGainsUpdater : public GainsUpdaterInterface {
  private:
   ocs2::QuadraticStateInputCost* component_;
   std::vector<std::pair<int, int>> qIndices_, rIndices_;  // Keep a list of matrix indices that are non-zero at initialization time
-  const CentroidalMpcRobotModel<scalar_t>& mpcRobotModel_;
+  std::vector<std::string> stateDescriptions_, inputDescriptions_;  // Lazily filled GUI labels (see drawGui)
+  const MpcRobotModelBase<scalar_t>& mpcRobotModel_;
   const ocs2::humanoid::ModelSettings& modelSettings_;
 };
 

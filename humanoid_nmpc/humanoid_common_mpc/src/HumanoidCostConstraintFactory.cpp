@@ -46,6 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_core/soft_constraint/StateInputSoftConstraint.h>
 #include <ocs2_core/soft_constraint/StateSoftConstraint.h>
 
+#include <humanoid_common_mpc/common/BasisInputsCostTransform.h>
 #include <humanoid_common_mpc/constraint/FrictionForceConeConstraint.h>
 #include <humanoid_common_mpc/constraint/ZeroWrenchConstraint.h>
 #include <humanoid_common_mpc/contact/ContactRectangle.h>
@@ -82,9 +83,14 @@ HumanoidCostConstraintFactory::HumanoidCostConstraintFactory(const std::string& 
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-void HumanoidCostConstraintFactory::setBasisToWrenchMap(const matrix_t& M, size_t wrenchInputDim) {
+void HumanoidCostConstraintFactory::setBasisToWrenchMap(const matrix_t& M,
+                                                        size_t wrenchInputDim,
+                                                        size_t numBasisInputs,
+                                                        scalar_t lambdaRegularization) {
   basisToWrenchMap_ = M;
   wrenchInputDim_ = wrenchInputDim;
+  numBasisInputs_ = numBasisInputs;
+  lambdaRegularization_ = lambdaRegularization;
 }
 
 /******************************************************************************************************/
@@ -96,10 +102,11 @@ matrix_t HumanoidCostConstraintFactory::loadAndTransformR() const {
     // Load R in wrench dimensions, then transform: R_basis = M^T * R_wrench * M
     matrix_t R_wrench(wrenchInputDim_, wrenchInputDim_);
     loadData::loadEigenMatrix(taskFile_, "R", R_wrench);
-    matrix_t R_basis = basisToWrenchMap_->transpose() * R_wrench * (*basisToWrenchMap_);
+    matrix_t R_basis = transformWrenchInputCostToBasisSpace(R_wrench, *basisToWrenchMap_, numBasisInputs_, lambdaRegularization_);
     if (verbose_) {
       LOG(INFO) << "\n #### R cost loaded in wrench space (" << wrenchInputDim_ << "x" << wrenchInputDim_
-                << ") and transformed to basis-vector space (" << R_basis.rows() << "x" << R_basis.cols() << ")";
+                << ") and transformed to basis-vector space (" << R_basis.rows() << "x" << R_basis.cols()
+                << ", lambda regularization = " << lambdaRegularization_ << ")";
     }
     return R_basis;
   } else {

@@ -74,9 +74,13 @@ int main(int argc, char** argv) {
   auto qos = rclcpp::QoS(1);
   qos.best_effort();
 
+  // Reference inputs must be laid out like the OCP input: in basis-vector mode that is [λ, joint velocities], so the
+  // effective model (decorator when active) is used rather than the wrench-space model.
+  const MpcRobotModelBase<scalar_t>& effectiveMpcRobotModel = interface.getEffectiveMpcRobotModel();
+
   // Reference and motion management for Procedural MPC
   CentroidalMpcTargetTrajectoriesCalculator mpcTargetTrajectoriesCalculator(
-      referenceFile, interface.getMpcRobotModel(), interface.getPinocchioInterface(), interface.getCentroidalModelInfo(),
+      referenceFile, effectiveMpcRobotModel, interface.getPinocchioInterface(), interface.getCentroidalModelInfo(),
       interface.mpcSettings().timeHorizon_);
   ProceduralMpcMotionManager::VelocityTargetToTargetTrajectories targetTrajectoriesFunc =
       [&mpcTargetTrajectoriesCalculator](const vector4_t& velocityTarget, scalar_t initTime, scalar_t finalTime,
@@ -84,17 +88,19 @@ int main(int argc, char** argv) {
         return mpcTargetTrajectoriesCalculator.commandedVelocityToTargetTrajectories(velocityTarget, initTime, initState);
       };
   auto ros2ProceduralMpcMotionManager = std::make_shared<Ros2ProceduralMpcMotionManager>(
-      gaitFile, referenceFile, interface.getSwitchedModelReferenceManagerPtr(), interface.getMpcRobotModel(), targetTrajectoriesFunc);
+      gaitFile, referenceFile, interface.getSwitchedModelReferenceManagerPtr(), effectiveMpcRobotModel, targetTrajectoriesFunc);
 
   ros2ProceduralMpcMotionManager->subscribe(nodeHandle, qos);
 
   mpc.getSolverPtr()->setReferenceManager(interface.getReferenceManagerPtr());
   mpc.getSolverPtr()->addSynchronizedModule(ros2ProceduralMpcMotionManager);
 
-  // Register real-time MPC parameter hot-reloading
+  // Register real-time MPC parameter hot-reloading. The updater is sized to the OCP input and, in basis-vector mode,
+  // transforms the wrench-space R of task.yaml exactly as the OCP factory did.
   auto mpcParameterUpdater = std::make_shared<MpcParameterUpdaterModule>(
-      &mpc, taskFile, urdfFile, referenceFile, interface.getMpcRobotModel().getStateDim(), interface.getMpcRobotModel().getInputDim(),
-      interface.modelSettings().contactNames, dynamic_cast<const SwitchedModelReferenceManager*>(interface.getReferenceManagerPtr().get()));
+      &mpc, taskFile, urdfFile, referenceFile, interface.getMpcRobotModel().getStateDim(), effectiveMpcRobotModel.getInputDim(),
+      interface.modelSettings().contactNames, dynamic_cast<const SwitchedModelReferenceManager*>(interface.getReferenceManagerPtr().get()),
+      interface.getBasisInputsCostTransformConfig());
   mpcParameterUpdater->subscribe(nodeHandle);
   mpc.getSolverPtr()->addSynchronizedModule(mpcParameterUpdater);
 

@@ -29,8 +29,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include <ocs2_centroidal_model/PinocchioCentroidalDynamicsAD.h>
-#include <ocs2_core/dynamics/SystemDynamicsBase.h>
+#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
+
+#include <array>
+#include <string>
+
+#include <pinocchio/multibody/fwd.hpp>
+
+#include <ocs2_centroidal_model/CentroidalModelInfo.h>
+#include <ocs2_core/dynamics/SystemDynamicsBaseAD.h>
 #include <ocs2_pinocchio_interface/PinocchioInterface.h>
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
@@ -40,53 +47,81 @@ namespace ocs2::humanoid {
 
 /**
  * CppAD-based centroidal dynamics where the MPC input is parameterized as
- * non-negative basis-vector scalings λ rather than direct contact wrenches.
+ * non-negative basis-vector scalings λ rather than direct contact wrenches:
  *
- * The CppAD tape inlines the linear mapping  u_wrench = M * u_basis,
- * where M is a block-diagonal matrix that maps each contact's λ-block through
- * its basis matrix B and passes joint velocities through unchanged.
+ *   u_basis = [λ_0, λ_1, ..., q̇_j],   W_i,local = B_i · λ_i
  *
- * The mapping matrix M has the structure:
- *   M = [ B_0   0     0           ]
- *       [ 0     B_1   0           ]
- *       [ 0     0     I_{n_joints}]
+ * The basis matrices B_i are defined in the *local contact frame* (see
+ * ContactWrenchConeBasisMatrix), whereas the centroidal dynamics expect the
+ * contact wrenches in the world frame. The CppAD tape therefore performs
  *
- * This ensures the CppAD derivative tape captures the full chain rule
- * df/du_basis = df/du_wrench * M.
+ *   W_i,world = blkdiag(w_R_l(q), w_R_l(q)) · B_i · λ_i
+ *
+ * with the contact frame rotation w_R_l(q) obtained from Pinocchio at the current
+ * configuration q(x), and then evaluates the standard centroidal flow map with the
+ * world-frame wrench input. Because the rotation is part of the tape, the linear
+ * approximation captures both ∂f/∂λ and the additional ∂f/∂x contribution that
+ * stems from the configuration-dependent rotation.
+ *
+ * The generated CppAD model name encodes the basis dimension and a hash of the
+ * basis matrices, so cached libraries are never reused for a different basis.
  */
-class CentroidalDynamicsBasisInputsAD final : public SystemDynamicsBase {
+class CentroidalDynamicsBasisInputsAD final : public SystemDynamicsBaseAD {
  public:
   /**
    * @param pinocchioInterface The pinocchio model interface.
    * @param info               CentroidalModelInfo with the *original* wrench-based inputDim.
-   * @param modelName          Unique name for the CppAD model.
-   * @param modelSettings      Build settings (CppAD model folder, recompile flags, etc.).
-   * @param basisInputDim      The total dimension of the basis-vector parameterized input.
-   * @param basisToWrenchMap   The M matrix (basisInputDim → original inputDim).
+   * @param modelName          Base name for the CppAD model.
+   * @param modelSettings      Build settings (CppAD model folder, recompile flags, contact names, etc.).
+   * @param localBasisMatrices Per-contact basis matrices B_i (6 × numBasisPerFoot) in the local contact frame.
    */
   CentroidalDynamicsBasisInputsAD(const PinocchioInterface& pinocchioInterface,
                                   const CentroidalModelInfo& info,
                                   const std::string& modelName,
                                   const ModelSettings& modelSettings,
-                                  size_t basisInputDim,
-                                  matrix_t basisToWrenchMap);
+                                  const std::array<matrix_t, N_CONTACTS>& localBasisMatrices);
 
   ~CentroidalDynamicsBasisInputsAD() override = default;
   CentroidalDynamicsBasisInputsAD* clone() const override { return new CentroidalDynamicsBasisInputsAD(*this); }
 
-  vector_t computeFlowMap(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) override;
-  VectorFunctionLinearApproximation linearApproximation(scalar_t time,
-                                                        const vector_t& state,
-                                                        const vector_t& input,
-                                                        const PreComputation& preComp) override;
+  size_t getBasisInputDim() const { return basisInputDim_; }
+  size_t getNumBasisPerFoot() const { return numBasisPerFoot_; }
+  const std::array<matrix_t, N_CONTACTS>& getLocalBasisMatrices() const { return B_local_; }
+
+  /**
+   * Name of the generated CppAD model: modelName + "_basis<numBasisPerFoot>_<hash of all basis entries>".
+   * Two different bases (dimension, friction coefficient, footprint, ...) therefore never share a cached library.
+   */
+  static std::string uniqueModelName(const std::string& modelName, const std::array<matrix_t, N_CONTACTS>& localBasisMatrices);
+
+  /**
+   * Converts a basis-vector input into the wrench-space input of the underlying centroidal model with all
+   * contact wrenches rotated into the world frame. Exposed for testing.
+   *
+   * @param pinocchioInterface Interface whose frame placements have been updated for the configuration of interest.
+   */
+  template <typename SCALAR_T>
+  VECTOR_T<SCALAR_T> toWorldFrameWrenchInput(const PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface,
+                                             const CentroidalModelInfoTpl<SCALAR_T>& info,
+                                             const VECTOR_T<SCALAR_T>& basisInput) const;
+
+ protected:
+  ad_vector_t systemFlowMap(ad_scalar_t time,
+                            const ad_vector_t& state,
+                            const ad_vector_t& input,
+                            const ad_vector_t& parameters) const override;
 
  private:
-  CentroidalDynamicsBasisInputsAD(const CentroidalDynamicsBasisInputsAD& rhs) = default;
+  CentroidalDynamicsBasisInputsAD(const CentroidalDynamicsBasisInputsAD& rhs);
 
-  PinocchioCentroidalDynamicsAD pinocchioCentroidalDynamicsAd_;
+  PinocchioInterfaceCppAd pinocchioInterfaceCppAd_;
+  CentroidalModelInfoCppAd infoCppAd_;
 
-  /// Maps basis-vector input to wrench-based input:  u_wrench = M_ * u_basis
-  matrix_t M_;
+  std::array<matrix_t, N_CONTACTS> B_local_;
+  std::array<pinocchio::FrameIndex, N_CONTACTS> contactFrameIndices_;
+  size_t numBasisPerFoot_;
+  size_t jointDim_;
+  size_t basisInputDim_;
 };
 
 }  // namespace ocs2::humanoid

@@ -82,7 +82,10 @@ VectorFunctionLinearApproximation ZeroWrenchConstraint::getLinearApproximation(s
 
   // Use the model's start index — this correctly handles both wrench-space
   // models (identity Jacobian at wrench columns) and basis-vector models
-  // (B matrix at λ columns).
+  // (B matrix at λ columns). For basis-vector inputs the value is the LOCAL
+  // contact-frame wrench B·λ; since the rotation into the world frame is
+  // invertible, W_local = 0 ⇔ W_world = 0, so no state-dependent rotation is
+  // needed here.
   const size_t colStart = mpcRobotModelPtr_->getContactWrenchStartIndices(contactPointIndex_);
   const size_t nextBlockStart = (contactPointIndex_ + 1 < N_CONTACTS)
                                     ? mpcRobotModelPtr_->getContactWrenchStartIndices(contactPointIndex_ + 1)
@@ -95,8 +98,8 @@ VectorFunctionLinearApproximation ZeroWrenchConstraint::getLinearApproximation(s
     // Wrench-space model: d(wrench)/d(wrench_input) = I
     approx.dfdu.middleCols(colStart, colSpan).setIdentity();
   } else {
-    // Basis-vector model: d(B * λ)/d(λ) = B — compute via finite difference of getContactWrench
-    // Each basis scalar λ_j contributes column B[:, j] to the Jacobian.
+    // Basis-vector model: d(B * λ)/d(λ) = B. The wrench is linear in λ, so probing each unit
+    // vector through getContactWrench yields the exact column B[:, j] of the Jacobian.
     for (size_t j = 0; j < colSpan; ++j) {
       vector_t perturbedInput = vector_t::Zero(mpcRobotModelPtr_->getInputDim());
       perturbedInput(colStart + j) = 1.0;

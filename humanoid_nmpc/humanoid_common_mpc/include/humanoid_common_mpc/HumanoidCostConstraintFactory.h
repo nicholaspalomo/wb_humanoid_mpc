@@ -73,11 +73,14 @@ class HumanoidCostConstraintFactory {
   /**
    * Set the basis-to-wrench mapping M matrix for cost transformation.
    * When set, R is loaded in wrench dimensions (wrenchInputDim × wrenchInputDim)
-   * and transformed: R_basis = M^T · R_wrench · M.
-   * @param M  The mapping matrix (wrenchInputDim × basisInputDim).
-   * @param wrenchInputDim  The original wrench-based input dimension.
+   * and transformed: R_basis = M^T · R_wrench · M + λ-regularization
+   * (see transformWrenchInputCostToBasisSpace).
+   * @param M                    The local-frame mapping matrix (wrenchInputDim × basisInputDim).
+   * @param wrenchInputDim       The original wrench-based input dimension.
+   * @param numBasisInputs       Number of leading λ entries in the basis-vector input.
+   * @param lambdaRegularization Non-negative diagonal regularization added to the λ block of R_basis.
    */
-  void setBasisToWrenchMap(const matrix_t& M, size_t wrenchInputDim);
+  void setBasisToWrenchMap(const matrix_t& M, size_t wrenchInputDim, size_t numBasisInputs, scalar_t lambdaRegularization);
 
   std::unique_ptr<StateCost> getTerminalCost() const;
 
@@ -111,6 +114,8 @@ class HumanoidCostConstraintFactory {
   /// Optional: when set, R is loaded in wrench dims then transformed to basis-vector space.
   std::optional<matrix_t> basisToWrenchMap_;  // M: wrenchInputDim × basisInputDim
   size_t wrenchInputDim_ = 0;
+  size_t numBasisInputs_ = 0;
+  scalar_t lambdaRegularization_ = 0.0;
 };
 
 }  // namespace ocs2::humanoid

@@ -63,7 +63,7 @@ EquivalentContactCornerForcesVisualizer::EquivalentContactCornerForcesVisualizer
 }
 
 visualization_msgs::msg::MarkerArray EquivalentContactCornerForcesVisualizer::generateContactVisualizationForceMarkers(
-    const vector_t& input, const contact_flag_t& contactFlags, const scalar_t& forceScale) const {
+    const vector_t& state, const vector_t& input, const contact_flag_t& contactFlags, const scalar_t& forceScale) const {
   visualization_msgs::msg::MarkerArray markerArray;
   markerArray.markers.reserve(N_CONTACTS * N_CONTACT_POLYGON_POINTS);
   const pinocchio::Model& model = pinocchioInterfacePtr_->getModel();
@@ -72,7 +72,9 @@ visualization_msgs::msg::MarkerArray EquivalentContactCornerForcesVisualizer::ge
     if (contactFlags[i]) {
       // Convert wrench into set of equivalent visualization forces in each corner
       const ContactWrenchMapper<N_CONTACT_POLYGON_POINTS>& currContactWrenchMapper = contactMappers[i];
-      vector6_t globalWrench = mpcRobotModelPtr_->getContactWrench(input, i);
+      // The input-only accessor returns the wrench in the frame of the input parameterization (local contact frame for
+      // basis-vector inputs), so the state-aware accessor is required to obtain a world-frame wrench for every model.
+      vector6_t globalWrench = mpcRobotModelPtr_->getContactWrenchInWorldFrame(state, input, i);
       vector6_t localContactWrench = rotateVectorWorldToLocal(globalWrench, data, contactFrameIndizes_[i]);
       auto visualizationForces = currContactWrenchMapper.computeVisualizationForceArray(localContactWrench);
       // Fill marker array with visualization forces

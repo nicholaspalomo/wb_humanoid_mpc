@@ -88,3 +88,18 @@ cc_binary(
     copts = _COMMON_COPTS,
     deps = _COMMON_DEPS,
 )
+
+# TEMPORARY compile check for the GUI gains updaters (removed after verification).
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+cc_library(
+    name = "_gains_compile_check",
+    srcs = [
+        "src/gains/GainsReceiver.cpp",
+        "src/gains/GainsUpdaterUtils.cpp",
+    ],
+    hdrs = glob(["include/humanoid_centroidal_mpc_ros2/gains/*.h"]),
+    includes = ["include"],
+    copts = _COMMON_COPTS,
+    deps = _COMMON_DEPS,
+)

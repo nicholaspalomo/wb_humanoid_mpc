@@ -182,10 +182,43 @@ inline vector_t weightCompensatingInput(const PinocchioInterface& pinocchioInter
   const auto numStanceLegs = numberOfLegsInContacts(contactFlags);
   vector_t input = vector_t::Zero(mpcRobotModel.getInputDim());
   if (numStanceLegs > 0) {
+    // NOTE: uses the input-only setter, i.e. the force is written in the frame of the input parameterization
+    // (world frame for wrench-space models, local contact frame for basis-vector inputs). For a flat foot the
+    // vertical force is identical in both frames. Prefer the state-aware overload below when a state is available.
     const vector3_t forceInInertialFrame(0.0, 0.0, totalGravitationalForce / numStanceLegs);
     for (size_t i = 0; i < contactFlags.size(); i++) {
       if (contactFlags[i]) {
         mpcRobotModel.setContactForce(input, forceInInertialFrame, i);
+      }
+    }
+  }
+  return input;
+}
+
+///
+/// @brief Computes the weight-compensating input (evenly distributed vertical world-frame forces) for the
+/// given state. The state is used to express the world-frame force correctly in the input parameterization
+/// (e.g. rotated into the local contact frame for basis-vector inputs).
+///
+/// @param pinocchioInterface Pinocchio interface.
+/// @param contactFlags Contact flags.
+/// @param mpcRobotModel MPC robot model.
+/// @param state Current MPC state.
+///
+/// @return input with weight-compensating contact forces and zero joint velocities.
+
+inline vector_t weightCompensatingInput(const PinocchioInterface& pinocchioInterface,
+                                        const contact_flag_t& contactFlags,
+                                        const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+                                        const vector_t& state) {
+  const static scalar_t totalGravitationalForce = computeTotalMass(pinocchioInterface.getModel()) * 9.81;
+  const auto numStanceLegs = numberOfLegsInContacts(contactFlags);
+  vector_t input = vector_t::Zero(mpcRobotModel.getInputDim());
+  if (numStanceLegs > 0) {
+    const vector3_t forceInInertialFrame(0.0, 0.0, totalGravitationalForce / numStanceLegs);
+    for (size_t i = 0; i < contactFlags.size(); i++) {
+      if (contactFlags[i]) {
+        mpcRobotModel.setContactForceInWorldFrame(state, input, forceInInertialFrame, i);
       }
     }
   }
@@ -248,6 +281,34 @@ inline VECTOR3_T<SCALAR_T> computeContactCoP(const VECTOR_T<SCALAR_T> input,
                                     getContactFrameIndex(pinocchioInterface, mpcRobotModel, contactIndex));
 }
 
+///
+/// @brief Computes the center of pressure (CoP) in the inertial frame using the state-aware world-frame wrench
+/// accessor, which is frame-correct for every input parameterization (wrench-space and basis-vector inputs).
+///
+/// @warning Assumes that the frame placements are up to date. Does not work when frame is not in contact -> f_z = 0 results in NaN.
+///
+/// @tparam SCALAR_T Scalar type [scalar_t/ad_scalar_t].
+/// @param state Current state.
+/// @param input Current input.
+/// @param pinocchioInterface Pinocchio interface.
+///
+/// @return Location of center of pressure in the inertial frame.
+
+template <typename SCALAR_T>
+inline VECTOR3_T<SCALAR_T> computeContactCoP(const VECTOR_T<SCALAR_T>& state,
+                                             const VECTOR_T<SCALAR_T>& input,
+                                             const PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface,
+                                             size_t contactIndex,
+                                             const MpcRobotModelBase<SCALAR_T>& mpcRobotModel) {
+  const pinocchio::FrameIndex frameIndex = getContactFrameIndex(pinocchioInterface, mpcRobotModel, contactIndex);
+  const VECTOR6_T<SCALAR_T> localContactWrench = rotateVectorWorldToLocal<SCALAR_T>(
+      mpcRobotModel.getContactWrenchInWorldFrame(state, input, contactIndex), pinocchioInterface.getData(), frameIndex);
+  SCALAR_T copX = -localContactWrench[4] / localContactWrench[2];
+  SCALAR_T copY = localContactWrench[3] / localContactWrench[2];
+  VECTOR3_T<SCALAR_T> copInLocalFrame(copX, copY, 0.0);
+  return transformPointLocalToWorld(copInLocalFrame, pinocchioInterface.getData(), frameIndex);
+}
+
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -273,6 +334,36 @@ inline std::vector<vector3_t> computeContactsCoP(const vector_t input,
   for (size_t contactIndex = 0; contactIndex < N_CONTACTS; contactIndex++) {
     if (contactFlags[contactIndex]) {
       contactCoPs.emplace_back(computeContactCoP<scalar_t>(input, pinocchioInterface, contactIndex, mpcRobotModel));
+    } else {
+      contactCoPs.emplace_back(vector3_t::Zero());
+    }
+  }
+  return contactCoPs;
+}
+
+///
+/// @brief Computes the center of pressure (CoP) for all contacts in the inertial frame from the state-aware
+/// world-frame wrench (frame-correct for basis-vector inputs).
+///
+/// @warning Assumes that the frame placements are up to date.
+///
+/// @param state Current state.
+/// @param input Current input.
+/// @param pinocchioInterface Pinocchio interface.
+/// @param contactFlags Flags indicating which contacts are in contact. Returns 0 vector if not in contact.
+///
+/// @return Locations of center of pressure in the inertial frame.
+
+inline std::vector<vector3_t> computeContactsCoP(const vector_t& state,
+                                                 const vector_t& input,
+                                                 const PinocchioInterfaceTpl<scalar_t>& pinocchioInterface,
+                                                 const contact_flag_t& contactFlags,
+                                                 const MpcRobotModelBase<scalar_t>& mpcRobotModel) {
+  std::vector<vector3_t> contactCoPs;
+  contactCoPs.reserve(N_CONTACTS);
+  for (size_t contactIndex = 0; contactIndex < N_CONTACTS; contactIndex++) {
+    if (contactFlags[contactIndex]) {
+      contactCoPs.emplace_back(computeContactCoP<scalar_t>(state, input, pinocchioInterface, contactIndex, mpcRobotModel));
     } else {
       contactCoPs.emplace_back(vector3_t::Zero());
     }

@@ -435,6 +435,15 @@ contacts:
     delta: 1.0e-3
   # LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/src/CentroidalMpcInterface.cpp:basis_barrier_yaml_path)
 
+  # Quadratic regularization on the basis-vector scalings λ (only active when useContactBasisVectorInputs: true).
+  # In basis-vector mode the input cost R is defined on the contact-frame wrench W = B·λ and transformed as
+  # R_basis = Mᵀ·R·M. Each foot has more generators than wrench components, so Mᵀ·R·M is singular and the
+  # optimal λ would not be unique; this value is added to the diagonal of the λ block to make the input
+  # Hessian positive definite. Keep it small relative to the R force weights (units: cost per λ², λ in N).
+  # LINT.IfChange(basis_regularization_config)
+  basisScalingRegularization: 1.0e-4
+  # LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/src/CentroidalMpcInterface.cpp:basis_regularization_yaml_path)
+
   frictionForceConeSoftConstraint:
     frictionCoefficient: 0.5
     # relaxed log barrier parameters

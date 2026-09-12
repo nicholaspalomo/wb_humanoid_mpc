@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <humanoid_centroidal_mpc_ros2/gains/GainsUpdaterUtils.h>
+#include <humanoid_common_mpc/common/Types.h>
 #include <iostream>
 
 #include <humanoid_centroidal_mpc_ros2/gains/EndEffectorFootGainsUpdater.h>
@@ -46,24 +47,46 @@ std::vector<std::string> getStateDescriptions(const ocs2::humanoid::ModelSetting
   std::vector<std::string> stateDescriptions = {"vcom_x",   "vcom_y",   "vcom_z",   "L_x / mass",   "L_y / mass",   "L_z / mass",
                                                 "p_base_x", "p_base_y", "p_base_z", "theta_base_z", "theta_base_y", "theta_base_x"};
   stateDescriptions.insert(stateDescriptions.end(), modelSettings.mpcModelJointNames.begin(), modelSettings.mpcModelJointNames.end());
-  if (stateDescriptions.size() != ocs2::humanoid::STATE_DIM) {
-    std::cout << stateDescriptions.size() << " VS " << ocs2::humanoid::STATE_DIM << std::endl;
+  // Centroidal state: 6 normalized momentum + 6 base pose entries followed by the MPC joints.
+  const size_t expectedStateDim = 12 + modelSettings.mpc_joint_dim;
+  if (stateDescriptions.size() != expectedStateDim) {
+    std::cout << stateDescriptions.size() << " VS " << expectedStateDim << std::endl;
     throw std::runtime_error("[getStateDescriptions] Dimension mismatch!");
   }
   return stateDescriptions;
 }
 
-std::vector<std::string> getInputDescriptions(const ocs2::humanoid::ModelSettings& modelSettings) {
-  std::vector<std::string> inputDescriptions = {"W_l_x", "W_l_y", "W_l_z", "W_l_a", "W_l_b", "W_l_c",
-                                                "W_r_x", "W_r_y", "W_r_z", "W_r_a", "W_r_b", "W_r_c"};
+std::vector<std::string> getInputDescriptions(const ocs2::humanoid::ModelSettings& modelSettings, size_t inputDim) {
+  const size_t wrenchInputDim = 6 * N_CONTACTS + modelSettings.mpc_joint_dim;
+  std::vector<std::string> inputDescriptions;
+  if (inputDim == wrenchInputDim) {
+    inputDescriptions = {"W_l_x", "W_l_y", "W_l_z", "W_l_a", "W_l_b", "W_l_c", "W_r_x", "W_r_y", "W_r_z", "W_r_a", "W_r_b", "W_r_c"};
+  } else {
+    // Basis-vector layout: each contact contributes numBasisPerFoot scalings λ instead of a 6D wrench.
+    if (inputDim < modelSettings.mpc_joint_dim || (inputDim - modelSettings.mpc_joint_dim) % N_CONTACTS != 0) {
+      throw std::runtime_error("[getInputDescriptions] Input dimension " + std::to_string(inputDim) +
+                               " is neither the wrench-space nor a basis-vector layout!");
+    }
+    const size_t numBasisPerFoot = (inputDim - modelSettings.mpc_joint_dim) / N_CONTACTS;
+    static_assert(N_CONTACTS == 2, "Contact prefixes below assume a left and a right foot");
+    for (const std::string& prefix : {std::string("lambda_l_"), std::string("lambda_r_")}) {
+      for (size_t k = 0; k < numBasisPerFoot; ++k) {
+        inputDescriptions.emplace_back(prefix + std::to_string(k));
+      }
+    }
+  }
   for (const auto& jointName : modelSettings.mpcModelJointNames) {
     inputDescriptions.emplace_back("vel_" + jointName);
   }
-  if (inputDescriptions.size() != ocs2::humanoid::INPUT_DIM) {
-    std::cout << inputDescriptions.size() << " VS " << ocs2::humanoid::INPUT_DIM << std::endl;
+  if (inputDescriptions.size() != inputDim) {
+    std::cout << inputDescriptions.size() << " VS " << inputDim << std::endl;
     throw std::runtime_error("[getInputDescriptions] Dimension mismatch!");
   }
   return inputDescriptions;
+}
+
+std::vector<std::string> getInputDescriptions(const ocs2::humanoid::ModelSettings& modelSettings) {
+  return getInputDescriptions(modelSettings, 6 * N_CONTACTS + modelSettings.mpc_joint_dim);
 }
 
 std::unordered_map<std::string, std::shared_ptr<GainsUpdaterInterface>> getGainsUpdaters(OptimalControlProblem& optimalControlProblem,
@@ -102,7 +125,8 @@ std::unordered_map<std::string, std::shared_ptr<GainsUpdaterInterface>> getGains
         candidate.reset();
       }
     };
-    checkAndAddCandidate(std::make_shared<QuadraticStateInputGainsUpdater>(centroidalInterface.getMpcRobotModel(),
+    // The input cost lives in the OCP's input space, which is the basis-vector layout when that formulation is active.
+    checkAndAddCandidate(std::make_shared<QuadraticStateInputGainsUpdater>(centroidalInterface.getEffectiveMpcRobotModel(),
                                                                            centroidalInterface.modelSettings(), gui));
     checkAndAddCandidate(std::make_shared<QuadraticStateCostWeightsUpdater>(centroidalInterface.getMpcRobotModel(),
                                                                             centroidalInterface.modelSettings(), gui));

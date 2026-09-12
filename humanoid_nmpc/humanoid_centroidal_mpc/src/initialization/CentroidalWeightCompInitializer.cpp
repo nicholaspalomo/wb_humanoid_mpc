@@ -73,7 +73,7 @@ CentroidalWeightCompInitializer* CentroidalWeightCompInitializer::clone() const 
 void CentroidalWeightCompInitializer::compute(
     scalar_t time, const vector_t& state, scalar_t nextTime, vector_t& input, vector_t& nextState) {
   const auto contactFlags = referenceManagerPtr_->getContactFlags(time);
-  input = weightCompensatingInput(info_, contactFlags, *mpcRobotModelPtr_);
+  input = weightCompensatingInput(info_, contactFlags, *mpcRobotModelPtr_, state);
   nextState = state;
   if (!extendNormalizedMomentum_) {
     centroidal_model::getNormalizedMomentum(nextState, info_).setZero();

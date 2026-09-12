@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <optional>
+
 #include <ocs2_core/Types.h>
 #include <ocs2_core/penalties/Penalties.h>
 #include <ocs2_ddp/DDP_Settings.h>
@@ -45,6 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_centroidal_mpc/initialization/CentroidalWeightCompInitializer.h"
+#include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
 #include "humanoid_common_mpc/common/BasisInputsModelDecorator.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
@@ -101,6 +104,30 @@ class CentroidalMpcInterface final : public RobotInterface {
 
   bool usesContactBasisVectorInputs() const { return useContactBasisVectorInputs_; }
 
+  /**
+   * Basis-vector formulation parameters (only meaningful when usesContactBasisVectorInputs() is true).
+   * The map M = blkdiag(B_0, B_1, I_joints) converts the basis-vector input into the wrench-space input with every
+   * contact wrench expressed in its local contact frame (see BasisInputsModelDecorator::getLocalBasisToWrenchMap).
+   */
+  const std::optional<matrix_t>& getBasisToWrenchMap() const { return basisToWrenchMap_; }
+  size_t getWrenchInputDim() const { return centroidalModelInfo_.inputDim; }
+  size_t getNumBasisInputs() const { return basisDecoratorPtr_ ? basisDecoratorPtr_->getNumBasisPerFoot() * N_CONTACTS : 0; }
+  scalar_t getBasisScalingRegularization() const { return basisScalingRegularization_; }
+  const BasisInputsModelDecorator<scalar_t>* getBasisDecoratorPtr() const { return basisDecoratorPtr_.get(); }
+
+  /** Config for transforming a wrench-space input cost R into basis space; std::nullopt in wrench-space mode. */
+  std::optional<BasisInputsCostTransformConfig> getBasisInputsCostTransformConfig() const {
+    if (!useContactBasisVectorInputs_) {
+      return std::nullopt;
+    }
+    BasisInputsCostTransformConfig config;
+    config.basisToWrenchMap = *basisToWrenchMap_;
+    config.wrenchInputDim = getWrenchInputDim();
+    config.numBasisInputs = getNumBasisInputs();
+    config.lambdaRegularization = basisScalingRegularization_;
+    return config;
+  }
+
   std::vector<std::string> getCostNames() const;
   std::vector<std::string> getTerminalCostNames() const;
   std::vector<std::string> getStateSoftConstraintNames() const;
@@ -148,6 +175,10 @@ class CentroidalMpcInterface final : public RobotInterface {
   std::unique_ptr<BasisInputsModelDecorator<ad_scalar_t>> basisDecoratorADPtr_;
 
   bool useContactBasisVectorInputs_ = false;
+  /// Local-frame basis-to-wrench map M (wrenchInputDim × basisInputDim); populated only in basis-vector mode.
+  std::optional<matrix_t> basisToWrenchMap_;
+  /// Diagonal regularization added to the λ block of the transformed input cost R_basis.
+  scalar_t basisScalingRegularization_ = 0.0;
 
   rollout::Settings rolloutSettings_;
   std::unique_ptr<RolloutBase> rolloutPtr_;

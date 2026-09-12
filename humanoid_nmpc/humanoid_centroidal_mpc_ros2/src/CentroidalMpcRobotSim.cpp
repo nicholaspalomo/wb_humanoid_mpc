@@ -97,12 +97,16 @@ int main(int argc, char** argv) {
   auto qos = rclcpp::QoS(1);
   qos.best_effort();
 
+  // Everything that produces or consumes OCP input vectors (reference inputs, policy visualization, telemetry) must use
+  // the effective model: in basis-vector mode its input layout is [λ, joint velocities], not the 6D-wrench layout.
+  const MpcRobotModelBase<scalar_t>& effectiveMpcRobotModel = interface.getEffectiveMpcRobotModel();
+
   std::shared_ptr<HumanoidVisualizer> humanoidVisualizer(
-      new HumanoidVisualizer(taskFile, interface.getPinocchioInterface(), interface.getMpcRobotModel(), nodeHandle));
+      new HumanoidVisualizer(taskFile, interface.getPinocchioInterface(), effectiveMpcRobotModel, nodeHandle));
 
   // Reference and motion management for Procedural MPC
   CentroidalMpcTargetTrajectoriesCalculator mpcTargetTrajectoriesCalculator(
-      referenceFile, interface.getMpcRobotModel(), interface.getPinocchioInterface(), interface.getCentroidalModelInfo(),
+      referenceFile, effectiveMpcRobotModel, interface.getPinocchioInterface(), interface.getCentroidalModelInfo(),
       interface.mpcSettings().timeHorizon_);
   ProceduralMpcMotionManager::VelocityTargetToTargetTrajectories targetTrajectoriesFunc =
       [&mpcTargetTrajectoriesCalculator](const vector4_t& velocityTarget, scalar_t initTime, scalar_t finalTime,
@@ -110,18 +114,19 @@ int main(int argc, char** argv) {
         return mpcTargetTrajectoriesCalculator.commandedVelocityToTargetTrajectories(velocityTarget, initTime, initState);
       };
   auto ros2ProceduralMpcMotionManager = std::make_shared<Ros2ProceduralMpcMotionManager>(
-      gaitFile, referenceFile, interface.getSwitchedModelReferenceManagerPtr(), interface.getMpcRobotModel(), targetTrajectoriesFunc);
+      gaitFile, referenceFile, interface.getSwitchedModelReferenceManagerPtr(), effectiveMpcRobotModel, targetTrajectoriesFunc);
 
   ros2ProceduralMpcMotionManager->subscribe(nodeHandle, qos);
 
   mpc.getSolverPtr()->setReferenceManager(interface.getReferenceManagerPtr());
   mpc.getSolverPtr()->addSynchronizedModule(ros2ProceduralMpcMotionManager);
 
-  // Register real-time MPC parameter hot-reloading
+  // Register real-time MPC parameter hot-reloading. The updater is sized to the OCP input and, in basis-vector mode,
+  // transforms the wrench-space R of task.yaml exactly as the OCP factory did.
   auto mpcParameterUpdater = std::make_shared<MpcParameterUpdaterModule>(
-      &mpc, taskFile, urdfFile, referenceFile, interface.getMpcRobotModel().getStateDim(),
-      interface.getEffectiveMpcRobotModel().getInputDim(), interface.modelSettings().contactNames,
-      dynamic_cast<const SwitchedModelReferenceManager*>(interface.getReferenceManagerPtr().get()));
+      &mpc, taskFile, urdfFile, referenceFile, interface.getMpcRobotModel().getStateDim(), effectiveMpcRobotModel.getInputDim(),
+      interface.modelSettings().contactNames, dynamic_cast<const SwitchedModelReferenceManager*>(interface.getReferenceManagerPtr().get()),
+      interface.getBasisInputsCostTransformConfig());
   mpcParameterUpdater->subscribe(nodeHandle);
   mpc.getSolverPtr()->addSynchronizedModule(mpcParameterUpdater);
 
@@ -193,9 +198,9 @@ int main(int argc, char** argv) {
 
   std::unique_ptr<PinocchioTelemetryPublisher> telemetryPublisher;
   if (enableTelemetry) {
-    telemetryPublisher = std::make_unique<PinocchioTelemetryPublisher>(nodeHandle, interface.getPinocchioInterface(),
-                                                                       interface.getMpcRobotModel().modelSettings,
-                                                                       interface.getMpcRobotModel(), robotDescription, telemetryFrames);
+    telemetryPublisher =
+        std::make_unique<PinocchioTelemetryPublisher>(nodeHandle, interface.getPinocchioInterface(), interface.modelSettings(),
+                                                      effectiveMpcRobotModel, robotDescription, telemetryFrames);
     LOG(INFO) << "Pinocchio telemetry publishing enabled (" << (mrtDesiredFrequency / telemetryDecimation)
               << " Hz, decimation=" << telemetryDecimation << ").";
   } else {

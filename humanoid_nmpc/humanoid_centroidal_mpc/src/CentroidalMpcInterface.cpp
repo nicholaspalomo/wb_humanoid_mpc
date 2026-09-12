@@ -169,14 +169,29 @@ CentroidalMpcInterface::CentroidalMpcInterface(const std::string& taskFile,
     LOG(INFO) << "[CentroidalMpcInterface] Basis vectors per foot: " << numBasisPerFoot
               << " (total basis input dim: " << numBasisPerFoot * N_CONTACTS + modelSettings_.mpc_joint_dim << ")";
 
-    // Create decorator models (take ownership of cloned inner models)
+    // Create decorator models (take ownership of cloned inner models). The decorators carry a pinocchio
+    // interface so that they can rotate the local-frame basis wrench into the world frame for a given state.
     basisDecoratorPtr_ = std::make_unique<BasisInputsModelDecorator<scalar_t>>(
-        std::unique_ptr<MpcRobotModelBase<scalar_t>>(mpcRobotModelPtr_->clone()), basisMatrices);
+        std::unique_ptr<MpcRobotModelBase<scalar_t>>(mpcRobotModelPtr_->clone()), basisMatrices, *pinocchioInterfacePtr_);
     basisDecoratorADPtr_ = std::make_unique<BasisInputsModelDecorator<ad_scalar_t>>(
-        std::unique_ptr<MpcRobotModelBase<ad_scalar_t>>(mpcRobotModelADPtr_->clone()), basisMatrices);
+        std::unique_ptr<MpcRobotModelBase<ad_scalar_t>>(mpcRobotModelADPtr_->clone()), basisMatrices, pinocchioInterfacePtr_->toCppAd());
 
     effectiveMpcRobotModelPtr_ = basisDecoratorPtr_.get();
     effectiveMpcRobotModelADPtr_ = basisDecoratorADPtr_.get();
+
+    // Constant local-frame map u_wrench_local = M * u_basis, shared by the input-cost transform, the online parameter
+    // updater and the CppAD end-effector kinematics mapping (which only needs the joint-velocity block).
+    basisToWrenchMap_ = basisDecoratorPtr_->getLocalBasisToWrenchMap();
+
+    // Regularization on λ: M has a non-trivial null space, so M^T R M alone leaves the λ Hessian singular.
+    // LINT.IfChange(basis_regularization_yaml_path)
+    constexpr scalar_t kDefaultBasisScalingRegularization = 1e-4;
+    basisScalingRegularization_ = kDefaultBasisScalingRegularization;
+    loadData::loadPtreeValue(pt, basisScalingRegularization_, "contacts.basisScalingRegularization", verbose_);
+    // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:basis_regularization_config)
+    if (basisScalingRegularization_ < 0.0) {
+      throw std::invalid_argument("[CentroidalMpcInterface] contacts.basisScalingRegularization must be non-negative");
+    }
   } else {
     effectiveMpcRobotModelPtr_ = mpcRobotModelPtr_.get();
     effectiveMpcRobotModelADPtr_ = mpcRobotModelADPtr_.get();
@@ -231,28 +246,12 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
   std::unique_ptr<SystemDynamicsBase> dynamicsPtr;
   const std::string modelName = "dynamics";
   if (useContactBasisVectorInputs_) {
-    // Build the M matrix that maps basis-vector input → wrench-based input
-    // M = [ B_0   0     0           ]
-    //     [ 0     B_1   0           ]
-    //     [ 0     0     I_{n_joints}]
-    const size_t wrenchInputDim = centroidalModelInfo_.inputDim;
-    const size_t basisInputDim = effectiveMpcRobotModelPtr_->getInputDim();
-    const size_t numBasisPerFoot = basisDecoratorPtr_->getNumBasisPerFoot();
-    const size_t jointDim = modelSettings_.mpc_joint_dim;
+    // R costs are loaded in wrench dims and transformed into basis space: R_basis = M^T * R_wrench * M + reg
+    factory.setBasisToWrenchMap(*basisToWrenchMap_, getWrenchInputDim(), getNumBasisInputs(), basisScalingRegularization_);
 
-    matrix_t M = matrix_t::Zero(wrenchInputDim, basisInputDim);
-    for (size_t i = 0; i < N_CONTACTS; ++i) {
-      const matrix_t& B = basisDecoratorPtr_->getBasisMatrix(i);  // 6 × numBasisPerFoot
-      M.block(kWrenchDim * i, numBasisPerFoot * i, kWrenchDim, numBasisPerFoot) = B;
-    }
-    // Joint velocities pass through unchanged
-    M.block(kWrenchDim * N_CONTACTS, numBasisPerFoot * N_CONTACTS, jointDim, jointDim).setIdentity();
-
-    // Set M on the factory so R costs are loaded in wrench dims and transformed: R_basis = M^T * R_wrench * M
-    factory.setBasisToWrenchMap(M, wrenchInputDim);
-
+    // The dynamics rotate each local-frame basis wrench B_i * λ_i into the world frame inside the CppAD tape.
     dynamicsPtr.reset(new CentroidalDynamicsBasisInputsAD(*pinocchioInterfacePtr_, centroidalModelInfo_, modelName, modelSettings_,
-                                                          basisInputDim, std::move(M)));
+                                                          basisDecoratorPtr_->getBasisMatrices()));
   } else {
     dynamicsPtr.reset(new CentroidalDynamicsAD(*pinocchioInterfacePtr_, centroidalModelInfo_, modelName, modelSettings_));
   }
@@ -280,25 +279,14 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
 
   // When using basis-vector inputs, wrap the pinocchio mapping so that CppAD-compiled
   // EE kinematics (zero-velocity, normal-velocity constraints, foot tracking cost)
-  // first convert λ → W = M * u_basis before extracting joint velocities at wrench-space
-  // offsets.  Without this, getJointVelocities(input, info) reads from the wrong offset.
+  // first convert u_basis → u_wrench = M * u_basis before extracting joint velocities at
+  // wrench-space offsets. Only the joint-velocity block of M matters here (the kinematics
+  // never read the contact block), so the local-frame map is sufficient.
   std::unique_ptr<PinocchioStateInputMapping<ad_scalar_t>> effectiveMappingPtr;
   if (useContactBasisVectorInputs_) {
-    const size_t wrenchInputDim = centroidalModelInfo_.inputDim;
-    const size_t basisInputDim = effectiveMpcRobotModelPtr_->getInputDim();
-    const size_t numBasisPerFoot = basisDecoratorPtr_->getNumBasisPerFoot();
-    const size_t jointDim = modelSettings_.mpc_joint_dim;
-
-    matrix_t M = matrix_t::Zero(wrenchInputDim, basisInputDim);
-    for (size_t i = 0; i < N_CONTACTS; ++i) {
-      const matrix_t& B = basisDecoratorPtr_->getBasisMatrix(i);
-      M.block(kWrenchDim * i, numBasisPerFoot * i, kWrenchDim, numBasisPerFoot) = B;
-    }
-    M.block(kWrenchDim * N_CONTACTS, numBasisPerFoot * N_CONTACTS, jointDim, jointDim).setIdentity();
-
     effectiveMappingPtr = std::make_unique<BasisInputsMappingDecorator<ad_scalar_t>>(
-        std::unique_ptr<PinocchioStateInputMapping<ad_scalar_t>>(pinocchioMappingCppAdBase.clone()), std::move(M), wrenchInputDim,
-        jointDim);
+        std::unique_ptr<PinocchioStateInputMapping<ad_scalar_t>>(pinocchioMappingCppAdBase.clone()), *basisToWrenchMap_,
+        getWrenchInputDim(), modelSettings_.mpc_joint_dim);
   } else {
     effectiveMappingPtr = std::unique_ptr<PinocchioStateInputMapping<ad_scalar_t>>(pinocchioMappingCppAdBase.clone());
   }
@@ -530,9 +518,9 @@ std::unique_ptr<StateInputConstraint> CentroidalMpcInterface::getJointMimicConst
     LOG(INFO) << " #### =============================================================================";
   }
 
-  JointMimicKinematicConstraint::Config config(*mpcRobotModelPtr_, parentJointName, childJointName, multiplier, positionGain);
+  JointMimicKinematicConstraint::Config config(*effectiveMpcRobotModelPtr_, parentJointName, childJointName, multiplier, positionGain);
 
-  return std::unique_ptr<StateInputConstraint>(new JointMimicKinematicConstraint(*mpcRobotModelPtr_, config));
+  return std::unique_ptr<StateInputConstraint>(new JointMimicKinematicConstraint(*effectiveMpcRobotModelPtr_, config));
 }
 
 /******************************************************************************************************/

@@ -195,13 +195,16 @@ void HumanoidVisualizer::publishCartesianMarkers(const contact_flag_t& contactFl
   visualization_msgs::msg::MarkerArray markerArray;
   markerArray.markers.reserve(numberOfCartesianMarkers);
 
-  std::vector<vector3_t> copPositions = computeContactsCoP(input, pinocchioInterface_, contactFlags, *mpcRobotModelPtr_);
+  // The contact wrench parameterization of the input may be defined in the local contact frame (basis-vector inputs),
+  // so all world-frame quantities are obtained through the state-aware accessors. The frame placements of
+  // pinocchioInterface_ must already correspond to `state` (see updatePinocchioFrames() in update()).
+  std::vector<vector3_t> copPositions = computeContactsCoP(state, input, pinocchioInterface_, contactFlags, *mpcRobotModelPtr_);
   std::vector<vector3_t> contactForces;
   contactForces.reserve(N_CONTACTS);
 
   // Feet positions and Forces
   for (size_t i = 0; i < N_CONTACTS; ++i) {
-    vector3_t contactForce = mpcRobotModelPtr_->getContactForce(input, i);
+    vector3_t contactForce = mpcRobotModelPtr_->getContactForceInWorldFrame(state, input, i);
     // markerArray.markers.emplace_back(
     //     getFootMarker(contactPositions[i], contactFlags[i], feetColorMap_[i], footMarkerDiameter_, footAlphaWhenLifted_));
     markerArray.markers.emplace_back(getForceMarker(contactForce, copPositions[i], contactFlags[i], Color::green, forceScale_));
@@ -214,7 +217,7 @@ void HumanoidVisualizer::publishCartesianMarkers(const contact_flag_t& contactFl
 
   // Add the visualization of the 4 fources equal to the contact wrench
   visualization_msgs::msg::MarkerArray wrenchVisualizationForcesMarkerArray(
-      contactVisualizer_.generateContactVisualizationForceMarkers(input, contactFlags, forceScale_));
+      contactVisualizer_.generateContactVisualizationForceMarkers(state, input, contactFlags, forceScale_));
   for (auto& marker : wrenchVisualizationForcesMarkerArray.markers) {
     markerArray.markers.emplace_back(marker);
   }

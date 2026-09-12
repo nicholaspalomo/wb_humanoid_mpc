@@ -22,7 +22,11 @@ namespace ocs2::humanoid {
  *   [W_0, W_1, ..., joint_velocities]
  * where W_i is a 6-DoF wrench (or 3-DoF force).
  *
- * This adapter converts λ → W = B · λ for each contact before delegating.
+ * This adapter converts u_basis → u_wrench = M · u_basis before delegating, where
+ * M = blkdiag(B_0, B_1, ..., I_joints). The wrapped mapping only ever reads the
+ * joint-velocity block of the wrench-space input (kinematics do not depend on the
+ * contact wrench), so the contact blocks of M — which are expressed in the local
+ * contact frame — never influence the result and no frame rotation is required here.
  * It is used inside CppAD graph compilation so all operations must be
  * compatible with ad_scalar_t.
  *

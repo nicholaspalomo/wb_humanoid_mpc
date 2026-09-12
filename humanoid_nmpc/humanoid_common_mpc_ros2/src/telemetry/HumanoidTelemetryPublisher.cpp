@@ -173,7 +173,8 @@ void HumanoidTelemetryPublisher::publish(const ::robot::model::RobotState& robot
                                        targetTraj.inputTrajectory.front().size() == mpcRobotModelPtr_->getInputDim();
       if (hasValidTargetInput) {
         vector_t targetInput = LinearInterpolation::interpolate(time, targetTraj.timeTrajectory, targetTraj.inputTrajectory);
-        if (targetInput.size() >= static_cast<int>(N_CONTACTS * CONTACT_WRENCH_DIM)) {
+        // Guard on the model's input dimension: the input layout (wrench-space or basis-vector) is model-defined.
+        if (targetInput.size() == static_cast<Eigen::Index>(mpcRobotModelPtr_->getInputDim())) {
           targetLinVel = mpcRobotModelPtr_->getBaseComLinearVelocity(targetState);
         }
       }
@@ -184,11 +185,16 @@ void HumanoidTelemetryPublisher::publish(const ::robot::model::RobotState& robot
     mpcTargetBaseTwistPub_->publish(createTwistStamped(now, "world", targetLinVel, targetAngVel));
 
     // 5. Contact Wrenches: MPC Requested vs MuJoCo Measured
-    if (mpcPolicyInput.size() >= static_cast<int>(N_CONTACTS * CONTACT_WRENCH_DIM)) {
-      mpcContactWrenchLeftPub_->publish(
-          createWrenchStamped(now, "world", mpcPolicyInput.segment<CONTACT_WRENCH_DIM>(CONTACT_LEFT_INDEX * CONTACT_WRENCH_DIM)));
-      mpcContactWrenchRightPub_->publish(
-          createWrenchStamped(now, "world", mpcPolicyInput.segment<CONTACT_WRENCH_DIM>(CONTACT_RIGHT_INDEX * CONTACT_WRENCH_DIM)));
+    // The policy input is expressed in the input parameterization of the MPC model (world-frame wrenches or local-frame
+    // basis-vector scalings), so the world-frame wrench is recovered through the state-aware accessor rather than by
+    // slicing fixed offsets. The policy input is evaluated at the current observation state, which is therefore the
+    // state that defines the contact frame orientation for this input.
+    if (mpcPolicyInput.size() == static_cast<Eigen::Index>(mpcRobotModelPtr_->getInputDim()) &&
+        mpcObservation.state.size() == static_cast<Eigen::Index>(mpcRobotModelPtr_->getStateDim())) {
+      mpcContactWrenchLeftPub_->publish(createWrenchStamped(
+          now, "world", mpcRobotModelPtr_->getContactWrenchInWorldFrame(mpcObservation.state, mpcPolicyInput, CONTACT_LEFT_INDEX)));
+      mpcContactWrenchRightPub_->publish(createWrenchStamped(
+          now, "world", mpcRobotModelPtr_->getContactWrenchInWorldFrame(mpcObservation.state, mpcPolicyInput, CONTACT_RIGHT_INDEX)));
     }
 
     simContactWrenchLeftPub_->publish(createForceWrenchStamped(now, "world", leftMeasuredForce));

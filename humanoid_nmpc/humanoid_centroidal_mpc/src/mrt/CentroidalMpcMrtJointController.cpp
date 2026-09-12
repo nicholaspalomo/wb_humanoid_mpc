@@ -246,7 +246,9 @@ void CentroidalMpcMrtJointController::updateMpcObservation(ocs2::SystemObservati
   updateMpcState(mpcObservation.state, robotState);
   mpcObservation.time = robotState.getTime();
   mpcObservation.input = vector_t::Zero(effectiveModelPtr_->getInputDim());
-  mpcObservation.input.tail(effectiveModelPtr_->getJointDim()) = robotState.getJointVelocities(mpcJointIndices_, 0.0);
+  // The contact block of the input differs between the wrench-space (6 per foot) and basis-vector (numBasisPerFoot)
+  // layouts, so the joint velocities are written through the effective model rather than by a fixed-offset slice.
+  effectiveModelPtr_->setJointVelocities(mpcObservation.state, mpcObservation.input, robotState.getJointVelocities(mpcJointIndices_, 0.0));
   std::vector<bool> configContacts = robotState.getContactFlags();
   assert(configContacts.size() == 2);
   contact_flag_t contactFlags;
@@ -412,8 +414,14 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
     // dynamic cancellation (gravity, Coriolis, and contact forces) and do not fight actuator PD loops.
     vector_t qdd_j_des = vector_t::Zero(effectiveModelPtr_->getJointDim());
 
-    std::array<vector6_t, 2> footWrenches{effectiveModelPtr_->getContactWrench(mpcPolicyInput, 0),
-                                          effectiveModelPtr_->getContactWrench(mpcPolicyInput, 1)};
+    // computeJointTorques projects the wrenches with LOCAL_WORLD_ALIGNED Jacobians, so it needs WORLD-frame wrenches.
+    // With basis-vector inputs the input-only accessor returns the LOCAL contact-frame wrench B*lambda; the state-aware
+    // accessor rotates it with the contact frame orientation of the planned state, which is the orientation the OCP
+    // dynamics used when it chose lambda. A non-finite policy state (divergence) would poison the rotation, so fall
+    // back to the measured state in that case.
+    const vector_t& wrenchFrameState = mpcPolicyState.allFinite() ? mpcPolicyState : currentMpcObservation_.state;
+    std::array<vector6_t, 2> footWrenches{effectiveModelPtr_->getContactWrenchInWorldFrame(wrenchFrameState, mpcPolicyInput, 0),
+                                          effectiveModelPtr_->getContactWrenchInWorldFrame(wrenchFrameState, mpcPolicyInput, 1)};
 
     // Evaluate inverse dynamics using measured robot state for physical consistency
     vector_t q = effectiveModelPtr_->getGeneralizedCoordinates(currentMpcObservation_.state);
@@ -516,9 +524,12 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
     std::cerr << "Apply weight compensating torque..." << std::endl;
     //   Apply weight compensated input around current state
     vector_t qdd_j_des = vector_t::Zero(effectiveModelPtr_->getJointDim());
-    mpcPolicyInput = weightCompensatingInput(pinocchioInterface_, {true, true}, *effectiveModelPtr_);
-    std::array<vector6_t, 2> footWrenches{effectiveModelPtr_->getContactWrench(mpcPolicyInput, 0),
-                                          effectiveModelPtr_->getContactWrench(mpcPolicyInput, 1)};
+    // State-aware overload: the vertical world-frame force is expressed in the input parameterization of the effective
+    // model (rotated into the local contact frame for basis-vector inputs), and read back in the world frame below.
+    mpcPolicyInput = weightCompensatingInput(pinocchioInterface_, {true, true}, *effectiveModelPtr_, currentMpcObservation_.state);
+    std::array<vector6_t, 2> footWrenches{
+        effectiveModelPtr_->getContactWrenchInWorldFrame(currentMpcObservation_.state, mpcPolicyInput, 0),
+        effectiveModelPtr_->getContactWrenchInWorldFrame(currentMpcObservation_.state, mpcPolicyInput, 1)};
     vector_t weightCompensatingTorques = computeJointTorques<scalar_t>(
         effectiveModelPtr_->getGeneralizedCoordinates(currentMpcObservation_.state),
         effectiveModelPtr_->getGeneralizedVelocities(currentMpcObservation_.state, currentMpcObservation_.input), qdd_j_des, footWrenches,
@@ -613,8 +624,9 @@ TargetTrajectories CentroidalMpcMrtJointController::currentObservationToResetTra
   // (current base height + nominal joint angles) that makes the MPC try to
   // "correct" the inconsistency, shooting the base upward.
 
-  // Weight-compensating vertical contact forces (forces = mg/2 per foot in stance)
-  vector_t targetInput = weightCompensatingInput(pinocchioInterface_, {true, true}, *effectiveModelPtr_);
+  // Weight-compensating vertical contact forces (forces = mg/2 per foot in stance). The state-aware overload expresses
+  // the world-frame force in the effective model's input parameterization at the target configuration.
+  vector_t targetInput = weightCompensatingInput(pinocchioInterface_, {true, true}, *effectiveModelPtr_, targetState);
 
   scalar_t t0 = currentObservation.time;
   scalar_t t1 = t0 + 2.0;
@@ -623,8 +635,8 @@ TargetTrajectories CentroidalMpcMrtJointController::currentObservationToResetTra
 
   std::cerr << "[CentroidalMPC] Resetting MPC target trajectory. Base pos: " << targetState.segment<3>(6).transpose()
             << " Base z: " << targetState(8)
-            << " Input forces: " << effectiveModelPtr_->getContactWrench(targetInput, 0).head(3).transpose() << " / "
-            << effectiveModelPtr_->getContactWrench(targetInput, 1).head(3).transpose() << std::endl;
+            << " Input forces (world): " << effectiveModelPtr_->getContactForceInWorldFrame(targetState, targetInput, 0).transpose()
+            << " / " << effectiveModelPtr_->getContactForceInWorldFrame(targetState, targetInput, 1).transpose() << std::endl;
   return resetTargetTrajectories;
 }
 

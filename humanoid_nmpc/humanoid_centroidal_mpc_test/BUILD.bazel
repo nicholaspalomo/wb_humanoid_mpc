@@ -125,6 +125,17 @@ cc_test(
     deps = _TEST_DEPS,
 )
 
+# End-to-end test of the basis-vector contact input formulation through CentroidalMpcInterface.
+# Builds the full DRC Atlas interface in both input modes (JIT-compiles all CppAD models), hence "large".
+cc_test(
+    name = "test_basis_inputs_formulation",
+    size = "large",
+    srcs = ["src/testBasisInputsFormulation.cpp"],
+    copts = _TEST_COPTS,
+    data = _TEST_DATA,
+    deps = _TEST_DEPS,
+)
+
 cc_library(
     name = "humanoid_centroidal_mpc_test_headers",
     hdrs = glob(["include/**"], allow_empty = True),

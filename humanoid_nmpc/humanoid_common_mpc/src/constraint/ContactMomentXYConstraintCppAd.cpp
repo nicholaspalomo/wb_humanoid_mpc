@@ -92,8 +92,10 @@ ad_vector_t ContactMomentXYConstraintCppAd::constraintFunction(ad_scalar_t time,
   updateFramePlacements(mpcRobotModelPtr_->getGeneralizedCoordinates(state), model, data);
   pinocchio::FrameIndex frameID = getContactFrameIndex(pinocchioInterfaceCppAd_, *mpcRobotModelPtr_, contactPointIndex_);
 
-  const ad_vector3_t localForce = rotateVectorWorldToLocal(mpcRobotModelPtr_->getContactForce(input, contactPointIndex_), data, frameID);
-  const ad_vector3_t localMoments = rotateVectorWorldToLocal(mpcRobotModelPtr_->getContactMoment(input, contactPointIndex_), data, frameID);
+  const ad_vector3_t localForce =
+      rotateVectorWorldToLocal(mpcRobotModelPtr_->getContactForceInWorldFrame(state, input, contactPointIndex_), data, frameID);
+  const ad_vector3_t localMoments =
+      rotateVectorWorldToLocal(mpcRobotModelPtr_->getContactMomentInWorldFrame(state, input, contactPointIndex_), data, frameID);
 
   ad_vector_t constraintValue(4);
   constraintValue << localMoments.x() - contactRectangle_.getBounds().y_min * localForce.z(),
