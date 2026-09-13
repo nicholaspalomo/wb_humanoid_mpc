@@ -63,9 +63,28 @@ void ContactPlannerModule::stopWorker() {
 void ContactPlannerModule::setConfig(const ContactPlanningConfig& config) {
   config.validate();
   referenceManagerPtr_->setConfig(config);
-  std::lock_guard<std::mutex> lock(configMutex_);
-  config_ = config;
-  configChanged_ = true;
+
+  bool startWorkerThread = false;
+  bool stopWorkerThread = false;
+
+  {
+    std::lock_guard<std::mutex> lock(configMutex_);
+    if (config_.runInBackgroundThread != config.runInBackgroundThread) {
+      if (config.runInBackgroundThread) {
+        startWorkerThread = true;
+      } else {
+        stopWorkerThread = true;
+      }
+    }
+    config_ = config;
+    configChanged_ = true;
+  }
+
+  if (startWorkerThread) {
+    startWorker();
+  } else if (stopWorkerThread) {
+    stopWorker();
+  }
 }
 
 ContactPlanningConfig ContactPlannerModule::getConfig() const {
