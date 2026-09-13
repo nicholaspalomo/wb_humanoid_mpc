@@ -4,7 +4,7 @@ telemetryFrequency: 100      # [Hz] Telemetry publishing frequency (decimated fr
 enableOnlineTuning: true     # Enable runtime parameter and gain tuning in Controller GUI
 useContactBasisVectorInputs: true  # Set true to use basis-vector scalings λ as MPC contact inputs (instead of direct wrenches)
 useComAndAcomTracking: true      # Set true to regulate CoM + Angular Center of Mass (ACoM) instead of base pose
-useContactPlanning: false        # Set true to plan the contact sequence, timing and footholds online with the mixed-integer contact planner (replaces the gait schedule)
+useContactPlanning: true        # Set true to plan the contact sequence, timing and footholds online with the mixed-integer contact planner (replaces the gait schedule)
 useDcmTerminalCost: true         # Set true to end the horizon with the DCM (capture point) viability cost; Q_final / terminal_cost are then ignored
 
 # Weights for CoM and ACoM tracking (active when useComAndAcomTracking is true).
@@ -287,9 +287,9 @@ Q:
   # ; Joint Positions ;;
   # Reduced for CoM + ACoM tracking: the torso is the main contributor to the
   # learned orientation offset, so it must be free to rotate.
-  "(12,12)": 10.0  # back_bkz (was 10)
-  "(13,13)": 25.0  # back_bky (was 25)
-  "(14,14)": 25.0  # back_bkx (was 25)
+  "(12,12)": 10  # back_bkz (was 10)
+  "(13,13)": 25  # back_bky (was 25)
+  "(14,14)": 25  # back_bkx (was 25)
   "(15,15)": 0.1  # l_arm_shz
   "(16,16)": 0.1  # l_arm_shx
   "(17,17)": 0.1  # l_arm_ely
@@ -299,13 +299,13 @@ Q:
   "(21,21)": 0.1  # r_arm_shx
   "(22,22)": 0.1  # r_arm_ely
   "(23,23)": 0.1  # r_arm_elx
-  "(24,24)": 1  # l_leg_hpz
+  "(24,24)": 10  # l_leg_hpz
   "(25,25)": 250  # l_leg_hpx
   "(26,26)": 10  # l_leg_hpy
   "(27,27)": 10  # l_leg_kny
   "(28,28)": 5  # l_leg_aky
   "(29,29)": 5  # l_leg_akx
-  "(30,30)": 1  # r_leg_hpz
+  "(30,30)": 10  # r_leg_hpz
   "(31,31)": 250  # r_leg_hpx
   "(32,32)": 10  # r_leg_hpy
   "(33,33)": 10  # r_leg_kny
@@ -364,11 +364,11 @@ R:
 # "can come to rest over its feet" condition; 1 keeps a steady walk unbiased. Cost = 0.5 * (weight_x * e_x^2 + weight_y * e_y^2).
 # LINT.IfChange(dcm_terminal_cost_config)
 dcm_terminal_cost:
-  comHeight: 0.85            # [m] nominal CoM height used for omega
+  comHeight: 0.85  # [m] nominal CoM height used for omega
   gravity: 9.81              # [m/s^2]
-  weight_x: 400              # weight on the longitudinal DCM error
-  weight_y: 400              # weight on the lateral DCM error
-  velocityOffsetFactor: 1.0  # 0..1, scales the v_cmd / omega offset of the DCM reference
+  weight_x: 400  # weight on the longitudinal DCM error
+  weight_y: 400  # weight on the lateral DCM error
+  velocityOffsetFactor: 1  # 0..1, scales the v_cmd / omega offset of the DCM reference
   supportBlendTime: 0.1      # [s] support weights ramp through lift-off / touch-down so the reference never jumps
 # LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/src/cost/DcmTerminalCost.cpp:dcm_terminal_cost_keys)
 
@@ -403,9 +403,9 @@ Q_final:
   # ; Joint Positions ;;
   # Reduced for CoM + ACoM tracking: the torso is the main contributor to the
   # learned orientation offset, so it must be free to rotate.
-  "(12,12)": 10.0  # back_bkz (was 10)
-  "(13,13)": 25.0  # back_bky (was 25)
-  "(14,14)": 25.0  # back_bkx (was 25)
+  "(12,12)": 10  # back_bkz (was 10)
+  "(13,13)": 25  # back_bky (was 25)
+  "(14,14)": 25  # back_bkx (was 25)
   "(15,15)": 0.1  # l_arm_shz
   "(16,16)": 0.1  # l_arm_shx
   "(17,17)": 0.1  # l_arm_ely
@@ -415,13 +415,13 @@ Q_final:
   "(21,21)": 0.1  # r_arm_shx
   "(22,22)": 0.1  # r_arm_ely
   "(23,23)": 0.1  # r_arm_elx
-  "(24,24)": 1  # l_leg_hpz
+  "(24,24)": 10  # l_leg_hpz
   "(25,25)": 250  # l_leg_hpx
   "(26,26)": 10  # l_leg_hpy
   "(27,27)": 10  # l_leg_kny
   "(28,28)": 5  # l_leg_aky
   "(29,29)": 5  # l_leg_akx
-  "(30,30)": 1  # r_leg_hpz
+  "(30,30)": 10  # r_leg_hpz
   "(31,31)": 250  # r_leg_hpx
   "(32,32)": 10  # r_leg_hpy
   "(33,33)": 10  # r_leg_kny
