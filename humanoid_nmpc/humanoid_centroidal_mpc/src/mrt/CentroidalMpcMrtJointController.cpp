@@ -250,7 +250,7 @@ void CentroidalMpcMrtJointController::updateMpcObservation(ocs2::SystemObservati
   // layouts, so the joint velocities are written through the effective model rather than by a fixed-offset slice.
   effectiveModelPtr_->setJointVelocities(mpcObservation.state, mpcObservation.input, robotState.getJointVelocities(mpcJointIndices_, 0.0));
   std::vector<bool> configContacts = robotState.getContactFlags();
-  assert(configContacts.size() == 2);
+  assert(configContacts.size() == N_CONTACTS);
   contact_flag_t contactFlags;
   std::copy(configContacts.begin(), configContacts.end(), contactFlags.begin());
   mpcObservation.mode = stanceLeg2ModeNumber(contactFlags);

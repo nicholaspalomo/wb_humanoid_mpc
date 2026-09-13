@@ -90,16 +90,30 @@ struct ContactPlanningConfig {
   scalar_t planningFrequency = 10.0;  // [Hz] upper bound on the background planning rate
 
   // Adaptive execution of the schedule between plans (ContactScheduleAdaptation.h), generic in the number of feet.
-  bool enablePhaseResetting = true;             // switch a swing foot to contact when it touches down early, extend when late
+  //
+  // All three features change the closed-loop behaviour of the controller and are therefore opt-in. With them disabled
+  // the reference manager merges plans exactly as it did before they existed, which is the behaviour every gait is
+  // tuned against. Enable one at a time and validate it in simulation.
+  bool enablePhaseResetting = false;            // switch a swing foot to contact when it touches down early, extend when late
   scalar_t earlyTouchdownMinSwingRatio = 0.25;  // contact during this initial fraction of the nominal swing is ignored (scuffing)
   scalar_t maxLateTouchdownExtension = 0.15;    // [s] total extension budget of a swing past its planned touch-down
   scalar_t lateTouchdownExtensionStep = 0.05;   // [s] the touch-down is pushed this far ahead of the current time per cycle
   scalar_t lateTouchdownSearchVelocity = 0.05;  // [m/s] the foot height target descends at this rate during the extension
-  bool enableDcmStepAdjustment = true;          // move the landing target by the DCM error propagated to touch-down
-  scalar_t dcmAdjustmentGain = 1.0;             // gain on the closed-form LIP step adjustment (1 = exact compensation)
-  scalar_t dcmAdjustmentMaxOffset = 0.15;       // [m] bound on the landing target offset (also clipped to reachX / reachY*)
-  bool enableEnergyCadenceModulation = false;   // move the touch-down of the swing in flight by the LIP orbital energy error
-  scalar_t energyCadenceGain = 0.01;            // [s/J] touch-down shift = -gain * (E - E_plan), E = m (v^2 - w^2 x^2) / 2
+
+  // Closed-form capture-point step adjustment. The reference it compares against is the planner's Linear Inverted
+  // Pendulum, not the whole-body state, so the error it acts on contains the reduced-model mismatch as well as any real
+  // disturbance, and the LIP is unstable: the mismatch present when the plan was made grows by exp(omega * plan age)
+  // before the correction is even applied, and the correction multiplies it by exp(omega * time to touch-down) again.
+  // With a realistic ZMP mismatch of a few centimetres that product saturates dcmAdjustmentMaxOffset every step, which
+  // hands the foothold to the feedback loop instead of the planner. dcmAdjustmentMaxOffset is the safety bound, keep it
+  // small, and note that the mixed-integer planner already re-plans the foothold from the measured state at
+  // planningFrequency, so the marginal value of this loop is limited to one planning period.
+  bool enableDcmStepAdjustment = false;    // move the landing target by the DCM error propagated to touch-down
+  scalar_t dcmAdjustmentGain = 0.5;        // gain on the closed-form LIP step adjustment (1 = exact compensation)
+  scalar_t dcmAdjustmentMaxOffset = 0.05;  // [m] bound on the landing target offset (also clipped to reachX / reachY*)
+
+  bool enableEnergyCadenceModulation = false;  // move the touch-down of the swing in flight by the LIP orbital energy error
+  scalar_t energyCadenceGain = 0.01;           // [s/J] touch-down shift = -gain * (E - E_plan), E = m (v^2 - w^2 x^2) / 2
 
   scalar_t omega() const { return std::sqrt(gravity / comHeight); }
   scalar_t horizon() const { return dt * static_cast<scalar_t>(numNodes); }

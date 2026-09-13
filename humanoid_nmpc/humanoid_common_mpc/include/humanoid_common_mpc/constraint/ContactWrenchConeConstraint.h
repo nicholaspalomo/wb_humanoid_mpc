@@ -144,4 +144,38 @@ class ContactWrenchConeConstraint final : public StateInputConstraint {
   vector_t b_local_;
 };
 
+/**
+ * The rows of the linearized contact wrench cone in the local contact frame:
+ *
+ *   A_f * F_local + A_tau * tau_local + b >= 0   (element-wise)
+ *
+ * `b` holds the non-homogeneous offsets (the gripper force and -minNormalForce). Dropping it leaves the homogeneous
+ * cone, which is the set a conic combination of wrench generators has to stay inside.
+ */
+struct ContactWrenchConeRows {
+  matrix_t A_f;    ///< numRows x 3, multiplies the local-frame contact force
+  matrix_t A_tau;  ///< numRows x 3, multiplies the local-frame contact moment
+  vector_t b;      ///< numRows, non-homogeneous offsets
+
+  size_t numRows() const { return static_cast<size_t>(b.size()); }
+
+  /** Row values of the full constraint. The wrench is admissible when every entry is non-negative. */
+  vector_t evaluate(const vector6_t& wrenchLocal) const { return A_f * wrenchLocal.head<3>() + A_tau * wrenchLocal.tail<3>() + b; }
+
+  /** Row values of the homogeneous cone (without `b`), which every wrench-cone generator has to satisfy. */
+  vector_t evaluateCone(const vector6_t& wrenchLocal) const { return A_f * wrenchLocal.head<3>() + A_tau * wrenchLocal.tail<3>(); }
+};
+
+/**
+ * Reference point of the torsional friction rows: `config.patchOffset` when it is set, the centre of the footprint
+ * otherwise. Only the x and y components are used; the z component is returned unchanged.
+ */
+vector3_t contactPatchReferencePoint(const ContactWrenchConeConstraint::Config& config, const ContactRectangle& contactRectangle);
+
+/**
+ * Builds the local-frame rows of the wrench cone. Shared by ContactWrenchConeConstraint (which enforces them) and by
+ * ContactWrenchConeBasisMatrix (whose generators have to satisfy them), so that the two can never drift apart.
+ */
+ContactWrenchConeRows buildLocalWrenchConeRows(const ContactWrenchConeConstraint::Config& config, const ContactRectangle& contactRectangle);
+
 }  // namespace ocs2::humanoid

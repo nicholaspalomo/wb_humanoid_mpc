@@ -64,7 +64,7 @@ The reference layer decides *when* and *where* the feet touch the ground, the NM
 | Toggle | What it does |
 | --- | --- |
 | `useDcmTerminalCost` | Ends the horizon with a Divergent Component of Motion (capture point) viability cost instead of the quadratic `Q_final` terminal cost, which is then ignored. Keeps the horizon end capturable for any gait cadence. |
-| `useContactPlanning` | Replaces the periodic gait schedule with an online mixed-integer contact planner (LIP model, branch-and-bound over HPIPM relaxations) that chooses the contact sequence, the switching times and the footholds from the current state and the velocity command. Between plans the executed schedule adapts to measured early / late touch-downs and the landing targets follow the capture point (`contact_planning.enablePhaseResetting`, `enableDcmStepAdjustment`). |
+| `useContactPlanning` | Replaces the periodic gait schedule with an online mixed-integer contact planner (LIP model, branch-and-bound over HPIPM relaxations) that chooses the contact sequence, the switching times and the footholds from the current state and the velocity command. Optional, off by default: the executed schedule can adapt to measured early / late touch-downs and the landing targets can follow the capture point (`contact_planning.enablePhaseResetting`, `enableDcmStepAdjustment`). |
 
 The formulation and the math of both features are described in [humanoid_nmpc/docs/contact_planning_and_dcm_terminal_cost.md](humanoid_nmpc/docs/contact_planning_and_dcm_terminal_cost.md).
 

@@ -161,6 +161,9 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
   size_t getContactForceStartIndices(size_t contactIndex) const override { return getContactWrenchStartIndices(contactIndex); }
   size_t getContactMomentStartIndices(size_t contactIndex) const override { return getContactWrenchStartIndices(contactIndex); }
 
+  /** The contact block holds the basis scalings, not the six wrench components. */
+  size_t getContactInputDim(size_t /*contactIndex*/) const override { return numBasisPerFoot_; }
+
   /******* Generalized coordinates (delegated to wrapped model) *******/
 
   VECTOR_T<SCALAR_T> getGeneralizedCoordinates(const VECTOR_T<SCALAR_T>& state) const override {

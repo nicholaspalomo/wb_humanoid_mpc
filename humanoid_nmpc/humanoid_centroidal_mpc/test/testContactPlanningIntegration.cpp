@@ -229,6 +229,77 @@ std::optional<Swing> firstSwingAfter(const ModeSchedule& schedule, scalar_t afte
 }  // namespace
 
 /**
+ * The shipped configuration has to reproduce plain plan merging. The adaptive execution features change the closed
+ * loop, so they are opt-in; if one of them were enabled by default it would silently alter the gait every robot is
+ * tuned against, and the symptom would be a walking regression rather than a failing unit test, because the other
+ * tests set the flags explicitly.
+ */
+TEST_F(ContactPlanningIntegrationTest, DefaultConfigurationStepsInTheCommandedDirection) {
+  auto module = interface_->getContactPlannerModulePtr();
+  ASSERT_NE(module, nullptr);
+  auto referenceManager = std::dynamic_pointer_cast<ContactPlanningReferenceManager>(interface_->getSwitchedModelReferenceManagerPtr());
+  ASSERT_NE(referenceManager, nullptr);
+
+  const ContactPlanningConfig config = referenceManager->getConfig();
+  EXPECT_FALSE(config.enablePhaseResetting) << "adaptive execution must be opt-in in the shipped task file";
+  EXPECT_FALSE(config.enableDcmStepAdjustment) << "adaptive execution must be opt-in in the shipped task file";
+  EXPECT_FALSE(config.enableEnergyCadenceModulation) << "adaptive execution must be opt-in in the shipped task file";
+
+  const vector_t state = interface_->getInitialState();
+  const scalar_t horizon = interface_->mpcSettings().timeHorizon_;
+  const size_t inputDim = interface_->getEffectiveMpcRobotModel().getInputDim();
+
+  // Command a forward walk.
+  const scalar_t commandedVelocityX = 0.4;
+  vector_t walkingTarget = vector_t::Zero(state.size());
+  walkingTarget.segment(6, 6) = state.segment(6, 6);
+  walkingTarget(0) = commandedVelocityX;
+
+  scalar_t t = 0.0;
+  referenceManager->setTargetTrajectories(TargetTrajectories({t}, {walkingTarget}, {vector_t::Zero(inputDim)}));
+  referenceManager->preSolverRun(t, t + horizon, state, ModeNumber::STANCE);
+  module->preSolverRun(t, t + horizon, state, *referenceManager);
+  ASSERT_TRUE(module->getStatistics().lastPlanValid);
+  t += 0.02;
+  referenceManager->preSolverRun(t, t + horizon, state, ModeNumber::STANCE);
+  ASSERT_TRUE(referenceManager->hasActivePlan());
+
+  const auto swing = firstSwingAfter(referenceManager->getModeSchedule(), t);
+  ASSERT_TRUE(swing.has_value());
+  const size_t foot = swing->foot;
+  const size_t inFlightMode = modeWithSwingFoot(foot);
+
+  // The swing foot has to travel forward, which is the symptom a saturating step-adjustment feedback destroys.
+  const scalar_t justAfterLiftOff = swing->liftOff + 1e-3;
+  const scalar_t justBeforeTouchDown = swing->touchDown - 1e-3;
+  referenceManager->preSolverRun(justAfterLiftOff, justAfterLiftOff + horizon, state, inFlightMode);
+  const auto atLiftOff = referenceManager->getSwingFootReference(foot, justAfterLiftOff);
+  const auto atTouchDown = referenceManager->getSwingFootReference(foot, justBeforeTouchDown);
+  ASSERT_TRUE(atLiftOff.has_value());
+  ASSERT_TRUE(atTouchDown.has_value());
+  EXPECT_GT(atTouchDown->position(0) - atLiftOff->position(0), 0.0)
+      << "a forward velocity command must move the swing foot forward, not backward";
+
+  // No correction is applied to the planned landing target.
+  EXPECT_TRUE(referenceManager->getDcmStepAdjustment()[foot].isZero())
+      << "the step adjustment must be inactive in the default configuration";
+
+  // A measured contact in mid-swing leaves the executed schedule untouched.
+  const scalar_t midSwing = 0.5 * (swing->liftOff + swing->touchDown);
+  const ModeSchedule beforeEvent = referenceManager->getModeSchedule();
+  referenceManager->preSolverRun(midSwing, midSwing + horizon, state, ModeNumber::STANCE);
+  EXPECT_EQ(referenceManager->getLastContactEvents()[foot].type, ContactEventReport::Type::NONE)
+      << "phase resetting must be inactive in the default configuration";
+  EXPECT_FALSE(referenceManager->isInContact(midSwing, foot)) << "the swing must run to its scheduled touch-down";
+  EXPECT_FALSE(referenceManager->consumeReplanRequest());
+  const ModeSchedule afterEvent = referenceManager->getModeSchedule();
+  ASSERT_EQ(afterEvent.eventTimes.size(), beforeEvent.eventTimes.size());
+  for (size_t i = 0; i < beforeEvent.eventTimes.size(); ++i) {
+    EXPECT_NEAR(afterEvent.eventTimes[i], beforeEvent.eventTimes[i], 1e-9) << "event " << i << " was re-timed";
+  }
+}
+
+/**
  * Adaptive execution on the full model: measured contact events re-time the executed schedule, and the DCM error with
  * respect to the plan moves the landing target of the swing foot.
  */
@@ -295,7 +366,9 @@ TEST_F(ContactPlanningIntegrationTest, AdaptsScheduleToContactEventsAndDcmError)
   const auto pushedReference = referenceManager->getSwingFootReference(foot, swing->touchDown - 1e-3);
   ASSERT_TRUE(pushedReference.has_value());
   const scalar_t omega = config.omega();
-  const scalar_t expectedShift = 0.3 / omega * std::exp(omega * (swing->touchDown - midSwing));
+  // The measured CoM velocity error maps to a DCM error of dv / omega, which the closed-form law propagates to
+  // touch-down and scales by the gain.
+  const scalar_t expectedShift = wide.dcmAdjustmentGain * 0.3 / omega * std::exp(omega * (swing->touchDown - midSwing));
   EXPECT_NEAR(pushedAdjustment(0) - nominalAdjustment(0), expectedShift, 1e-6) << "closed-form LIP propagation of the DCM error";
   EXPECT_NEAR(pushedAdjustment(1) - nominalAdjustment(1), 0.0, 1e-6);
   EXPECT_NEAR((pushedReference->position - nominalReference->position).head<2>().norm(), (pushedAdjustment - nominalAdjustment).norm(),

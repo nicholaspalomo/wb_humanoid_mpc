@@ -132,18 +132,9 @@ cc_binary(
 
 cc_test(
     name = "testContactWrenchConeBasisMatrix",
+    size = "small",
     srcs = ["test/testContactWrenchConeBasisMatrix.cpp"],
-    copts = [
-        "-std=c++20",
-        "-Wall",
-        "-Wextra",
-        "-Wpedantic",
-        "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
-    ],
+    copts = _COMMON_COPTS,
     deps = [
         ":humanoid_common_mpc",
         "@googletest//:gtest_main",
@@ -190,6 +181,17 @@ cc_test(
     name = "testLipContactPlanner",
     size = "medium",
     srcs = ["test/testLipContactPlanner.cpp"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "testEndEffectorKinematicsTwistConstraint",
+    size = "small",
+    srcs = ["test/testEndEffectorKinematicsTwistConstraint.cpp"],
     copts = _COMMON_COPTS,
     deps = [
         ":humanoid_common_mpc",

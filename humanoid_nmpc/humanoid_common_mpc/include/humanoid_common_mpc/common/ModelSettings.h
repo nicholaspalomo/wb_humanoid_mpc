@@ -53,6 +53,12 @@ class ModelSettings {
     scalar_t angularAccelerationErrorGain{1.0};
     scalar_t softConstraintWeight{10.0};
     bool constrainOrientation{true};  // When true, constraint is 6D (position+orientation); when false, 3D (position-only)
+    // The orientation error with respect to the ground plane only measures the tilt of the foot normal, so a 6D
+    // constraint built from it leaves the rotation about the contact normal free and the last row is identically zero.
+    // Setting this adds that rate to the plane-normal row, which stops a stance foot pivoting on the spot. It is off by
+    // default because it removes one input degree of freedom per stance foot from a controller that was tuned without
+    // it; enable it and re-check the yaw behaviour.
+    bool constrainYawRateAboutContactNormal{false};
   };
 
   ModelSettings(const std::string& configFile, const std::string& urdfFile, const std::string& mpcName, bool verbose = false);

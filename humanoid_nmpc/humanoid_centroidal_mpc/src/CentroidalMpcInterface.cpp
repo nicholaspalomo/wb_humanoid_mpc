@@ -168,6 +168,15 @@ CentroidalMpcInterface::CentroidalMpcInterface(const std::string& taskFile,
         ContactWrenchConeBasisMatrix(coneConfig, ContactRectangle::loadContactRectangle(taskFile, modelSettings_, 0, verbose_)),
         ContactWrenchConeBasisMatrix(coneConfig, ContactRectangle::loadContactRectangle(taskFile, modelSettings_, 1, verbose_))};
 
+    // A conic combination is homogeneous, so the basis can represent neither the minimum normal force nor a gripper
+    // adhesion force: both are affine offsets of the cone and lambda = 0 always yields the zero wrench.
+    if (coneConfig.minNormalForce > 0.0 || coneConfig.gripperForce > 0.0) {
+      LOG(WARNING) << "[CentroidalMpcInterface] contacts.contactWrenchConeSoftConstraint.minNormalForce (" << coneConfig.minNormalForce
+                   << " N) and gripperForce (" << coneConfig.gripperForce
+                   << " N) are NOT enforced with useContactBasisVectorInputs: true. The friction, CoP and torsional "
+                      "limits are enforced structurally by the basis; these two affine offsets cannot be.";
+    }
+
     const size_t numBasisPerFoot = basisMatrices[0].numBasis();
     LOG(INFO) << "[CentroidalMpcInterface] Basis vectors per foot: " << numBasisPerFoot
               << " (total basis input dim: " << numBasisPerFoot * N_CONTACTS + modelSettings_.mpc_joint_dim << ")";
@@ -384,12 +393,13 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
 
     if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::ContactWrenchCone)) {
       if (useContactBasisVectorInputs_) {
-        // In basis-vector mode the wrench cone is enforced structurally:
-        // all basis vectors lie inside the cone, so λ ≥ 0 ⟹ W ∈ cone.
-        // The ContactWrenchConeConstraint is wrench-space specific and
-        // cannot operate on basis-vector inputs.
+        // In basis-vector mode the friction, CoP and torsional limits are enforced structurally: every generator lies
+        // inside the cone (ContactWrenchConeBasisMatrix verifies this against the constraint's own rows at
+        // construction) and the cone is convex, so λ ≥ 0 ⟹ W ∈ cone. The ContactWrenchConeConstraint is wrench-space
+        // specific and cannot operate on basis-vector inputs. The minimum normal force and the gripper force are the
+        // exception and are not enforced; a warning is logged where the basis is built.
         LOG(INFO) << "[CentroidalMPC] Skipping contact_wrench_cone soft constraint for " << footName
-                  << " (enforced structurally via basis-vector inputs).";
+                  << " (friction, CoP and torsional limits enforced structurally via basis-vector inputs).";
 
         // Add λ ≥ 0 non-negativity constraint as a barrier penalty.
         // This is the structural enforcement: all basis scalings must be non-negative
@@ -511,8 +521,10 @@ std::unique_ptr<StateInputConstraint> CentroidalMpcInterface::getStanceFootConst
     return config;
   };
 
-  return std::unique_ptr<StateInputConstraint>(new ZeroVelocityConstraintCppAd(*referenceManagerPtr_, eeKinematics, contactPointIndex,
-                                                                               numConstraints, eeZeroVelConConfig(footConfig)));
+  auto constraint = std::make_unique<ZeroVelocityConstraintCppAd>(*referenceManagerPtr_, eeKinematics, contactPointIndex, numConstraints,
+                                                                  eeZeroVelConConfig(footConfig));
+  constraint->getTwistConstraint().setConstrainYawRateAboutNormal(footConfig.constrainYawRateAboutContactNormal);
+  return constraint;
 }
 
 /******************************************************************************************************/

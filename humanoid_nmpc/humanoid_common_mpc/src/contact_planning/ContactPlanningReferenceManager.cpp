@@ -190,7 +190,11 @@ void ContactPlanningReferenceManager::modifyReferences(scalar_t initTime,
   const ContactPlanningConfig config = getConfig();
 
   activatePendingPlan(initTime);
-  std::tie(comState_[0], comState_[1]) = computeComState(initState);
+  // Only the closed-form LIP corrections need the centre of mass; skip the kinematics when they are disabled so that
+  // the default configuration does exactly the work it did before they existed.
+  if (config.enableDcmStepAdjustment || config.enableEnergyCadenceModulation) {
+    std::tie(comState_[0], comState_[1]) = computeComState(initState);
+  }
 
   // Adapt the schedule executed so far to the measured contact state before it is merged with the plan.
   handleContactEvents(initTime, initMode, config);

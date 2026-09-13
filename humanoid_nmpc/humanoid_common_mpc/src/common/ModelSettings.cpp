@@ -210,6 +210,8 @@ ModelSettings::ModelSettings(const std::string& configFile, const std::string& u
                            footConstraintPrefix + "angularAccelerationErrorGain", verbose);
   loadData::loadPtreeValue(pt, this->footConstraintConfig.softConstraintWeight, footConstraintPrefix + "softConstraintWeight", verbose);
   loadData::loadPtreeValue(pt, this->footConstraintConfig.constrainOrientation, footConstraintPrefix + "constrainOrientation", verbose);
+  loadData::loadPtreeValue(pt, this->footConstraintConfig.constrainYawRateAboutContactNormal,
+                           footConstraintPrefix + "constrainYawRateAboutContactNormal", verbose);
 
   if (verbose) {
     std::cerr << " #### "

@@ -207,7 +207,7 @@ void WBMpcMrtJointController::updateMpcObservation(ocs2::SystemObservation& mpcO
   mpcObservation.time = robotState.getTime();
   mpcObservation.input = vector_t::Zero(mpcRobotModel_.getInputDim());  // Add contact forces later.
   std::vector<bool> configContacts = robotState.getContactFlags();
-  assert(configContacts.size() == 2);
+  assert(configContacts.size() == N_CONTACTS);
   contact_flag_t contactFlags;
   std::copy(configContacts.begin(), configContacts.end(), contactFlags.begin());
   mpcObservation.mode = stanceLeg2ModeNumber(contactFlags);

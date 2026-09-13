@@ -445,6 +445,7 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
     loadData::loadPtreeValue(pt, footCfg.linearAccelerationErrorGain_xy, fcPrefix + "linearAccelerationErrorGain_xy", false);
     loadData::loadPtreeValue(pt, footCfg.angularAccelerationErrorGain, fcPrefix + "angularAccelerationErrorGain", false);
     loadData::loadPtreeValue(pt, footCfg.constrainOrientation, fcPrefix + "constrainOrientation", false);
+    loadData::loadPtreeValue(pt, footCfg.constrainYawRateAboutContactNormal, fcPrefix + "constrainYawRateAboutContactNormal", false);
     hasFootConstraintGains = true;
   }
 
@@ -744,6 +745,7 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
         try {
           auto& con = ocp.equalityConstraintPtr->get<ZeroVelocityConstraintCppAd>(footName + "_zeroVelocity");
           con.getTwistConstraint().setNumConstraints(footCfg.constrainOrientation ? 6 : 3);
+          con.getTwistConstraint().setConstrainYawRateAboutNormal(footCfg.constrainYawRateAboutContactNormal);
           con.getTwistConstraint().configure(EndEffectorKinematicsTwistConstraint::Config(footTwistConfig));
         } catch (const std::exception& e) {
           LOG(WARNING) << "Failed to update " << footName << "_zeroVelocity (hard): " << e.what();
@@ -757,6 +759,7 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
           auto* zeroVelCon = dynamic_cast<ZeroVelocityConstraintCppAd*>(softCon.getConstraintPtr().get());
           if (zeroVelCon != nullptr) {
             zeroVelCon->getTwistConstraint().setNumConstraints(footCfg.constrainOrientation ? 6 : 3);
+            zeroVelCon->getTwistConstraint().setConstrainYawRateAboutNormal(footCfg.constrainYawRateAboutContactNormal);
             zeroVelCon->getTwistConstraint().configure(EndEffectorKinematicsTwistConstraint::Config(footTwistConfig));
           }
         } catch (const std::exception& e) {

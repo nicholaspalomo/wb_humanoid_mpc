@@ -1003,6 +1003,10 @@ class MpcParamsTab(ttk.Frame):
             )
             fc_frame.pack(fill="x", padx=6, pady=4)
             for k, v in foot_cfg.items():
+                # Booleans (constrainOrientation, constrainYawRateAboutContactNormal) are toggled in the task file:
+                # a slider would write a float back into a bool key and break the next reload.
+                if isinstance(v, bool):
+                    continue
                 val = self._to_float(v)
                 if val is not None:
                     # softConstraintWeight is a quadratic penalty weight (typical range 1-100k),

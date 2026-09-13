@@ -260,20 +260,23 @@ fly (zero-wrench constraint against the ground), a foot that misses the ground i
 push during a swing cannot move the landing target before the next plan arrives. The reference manager therefore adapts
 the schedule it executes between plans, using only the measured contact state and the closed-form LIP. The features are
 implemented in `humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.{h,cpp}` as pure functions of a
-`ModeSchedule`, written for any number of feet (`N_CONTACTS`), and driven from `ContactPlanningReferenceManager`. They are
-configured in the `contact_planning` block of `task.yaml`:
+`ModeSchedule`, written for any number of feet (`N_CONTACTS`), and driven from `ContactPlanningReferenceManager`.
+
+**All three are disabled by default.** Each changes the closed loop, and with them off the reference manager merges
+plans exactly as it did before they existed, which is the behaviour every gait is tuned against. Enable one at a time
+and validate it in simulation. They are configured in the `contact_planning` block of `task.yaml`:
 
 ```yaml
 contact_planning:
   # ... planner keys ...
-  enablePhaseResetting: true            # early touch-down: switch the foot to contact at once; late: extend the swing
+  enablePhaseResetting: false           # early touch-down: switch the foot to contact at once; late: extend the swing
   earlyTouchdownMinSwingRatio: 0.25     # contact during this initial fraction of the nominal swing is ignored (scuffing)
   maxLateTouchdownExtension: 0.15       # [s] total extension budget of a swing past its planned touch-down
   lateTouchdownExtensionStep: 0.05      # [s] the touch-down is pushed this far ahead of the current time per cycle
   lateTouchdownSearchVelocity: 0.05     # [m/s] descent rate of the foot height target while searching for the ground
-  enableDcmStepAdjustment: true         # move the landing target by the DCM error propagated to touch-down
-  dcmAdjustmentGain: 1.0                # 1 = exact LIP compensation of the DCM error at touch-down
-  dcmAdjustmentMaxOffset: 0.15          # [m] bound on the landing target offset (also clipped to reachX / reachY*)
+  enableDcmStepAdjustment: false        # move the landing target by the DCM error propagated to touch-down
+  dcmAdjustmentGain: 0.5                # 1 = exact LIP compensation of the DCM error at touch-down
+  dcmAdjustmentMaxOffset: 0.05          # [m] bound on the landing target offset (also clipped to reachX / reachY*)
   enableEnergyCadenceModulation: false  # re-time the touch-down of the swing in flight by the LIP orbital energy error
   energyCadenceGain: 0.01               # [s/J] touch-down shift = -gain * (E - E_plan)
 ```
@@ -341,6 +344,18 @@ and blended into the swing reference with the same smooth-step profile as the st
 and fully applied at touch-down. When the next plan arrives it already contains the correction, the error with respect
 to the new plan is small and the adjustment fades, so there is no double counting. The adjustment only modulates the
 landing target; it never triggers an early touch-down.
+
+**Why this is off by default.** The reference the error is measured against is the planner's LIP, not the whole-body
+state, so $\Delta\boldsymbol{\xi}$ contains the reduced-model mismatch as well as any real disturbance. The LIP is
+unstable in exactly the direction the correction acts: whatever mismatch exists when a plan is made has already grown by
+$e^{\omega\,t_{\mathrm{age}}}$ by the time that plan is applied (a plan is 0.1-0.25 s old in flight, so 1.4x to 2.3x),
+and the correction multiplies it by $e^{\omega (t_{\mathrm{TD}} - t)}$ again (up to about 4x over a swing). A ZMP
+mismatch of a few centimetres between the LIP and what the whole-body NMPC actually does is therefore enough to drive
+the offset to `dcmAdjustmentMaxOffset` on every step, which hands the foothold to this feedback loop instead of the
+planner and, with a forward velocity command, shows up as the swing foot being pulled backwards. The offset bound is the
+only thing keeping it finite, so keep it small and check in simulation that the offset is not sitting at the bound.
+Remember also that the mixed-integer planner already re-plans the foothold from the measured state at
+`planningFrequency`, so the marginal value of this loop is limited to what happens within one planning period.
 
 #### 2.8.3 Energy-based cadence modulation (`enableEnergyCadenceModulation`, off by default)
 

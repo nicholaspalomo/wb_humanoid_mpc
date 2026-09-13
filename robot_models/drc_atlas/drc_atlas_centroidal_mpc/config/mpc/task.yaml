@@ -85,6 +85,11 @@ model_settings:
     angularAccelerationErrorGain: 0.0
     softConstraintWeight: 250
     constrainOrientation: true
+    # The orientation error to the ground plane only measures the tilt of the foot normal, so with constrainOrientation
+    # the last row of the 6D stance constraint is identically zero and the foot may pivot about the contact normal.
+    # Enabling this fills that row with the yaw rate about the contact normal. It removes one input degree of freedom
+    # per stance foot, so turn it on deliberately and re-check yaw behaviour.
+    constrainYawRateAboutContactNormal: false
   # LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/src/mrt/MpcParameterUpdaterModule.cpp:softConstraintWeight_yaml_path)
 
   phaseTransitionStanceTime: 0
@@ -176,15 +181,20 @@ contact_planning:
   runInBackgroundThread: true         # false: plan synchronously in the MPC pre-solve hook
   planningFrequency: 10.0             # [Hz] upper bound on the background planning rate
 
-  # Adaptive execution between plans (measured contact events, closed-form LIP corrections)
-  enablePhaseResetting: true            # early touch-down: switch the foot to contact at once; late: extend the swing
+  # Adaptive execution between plans (measured contact events, closed-form LIP corrections).
+  # All three are opt-in: with them disabled the reference manager merges plans exactly as it did before they existed,
+  # which is the behaviour the gait is tuned against. Enable one at a time and validate it in MuJoCo before hardware.
+  enablePhaseResetting: false           # early touch-down: switch the foot to contact at once; late: extend the swing
   earlyTouchdownMinSwingRatio: 0.25     # contact during this initial fraction of the nominal swing is ignored (scuffing)
   maxLateTouchdownExtension: 0.15       # [s] total extension budget of a swing past its planned touch-down
   lateTouchdownExtensionStep: 0.05      # [s] the touch-down is pushed this far ahead of the current time per cycle
   lateTouchdownSearchVelocity: 0.05     # [m/s] descent rate of the foot height target while searching for the ground
-  enableDcmStepAdjustment: true         # move the landing target by the DCM error propagated to touch-down
-  dcmAdjustmentGain: 1.0                # 1 = exact LIP compensation of the DCM error at touch-down
-  dcmAdjustmentMaxOffset: 0.15          # [m] bound on the landing target offset (also clipped to reachX / reachY*)
+  # The DCM step adjustment compares against the planner's LIP, not the whole-body state, so its error contains the
+  # reduced-model mismatch and is amplified by exp(omega * time to touch-down). Raise dcmAdjustmentMaxOffset only after
+  # checking in simulation that the offset is not sitting at its bound every step.
+  enableDcmStepAdjustment: false        # move the landing target by the DCM error propagated to touch-down
+  dcmAdjustmentGain: 0.5                # 1 = exact LIP compensation of the DCM error at touch-down
+  dcmAdjustmentMaxOffset: 0.05          # [m] bound on the landing target offset (also clipped to reachX / reachY*)
   enableEnergyCadenceModulation: false  # re-time the touch-down of the swing in flight by the LIP orbital energy error
   energyCadenceGain: 0.01               # [s/J] touch-down shift = -gain * (E - E_plan)
 # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/contact_planning/ContactPlanningConfig.cpp:contact_planning_keys)
@@ -546,11 +556,15 @@ contacts:
     y_min: -0.065
 
   contactWrenchConeSoftConstraint:
+    # With useContactBasisVectorInputs: true these same values build the wrench-cone generators, so the friction, CoP
+    # and torsional limits are enforced structurally and this soft constraint is skipped. minNormalForce and
+    # gripperForce are then NOT enforced: a conic combination is homogeneous and cannot represent an affine offset of
+    # the cone (lambda = 0 always yields the zero wrench). The interface logs a warning when they are non-zero.
     frictionCoefficient: 0.5
     torsionalFrictionCoefficient: 0.05
     minNormalForce: 5.0
     gripperForce: 0.0
-    numBasisVectors: 4
+    numBasisVectors: 4          # friction pyramid facets; the basis spans exactly the same polyhedral friction cone
     # relaxed log barrier parameters
     mu: 0.2
     delta: 5.0

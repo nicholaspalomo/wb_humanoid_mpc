@@ -86,6 +86,14 @@ class MpcRobotModelBase {
   virtual size_t getContactForceStartIndices(size_t contactIndex) const { return getContactWrenchStartIndices(contactIndex); }
   virtual size_t getContactMomentStartIndices(size_t contactIndex) const { return 6 * contactIndex + 3; }
 
+  /**
+   * Number of input variables that parameterize the contact wrench of one contact, occupying the input block that
+   * starts at getContactWrenchStartIndices(contactIndex). Six for a direct wrench parameterization; the basis-vector
+   * parameterization (BasisInputsModelDecorator) overrides this with its number of generators per foot. Use it
+   * instead of inferring the block size from the surrounding start indices, which differ between models.
+   */
+  virtual size_t getContactInputDim(size_t /*contactIndex*/) const { return CONTACT_WRENCH_DIM; }
+
   /******************************************************************************************************/
   /*                                     Generalized coordinates                                        */
   /******************************************************************************************************/
