@@ -83,6 +83,9 @@ class ModelSettings {
   std::unordered_map<std::string, size_t> jointIndexMap;
   std::vector<std::string> contactNames;  // containing all 3Dof and 6Dof contacts
 
+  bool useContactBasisVectorInputs = false;
+  bool useComAndAcomTracking = false;
+
   size_t mpc_joint_dim;
   size_t full_joint_dim;
 

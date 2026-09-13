@@ -27,10 +27,10 @@ cleanup_trap := trap 'pkill -P $$$$ 2>/dev/null; wait' EXIT INT TERM
         launch-g1-dummy-sim-vnc launch-g1-sim-vnc launch-wb-g1-dummy-sim-vnc launch-wb-g1-sim-vnc \
         launch-drc-atlas-dummy-sim-vnc launch-drc-atlas-sim-vnc launch-drc-atlas-sandbox-vnc \
         launch-r1-dummy-sim-vnc launch-r1-sim-vnc launch-r1-sandbox-vnc \
-        run-ocs2-tests run-mpc-tests test-rl train-rl train-cartpole train-cartpole-vnc train-bc export-rollouts lock-rl-deps echo-packages update-submodules git-lfs install-hooks jupyter plotjuggler-vnc
+        run-ocs2-tests run-mpc-tests test-rl train-rl train-cartpole train-cartpole-vnc train-bc export-rollouts lock-rl-deps echo-packages update-submodules git-lfs install-hooks train-acom-jupyter plotjuggler-vnc
 
-## Launch interactive Jupyter notebook dashboard
-jupyter:
+## Launch ACoM SIREN training notebook in Jupyter Lab
+train-acom-jupyter:
 	@tools/launch_jupyter.sh
 
 ## Kill any running Bazel builds, compilers, and stale server locks

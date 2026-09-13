@@ -34,11 +34,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/HumanoidCostConstraintFactory.h"
 
 #include <ocs2_core/misc/LoadData.h>
-#include <ocs2_core/penalties/Penalties.h>
-#include <boost/property_tree/info_parser.hpp>
+#include <ocs2_core/misc/LoadStdVectorOfPair.h>
+
 #include <boost/property_tree/ptree.hpp>
 #include "absl/log/log.h"
 #include "absl/strings/str_cat.h"
+#include "humanoid_common_mpc/cost/ComAndAcomTrackingCost.h"
+#include "humanoid_common_mpc/cost/EndEffectorKinematicCostHelpers.hpp"
 
 #include <ocs2_core/constraint/StateInputConstraint.h>
 #include <ocs2_core/cost/QuadraticStateCost.h>
@@ -147,6 +149,14 @@ std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getStateQuadratic
   matrix_t Q(mpcRobotModelADPtr_->getStateDim(), mpcRobotModelADPtr_->getStateDim());
   loadData::loadEigenMatrix(taskFile_, "Q", Q);
 
+  if (modelSettings_.useComAndAcomTracking) {
+    size_t baseIdx = mpcRobotModelADPtr_->getCentroidalModelInfo().generalizedCoordinatesIndex;
+    Q.block<6, 6>(baseIdx, baseIdx).setZero();
+    if (verbose_) {
+      LOG(INFO) << "[HumanoidCostConstraintFactory] useComAndAcomTracking is enabled. Zeroing out base pose weights in Q.";
+    }
+  }
+
   if (verbose_) {
     LOG(INFO) << "\n #### Base Tracking State Cost Coefficients: \n"
               << " #### =============================================================================\n"
@@ -156,6 +166,26 @@ std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getStateQuadratic
   }
 
   return std::unique_ptr<StateInputCost>(new StateQuadraticCost(std::move(Q), mpcRobotModelADPtr_->getInputDim(), *referenceManagerPtr_));
+}
+
+std::unique_ptr<StateCost> HumanoidCostConstraintFactory::getComAndAcomTrackingCost() const {
+  matrix_t Q_com(3, 3);
+  matrix_t Q_acom(3, 3);
+  loadData::loadEigenMatrix(taskFile_, "Q_com", Q_com);
+  loadData::loadEigenMatrix(taskFile_, "Q_acom", Q_acom);
+
+  if (verbose_) {
+    LOG(INFO) << "\n #### CoM + ACoM Tracking Cost Coefficients: \n"
+              << " #### =============================================================================\n"
+              << "Q_com:\n"
+              << Q_com << "\n"
+              << "Q_acom:\n"
+              << Q_acom << "\n"
+              << " #### =============================================================================";
+  }
+
+  return std::make_unique<ComAndAcomTrackingCost>(std::move(Q_com), std::move(Q_acom), *pinocchioInterfacePtr_,
+                                                  mpcRobotModelADPtr_->getCentroidalModelInfo(), *referenceManagerPtr_);
 }
 
 /******************************************************************************************************/

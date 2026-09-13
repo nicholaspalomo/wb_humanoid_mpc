@@ -3,6 +3,21 @@ enableTelemetry: true        # Enable high-rate ROS 2 telemetry publishing for P
 telemetryFrequency: 100      # [Hz] Telemetry publishing frequency (decimated from MRT loop)
 enableOnlineTuning: true     # Enable runtime parameter and gain tuning in Controller GUI
 useContactBasisVectorInputs: true  # Set true to use basis-vector scalings λ as MPC contact inputs (instead of direct wrenches)
+useComAndAcomTracking: true      # Set true to regulate CoM + Angular Center of Mass (ACoM) instead of base pose
+
+# Weights for CoM and ACoM tracking (active when useComAndAcomTracking is true)
+Q_com:
+  scaling: 85
+  "(0,0)": 0   # p_com_x (usually unpenalized like p_base_x)
+  "(1,1)": 0   # p_com_y (usually unpenalized like p_base_y)
+  "(2,2)": 15  # p_com_z (matches p_base_z)
+
+Q_acom:
+  scaling: 85
+  "(0,0)": 15  # theta_acom_x (matches theta_base_x)
+  "(1,1)": 15  # theta_acom_y (matches theta_base_y)
+  "(2,2)": 25  # theta_acom_z (matches theta_base_z)
+
 
 # Targeted Pinocchio frames for telemetry logging (position, orientation, twist, accel, wrench)
 telemetryFrames:
@@ -202,15 +217,15 @@ Q:
   "(12,12)": 10  # back_bkz
   "(13,13)": 25  # back_bky
   "(14,14)": 25  # back_bkx
-  "(15,15)": 5  # l_arm_shz
-  "(16,16)": 20  # l_arm_shx
-  "(17,17)": 10  # l_arm_ely
-  "(18,18)": 5  # l_arm_elx
+  "(15,15)": 0.1  # l_arm_shz
+  "(16,16)": 0.1  # l_arm_shx
+  "(17,17)": 0.1  # l_arm_ely
+  "(18,18)": 0.1  # l_arm_elx
   "(19,19)": 2  # neck_ry
-  "(20,20)": 5  # r_arm_shz
-  "(21,21)": 20  # r_arm_shx
-  "(22,22)": 10  # r_arm_ely
-  "(23,23)": 5  # r_arm_elx
+  "(20,20)": 0.1  # r_arm_shz
+  "(21,21)": 0.1  # r_arm_shx
+  "(22,22)": 0.1  # r_arm_ely
+  "(23,23)": 0.1  # r_arm_elx
   "(24,24)": 1  # l_leg_hpz
   "(25,25)": 250  # l_leg_hpx
   "(26,26)": 10  # l_leg_hpy

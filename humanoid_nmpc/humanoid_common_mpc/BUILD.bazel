@@ -28,6 +28,7 @@ cc_library(
         "src/constraint/EndEffectorKinematicsLinearVelConstraint.cpp",
         "src/cost/StateInputQuadraticCost.cpp",
         "src/cost/StateQuadraticCost.cpp",
+        "src/cost/ComAndAcomTrackingCost.cpp",
         "src/cost/InputQuadraticCost.cpp",
         "src/cost/EndEffectorKinematicCostHelpers.cpp",
         "src/cost/EndEffectorKinematicsQuadraticCost.cpp",
@@ -120,6 +121,24 @@ cc_test(
         "-DBOOST_VARIANT_LIMIT_TYPES=50",
         "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
+    deps = [
+        ":humanoid_common_mpc",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "testComAndAcomTrackingCost",
+    srcs = ["test/testComAndAcomTrackingCost.cpp"],
+    deps = [
+        ":humanoid_common_mpc",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "testAngularCenterOfMass",
+    srcs = ["test/testAngularCenterOfMass.cpp"],
     deps = [
         ":humanoid_common_mpc",
         "@googletest//:gtest_main",

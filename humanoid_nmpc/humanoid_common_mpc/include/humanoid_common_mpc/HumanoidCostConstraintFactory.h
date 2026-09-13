@@ -67,7 +67,13 @@ class HumanoidCostConstraintFactory {
   HumanoidCostConstraintFactory(const HumanoidCostConstraintFactory& other) = delete;
 
   std::unique_ptr<StateInputCost> getStateInputQuadraticCost() const;
+
+  /** Creates the state quadratic tracking cost */
   std::unique_ptr<StateInputCost> getStateQuadraticCost() const;
+
+  /** Creates the CoM and ACoM tracking cost */
+  std::unique_ptr<StateCost> getComAndAcomTrackingCost() const;
+
   std::unique_ptr<StateInputCost> getInputQuadraticCost() const;
 
   /**

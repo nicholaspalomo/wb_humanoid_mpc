@@ -24,6 +24,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
+#include "humanoid_common_mpc/acom/AcomSirenWeights.h"
 
 #include <stdexcept>
 
@@ -31,6 +32,38 @@ namespace ocs2::humanoid {
 
 AngularCenterOfMass::AngularCenterOfMass(size_t inputDim, size_t hiddenDim, size_t numLayers, double omega0)
     : inputDim_(inputDim), hiddenDim_(hiddenDim), numLayers_(numLayers), omega0_(omega0) {}
+
+std::unique_ptr<AngularCenterOfMass> AngularCenterOfMass::createFromStaticWeights() {
+  using namespace ocs2::humanoid::acom;
+  auto acom = std::make_unique<AngularCenterOfMass>(AcomSirenWeights::input_dim, AcomSirenWeights::W0_rows, AcomSirenWeights::num_layers,
+                                                    AcomSirenWeights::omega_0);
+
+  std::vector<SirenLayerWeights> layers;
+
+  // Layer 0
+  SirenLayerWeights l0;
+  l0.weight = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(
+      AcomSirenWeights::W0, AcomSirenWeights::W0_rows, AcomSirenWeights::W0_cols);
+  l0.bias = Eigen::Map<const Eigen::VectorXd>(AcomSirenWeights::b0, AcomSirenWeights::W0_rows);
+  layers.push_back(l0);
+
+  // Layer 1
+  SirenLayerWeights l1;
+  l1.weight = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(
+      AcomSirenWeights::W1, AcomSirenWeights::W1_rows, AcomSirenWeights::W1_cols);
+  l1.bias = Eigen::Map<const Eigen::VectorXd>(AcomSirenWeights::b1, AcomSirenWeights::W1_rows);
+  layers.push_back(l1);
+
+  // Layer 2
+  SirenLayerWeights l2;
+  l2.weight = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(
+      AcomSirenWeights::W2, AcomSirenWeights::W2_rows, AcomSirenWeights::W2_cols);
+  l2.bias = Eigen::Map<const Eigen::VectorXd>(AcomSirenWeights::b2, AcomSirenWeights::W2_rows);
+  layers.push_back(l2);
+
+  acom->setWeights(layers);
+  return acom;
+}
 
 void AngularCenterOfMass::setWeights(const std::vector<SirenLayerWeights>& layers) {
   if (layers.size() != numLayers_ + 1) {

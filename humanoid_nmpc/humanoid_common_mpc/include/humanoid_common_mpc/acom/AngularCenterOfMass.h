@@ -53,6 +53,12 @@ class AngularCenterOfMass {
   AngularCenterOfMass(size_t inputDim, size_t hiddenDim, size_t numLayers, double omega0 = 30.0);
 
   /**
+   * Creates an AngularCenterOfMass instance and loads weights statically
+   * compiled in AcomSirenWeights.h.
+   */
+  static std::unique_ptr<AngularCenterOfMass> createFromStaticWeights();
+
+  /**
    * Loads layer weights and biases from standard Eigen matrices.
    */
   void setWeights(const std::vector<SirenLayerWeights>& layers);
