@@ -313,6 +313,7 @@ TEST_F(ContactPlanningIntegrationTest, AdaptsScheduleToContactEventsAndDcmError)
   config.enableDcmStepAdjustment = true;
   config.enableEnergyCadenceModulation = false;
   config.earlyTouchdownMinSwingRatio = 0.25;
+  config.earlyTouchdownMinContactDuration = 0.02;
   config.maxLateTouchdownExtension = 0.15;
   config.lateTouchdownExtensionStep = 0.05;
   module->setConfig(config);
@@ -344,60 +345,75 @@ TEST_F(ContactPlanningIntegrationTest, AdaptsScheduleToContactEventsAndDcmError)
   const size_t foot = swing->foot;
   const size_t inFlightMode = modeWithSwingFoot(foot);
 
-  // ---- 1. DCM step adjustment: a forward CoM velocity error moves the landing target forward, bounded. ----
-  // The test state is frozen while the plan's LIP walks on, so the nominal DCM error is not small. The offset bound and
-  // the reach limits are widened for the comparison so that neither adjustment saturates; the bound is checked separately.
-  ContactPlanningConfig wide = config;
-  wide.dcmAdjustmentMaxOffset = 5.0;
-  wide.reachX = 5.0;
-  wide.reachYOuter = 5.0;
-  module->setConfig(wide);
+  // ---- 1. DCM step adjustment, measured against the NMPC's own prediction. ----
+  // A prediction equal to the measured state means the robot does exactly what the controller expects: no correction,
+  // however far the planner's reduced model has walked on in the meantime. This is what keeps the loop from fighting
+  // the planner and pulling the foot backwards.
   const scalar_t midSwing = 0.5 * (swing->liftOff + swing->touchDown);
+  referenceManager->setPredictedTrajectory({0.0, midSwing + 10.0}, {state, state});
   solveAt(midSwing, state, inFlightMode);
   ASSERT_EQ(referenceManager->getLastContactEvents()[foot].type, ContactEventReport::Type::NONE);
-  const vector2_t nominalAdjustment = referenceManager->getDcmStepAdjustment()[foot];
+  ASSERT_TRUE(referenceManager->hasPredictedComState());
+  EXPECT_TRUE(referenceManager->getDcmStepAdjustment()[foot].isZero(1e-12)) << "no deviation from the prediction, no correction";
   const auto nominalReference = referenceManager->getSwingFootReference(foot, swing->touchDown - 1e-3);
   ASSERT_TRUE(nominalReference.has_value());
+  const auto liftOffReference = referenceManager->getSwingFootReference(foot, swing->liftOff + 1e-3);
+  ASSERT_TRUE(liftOffReference.has_value());
+  EXPECT_GT(nominalReference->position(0) - liftOffReference->position(0), 0.0) << "the foot still steps forward with the loop on";
 
+  // A small forward velocity error relative to the prediction is corrected by the closed-form law, below the bound.
+  const scalar_t omega = config.omega();
+  const scalar_t velocityError = 0.05;
   vector_t pushed = state;
-  pushed(0) += 0.3;  // normalized linear momentum x = CoM velocity x
+  pushed(0) += velocityError;  // normalized linear momentum x = CoM velocity x
   solveAt(midSwing, pushed, inFlightMode);
   const vector2_t pushedAdjustment = referenceManager->getDcmStepAdjustment()[foot];
+  const scalar_t expectedShift = config.dcmAdjustmentGain * velocityError / omega * std::exp(omega * (swing->touchDown - midSwing));
+  ASSERT_LT(expectedShift, config.dcmAdjustmentMaxOffset) << "the test push must stay below the bound";
+  EXPECT_NEAR(pushedAdjustment(0), expectedShift, 1e-6) << "closed-form LIP propagation of the DCM error";
+  EXPECT_NEAR(pushedAdjustment(1), 0.0, 1e-6);
   const auto pushedReference = referenceManager->getSwingFootReference(foot, swing->touchDown - 1e-3);
   ASSERT_TRUE(pushedReference.has_value());
-  const scalar_t omega = config.omega();
-  // The measured CoM velocity error maps to a DCM error of dv / omega, which the closed-form law propagates to
-  // touch-down and scales by the gain.
-  const scalar_t expectedShift = wide.dcmAdjustmentGain * 0.3 / omega * std::exp(omega * (swing->touchDown - midSwing));
-  EXPECT_NEAR(pushedAdjustment(0) - nominalAdjustment(0), expectedShift, 1e-6) << "closed-form LIP propagation of the DCM error";
-  EXPECT_NEAR(pushedAdjustment(1) - nominalAdjustment(1), 0.0, 1e-6);
-  EXPECT_NEAR((pushedReference->position - nominalReference->position).head<2>().norm(), (pushedAdjustment - nominalAdjustment).norm(),
-              2e-3)
+  EXPECT_NEAR((pushedReference->position - nominalReference->position).head<2>().norm(), pushedAdjustment.norm(), 2e-3)
       << "close to touch-down the reference carries the full adjustment";
   EXPECT_TRUE(pushedReference->position.allFinite());
   EXPECT_TRUE(pushedReference->linearVelocity.allFinite());
 
-  // With the configured bound the offset saturates but stays bounded.
-  module->setConfig(config);
-  solveAt(midSwing, pushed, inFlightMode);
+  // A large push saturates at the configured bound.
+  vector_t shoved = state;
+  shoved(0) += 1.0;
+  solveAt(midSwing, shoved, inFlightMode);
   const vector2_t boundedAdjustment = referenceManager->getDcmStepAdjustment()[foot];
   EXPECT_LE(boundedAdjustment.norm(), config.dcmAdjustmentMaxOffset + 1e-9);
-  EXPECT_GT(boundedAdjustment.norm(), 0.0);
+  EXPECT_GT(boundedAdjustment.norm(), 0.9 * config.dcmAdjustmentMaxOffset);
+
+  // Without a prediction there is nothing to measure against and no correction is applied.
+  referenceManager->setPredictedTrajectory({}, {});
+  solveAt(midSwing, shoved, inFlightMode);
+  EXPECT_FALSE(referenceManager->hasPredictedComState());
+  EXPECT_TRUE(referenceManager->getDcmStepAdjustment()[foot].isZero());
+  referenceManager->setPredictedTrajectory({0.0, midSwing + 10.0}, {state, state});
 
   ContactPlanningConfig noDcm = config;
   noDcm.enableDcmStepAdjustment = false;
   module->setConfig(noDcm);
-  solveAt(midSwing, pushed, inFlightMode);
+  solveAt(midSwing, shoved, inFlightMode);
   EXPECT_TRUE(referenceManager->getDcmStepAdjustment()[foot].isZero());
   module->setConfig(config);
 
-  // ---- 2. Early touch-down: contact measured mid-swing switches the foot to contact at once, in place. ----
+  // ---- 2. Early touch-down: contact that persists for the debounce duration switches the foot to contact, in place. ----
   const ModeSchedule beforeEarly = referenceManager->getModeSchedule();
-  solveAt(midSwing, state, ModeNumber::STANCE);
+  solveAt(midSwing, state, ModeNumber::STANCE);  // first contact sample: the debounce timer starts
+  EXPECT_EQ(referenceManager->getLastContactEvents()[foot].type, ContactEventReport::Type::NONE)
+      << "a single contact sample must not end the swing";
+  EXPECT_FALSE(referenceManager->isInContact(midSwing + 1e-3, foot));
+  EXPECT_FALSE(referenceManager->consumeReplanRequest());
+  const scalar_t landed = midSwing + config.earlyTouchdownMinContactDuration;
+  solveAt(landed, state, ModeNumber::STANCE);  // contact has persisted: the swing ends now
   EXPECT_EQ(referenceManager->getLastContactEvents()[foot].type, ContactEventReport::Type::EARLY_TOUCH_DOWN);
-  EXPECT_TRUE(referenceManager->isInContact(midSwing + 1e-3, foot));
-  EXPECT_FALSE(referenceManager->isInContact(midSwing - 1e-3, foot));
-  EXPECT_FALSE(referenceManager->getSwingFootReference(foot, midSwing + 1e-3).has_value());
+  EXPECT_TRUE(referenceManager->isInContact(landed + 1e-3, foot));
+  EXPECT_FALSE(referenceManager->isInContact(landed - 1e-3, foot));
+  EXPECT_FALSE(referenceManager->getSwingFootReference(foot, landed + 1e-3).has_value());
   EXPECT_TRUE(referenceManager->consumeReplanRequest());
   EXPECT_FALSE(referenceManager->consumeReplanRequest()) << "the request is consumed once";
   // Later events keep their timing: every event of the old schedule after the old touch-down is still there.
@@ -408,22 +424,22 @@ TEST_F(ContactPlanningIntegrationTest, AdaptsScheduleToContactEventsAndDcmError)
     for (scalar_t e : afterEarly.eventTimes) found = found || std::abs(e - event) < 1e-9;
     EXPECT_TRUE(found) << "event at " << event << " moved";
   }
-  for (scalar_t tau = midSwing; tau < midSwing + horizon; tau += 0.02) {
+  for (scalar_t tau = landed; tau < landed + horizon; tau += 0.02) {
     const contact_flag_t contacts = referenceManager->getContactFlags(tau);
     bool any = false;
     for (size_t i = 0; i < N_CONTACTS; ++i) any = any || contacts[i];
     ASSERT_TRUE(any) << "no flight phase at tau=" << tau;
   }
   // The planner input right after the event sees the foot in contact with a fresh phase.
-  const ContactPlannerInput input = referenceManager->makePlannerInput(midSwing, state, vector2_t(0.4, 0.0));
+  const ContactPlannerInput input = referenceManager->makePlannerInput(landed, state, vector2_t(0.4, 0.0));
   EXPECT_TRUE(input.contacts[foot]);
   EXPECT_NEAR(input.phaseElapsedTime[foot], 0.0, 1e-9);
 
   // ---- 3. Late touch-down: a foot that misses the ground keeps swinging in steps, up to the extension budget. ----
   // The DCM adjustment is switched off here so that the xy reference depends on the schedule only.
   module->setConfig(noDcm);
-  planAt(midSwing, state);  // re-plan from the new stance state
-  scalar_t t2 = midSwing + 0.02;
+  planAt(landed, state);  // re-plan from the new stance state
+  scalar_t t2 = landed + 0.02;
   solveAt(t2, state, ModeNumber::STANCE);
   const auto next = firstSwingAfter(referenceManager->getModeSchedule(), t2);
   ASSERT_TRUE(next.has_value());
@@ -478,7 +494,7 @@ TEST_F(ContactPlanningIntegrationTest, AdaptsScheduleToContactEventsAndDcmError)
 
   module->setConfig(config);
 
-  // ---- 4. Cadence modulation: extra forward energy brings the touch-down of the swing in flight forward. ----
+  // ---- 4. Cadence modulation: more forward energy than the NMPC predicted brings the touch-down forward. ----
   planAt(lastTouchDown + 0.01, state);
   const scalar_t t3 = lastTouchDown + 0.03;
   solveAt(t3, state, ModeNumber::STANCE);
@@ -489,11 +505,20 @@ TEST_F(ContactPlanningIntegrationTest, AdaptsScheduleToContactEventsAndDcmError)
   cadence.energyCadenceGain = 0.01;
   module->setConfig(cadence);
   const scalar_t early3 = third->liftOff + 0.05;
+  referenceManager->setPredictedTrajectory({0.0, early3 + 10.0}, {state, state});
+
+  // Prediction equal to the measurement: the planned timing stands.
+  solveAt(early3, state, modeWithSwingFoot(third->foot));
+  EXPECT_NEAR(referenceManager->getCadenceTouchDownShift()[third->foot], 0.0, 1e-12);
+  EXPECT_EQ(referenceManager->getLastContactEvents()[third->foot].type, ContactEventReport::Type::NONE);
+
+  // Extra forward energy relative to the prediction shortens the swing, within the duration limits. With the same
+  // position in both, only the velocity term of the orbital energy differs, so the sign is unambiguous.
   vector_t fast = state;
-  fast(0) += 1.0;  // a velocity error that dominates the position term of the orbital energy
+  fast(0) += 1.0;
   solveAt(early3, fast, modeWithSwingFoot(third->foot));
   const ContactEventReport cadenceReport = referenceManager->getLastContactEvents()[third->foot];
-  EXPECT_LT(referenceManager->getCadenceTouchDownShift()[third->foot], 0.0) << "more energy than planned shortens the swing";
+  EXPECT_LT(referenceManager->getCadenceTouchDownShift()[third->foot], 0.0) << "more energy than predicted shortens the swing";
   if (third->touchDown - third->liftOff > cadence.minSwingDuration + 1e-6) {
     EXPECT_EQ(cadenceReport.type, ContactEventReport::Type::CADENCE_SHIFT);
     EXPECT_LT(cadenceReport.touchDownTime, third->touchDown);

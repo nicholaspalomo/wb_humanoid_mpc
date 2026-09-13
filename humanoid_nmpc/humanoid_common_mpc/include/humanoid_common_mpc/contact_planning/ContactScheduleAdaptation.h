@@ -41,8 +41,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * executed schedule is adapted to what the robot actually does, using only the measured contact state and the
  * closed-form Linear Inverted Pendulum (LIP):
  *
- *  - early touch-down:  a swing foot that touches the ground is switched to contact immediately (in place, later events
- *                       keep their timing; the planner re-times the rest at its next run);
+ *  - early touch-down:  a swing foot whose measured contact persists for earlyTouchdownMinContactDuration (after the
+ *                       initial scuffing window) is switched to contact at once, in place: later events keep their
+ *                       timing and the planner re-times the rest at its next run;
  *  - late touch-down:   a foot that misses the ground at its scheduled touch-down keeps swinging in small steps, up to a
  *                       bounded total extension, and every later event is delayed by the same amount;
  *  - cadence modulation: the touch-down of the swing in flight is moved by a caller-provided shift (from the LIP orbital
@@ -107,6 +108,8 @@ struct SwingTimingLatch {
   scalar_t nominalTouchDownTime = 0.0;  // touch-down as planned when the swing was first seen in flight
   scalar_t cadenceShift = 0.0;          // [s] touch-down shift applied by the cadence modulation (relative to nominal)
   scalar_t lateExtension = 0.0;         // [s] time the swing has been extended past the (cadence-shifted) touch-down
+  bool contactObserved = false;         // contact has been measured past the scuffing window (debounce in progress)
+  scalar_t contactObservedSince = 0.0;  // [s] first cycle at which that contact was measured
   scalar_t plannedTouchDownTime() const { return nominalTouchDownTime + cadenceShift; }
 };
 
@@ -126,7 +129,8 @@ struct ContactEventReport {
  * @param cadenceTouchDownShift [s] per foot, desired touch-down shift relative to the nominal touch-down of the swing in
  *                              flight (ignored unless config.enableEnergyCadenceModulation)
  * @param config                thresholds and limits (enablePhaseResetting, earlyTouchdownMinSwingRatio,
- *                              maxLateTouchdownExtension, lateTouchdownExtensionStep, min/maxSwingDuration)
+ *                              earlyTouchdownMinContactDuration, maxLateTouchdownExtension,
+ *                              lateTouchdownExtensionStep, min/maxSwingDuration)
  * @param latches               per-foot swing memory, owned by the caller
  * @return what happened to every foot
  */

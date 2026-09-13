@@ -144,6 +144,12 @@ void ContactPlannerModule::workerLoop() {
   }
 }
 
+void ContactPlannerModule::postSolverRun(const PrimalSolution& primalSolution) {
+  const ContactPlanningConfig config = getConfig();
+  if (!config.enableDcmStepAdjustment && !config.enableEnergyCadenceModulation) return;
+  referenceManagerPtr_->setPredictedTrajectory(primalSolution.timeTrajectory_, primalSolution.stateTrajectory_);
+}
+
 void ContactPlannerModule::preSolverRun(scalar_t initTime,
                                         scalar_t /*finalTime*/,
                                         const vector_t& initState,

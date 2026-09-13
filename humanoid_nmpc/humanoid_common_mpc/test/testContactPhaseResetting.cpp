@@ -80,6 +80,7 @@ ContactPlanningConfig makeConfig() {
   config.maxSwingDuration = 0.6;
   config.enablePhaseResetting = true;
   config.earlyTouchdownMinSwingRatio = 0.25;
+  config.earlyTouchdownMinContactDuration = 0.0;  // the timing tests below act on a single cycle; the debounce has its own
   config.maxLateTouchdownExtension = 0.15;
   config.lateTouchdownExtensionStep = 0.05;
   config.enableEnergyCadenceModulation = false;
@@ -377,6 +378,67 @@ TEST_F(ContactEventTest, EarlyTouchDownIgnoredDuringScuffingWindowButAcceptedWhe
     // Level-triggered: contact that persists past the window is a landing even though it started inside the window.
     EXPECT_EQ(step(schedule, 1.1, measured(foot, true))[foot].type, ContactEventReport::Type::EARLY_TOUCH_DOWN);
     EXPECT_TRUE(contactFlagsAtTime(schedule, 1.1)[foot]);
+  }
+}
+
+TEST_F(ContactEventTest, EarlyTouchDownRequiresContactToPersistForTheDebounceDuration) {
+  config.earlyTouchdownMinContactDuration = 0.04;
+  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    latches.fill(SwingTimingLatch{});
+    ModeSchedule schedule = singleSwingSchedule(foot, 1.0, 1.4);  // scuffing window ends at 1.1
+    EXPECT_EQ(step(schedule, 1.20, measured(foot, true))[foot].type, ContactEventReport::Type::NONE);
+    EXPECT_TRUE(latches[foot].contactObserved);
+    EXPECT_NEAR(latches[foot].contactObservedSince, 1.20, kTol);
+    EXPECT_EQ(step(schedule, 1.22, measured(foot, true))[foot].type, ContactEventReport::Type::NONE);
+    EXPECT_FALSE(contactFlagsAtTime(schedule, 1.22)[foot]) << "the swing must not end before the contact has persisted";
+    const auto reports = step(schedule, 1.24, measured(foot, true));
+    EXPECT_EQ(reports[foot].type, ContactEventReport::Type::EARLY_TOUCH_DOWN);
+    EXPECT_NEAR(reports[foot].touchDownTime, 1.24, kTol) << "the schedule switches at the current cycle, not retroactively";
+    EXPECT_TRUE(contactFlagsAtTime(schedule, 1.24)[foot]);
+    EXPECT_FALSE(latches[foot].active);
+  }
+}
+
+TEST_F(ContactEventTest, SingleChatteringContactSampleDoesNotEndTheSwing) {
+  config.earlyTouchdownMinContactDuration = 0.04;
+  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    latches.fill(SwingTimingLatch{});
+    ModeSchedule schedule = singleSwingSchedule(foot, 1.0, 1.4);
+    EXPECT_EQ(step(schedule, 1.20, measured(foot, true))[foot].type, ContactEventReport::Type::NONE);
+    EXPECT_EQ(step(schedule, 1.22, measured(foot, false))[foot].type, ContactEventReport::Type::NONE);
+    EXPECT_FALSE(latches[foot].contactObserved) << "a lost contact restarts the debounce";
+    // The timer restarts with the next contact sample: 1.24 -> 1.26 is only 0.02 s, 1.28 completes the 0.04 s.
+    EXPECT_EQ(step(schedule, 1.24, measured(foot, true))[foot].type, ContactEventReport::Type::NONE);
+    EXPECT_EQ(step(schedule, 1.26, measured(foot, true))[foot].type, ContactEventReport::Type::NONE);
+    EXPECT_FALSE(contactFlagsAtTime(schedule, 1.26)[foot]);
+    EXPECT_EQ(step(schedule, 1.28, measured(foot, true))[foot].type, ContactEventReport::Type::EARLY_TOUCH_DOWN);
+    EXPECT_TRUE(contactFlagsAtTime(schedule, 1.28)[foot]);
+  }
+}
+
+TEST_F(ContactEventTest, DebounceStartsOnlyAfterTheScuffingWindow) {
+  config.earlyTouchdownMinContactDuration = 0.04;
+  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    latches.fill(SwingTimingLatch{});
+    ModeSchedule schedule = singleSwingSchedule(foot, 1.0, 1.4);  // window 0.25 * 0.4 = 0.1
+    // Contact from lift-off on: ignored as scuffing inside the window, and the debounce timer does not run there.
+    EXPECT_EQ(step(schedule, 1.02, measured(foot, true))[foot].type, ContactEventReport::Type::NONE);
+    EXPECT_EQ(step(schedule, 1.06, measured(foot, true))[foot].type, ContactEventReport::Type::NONE);
+    EXPECT_FALSE(latches[foot].contactObserved);
+    EXPECT_EQ(step(schedule, 1.10, measured(foot, true))[foot].type, ContactEventReport::Type::NONE);
+    EXPECT_TRUE(latches[foot].contactObserved);
+    EXPECT_NEAR(latches[foot].contactObservedSince, 1.10, kTol);
+    EXPECT_EQ(step(schedule, 1.12, measured(foot, true))[foot].type, ContactEventReport::Type::NONE);
+    EXPECT_EQ(step(schedule, 1.14, measured(foot, true))[foot].type, ContactEventReport::Type::EARLY_TOUCH_DOWN);
+  }
+}
+
+TEST_F(ContactEventTest, ZeroDebounceEndsTheSwingOnTheFirstSample) {
+  config.earlyTouchdownMinContactDuration = 0.0;
+  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    latches.fill(SwingTimingLatch{});
+    ModeSchedule schedule = singleSwingSchedule(foot, 1.0, 1.4);
+    EXPECT_EQ(step(schedule, 1.2, measured(foot, true))[foot].type, ContactEventReport::Type::EARLY_TOUCH_DOWN);
   }
 }
 
@@ -719,6 +781,7 @@ TEST(ContactPlanningConfigAdaptive, DefaultsAreValidAndLoadable) {
     out << "contact_planning:\n"
         << "  enablePhaseResetting: false\n"
         << "  earlyTouchdownMinSwingRatio: 0.4\n"
+        << "  earlyTouchdownMinContactDuration: 0.03\n"
         << "  maxLateTouchdownExtension: 0.2\n"
         << "  lateTouchdownExtensionStep: 0.02\n"
         << "  lateTouchdownSearchVelocity: 0.08\n"
@@ -732,6 +795,7 @@ TEST(ContactPlanningConfigAdaptive, DefaultsAreValidAndLoadable) {
   std::remove(file.c_str());
   EXPECT_FALSE(loaded.enablePhaseResetting);
   EXPECT_NEAR(loaded.earlyTouchdownMinSwingRatio, 0.4, kTol);
+  EXPECT_NEAR(loaded.earlyTouchdownMinContactDuration, 0.03, kTol);
   EXPECT_NEAR(loaded.maxLateTouchdownExtension, 0.2, kTol);
   EXPECT_NEAR(loaded.lateTouchdownExtensionStep, 0.02, kTol);
   EXPECT_NEAR(loaded.lateTouchdownSearchVelocity, 0.08, kTol);
@@ -751,6 +815,7 @@ TEST(ContactPlanningConfigAdaptive, ValidationRejectsBadValues) {
   };
   rejects([](ContactPlanningConfig& c) { c.earlyTouchdownMinSwingRatio = -0.1; });
   rejects([](ContactPlanningConfig& c) { c.earlyTouchdownMinSwingRatio = 1.1; });
+  rejects([](ContactPlanningConfig& c) { c.earlyTouchdownMinContactDuration = -0.01; });
   rejects([](ContactPlanningConfig& c) { c.maxLateTouchdownExtension = -0.1; });
   rejects([](ContactPlanningConfig& c) { c.lateTouchdownExtensionStep = 0.0; });
   rejects([](ContactPlanningConfig& c) { c.lateTouchdownSearchVelocity = -1.0; });
@@ -759,6 +824,7 @@ TEST(ContactPlanningConfigAdaptive, ValidationRejectsBadValues) {
   rejects([](ContactPlanningConfig& c) { c.energyCadenceGain = -0.1; });
   ContactPlanningConfig zeros;
   zeros.earlyTouchdownMinSwingRatio = 0.0;
+  zeros.earlyTouchdownMinContactDuration = 0.0;
   zeros.maxLateTouchdownExtension = 0.0;
   zeros.lateTouchdownSearchVelocity = 0.0;
   zeros.dcmAdjustmentGain = 0.0;

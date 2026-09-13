@@ -73,7 +73,8 @@ class ContactPlannerModule final : public SolverSynchronizedModule {
                     scalar_t finalTime,
                     const vector_t& initState,
                     const ReferenceManagerInterface& referenceManager) override;
-  void postSolverRun(const PrimalSolution& /*primalSolution*/) override {}
+  /** Hands the predicted trajectory to the reference manager for the closed-form corrections (when they are enabled). */
+  void postSolverRun(const PrimalSolution& primalSolution) override;
 
   /** Updates the planner and reference manager configuration (thread-safe, applied before the next plan). */
   void setConfig(const ContactPlanningConfig& config);

@@ -34,15 +34,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <pinocchio/algorithm/center-of-mass.hpp>
 
+#include <ocs2_core/misc/LinearInterpolation.h>
+
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 
 namespace ocs2::humanoid {
 
 namespace {
-constexpr scalar_t kLongAgo = 10.0;             // [s] elapsed phase time reported when the applied schedule has no earlier event
-constexpr scalar_t kShiftLogAge = 2.0;          // [s] schedule shifts older than this cannot concern a pending plan any more
-constexpr scalar_t kSameSwingTolerance = 1e-6;  // [s] lift-off times closer than this identify the same swing
+constexpr scalar_t kLongAgo = 10.0;                  // [s] elapsed phase time reported when the applied schedule has no earlier event
+constexpr scalar_t kShiftLogAge = 2.0;               // [s] schedule shifts older than this cannot concern a pending plan any more
+constexpr scalar_t kSameSwingTolerance = 1e-6;       // [s] lift-off times closer than this identify the same swing
+constexpr scalar_t kPredictionTimeTolerance = 1e-6;  // [s] slack when checking that a prediction covers the solver time
 }  // namespace
 
 ContactPlanningReferenceManager::ContactPlanningReferenceManager(std::shared_ptr<GaitSchedule> gaitSchedulePtr,
@@ -124,21 +127,52 @@ void ContactPlanningReferenceManager::activatePendingPlan(scalar_t initTime) {
   }
 }
 
+void ContactPlanningReferenceManager::setPredictedTrajectory(const scalar_array_t& times, const vector_array_t& states) {
+  std::lock_guard<std::mutex> lock(predictionMutex_);
+  if (times.size() != states.size()) {
+    predictedTimes_.clear();
+    predictedStates_.clear();
+    return;
+  }
+  predictedTimes_ = times;
+  predictedStates_ = states;
+}
+
+void ContactPlanningReferenceManager::updatePredictedComState(scalar_t initTime) {
+  hasPredictedComState_ = false;
+  vector_t predictedState;
+  {
+    std::lock_guard<std::mutex> lock(predictionMutex_);
+    if (predictedTimes_.size() < 2 || initTime < predictedTimes_.front() - kPredictionTimeTolerance ||
+        initTime > predictedTimes_.back() + kPredictionTimeTolerance) {
+      return;
+    }
+    predictedState = LinearInterpolation::interpolate(initTime, predictedTimes_, predictedStates_);
+  }
+  // A diverged solve hands over a non-finite trajectory; measuring against it would poison the foot reference.
+  if (predictedState.size() != static_cast<Eigen::Index>(mpcRobotModelPtr_->getStateDim()) || !predictedState.allFinite()) return;
+  std::tie(predictedComState_[0], predictedComState_[1]) = computeComState(predictedState);
+  hasPredictedComState_ = predictedComState_[0].allFinite() && predictedComState_[1].allFinite();
+}
+
 feet_array_t<scalar_t> ContactPlanningReferenceManager::computeCadenceTouchDownShifts(scalar_t initTime,
                                                                                       const ContactPlanningConfig& config) {
   feet_array_t<scalar_t> shifts = makeFeetArray(0.0);
-  if (!config.enableEnergyCadenceModulation || !hasActivePlan()) return shifts;
+  if (!config.enableEnergyCadenceModulation || !hasActivePlan() || !hasPredictedComState_) return shifts;
   const scalar_t omega = config.omega();
+  // The planned support point (ZMP) is the reference point of the orbital energy; the energy itself is compared between
+  // the measured state and what the whole-body controller predicted for now.
   const std::optional<LipState> reference = lipReferenceState(*activePlan_, omega, initTime);
   if (!reference.has_value()) return shifts;
 
-  // Orbital energy along the heading of the plan, relative to the planned ZMP: a CoM that carries more energy than planned
-  // passes over the support earlier and the step is brought forward, less energy delays it.
+  // Orbital energy along the heading of the plan: a CoM that carries more energy than the controller expected passes
+  // over the support earlier and the step is brought forward, less energy delays it.
   const scalar_t mass = pinocchio::computeTotalMass(pinocchioInterface_.getModel());
   const vector2_t heading(std::cos(activePlan_->yaw), std::sin(activePlan_->yaw));
   const scalar_t measured = lipOrbitalEnergy(heading.dot(comState_[0] - reference->zmp), heading.dot(comState_[1]), omega, mass);
-  const scalar_t planned = lipOrbitalEnergy(heading.dot(reference->com - reference->zmp), heading.dot(reference->comVelocity), omega, mass);
-  shifts.fill(-config.energyCadenceGain * (measured - planned));
+  const scalar_t predicted =
+      lipOrbitalEnergy(heading.dot(predictedComState_[0] - reference->zmp), heading.dot(predictedComState_[1]), omega, mass);
+  shifts.fill(-config.energyCadenceGain * (measured - predicted));
   return shifts;
 }
 
@@ -194,6 +228,9 @@ void ContactPlanningReferenceManager::modifyReferences(scalar_t initTime,
   // the default configuration does exactly the work it did before they existed.
   if (config.enableDcmStepAdjustment || config.enableEnergyCadenceModulation) {
     std::tie(comState_[0], comState_[1]) = computeComState(initState);
+    updatePredictedComState(initTime);
+  } else {
+    hasPredictedComState_ = false;
   }
 
   // Adapt the schedule executed so far to the measured contact state before it is merged with the plan.
@@ -262,11 +299,12 @@ void ContactPlanningReferenceManager::updateSwingTrajectories(const ModeSchedule
 
 void ContactPlanningReferenceManager::updateDcmStepAdjustment(scalar_t initTime, const ContactPlanningConfig& config) {
   dcmStepAdjustment_.fill(vector2_t::Zero());
-  if (!config.enableDcmStepAdjustment || !hasActivePlan()) return;
+  if (!config.enableDcmStepAdjustment || !hasActivePlan() || !hasPredictedComState_) return;
   const scalar_t omega = config.omega();
-  const std::optional<LipState> reference = lipReferenceState(*activePlan_, omega, initTime);
-  if (!reference.has_value()) return;
-  const vector2_t dcmError = computeDcm(comState_[0], comState_[1], omega) - computeDcm(reference->com, reference->comVelocity, omega);
+  // Deviation from what the whole-body controller itself predicted for now. It is zero while the robot does what the
+  // NMPC expects, however far the planner's reduced model has drifted, and non-zero only under a real disturbance.
+  const vector2_t dcmError =
+      computeDcm(comState_[0], comState_[1], omega) - computeDcm(predictedComState_[0], predictedComState_[1], omega);
 
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
     const auto phase = swingPhase(foot, initTime);

@@ -1390,6 +1390,7 @@ class MpcParamsTab(ttk.Frame):
                 "Adaptive Execution (phase resetting, DCM step adjustment, cadence)",
                 [
                     "earlyTouchdownMinSwingRatio",
+                    "earlyTouchdownMinContactDuration",
                     "maxLateTouchdownExtension",
                     "lateTouchdownExtensionStep",
                     "lateTouchdownSearchVelocity",

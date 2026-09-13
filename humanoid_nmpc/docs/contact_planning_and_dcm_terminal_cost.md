@@ -294,17 +294,19 @@ manager keeps a small latch of the swing currently in flight (its lift-off, its 
 applied so far).
 
 **Early touch-down.** A foot that is scheduled to swing but is measured in contact after the first
-`earlyTouchdownMinSwingRatio` of the *nominal* swing duration (scuffing right after lift-off is ignored) is switched to
-contact at the current time: the phase containing the current time is split there and the foot is in contact from then
-until its old touch-down, which disappears. The detection is level-triggered, so a contact that started inside the
-ignored window and persists past it is a landing too. Nothing else moves: the other feet and every later event keep
-their timing, because those were planned consistently with the plan that is about to be merged (shifting the tail would
-make the applied schedule disagree with the plan at the merge point and produce phantom micro-swings). The touch-down
-now lies before the commit window, so the boundary shrinks back to `commitTime` and the planner is free to re-time the
-following phases; the reference manager additionally raises a re-plan request that makes `ContactPlannerModule` skip its
-rate limiter once. The commit window itself is not shortened below `commitTime`, because it covers the planner latency
-and a shorter window would let the fresh plan re-time a phase the controller has already started. The lift-off
-position latch records the landed position on the next cycle, so the foot reference does not jitter.
+`earlyTouchdownMinSwingRatio` of the *nominal* swing duration (scuffing right after lift-off is ignored), and whose
+contact persists for `earlyTouchdownMinContactDuration` (a debounce against a single chattering sensor sample), is
+switched to contact at the current time: the phase containing the current time is split there and the foot is in
+contact from then until its old touch-down, which disappears. The detection is level-triggered, so a contact that
+started inside the ignored window and persists past it is a landing too; the debounce timer only runs past the window.
+Nothing else moves: the other feet and every later event keep their timing, because those were planned consistently
+with the plan that is about to be merged (shifting the tail would make the applied schedule disagree with the plan at
+the merge point and produce phantom micro-swings). The touch-down now lies before the commit window, so the boundary
+shrinks back to `commitTime` and the planner is free to re-time the following phases; the reference manager additionally
+raises a re-plan request that makes `ContactPlannerModule` skip its rate limiter once. The commit window itself is not
+shortened below `commitTime`, because it covers the planner latency and a shorter window would let the fresh plan re-time
+a phase the controller has already started. The lift-off position latch records the landed position on the next cycle,
+so the foot reference does not jitter.
 
 **Late touch-down.** A foot whose swing has reached its planned touch-down without measured contact would be switched to
 stance in the air. Instead its touch-down is pushed to `now + lateTouchdownExtensionStep` and every later event is delayed
@@ -324,14 +326,15 @@ is younger than its start time; the planner snapshot is taken after the referenc
 
 #### 2.8.2 DCM step adjustment (`enableDcmStepAdjustment`)
 
-Between plans the landing target of every swing foot is corrected with the capture point. With
-$\boldsymbol{\xi} = \mathbf{c} + \dot{\mathbf{c}}/\omega$ the DCM of the full model (CoM from the kinematics, CoM velocity from
-the normalised momentum) and $\boldsymbol{\xi}^{\mathrm{ref}}(t)$ the DCM of the plan's LIP trajectory, evaluated at the
-current time by propagating the node state through the interval with its constant ZMP
-($\boldsymbol{\xi}^{\mathrm{ref}}(t) = \mathbf{z}_k + (\boldsymbol{\xi}_k - \mathbf{z}_k) e^{\omega (t - t_k)}$, not the stale
-node value), the error $\Delta\boldsymbol{\xi}(t) = \boldsymbol{\xi}(t) - \boldsymbol{\xi}^{\mathrm{ref}}(t)$ grows on the LIP until the
-touch-down at $t_{\mathrm{TD}}$ as $e^{\omega (t_{\mathrm{TD}} - t)}$. Moving the foothold by exactly that amount restores the
-planned DCM offset with respect to the new support:
+Between plans the landing target of every swing foot is corrected with the capture point. The reference the correction
+is measured against is the whole-body NMPC's **own predicted trajectory**: after every solve `ContactPlannerModule`
+hands the primal solution to the reference manager, which interpolates it at the start of the next solve and evaluates
+the predicted CoM position and velocity there. With $\boldsymbol{\xi} = \mathbf{c} + \dot{\mathbf{c}}/\omega$ the DCM of the
+measured state and $\boldsymbol{\xi}^{\mathrm{pred}}(t)$ that of the prediction, the error
+$\Delta\boldsymbol{\xi}(t) = \boldsymbol{\xi}(t) - \boldsymbol{\xi}^{\mathrm{pred}}(t)$ is zero while the robot does what the controller
+expects and non-zero only under a real disturbance. On the LIP the error grows until the touch-down at $t_{\mathrm{TD}}$ as
+$e^{\omega (t_{\mathrm{TD}} - t)}$ (the error dynamics do not depend on the nominal ZMP as long as both trajectories share
+it), and moving the foothold by exactly that amount restores the planned DCM offset with respect to the new support:
 
 $$\mathbf{p}^{\mathrm{adj}}_{\mathrm{land}} = \mathbf{p}^{\mathrm{nom}}_{\mathrm{land}} + K_{\mathrm{dcm}}\, e^{\omega (t_{\mathrm{TD}} - t)}\, \Delta\boldsymbol{\xi}(t),$$
 
@@ -342,20 +345,19 @@ planned CoM at touch-down, in the plan's yaw frame (`reachX`, `reachYInner`, `re
 adjustment is recomputed at every solve (it is a function of the current state, so it cannot run faster than the MPC)
 and blended into the swing reference with the same smooth-step profile as the step itself, so it is invisible at lift-off
 and fully applied at touch-down. When the next plan arrives it already contains the correction, the error with respect
-to the new plan is small and the adjustment fades, so there is no double counting. The adjustment only modulates the
-landing target; it never triggers an early touch-down.
+to the new prediction is small and the adjustment fades, so there is no double counting. The adjustment only modulates
+the landing target; it never triggers an early touch-down. Without a prediction covering the current time (first solve,
+solver failure) no correction is applied.
 
-**Why this is off by default.** The reference the error is measured against is the planner's LIP, not the whole-body
-state, so $\Delta\boldsymbol{\xi}$ contains the reduced-model mismatch as well as any real disturbance. The LIP is
-unstable in exactly the direction the correction acts: whatever mismatch exists when a plan is made has already grown by
-$e^{\omega\,t_{\mathrm{age}}}$ by the time that plan is applied (a plan is 0.1-0.25 s old in flight, so 1.4x to 2.3x),
-and the correction multiplies it by $e^{\omega (t_{\mathrm{TD}} - t)}$ again (up to about 4x over a swing). A ZMP
-mismatch of a few centimetres between the LIP and what the whole-body NMPC actually does is therefore enough to drive
-the offset to `dcmAdjustmentMaxOffset` on every step, which hands the foothold to this feedback loop instead of the
-planner and, with a forward velocity command, shows up as the swing foot being pulled backwards. The offset bound is the
-only thing keeping it finite, so keep it small and check in simulation that the offset is not sitting at the bound.
-Remember also that the mixed-integer planner already re-plans the foothold from the measured state at
-`planningFrequency`, so the marginal value of this loop is limited to what happens within one planning period.
+**Why the reference is the NMPC prediction and not the planner's LIP.** An earlier version compared against the
+mixed-integer planner's LIP trajectory. The whole-body controller chooses a different ZMP than the reduced model *by
+design*, so that comparison reported the design difference as a disturbance. The LIP is unstable in exactly the
+direction the correction acts: the mismatch present when a plan is made had grown by $e^{\omega\,t_{\mathrm{age}}}$ by the
+time the plan was applied (1.4x to 2.3x for a plan 0.1-0.25 s old) and the correction multiplied it by
+$e^{\omega (t_{\mathrm{TD}} - t)}$ again (up to about 4x over a swing), so a ZMP mismatch of a few centimetres drove the
+offset to its bound on every step and, with a forward velocity command, pulled the swing foot backwards. Against the
+controller's own prediction that term is absent. The feature remains opt-in like the others: enable it in simulation
+first and check that the offset is not sitting at its bound.
 
 #### 2.8.3 Energy-based cadence modulation (`enableEnergyCadenceModulation`, off by default)
 
@@ -371,7 +373,8 @@ moves with it and the plan is shifted alongside, exactly as for a late touch-dow
 searching for the ground. `energyCadenceGain` is in seconds per joule of the full robot mass; the default 0.01 s/J moves
 the touch-down by about 0.1 s for a 0.15 m/s forward velocity error of a 150 kg robot walking at 0.4 m/s. The feature is
 a heuristic that overlaps with the DCM step adjustment and the planner's own re-timing; it is disabled by default and
-should be enabled only with simulation tests.
+should be enabled only with simulation tests. Like the step adjustment it measures the energy error against the NMPC's
+own predicted CoM state, relative to the planned support point, not against the planner's LIP.
 
 #### 2.8.4 What the tests cover
 

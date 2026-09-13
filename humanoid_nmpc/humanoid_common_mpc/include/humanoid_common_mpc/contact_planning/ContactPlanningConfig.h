@@ -94,20 +94,20 @@ struct ContactPlanningConfig {
   // All three features change the closed-loop behaviour of the controller and are therefore opt-in. With them disabled
   // the reference manager merges plans exactly as it did before they existed, which is the behaviour every gait is
   // tuned against. Enable one at a time and validate it in simulation.
-  bool enablePhaseResetting = false;            // switch a swing foot to contact when it touches down early, extend when late
-  scalar_t earlyTouchdownMinSwingRatio = 0.25;  // contact during this initial fraction of the nominal swing is ignored (scuffing)
-  scalar_t maxLateTouchdownExtension = 0.15;    // [s] total extension budget of a swing past its planned touch-down
-  scalar_t lateTouchdownExtensionStep = 0.05;   // [s] the touch-down is pushed this far ahead of the current time per cycle
-  scalar_t lateTouchdownSearchVelocity = 0.05;  // [m/s] the foot height target descends at this rate during the extension
+  bool enablePhaseResetting = false;                 // switch a swing foot to contact when it touches down early, extend when late
+  scalar_t earlyTouchdownMinSwingRatio = 0.25;       // contact during this initial fraction of the nominal swing is ignored (scuffing)
+  scalar_t earlyTouchdownMinContactDuration = 0.02;  // [s] contact must persist this long before the swing is ended (debounce)
+  scalar_t maxLateTouchdownExtension = 0.15;         // [s] total extension budget of a swing past its planned touch-down
+  scalar_t lateTouchdownExtensionStep = 0.05;        // [s] the touch-down is pushed this far ahead of the current time per cycle
+  scalar_t lateTouchdownSearchVelocity = 0.05;       // [m/s] the foot height target descends at this rate during the extension
 
-  // Closed-form capture-point step adjustment. The reference it compares against is the planner's Linear Inverted
-  // Pendulum, not the whole-body state, so the error it acts on contains the reduced-model mismatch as well as any real
-  // disturbance, and the LIP is unstable: the mismatch present when the plan was made grows by exp(omega * plan age)
-  // before the correction is even applied, and the correction multiplies it by exp(omega * time to touch-down) again.
-  // With a realistic ZMP mismatch of a few centimetres that product saturates dcmAdjustmentMaxOffset every step, which
-  // hands the foothold to the feedback loop instead of the planner. dcmAdjustmentMaxOffset is the safety bound, keep it
-  // small, and note that the mixed-integer planner already re-plans the foothold from the measured state at
-  // planningFrequency, so the marginal value of this loop is limited to one planning period.
+  // Closed-form capture-point step adjustment and orbital-energy cadence modulation. Both measure the deviation of the
+  // measured centre of mass from the NMPC's own predicted trajectory (handed over after every solve), not from the
+  // planner's Linear Inverted Pendulum: the whole-body controller chooses a different ZMP than the reduced model by
+  // design, so a LIP reference would report that design difference as a "disturbance", amplified by exp(omega * plan
+  // age) and again by exp(omega * time to touch-down), and saturate the bound every step. Against the NMPC's prediction
+  // the error is zero while the robot does what the controller expects and non-zero only under a real disturbance.
+  // dcmAdjustmentMaxOffset remains the safety bound.
   bool enableDcmStepAdjustment = false;    // move the landing target by the DCM error propagated to touch-down
   scalar_t dcmAdjustmentGain = 0.5;        // gain on the closed-form LIP step adjustment (1 = exact compensation)
   scalar_t dcmAdjustmentMaxOffset = 0.05;  // [m] bound on the landing target offset (also clipped to reachX / reachY*)

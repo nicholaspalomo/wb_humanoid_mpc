@@ -95,6 +95,18 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
    */
   scalar_t commitBoundary(scalar_t time) const;
 
+  /**
+   * Hands the NMPC's latest predicted trajectory over (thread-safe). The closed-form corrections (DCM step adjustment,
+   * cadence modulation) measure the deviation of the measured centre of mass from this prediction, interpolated at the
+   * start of the next solve, rather than from the planner's reduced model. Empty arrays clear the prediction.
+   */
+  void setPredictedTrajectory(const scalar_array_t& times, const vector_array_t& states);
+
+  /** Predicted CoM position / velocity at the current solver time, when a prediction covering it was available. */
+  bool hasPredictedComState() const { return hasPredictedComState_; }
+  const vector2_t& getPredictedComPosition() const { return predictedComState_[0]; }
+  const vector2_t& getPredictedComVelocity() const { return predictedComState_[1]; }
+
   /** True once after a contact event re-timed the schedule (thread-safe); the planner module then plans immediately. */
   bool consumeReplanRequest() { return replanRequested_.exchange(false); }
 
@@ -125,6 +137,9 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
 
   /** Swaps a pending plan in, re-timed by the schedule shifts it has not seen. */
   void activatePendingPlan(scalar_t initTime);
+
+  /** Interpolates the NMPC prediction at `initTime` and evaluates its CoM state; clears the flag if none covers it. */
+  void updatePredictedComState(scalar_t initTime);
 
   /** Per-foot touch-down shift from the LIP orbital energy error (zero unless enabled and a plan is active). */
   feet_array_t<scalar_t> computeCadenceTouchDownShifts(scalar_t initTime, const ContactPlanningConfig& config);
@@ -161,7 +176,12 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
   feet_array_t<scalar_t> cadenceTouchDownShift_ = makeFeetArray(0.0);
   feet_array_t<vector2_t> dcmStepAdjustment_ = makeFeetArray(vector2_t(vector2_t::Zero()));
   vector2_t comState_[2] = {vector2_t::Zero(), vector2_t::Zero()};  // CoM position / velocity at the current solver run
-  std::deque<std::pair<scalar_t, scalar_t>> scheduleShiftLog_;      // (time, shift) of every re-timing of later events
+  std::mutex predictionMutex_;
+  scalar_array_t predictedTimes_;  // NMPC prediction handed over after the previous solve (written by the module)
+  vector_array_t predictedStates_;
+  bool hasPredictedComState_ = false;
+  vector2_t predictedComState_[2] = {vector2_t::Zero(), vector2_t::Zero()};  // predicted CoM at the current solver run
+  std::deque<std::pair<scalar_t, scalar_t>> scheduleShiftLog_;               // (time, shift) of every re-timing of later events
   std::atomic<bool> replanRequested_{false};
 };
 

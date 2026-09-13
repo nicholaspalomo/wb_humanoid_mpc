@@ -56,6 +56,7 @@ void ContactPlanningConfig::validate() const {
   if (planningFrequency <= 0.0) fail("planningFrequency must be positive");
   if (commitNodes() >= numNodes) fail("commitTime must be shorter than the planning horizon");
   if (earlyTouchdownMinSwingRatio < 0.0 || earlyTouchdownMinSwingRatio > 1.0) fail("earlyTouchdownMinSwingRatio must be in [0, 1]");
+  if (earlyTouchdownMinContactDuration < 0.0) fail("earlyTouchdownMinContactDuration must be non-negative");
   if (maxLateTouchdownExtension < 0.0) fail("maxLateTouchdownExtension must be non-negative");
   if (lateTouchdownExtensionStep <= 0.0) fail("lateTouchdownExtensionStep must be positive");
   if (lateTouchdownSearchVelocity < 0.0) fail("lateTouchdownSearchVelocity must be non-negative");
@@ -114,6 +115,7 @@ ContactPlanningConfig loadContactPlanningConfig(const std::string& taskFile, con
   loadData::loadPtreeValue(pt, config.planningFrequency, prefix + "planningFrequency", verbose);
   loadData::loadPtreeValue(pt, config.enablePhaseResetting, prefix + "enablePhaseResetting", verbose);
   loadData::loadPtreeValue(pt, config.earlyTouchdownMinSwingRatio, prefix + "earlyTouchdownMinSwingRatio", verbose);
+  loadData::loadPtreeValue(pt, config.earlyTouchdownMinContactDuration, prefix + "earlyTouchdownMinContactDuration", verbose);
   loadData::loadPtreeValue(pt, config.maxLateTouchdownExtension, prefix + "maxLateTouchdownExtension", verbose);
   loadData::loadPtreeValue(pt, config.lateTouchdownExtensionStep, prefix + "lateTouchdownExtensionStep", verbose);
   loadData::loadPtreeValue(pt, config.lateTouchdownSearchVelocity, prefix + "lateTouchdownSearchVelocity", verbose);

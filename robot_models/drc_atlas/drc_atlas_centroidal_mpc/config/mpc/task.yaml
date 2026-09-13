@@ -186,12 +186,13 @@ contact_planning:
   # which is the behaviour the gait is tuned against. Enable one at a time and validate it in MuJoCo before hardware.
   enablePhaseResetting: false           # early touch-down: switch the foot to contact at once; late: extend the swing
   earlyTouchdownMinSwingRatio: 0.25     # contact during this initial fraction of the nominal swing is ignored (scuffing)
+  earlyTouchdownMinContactDuration: 0.02  # [s] contact must persist this long before the swing is ended (sensor debounce)
   maxLateTouchdownExtension: 0.15       # [s] total extension budget of a swing past its planned touch-down
   lateTouchdownExtensionStep: 0.05      # [s] the touch-down is pushed this far ahead of the current time per cycle
   lateTouchdownSearchVelocity: 0.05     # [m/s] descent rate of the foot height target while searching for the ground
-  # The DCM step adjustment compares against the planner's LIP, not the whole-body state, so its error contains the
-  # reduced-model mismatch and is amplified by exp(omega * time to touch-down). Raise dcmAdjustmentMaxOffset only after
-  # checking in simulation that the offset is not sitting at its bound every step.
+  # The DCM step adjustment and the cadence modulation measure the deviation of the measured CoM from the NMPC's own
+  # predicted trajectory, so they act only on real disturbances and are zero while the robot does what the controller
+  # expects. dcmAdjustmentMaxOffset is the safety bound; check in simulation that the offset is not sitting at it.
   enableDcmStepAdjustment: false        # move the landing target by the DCM error propagated to touch-down
   dcmAdjustmentGain: 0.5                # 1 = exact LIP compensation of the DCM error at touch-down
   dcmAdjustmentMaxOffset: 0.05          # [m] bound on the landing target offset (also clipped to reachX / reachY*)
@@ -339,18 +340,18 @@ R:
   scaling: 1
 
   # ; Feet Contact Forces: [LF, RF, LH, RH] ;;
-  "(0,0)": 0.001  # left_force_x
-  "(1,1)": 0.002  # left_force_y
-  "(2,2)": 0.005  # left_force_z
-  "(3,3)": 0.002  # left_moment_x
-  "(4,4)": 0.001  # left_moment_y
-  "(5,5)": 0.02  # left_moment_z
-  "(6,6)": 0.001  # right_force_x
-  "(7,7)": 0.002  # right_force_y
-  "(8,8)": 0.005  # right_force_z
-  "(9,9)": 0.002  # right_moment_x
-  "(10,10)": 0.001  # right_moment_y
-  "(11,11)": 0.02  # right_moment_z
+  "(0,0)": 0.0001  # left_force_x
+  "(1,1)": 0.0002  # left_force_y
+  "(2,2)": 0.0005  # left_force_z
+  "(3,3)": 0.0002  # left_moment_x
+  "(4,4)": 0.0001  # left_moment_y
+  "(5,5)": 0.002  # left_moment_z
+  "(6,6)": 0.0001  # right_force_x
+  "(7,7)": 0.0002  # right_force_y
+  "(8,8)": 0.0005  # right_force_z
+  "(9,9)": 0.0002  # right_moment_x
+  "(10,10)": 0.0001  # right_moment_y
+  "(11,11)": 0.002  # right_moment_z
 
   # ; Joint Velocities ;;
   "(12,12)": 1000  # back_bkz

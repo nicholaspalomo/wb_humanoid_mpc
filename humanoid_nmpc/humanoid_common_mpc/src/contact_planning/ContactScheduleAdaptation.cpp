@@ -168,17 +168,25 @@ feet_array_t<ContactEventReport> adaptScheduleToContactEvents(ModeSchedule& sche
         latch.nominalTouchDownTime = touchDown;
       }
 
-      // Early touch-down: contact measured after the initial fraction of the nominal swing that is ignored as scuffing.
+      // Early touch-down: contact measured after the initial fraction of the nominal swing that is ignored as scuffing,
+      // and persisting for the debounce duration so that a single chattering sample does not end the swing.
       const scalar_t nominalDuration = latch.nominalTouchDownTime - liftOff;
       const bool pastScuffingWindow = nominalDuration > 0.0 && (time - liftOff) >= config.earlyTouchdownMinSwingRatio * nominalDuration;
       if (config.enablePhaseResetting && measuredContact[foot] && pastScuffingWindow) {
-        if (truncateSwingPhase(schedule, foot, time).has_value()) {
+        if (!latch.contactObserved) {
+          latch.contactObserved = true;
+          latch.contactObservedSince = time;
+        }
+        if (time - latch.contactObservedSince >= config.earlyTouchdownMinContactDuration - kMinTimeShift &&
+            truncateSwingPhase(schedule, foot, time).has_value()) {
           report.type = ContactEventReport::Type::EARLY_TOUCH_DOWN;
           report.touchDownTime = time;
           report.timeShift = 0.0;
           latch = SwingTimingLatch{};
           continue;
         }
+      } else {
+        latch.contactObserved = false;
       }
 
       // Cadence modulation of the touch-down, relative to the nominal touch-down and within the swing duration limits.
