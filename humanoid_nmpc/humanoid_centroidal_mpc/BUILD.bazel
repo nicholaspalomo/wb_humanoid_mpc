@@ -59,6 +59,7 @@ load("@rules_cc//cc:cc_test.bzl", "cc_test")
 
 cc_test(
     name = "testMpcParameterUpdaterModule",
+    size = "large",
     srcs = ["test/testMpcParameterUpdaterModule.cpp"],
     copts = [
         "-std=c++20",
@@ -78,6 +79,8 @@ cc_test(
     deps = [
         ":humanoid_centroidal_mpc",
         "@googletest//:gtest_main",
+        "@ros2_rclcpp",
+        "@ros2_std_msgs",
     ],
 )
 

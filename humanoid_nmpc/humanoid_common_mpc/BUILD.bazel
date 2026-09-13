@@ -131,9 +131,14 @@ cc_test(
 cc_test(
     name = "testComAndAcomTrackingCost",
     srcs = ["test/testComAndAcomTrackingCost.cpp"],
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
     deps = [
         ":humanoid_common_mpc",
         "@googletest//:gtest_main",
+        "@ros2_ament_index_cpp",
     ],
 )
 

@@ -268,7 +268,7 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
     problemPtr_->costPtr->add("stateQuadraticCost", factory.getStateQuadraticCost());
 
     if (modelSettings_.useComAndAcomTracking) {
-      problemPtr_->stateCostPtr->add("comAndAcomTrackingCost", factory.getComAndAcomTrackingCost());
+      problemPtr_->stateCostPtr->add("comAndAcomTrackingCost", factory.getComAndAcomTrackingCost(centroidalModelInfo_));
     }
   }
   if (formulationTasks.hasCost(MpcCostType::InputQuadraticCost)) {

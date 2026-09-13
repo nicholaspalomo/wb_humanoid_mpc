@@ -65,6 +65,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
+namespace {
+
+/// In the centroidal state x = [h_norm(6), p_base(3), euler_zyx(3), q_j], the
+/// base pose occupies the 6x6 block starting at index 6.
+constexpr Eigen::Index kBasePoseStateIndex = 6;
+constexpr Eigen::Index kBasePoseDim = 6;
+
+/**
+ * Zeroes the base pose block of a state weight matrix.
+ *
+ * When CoM + aCOM tracking is active it regulates base position and orientation
+ * in its own coordinates, so leaving these weights in place would penalise the
+ * same physical error twice, in two different parameterisations.
+ */
+void zeroBasePoseWeights(matrix_t& Q) {
+  Q.block(kBasePoseStateIndex, kBasePoseStateIndex, kBasePoseDim, kBasePoseDim).setZero();
+}
+
+}  // namespace
+
 HumanoidCostConstraintFactory::HumanoidCostConstraintFactory(const std::string& taskFile,
                                                              const std::string& referenceFile,
                                                              const SwitchedModelReferenceManager& referenceManager,
@@ -151,11 +171,7 @@ std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getStateQuadratic
   loadData::loadEigenMatrix(taskFile_, "Q", Q);
 
   if (modelSettings_.useComAndAcomTracking) {
-    // In the centroidal model, generalized coordinates start at index 6
-    // (after the 6D normalized momentum h_norm). Zero out the base pose
-    // (position + orientation) block so CoM/ACoM tracking handles it instead.
-    constexpr size_t kGeneralizedCoordinatesStartIndex = 6;
-    Q.block<6, 6>(kGeneralizedCoordinatesStartIndex, kGeneralizedCoordinatesStartIndex).setZero();
+    zeroBasePoseWeights(Q);
     if (verbose_) {
       LOG(INFO) << "[HumanoidCostConstraintFactory] useComAndAcomTracking is enabled. Zeroing out base pose weights in Q.";
     }
@@ -172,7 +188,7 @@ std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getStateQuadratic
   return std::unique_ptr<StateInputCost>(new StateQuadraticCost(std::move(Q), mpcRobotModelADPtr_->getInputDim(), *referenceManagerPtr_));
 }
 
-std::unique_ptr<StateCost> HumanoidCostConstraintFactory::getComAndAcomTrackingCost() const {
+std::unique_ptr<StateCost> HumanoidCostConstraintFactory::getComAndAcomTrackingCost(const CentroidalModelInfo& info) const {
   matrix_t Q_com(3, 3);
   matrix_t Q_acom(3, 3);
   loadData::loadEigenMatrix(taskFile_, "Q_com", Q_com);
@@ -183,26 +199,13 @@ std::unique_ptr<StateCost> HumanoidCostConstraintFactory::getComAndAcomTrackingC
               << " #### =============================================================================\n"
               << "Q_com:\n"
               << Q_com << "\n"
-              << "Q_acom:\n"
+              << "Q_acom (rows are ZYX Euler: yaw, pitch, roll):\n"
               << Q_acom << "\n"
               << " #### =============================================================================";
   }
 
-  // Construct a CentroidalModelInfo from the PinocchioInterface model dimensions.
-  // MpcRobotModelBase does not expose getCentroidalModelInfo(), so we derive the
-  // fields that ComAndAcomTrackingCost needs (stateDim, generalizedCoordinatesNum,
-  // actuatedDofNum) directly from the Pinocchio model.
-  const auto& pinocchioModel = pinocchioInterfacePtr_->getModel();
-  CentroidalModelInfo info;
-  info.generalizedCoordinatesNum = pinocchioModel.nq;
-  info.actuatedDofNum = info.generalizedCoordinatesNum - 6;
-  info.stateDim = info.generalizedCoordinatesNum + 6;
-  info.inputDim = mpcRobotModelPtr_->getInputDim();
-  // robotMass is not used by ComAndAcomTrackingCost's getValue/getQuadraticApproximation.
-  info.robotMass = 0.0;
-
-  return std::make_unique<ComAndAcomTrackingCost>(std::move(Q_com), std::move(Q_acom), *pinocchioInterfacePtr_, std::move(info),
-                                                  *referenceManagerPtr_, modelSettings_.robotName);
+  return std::make_unique<ComAndAcomTrackingCost>(std::move(Q_com), std::move(Q_acom), *pinocchioInterfacePtr_, info,
+                                                  modelSettings_.robotName);
 }
 
 /******************************************************************************************************/
@@ -383,6 +386,18 @@ std::unique_ptr<StateCost> HumanoidCostConstraintFactory::getTerminalCost() cons
 
   matrix_t Qf(mpcRobotModelPtr_->getStateDim(), mpcRobotModelPtr_->getStateDim());
   loadData::loadEigenMatrix(taskFile_, "Q_final", Qf);
+
+  if (modelSettings_.useComAndAcomTracking) {
+    // The running cost's base pose block is zeroed for the same reason. Leaving it
+    // in the terminal cost would regulate the end of the horizon in base
+    // coordinates while every other node is regulated in aCOM coordinates, and
+    // terminalCostScaling makes that mismatch the dominant term at the horizon end.
+    zeroBasePoseWeights(Qf);
+    if (verbose_) {
+      LOG(INFO) << "[HumanoidCostConstraintFactory] useComAndAcomTracking is enabled. Zeroing out base pose weights in Q_final.";
+    }
+  }
+
   Qf *= terminalCostScaling;
   if (verbose_) LOG(INFO) << "Q_final:\n" << Qf;
   return std::unique_ptr<StateCost>(new QuadraticStateCost(Qf));

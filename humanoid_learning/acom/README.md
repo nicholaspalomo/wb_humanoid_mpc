@@ -79,21 +79,21 @@ $$\mathbf{J}_{\text{aCOM}}^{\text{ZYX}} = \begin{bmatrix} \mathbf{0}_{3 \times 6
 flowchart TD
     subgraph DataGeneration ["1. Ground Truth CMM Sampling (dataset_generator.py)"]
         XML["Robot MJCF (.xml)"] --> MjModel["MuJoCo Model"]
-        URDF["Robot URDF (.urdf)"] --> Perm["Compute Joint Permutation<br/>URDF ↔ MuJoCo"]
+        URDF["Robot URDF (.urdf)"] --> Perm["Joint permutation from a<br/>kinematic-tree walk<br/>Pinocchio ↔ MuJoCo"]
         Sampler["Uniform Joint Sampler<br/>q_j ~ U(q_min, q_max)"] --> MjModel
-        MjModel --> MjFwd["mj_forward(model, data)"]
-        MjFwd --> MjVel["mj_subtreeVel(model, data)"]
+        MjModel --> MjFwd["mj_forward (once per configuration)"]
+        MjFwd --> MjVel["mj_comVel + mj_subtreeVel<br/>(once per unit-velocity column)"]
         MjVel --> CMM["Extract CMM columns via<br/>unit-velocity evaluation"]
         CMM --> IG["Locked Inertia I_G = A_ω[:, 3:6]"]
         CMM --> Aomega["Joint CMM A_ω_j = A_ω[:, 6:]"]
-        IG --> ABar["Ā_ω = I_G⁻¹ · A_ω_j"]
+        IG --> ABar["Ā_ω = solve(I_G, A_ω_j)"]
         Aomega --> ABar
-        Perm --> Reorder["Reorder q_j and Ā_ω columns<br/>to URDF/Pinocchio order"]
+        Perm --> Reorder["Reorder q_j and Ā_ω columns<br/>to Pinocchio order,<br/>drop fixed joints"]
         ABar --> Reorder
     end
 
     subgraph JAXTraining ["2. JAX SIREN Neural Optimization (train_acom.py)"]
-        Reorder --> Dataset["Dataset: {q_joints, Ā_ω}<br/>in URDF order"]
+        Reorder --> Dataset["Dataset: {q_joints, Ā_ω}<br/>in Pinocchio order"]
         Dataset --> Loss["Frobenius Loss:<br/>‖J_Δθ(q_j) − Ā_ω(q)‖²_F<br/>+ λ_reg · ‖Δθ(q_j)‖²"]
         SIREN["SIREN Network<br/>sin(ω₀(Wx + b))"] --> JacAD["jax.jacobian<br/>(automatic differentiation)"]
         JacAD --> Loss
@@ -103,11 +103,11 @@ flowchart TD
 
     subgraph Export ["3. Weight Export (export_acom.py)"]
         Params --> JSON["acom_robot.json<br/>(for analysis)"]
-        Params --> Header["AcomSirenWeights&lt;Robot&gt;.h<br/>(row-major C arrays)"]
+        Params --> Header["AcomSirenWeights&lt;Robot&gt;.h<br/>(row-major C arrays<br/>+ joint_names[])"]
     end
 
     subgraph CppInference ["4. C++ Real-Time Inference"]
-        Header --> StaticLoad["AngularCenterOfMass::<br/>createFromStaticWeights()"]
+        Header --> StaticLoad["AngularCenterOfMass::<br/>createForRobot()"]
         StaticLoad --> Forward["computeJointOrientationOffset(q_j)<br/>→ Δθ ∈ ℝ³ (XYZ)"]
         StaticLoad --> ChainRule["computeJointOffsetJacobian(q_j)<br/>→ J_Δθ ∈ ℝ³ˣⁿʲ (XYZ)"]
     end
@@ -202,11 +202,13 @@ $$\mathbf{x} = \begin{bmatrix} \mathbf{h}_{\text{norm}} \\ \mathbf{p}_{\text{bas
 
 #### CoM Jacobian
 
-The CoM Jacobian w.r.t. centroidal state requires chaining the ZYX Euler angle derivative mapping $\mathbf{T}(\boldsymbol{\theta}_{\text{ZYX}})$ for the base orientation columns, because the Pinocchio Jacobian maps generalized *velocity* $\mathbf{v}$ (with angular velocity $\boldsymbol{\omega}$, not $\dot{\boldsymbol{\theta}}$):
+> **Critical implementation detail:** the floating base of this Pinocchio model is a `JointModelComposite` of `JointModelTranslation` and `JointModelSphericalZYX` (see `getBaseJointcomposite` in `createPinocchioModel.cpp`), **not** a `JointModelFreeFlyer`. Consequently $n_q = n_v$ and the tangent vector is literally the time derivative of the generalized coordinates:
+> $$\mathbf{v} = \begin{bmatrix} \dot{\mathbf{p}}_{\text{base}} & \dot{\boldsymbol{\theta}}_{\text{ZYX}} & \dot{\mathbf{q}}_j \end{bmatrix}^\top$$
+> In particular $\mathbf{v}_{[3:6]}$ is the **Euler angle rate**, not the angular velocity $\boldsymbol{\omega}$. Pinocchio's CoM Jacobian is therefore already $\partial \mathbf{r}_{\text{CoM}} / \partial \mathbf{q}$, and **no** $\mathbf{T}(\boldsymbol{\theta})$ mapping may be chained onto its base orientation columns. Doing so double-counts the mapping and, at $\boldsymbol{\theta} = \mathbf{0}$, swaps the yaw and roll columns outright.
 
-$$\frac{\partial \mathbf{r}_{\text{CoM}}}{\partial \mathbf{x}} = \begin{bmatrix} \mathbf{0}_{3 \times 6} & \mathbf{J}_{\text{com}}^{[:, 0:3]} & \mathbf{J}_{\text{com}}^{[:, 3:6]} \cdot \mathbf{T}(\boldsymbol{\theta}) & \mathbf{J}_{\text{com}}^{[:, 6:]} \end{bmatrix}$$
+$$\frac{\partial \mathbf{r}_{\text{CoM}}}{\partial \mathbf{x}} = \begin{bmatrix} \mathbf{0}_{3 \times 6} & \mathbf{J}_{\text{com}}^{[:, 0:3]} & \mathbf{J}_{\text{com}}^{[:, 3:6]} & \mathbf{J}_{\text{com}}^{[:, 6:]} \end{bmatrix}$$
 
-where $\boldsymbol{\omega} = \mathbf{T}(\boldsymbol{\theta}_{\text{ZYX}}) \cdot \dot{\boldsymbol{\theta}}_{\text{ZYX}}$ maps Euler angle rates to angular velocity.
+This convention is pinned by a finite-difference regression test in `testComAndAcomTrackingCost.cpp`.
 
 #### aCOM Jacobian
 
@@ -235,11 +237,13 @@ Q_com:
   "(1,1)": 0   # p_com_y
   "(2,2)": 15  # p_com_z (height regulation)
 
+# Rows follow the centroidal state's ZYX Euler convention, mirroring Q entries
+# (9,9) through (11,11). Row 0 is yaw, not roll.
 Q_acom:
   scaling: 85
-  "(0,0)": 15  # yaw (heading alignment)
+  "(0,0)": 25  # yaw (heading alignment)
   "(1,1)": 15  # pitch (forward lean regulation)
-  "(2,2)": 25  # roll (lateral stability, highest weight)
+  "(2,2)": 15  # roll (lateral stability)
 ```
 
 When this flag is set, the factory zeros out the base-pose block in the state quadratic cost `Q` to avoid double-penalizing orientation.
@@ -259,7 +263,7 @@ humanoid_learning/acom/
 ├── export_acom.py                # JSON and C++ header export
 ├── BUILD.bazel                   # Bazel build rules
 └── tests/
-    ├── test_acom.py              # 14 unit tests (pipeline + dataset)
+    ├── test_acom.py              # Pipeline, export, and dataset generator tests
     └── BUILD.bazel               # Test build rules
 
 humanoid_nmpc/humanoid_common_mpc/
@@ -272,8 +276,8 @@ humanoid_nmpc/humanoid_common_mpc/
 ├── src/cost/
 │   └── ComAndAcomTrackingCost.cpp # MPC cost with CoM + aCOM tracking
 └── test/
-    ├── testAngularCenterOfMass.cpp      # 6 tests (shapes, FD, equivariance)
-    └── testComAndAcomTrackingCost.cpp   # 3 tests (shapes, FD, CoM)
+    ├── testAngularCenterOfMass.cpp      # FD Jacobian, equivariance, dimension guards
+    └── testComAndAcomTrackingCost.cpp   # CoM Jacobian convention, ZYX row ordering
 ```
 
 ---
@@ -283,17 +287,19 @@ humanoid_nmpc/humanoid_common_mpc/
 ### 6.1 Training an aCOM Model
 
 ```bash
-# Train on Unitree G1 (29-DoF)
+# Train on Unitree G1 (23 active joints after fixing the wrists)
 bazel run //humanoid_learning/acom:train_main -- \
-    --robot g1 --num_samples 10000 --epochs 50 --output_dir /tmp/acom_g1
+    --robot g1 --num_samples 20000 --epochs 150 --output_dir /tmp/acom_g1
 
-# Train on DRC Atlas (28-DoF) and install weights into C++ source tree
+# Train on DRC Atlas (24 active joints) and install weights into the C++ source tree
 bazel run //humanoid_learning/acom:train_main -- \
-    --robot atlas --num_samples 10000 --epochs 50 \
+    --robot atlas --num_samples 20000 --epochs 150 \
     --output_dir /tmp/acom_atlas --install_header
 ```
 
-The `--install_header` flag copies the generated `AcomSirenWeights<Robot>.h` directly into the C++ include path, ready for the next `bazel build`.
+The `--install_header` flag copies the generated `AcomSirenWeights<Robot>.h` directly into the C++ include path, ready for the next `bazel build`. It requires `BUILD_WORKSPACE_DIRECTORY`, which `bazel run` sets.
+
+`--num_layers` counts **sinusoidal layers only**, excluding the linear readout, and defaults to 2. The C++ loader hard-codes that architecture, so `--install_header` refuses any other value rather than emitting a header that fails to compile. `--hidden_dim` is free; the shipped weights use 64.
 
 ### 6.2 Monitoring Training in TensorBoard
 
@@ -323,10 +329,10 @@ tensorboard --logdir /tmp/acom_atlas/tb_logs
 ### 6.3 Running Tests
 
 ```bash
-# Python: model, training, export, and dataset generator (14 tests)
+# Python: model, training, export, and dataset generator
 bazel test //humanoid_learning/acom/tests:test_acom
 
-# C++: analytical Jacobian, equivariance, and cost function (9 tests)
+# C++: analytical Jacobian, equivariance, conventions, and dimension guards
 bazel test //humanoid_nmpc/humanoid_common_mpc:testAngularCenterOfMass
 bazel test //humanoid_nmpc/humanoid_common_mpc:testComAndAcomTrackingCost
 ```
@@ -338,14 +344,15 @@ Include the zero-dependency C++ header and evaluate whole-body aCOM in microseco
 ```cpp
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
 
-// Load weights compiled into the binary
-auto acom = AngularCenterOfMass::createFromStaticWeights();
+// Load the weights compiled into the binary for this robot.
+auto acom = AngularCenterOfMass::createForRobot(modelSettings.robotName);
 
-// Evaluate orientation offset and Jacobian
+// Joint offset and its Jacobian, in the network's native XYZ ordering.
 vector3_t delta_theta = acom->computeJointOrientationOffset(q_joints);
 matrix_t J_delta = acom->computeJointOffsetJacobian(q_joints);
 
-// Full aCOM (requires generalized coordinates q = [pos, rpy, q_j])
+// Whole-body aCOM, in the centroidal state's ZYX ordering. Takes the Pinocchio
+// generalized coordinates q = [pos_base(3), euler_zyx_base(3), q_joints(n_j)].
 vector3_t theta_acom = acom->computeAcomOrientation(q);
 matrix_t J_acom = acom->computeAcomJacobian(q);
 ```
@@ -369,18 +376,30 @@ matrix_t J_acom = acom->computeAcomJacobian(q);
 
 ---
 
-## 8. Joint Ordering: URDF ↔ MuJoCo Permutation
+## 8. Joint Ordering: Pinocchio ↔ MuJoCo Permutation
 
-MuJoCo and URDF/Pinocchio may index joints in different orders. Since the C++ MPC runtime uses Pinocchio (which follows URDF ordering), the training data must be in URDF order. The `AcomDatasetGenerator` accepts an optional `urdf_path` argument and computes a permutation array:
+The C++ MPC indexes joints via Pinocchio, so the training data must use Pinocchio's joint ordering. Pinocchio numbers joints by a **depth-first walk of the kinematic tree**, visiting the children of each link in URDF document order. That is emphatically **not** the order in which `<joint>` elements happen to appear in the URDF file: `atlas.urdf` lists its joints alphabetically, so document order and tree order disagree completely.
+
+`AcomDatasetGenerator` therefore reconstructs the tree ordering itself and permutes the dataset into it:
 
 ```python
 gen = AcomDatasetGenerator(
-    "robot_models/atlas/atlas.xml",
-    urdf_path="robot_models/atlas/atlas.urdf"
+    "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.xml",
+    urdf_path="robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf",
+    fixed_joints=["l_arm_wry", "l_arm_wrx", "r_arm_wry", "r_arm_wrx"],
 )
-# gen.joint_perm[i] = MuJoCo index of URDF's i-th joint
-# Dataset outputs are automatically reordered to URDF order
-dataset = gen.generate_dataset(num_samples=10000)
+# gen.pinocchio_joint_names[i] = name of Pinocchio's i-th joint
+# gen.joint_perm[i]            = MuJoCo index of Pinocchio's i-th joint
+dataset = gen.generate_dataset(num_samples=20000)
 ```
 
-Without this permutation, the SIREN network would learn $\Delta\boldsymbol{\theta}$ as a function of MuJoCo-ordered joint angles, but be evaluated at C++ runtime with Pinocchio-ordered inputs — producing incorrect orientation offsets and Jacobians.
+For both robots currently shipped, MuJoCo's MJCF also declares joints in kinematic tree order, so `joint_perm` comes out as the identity. That is asserted rather than assumed: a non-identity permutation means MuJoCo and Pinocchio disagree, and the reordering step is what keeps the dataset aligned.
+
+A joint-order mismatch is silent and severe. The joint *count* is unchanged, so every dimension check still passes, the training loss still looks healthy, and the network simply evaluates the wrong joint at every index. Two guards catch it:
+
+1. `test_joint_order_matches_pinocchio_kinematic_tree` pins the generator's ordering to a tree walk and asserts parent joints precede their children.
+2. The exported header records the joint names it was trained on, as `joint_names[]`, and `testAngularCenterOfMass.cpp` checks them against the expected Pinocchio ordering.
+
+### Fixed joints
+
+`fixed_joints` must match the `model_settings.fixedJointNames` list in the robot's `task.yaml`. Those joints are held at zero during sampling and then dropped from the dataset, so the network's `input_dim` equals the MPC's `actuatedDofNum`. `ComAndAcomTrackingCost` throws at construction if the two disagree.

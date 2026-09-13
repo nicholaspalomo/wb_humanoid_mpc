@@ -51,7 +51,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/mrt/MpcParameterUpdaterModule.h"
 #include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
 #include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/constraint/BasisScalingNonNegativityConstraint.h"
 #include "humanoid_common_mpc/constraint/JointLimitsSoftConstraint.h"
+#include "humanoid_common_mpc/cost/ComAndAcomTrackingCost.h"
 #include "humanoid_common_mpc/cost/EndEffectorKinematicsQuadraticCost.h"
 #include "humanoid_common_mpc/cost/ExternalTorqueQuadraticCostAD.h"
 
@@ -414,9 +416,6 @@ TEST_F(MpcParameterUpdaterModuleTest, NoUpdateWhenFileUnchanged) {
   EXPECT_DOUBLE_EQ(origQ.norm(), sameQ.norm()) << "Q should not change when file is untouched";
 }
 
-}
-
-// New test cases follow within the namespace
 // Test: Verify that SQP solver settings are updated at runtime.
 /******************************************************************************************************/
 TEST_F(MpcParameterUpdaterModuleTest, SqpSettingsUpdated) {
@@ -681,6 +680,131 @@ TEST_F(MpcParameterUpdaterModuleTest, BasisCostTransformMatchesOcpFactory) {
 
   EXPECT_TRUE(newR.isApprox(origR, 1e-9)) << "Online update must reproduce the OCP factory's basis-space R for an unchanged yaml";
   EXPECT_TRUE(newR.isApprox(transformWrenchInputCostToBasisSpace(loadWrenchSpaceR(), *basisCostTransform_), 1e-9));
+}
+
+/******************************************************************************************************/
+// Test: ComAndAcomTrackingWeightsUpdated
+/******************************************************************************************************/
+TEST_F(MpcParameterUpdaterModuleTest, ComAndAcomTrackingWeightsUpdated) {
+  auto* sqp = getSqpSolver();
+  ASSERT_NE(sqp, nullptr);
+
+  auto& ocp0 = sqp->getOcpDefinitions().front();
+  if (ocp0.stateCostPtr == nullptr) {
+    GTEST_SKIP() << "stateCostPtr is null";
+  }
+  try {
+    ocp0.stateCostPtr->get<ComAndAcomTrackingCost>("comAndAcomTrackingCost");
+  } catch (...) {
+    GTEST_SKIP() << "comAndAcomTrackingCost not present in this configuration";
+  }
+
+  // Mutate one entry of Q_com and one of Q_acom in tmpTaskFile_.
+  {
+    std::ifstream in(tmpTaskFile_);
+    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.close();
+
+    const auto replaceEntry = [&content](const std::string& matrixName, const std::string& entry, const std::string& newValue) {
+      const auto matrixPos = content.find(matrixName + ":");
+      ASSERT_NE(matrixPos, std::string::npos) << matrixName << " not found in task file";
+      const auto entryPos = content.find("\"" + entry + "\":", matrixPos);
+      ASSERT_NE(entryPos, std::string::npos) << entry << " not found under " << matrixName;
+      const auto valueStart = entryPos + entry.size() + 3;  // Past the quoted key and colon.
+      const auto lineEnd = content.find('\n', valueStart);
+      content.replace(valueStart, lineEnd - valueStart, " " + newValue);
+    };
+    replaceEntry("Q_com", "(2,2)", "999.0");
+    replaceEntry("Q_acom", "(0,0)", "777.0");
+
+    std::ofstream out(tmpTaskFile_);
+    out << content;
+  }
+
+  MpcParameterUpdaterModule updater(mpc_.get(), tmpTaskFile_, urdfFile_, referenceFile_, stateDim_, inputDim_, contactNames_, nullptr,
+                                    basisCostTransform_);
+  touchTaskFileAndRunUpdater(updater);
+
+  // Every per-thread clone of the problem must see the update, not just the first.
+  for (auto& ocp : sqp->getOcpDefinitions()) {
+    auto& cost = ocp.stateCostPtr->get<ComAndAcomTrackingCost>("comAndAcomTrackingCost");
+    // Both matrices are premultiplied by their respective `scaling` entry, 85.
+    EXPECT_NEAR(cost.getQCom()(2, 2), 85.0 * 999.0, 1e-3);
+    // Row 0 of Q_acom is yaw, in the centroidal state's ZYX Euler convention.
+    EXPECT_NEAR(cost.getQAcom()(0, 0), 85.0 * 777.0, 1e-3);
+  }
+}
+
+/******************************************************************************************************/
+// Test: BasePoseWeightsZeroedInBothRunningAndTerminalCost
+/******************************************************************************************************/
+TEST_F(MpcParameterUpdaterModuleTest, BasePoseWeightsZeroedInBothRunningAndTerminalCost) {
+  if (!interface_->modelSettings().useComAndAcomTracking) {
+    GTEST_SKIP() << "useComAndAcomTracking is disabled in this configuration";
+  }
+  auto* sqp = getSqpSolver();
+  ASSERT_NE(sqp, nullptr);
+
+  // CoM + aCOM tracking regulates base pose in its own coordinates, so the base
+  // pose block must be zero in the running AND the terminal state cost. Zeroing
+  // only one of them leaves the end of the horizon pulled toward a base pose
+  // target while every other node follows the aCOM coordinate.
+  constexpr Eigen::Index kBasePoseStateIndex = 6;
+  constexpr Eigen::Index kBasePoseDim = 6;
+
+  MpcParameterUpdaterModule updater(mpc_.get(), tmpTaskFile_, urdfFile_, referenceFile_, stateDim_, inputDim_, contactNames_, nullptr,
+                                    basisCostTransform_);
+  touchTaskFileAndRunUpdater(updater);
+
+  for (auto& ocp : sqp->getOcpDefinitions()) {
+    matrix_t Q_final;
+    ocp.finalCostPtr->get<QuadraticStateCost>("terminalCost").getGains(Q_final);
+    EXPECT_TRUE(Q_final.block(kBasePoseStateIndex, kBasePoseStateIndex, kBasePoseDim, kBasePoseDim).isZero(1e-12))
+        << "Terminal cost still penalises base pose while aCOM tracking is active.";
+    // The rest of the terminal cost must survive, otherwise this would pass
+    // trivially for an all-zero matrix.
+    EXPECT_GT(Q_final.norm(), 0.0);
+  }
+}
+
+/******************************************************************************************************/
+// Test: BasisNonNegativityBarrierUpdated
+/******************************************************************************************************/
+TEST_F(MpcParameterUpdaterModuleTest, BasisNonNegativityBarrierUpdated) {
+  if (!interface_->usesContactBasisVectorInputs()) {
+    GTEST_SKIP() << "useContactBasisVectorInputs is disabled in this configuration";
+  }
+  auto* sqp = getSqpSolver();
+  ASSERT_NE(sqp, nullptr);
+
+  // Mutate contacts.basisNonNegativityBarrier.mu
+  {
+    std::ifstream in(tmpTaskFile_);
+    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.close();
+
+    auto pos = content.find("basisNonNegativityBarrier:");
+    ASSERT_NE(pos, std::string::npos);
+    auto pMu = content.find("mu:", pos);
+    ASSERT_NE(pMu, std::string::npos);
+    auto valueStart = pMu + std::string("mu:").size();
+    auto lineEnd = content.find('\n', valueStart);
+    content.replace(valueStart, lineEnd - valueStart, " 0.42");
+
+    std::ofstream out(tmpTaskFile_);
+    out << content;
+  }
+
+  MpcParameterUpdaterModule updater(mpc_.get(), tmpTaskFile_, urdfFile_, referenceFile_, stateDim_, inputDim_, contactNames_, nullptr,
+                                    basisCostTransform_);
+  touchTaskFileAndRunUpdater(updater);
+
+  for (auto& ocp : sqp->getOcpDefinitions()) {
+    for (const auto& footName : contactNames_) {
+      auto& con = ocp.costPtr->get<BasisScalingNonNegativityConstraint>(footName + "_basisNonNegativity");
+      EXPECT_NEAR(con.getBarrierConfig().mu, 0.42, 1e-4);
+    }
+  }
 }
 
 }  // namespace ocs2::humanoid

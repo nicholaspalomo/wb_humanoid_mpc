@@ -77,6 +77,13 @@ class BasisScalingNonNegativityConstraint final : public StateInputCost {
                                                                  const TargetTrajectories& targetTrajectories,
                                                                  const PreComputation& preComp) const override;
 
+  /**
+   * @brief Update the barrier penalty parameters in place.
+   */
+  void setBarrierPenalty(const PieceWisePolynomialBarrierPenalty::Config& barrierSettings);
+
+  PieceWisePolynomialBarrierPenalty::Config getBarrierConfig() const;
+
  private:
   BasisScalingNonNegativityConstraint(const BasisScalingNonNegativityConstraint& rhs);
 

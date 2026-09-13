@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <optional>
 
+#include <ocs2_centroidal_model/CentroidalModelInfo.h>
 #include <ocs2_pinocchio_interface/PinocchioInterface.h>
 
 #include <ocs2_core/constraint/StateInputConstraint.h>
@@ -71,8 +72,15 @@ class HumanoidCostConstraintFactory {
   /** Creates the state quadratic tracking cost */
   std::unique_ptr<StateInputCost> getStateQuadraticCost() const;
 
-  /** Creates the CoM and ACoM tracking cost */
-  std::unique_ptr<StateCost> getComAndAcomTrackingCost() const;
+  /**
+   * Creates the CoM and ACoM tracking cost.
+   *
+   * @param info Centroidal model info for the same reduced Pinocchio model this
+   *     factory was constructed with. Passed in rather than reconstructed here,
+   *     because CentroidalModelInfo has no default member initializers and a
+   *     hand-built one leaves the contact and nominal-inertia fields indeterminate.
+   */
+  std::unique_ptr<StateCost> getComAndAcomTrackingCost(const CentroidalModelInfo& info) const;
 
   std::unique_ptr<StateInputCost> getInputQuadraticCost() const;
 

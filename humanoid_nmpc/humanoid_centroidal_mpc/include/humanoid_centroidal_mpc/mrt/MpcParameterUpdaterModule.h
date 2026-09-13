@@ -122,7 +122,7 @@ class MpcParameterUpdaterModule : public SolverSynchronizedModule {
   const std::vector<std::string> contactNames_;
   const SwitchedModelReferenceManager* referenceManagerPtr_;
   /// Set only when the OCP uses basis-vector contact inputs; maps the wrench-space R of task.yaml into basis space.
-  const std::optional<BasisInputsCostTransformConfig> basisCostTransform_;
+  std::optional<BasisInputsCostTransformConfig> basisCostTransform_;
 
   // File-watching state
   std::filesystem::file_time_type taskFileLastWriteTime_;

@@ -39,7 +39,7 @@ class AngularCenterOfMassTest : public ::testing::Test {
     numLayers = 2;
     omega0 = 30.0;
 
-    acom = std::make_unique<AngularCenterOfMass>(inputDim, hiddenDim, numLayers, omega0);
+    acom = std::make_unique<AngularCenterOfMass>(inputDim, numLayers, omega0);
 
     // Initialize with deterministic pseudo-random weights
     std::mt19937 gen(42);
@@ -80,7 +80,7 @@ class AngularCenterOfMassTest : public ::testing::Test {
   }
 
   size_t inputDim;
-  size_t hiddenDim;
+  size_t hiddenDim;  // Width of the synthetic hidden layers built in SetUp.
   size_t numLayers;
   double omega0;
   std::unique_ptr<AngularCenterOfMass> acom;
@@ -96,13 +96,14 @@ TEST_F(AngularCenterOfMassTest, FloatingBaseEquivariance) {
   // Configuration with translated and rotated base
   vector_t q2 = vector_t::Zero(6 + inputDim);
   q2.segment<3>(0) << 1.5, -2.0, 0.8;  // Position shift
-  q2.segment<3>(3) << 0.2, -0.3, 0.5;  // RPY shift
+  q2.segment<3>(3) << 0.2, -0.3, 0.5;  // ZYX Euler shift
   q2.tail(inputDim) = qJoints;
 
   vector3_t theta1 = acom->computeAcomOrientation(q1);
   vector3_t theta2 = acom->computeAcomOrientation(q2);
 
-  // Theta_aCOM(q2) - Theta_aCOM(q1) must equal delta_rpy_base exactly
+  // The joint offset cancels in the difference, so the change in aCOM orientation
+  // must equal the change in base Euler angles exactly.
   vector3_t deltaTheta = theta2 - theta1;
   vector3_t expectedDelta = q2.segment<3>(3) - q1.segment<3>(3);
 
@@ -139,15 +140,13 @@ TEST_F(AngularCenterOfMassTest, FullAcomJacobianStructure) {
 
   matrix_t J_full = acom->computeAcomJacobian(q);
 
-  // Base linear velocity block must be 0
-  matrix_t linearBlock = J_full.block(0, 0, 3, 3);
-  EXPECT_LT(linearBlock.norm(), 1e-12);
+  // Base position block must be zero: translating the base does not rotate it.
+  EXPECT_LT(J_full.block(0, 0, 3, 3).norm(), 1e-12);
 
-  // Base angular velocity block must be Identity (3x3)
-  matrix_t rotBlock = J_full.block(0, 3, 3, 3);
-  EXPECT_LT((rotBlock - matrix_t::Identity(3, 3)).norm(), 1e-12);
+  // Base orientation block must be the identity.
+  EXPECT_LT((J_full.block(0, 3, 3, 3) - matrix_t::Identity(3, 3)).norm(), 1e-12);
 
-  // Joint block must equal computeJointOffsetJacobian
-  matrix_t J_joints = acom->computeJointOffsetJacobian(q.tail(inputDim));
-  EXPECT_LT((J_full.block(0, 6, 3, inputDim) - J_joints).norm(), 1e-12);
+  // Joint block must be the joint Jacobian reordered from XYZ to ZYX.
+  const matrix_t J_joints_zyx = acomJacobianXyzToZyx(acom->computeJointOffsetJacobian(q.tail(inputDim)));
+  EXPECT_LT((J_full.block(0, 6, 3, inputDim) - J_joints_zyx).norm(), 1e-12);
 }

@@ -30,7 +30,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/mrt/MpcParameterUpdaterModule.h"
 
 #include <fstream>
-#include <iostream>
 
 #include <absl/log/log.h>
 
@@ -48,13 +47,69 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/constraint/ZeroVelocityConstraintCppAd.h"
 #include "humanoid_centroidal_mpc/cost/CentroidalMpcEndEffectorFootCost.h"
 #include "humanoid_centroidal_mpc/cost/ICPCost.h"
+#include "humanoid_common_mpc/constraint/BasisScalingNonNegativityConstraint.h"
 #include "humanoid_common_mpc/constraint/JointLimitsSoftConstraint.h"
+#include "humanoid_common_mpc/cost/ComAndAcomTrackingCost.h"
 #include "humanoid_common_mpc/cost/EndEffectorKinematicCostHelpers.h"
 #include "humanoid_common_mpc/cost/EndEffectorKinematicsQuadraticCost.h"
 #include "humanoid_common_mpc/cost/ExternalTorqueQuadraticCostAD.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 
 namespace ocs2::humanoid {
+
+namespace {
+
+/// In the centroidal state x = [h_norm(6), p_base(3), euler_zyx(3), q_j], the
+/// base pose occupies the 6x6 block starting at index 6.
+constexpr Eigen::Index kBasePoseStateIndex = 6;
+constexpr Eigen::Index kBasePoseDim = 6;
+
+/**
+ * Loads a weight matrix out of an already-parsed property tree.
+ *
+ * loadData::loadEigenMatrix re-reads and re-parses the whole task file on every
+ * call. This runs on the solver thread inside preSolverRun, at the rate the
+ * operator drags a slider, so the tree is parsed once by the caller and reused.
+ *
+ * Mirrors loadEigenMatrix's semantics: a `scaling` key multiplies every entry, a
+ * `default` key fills the entries that are absent.
+ *
+ * @throws std::runtime_error if the matrix is not present at all.
+ */
+void loadEigenMatrixFromPtree(const boost::property_tree::ptree& pt, const std::string& matrixName, matrix_t& matrix) {
+  const scalar_t scaling = pt.get<scalar_t>(matrixName + ".scaling", 1.0);
+  const scalar_t defaultValue = pt.get<scalar_t>(matrixName + ".default", 0.0);
+
+  Eigen::Index numFailed = 0;
+  for (Eigen::Index i = 0; i < matrix.rows(); ++i) {
+    for (Eigen::Index j = 0; j < matrix.cols(); ++j) {
+      const auto entry = pt.get_optional<scalar_t>(matrixName + ".(" + std::to_string(i) + "," + std::to_string(j) + ")");
+      if (entry) {
+        matrix(i, j) = scaling * (*entry);
+      } else {
+        matrix(i, j) = scaling * defaultValue;
+        ++numFailed;
+      }
+    }
+  }
+  if (numFailed == matrix.size()) {
+    throw std::runtime_error("[MpcParameterUpdaterModule] Could not load matrix \"" + matrixName + "\" from the task file.");
+  }
+}
+
+/**
+ * Zeroes the base pose block of a state weight matrix.
+ *
+ * Mirrors HumanoidCostConstraintFactory::zeroBasePoseWeights, which does the same
+ * at construction time. Both the running and the terminal cost must be treated
+ * identically, otherwise a live update re-introduces base pose tracking that
+ * fights the CoM + aCOM cost.
+ */
+void zeroBasePoseWeights(matrix_t& Q) {
+  Q.block(kBasePoseStateIndex, kBasePoseStateIndex, kBasePoseDim, kBasePoseDim).setZero();
+}
+
+}  // namespace
 
 MpcParameterUpdaterModule::MpcParameterUpdaterModule(MPC_BASE* mpcPtr,
                                                      const std::string& taskFile,
@@ -150,7 +205,6 @@ void MpcParameterUpdaterModule::subscribe(rclcpp::Node::SharedPtr node) {
 }
 
 void MpcParameterUpdaterModule::topicCallback(const std_msgs::msg::String::SharedPtr msg) {
-  std::cerr << "[MpcParameterUpdaterModule] topicCallback received " << msg->data.size() << " chars" << std::endl;
   std::lock_guard<std::mutex> lock(pendingMutex_);
   pendingYamlContent_ = msg->data;
   hasNewTopicData_.store(true, std::memory_order_release);
@@ -179,42 +233,86 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
   }
 
   // ────────────────────────────────────────────────────────────────
-  // 1. Parse weight matrices and scalars from task.yaml
+  // 1. Parse property tree and weight matrices from task.yaml
   // ────────────────────────────────────────────────────────────────
+  boost::property_tree::ptree pt;
+  try {
+    loadData::readPropertyTree(yamlFile, pt);
+  } catch (const std::exception& e) {
+    LOG(ERROR) << "[MpcParameterUpdaterModule] Could not parse " << yamlFile << ": " << e.what() << ". No parameters were updated.";
+    return;
+  }
+
   matrix_t Q = matrix_t::Zero(stateDim_, stateDim_);
   matrix_t R = matrix_t::Zero(inputDim_, inputDim_);
   matrix_t Q_final = matrix_t::Zero(stateDim_, stateDim_);
   scalar_t terminalCostScaling = 1.0;
 
+  const bool useComAndAcom = pt.get<bool>("useComAndAcomTracking", false);
+
   try {
-    loadData::loadEigenMatrix(yamlFile, "Q", Q);
+    loadEigenMatrixFromPtree(pt, "Q", Q);
+
     if (basisCostTransform_.has_value()) {
+      // Hot-reload the basis scaling regularization if the contacts section has it.
+      // R_basis = M^T R_wrench M + reg * I is only positive definite for a
+      // non-negative regularization, and an indefinite R stalls the QP solver.
+      scalar_t basisReg = basisCostTransform_->lambdaRegularization;
+      loadData::loadPtreeValue(pt, basisReg, "contacts.basisScalingRegularization", false);
+      if (basisReg < 0.0) {
+        LOG(ERROR) << "[MpcParameterUpdaterModule] contacts.basisScalingRegularization must be non-negative, got " << basisReg
+                   << ". Keeping the previous value " << basisCostTransform_->lambdaRegularization << ".";
+      } else {
+        basisCostTransform_->lambdaRegularization = basisReg;
+      }
       // The R indices in task.yaml refer to wrench-space inputs (forces/moments/joint velocities). In basis-vector mode
       // the OCP input is [λ, joint velocities], so loading R directly at inputDim_ would put force weights on λ entries.
       // Load at the wrench dimension and apply the same transform the OCP factory used: R_basis = Mᵀ R_wrench M + reg.
       matrix_t R_wrench = matrix_t::Zero(basisCostTransform_->wrenchInputDim, basisCostTransform_->wrenchInputDim);
-      loadData::loadEigenMatrix(yamlFile, "R", R_wrench);
+      loadEigenMatrixFromPtree(pt, "R", R_wrench);
       R = transformWrenchInputCostToBasisSpace(R_wrench, *basisCostTransform_);
     } else {
-      loadData::loadEigenMatrix(yamlFile, "R", R);
+      loadEigenMatrixFromPtree(pt, "R", R);
     }
-    loadData::loadEigenMatrix(yamlFile, "Q_final", Q_final);
-    loadData::loadCppDataType<scalar_t>(yamlFile, "terminalCostScaling", terminalCostScaling);
+    loadEigenMatrixFromPtree(pt, "Q_final", Q_final);
+    terminalCostScaling = pt.get<scalar_t>("terminalCostScaling", terminalCostScaling);
+
+    // The factory zeroes the base pose block of both the running and the terminal
+    // state cost when CoM + aCOM tracking is on, so live updates must do the same
+    // or a slider drag silently re-introduces base pose tracking.
+    if (useComAndAcom) {
+      zeroBasePoseWeights(Q);
+      zeroBasePoseWeights(Q_final);
+    }
     Q_final *= terminalCostScaling;
   } catch (const std::exception& e) {
     LOG(ERROR) << "[MpcParameterUpdaterModule] Error parsing Q/R/Q_final: " << e.what();
     return;
   }
 
+  // CoM and ACoM tracking weights
+  matrix_t Q_com = matrix_t::Zero(3, 3);
+  matrix_t Q_acom = matrix_t::Zero(3, 3);
+  bool hasComAcom = false;
+  try {
+    loadEigenMatrixFromPtree(pt, "Q_com", Q_com);
+    loadEigenMatrixFromPtree(pt, "Q_acom", Q_acom);
+    hasComAcom = true;
+  } catch (const std::exception& e) {
+    if (useComAndAcom) {
+      LOG(WARNING) << "[MpcParameterUpdaterModule] CoM + aCOM tracking is enabled but its weights could not be read: " << e.what();
+    }
+  }
+
   // ────────────────────────────────────────────────────────────────
   // 2. Parse task-space tracking cost weights
   // ────────────────────────────────────────────────────────────────
-  boost::property_tree::ptree pt;
-  try {
-    loadData::readPropertyTree(yamlFile, pt);
-  } catch (...) {
-  }
 
+  // The getWeights and loadConfigFromFile helpers below throw when their section
+  // is absent, which is the normal case for a task file that does not configure
+  // that cost. The catch is therefore deliberately silent: the corresponding
+  // has* flag stays false and the apply step is skipped, leaving the running
+  // value untouched.
   EndEffectorKinematicsWeights footTrackingWeights;
   vector12_t footTrackingWeightsVec = vector12_t::Zero();
   bool hasFootTrackingWeights = false;
@@ -225,12 +323,13 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
   } catch (...) {
   }
 
+  // loadPtreeValue leaves its target untouched for a missing key rather than
+  // throwing, so presence has to be probed directly. Without the probe an absent
+  // key would be applied as its default and silently switch the flag off.
   bool footActiveInStance = false;
-  bool hasFootActiveInStance = false;
-  try {
+  const bool hasFootActiveInStance = pt.get_optional<bool>("task_space_foot_cost_weights.activeInStance").is_initialized();
+  if (hasFootActiveInStance) {
     loadData::loadPtreeValue(pt, footActiveInStance, "task_space_foot_cost_weights.activeInStance", false);
-    hasFootActiveInStance = true;
-  } catch (...) {
   }
 
   vector2_t icpWeights = vector2_t::Zero();
@@ -273,45 +372,43 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
   // ────────────────────────────────────────────────────────────────
   // 3. Parse barrier penalty configs
   // ────────────────────────────────────────────────────────────────
+  // Every barrier below is default-constructed, so an absent section must leave
+  // the running value alone rather than be applied as a library default.
+  // loadPtreeValue does not throw for a missing key, so presence is probed on the
+  // section itself and the corresponding apply step is skipped when it is absent.
   RelaxedBarrierPenalty::Config wrenchConeBarrier, frictionConeBarrier, contactMomentBarrier;
-  PieceWisePolynomialBarrierPenalty::Config jointLimitsBarrier, collisionBarrier;
+  PieceWisePolynomialBarrierPenalty::Config jointLimitsBarrier, collisionBarrier, basisNonNegativityBarrier;
 
-  try {
-    loadData::loadPtreeValue(pt, wrenchConeBarrier.mu, "contacts.contactWrenchConeSoftConstraint.mu", false);
-    loadData::loadPtreeValue(pt, wrenchConeBarrier.delta, "contacts.contactWrenchConeSoftConstraint.delta", false);
-  } catch (...) {
-  }
+  // Only `mu` and `delta` are hot-reloadable. The geometric coefficients in the
+  // same yaml sections (frictionCoefficient, minNormalForce, ...) are baked into
+  // the CppAD-compiled constraints at build time and cannot be updated here.
+  // LINT.IfChange(hot_reloadable_barrier_keys)
+  const auto loadBarrier = [&pt](const std::string& section, scalar_t& mu, scalar_t& delta) {
+    if (!pt.get_child_optional(section)) {
+      return false;
+    }
+    loadData::loadPtreeValue(pt, mu, section + ".mu", false);
+    loadData::loadPtreeValue(pt, delta, section + ".delta", false);
+    return true;
+  };
 
-  try {
-    loadData::loadPtreeValue(pt, frictionConeBarrier.mu, "contacts.frictionForceConeSoftConstraint.mu", false);
-    loadData::loadPtreeValue(pt, frictionConeBarrier.delta, "contacts.frictionForceConeSoftConstraint.delta", false);
-  } catch (...) {
-  }
-
-  try {
-    loadData::loadPtreeValue(pt, contactMomentBarrier.mu, "contacts.contactMomentXYSoftConstraint.mu", false);
-    loadData::loadPtreeValue(pt, contactMomentBarrier.delta, "contacts.contactMomentXYSoftConstraint.delta", false);
-  } catch (...) {
-  }
-
-  try {
-    loadData::loadPtreeValue(pt, jointLimitsBarrier.mu, "jointLimits.mu", false);
-    loadData::loadPtreeValue(pt, jointLimitsBarrier.delta, "jointLimits.delta", false);
-  } catch (...) {
-  }
-
-  try {
-    loadData::loadPtreeValue(pt, collisionBarrier.mu, "collision_constraint.mu", false);
-    loadData::loadPtreeValue(pt, collisionBarrier.delta, "collision_constraint.delta", false);
-  } catch (...) {
-  }
+  const bool hasWrenchConeBarrier = loadBarrier("contacts.contactWrenchConeSoftConstraint", wrenchConeBarrier.mu, wrenchConeBarrier.delta);
+  const bool hasFrictionConeBarrier =
+      loadBarrier("contacts.frictionForceConeSoftConstraint", frictionConeBarrier.mu, frictionConeBarrier.delta);
+  const bool hasContactMomentBarrier =
+      loadBarrier("contacts.contactMomentXYSoftConstraint", contactMomentBarrier.mu, contactMomentBarrier.delta);
+  const bool hasBasisNonNegativityBarrier =
+      loadBarrier("contacts.basisNonNegativityBarrier", basisNonNegativityBarrier.mu, basisNonNegativityBarrier.delta);
+  const bool hasJointLimitsBarrier = loadBarrier("jointLimits", jointLimitsBarrier.mu, jointLimitsBarrier.delta);
+  const bool hasCollisionBarrier = loadBarrier("collision_constraint", collisionBarrier.mu, collisionBarrier.delta);
+  // LINT.ThenChange(//humanoid_nmpc/remote_control/remote_control/tk_app/mpc_params_tab.py:build_time_contact_keys)
 
   // LINT.IfChange(softConstraintWeight_yaml_path)
+  // The negative sentinel is what marks the weight absent: loadPtreeValue leaves
+  // it untouched for a missing key, and the apply step below only runs for a
+  // positive value.
   scalar_t zeroVelWeight = -1.0;
-  try {
-    loadData::loadPtreeValue(pt, zeroVelWeight, "model_settings.foot_constraint.softConstraintWeight", false);
-  } catch (...) {
-  }
+  loadData::loadPtreeValue(pt, zeroVelWeight, "model_settings.foot_constraint.softConstraintWeight", false);
   // clang-format off
   // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:foot_constraint_section, //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.yaml:foot_constraint_section)
   // clang-format on
@@ -320,7 +417,7 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
   // ────────────────────────────────────────────────────────────────
   ModelSettings::FootConstraintConfig footCfg;
   bool hasFootConstraintGains = false;
-  try {
+  if (pt.get_child_optional("model_settings.foot_constraint")) {
     const std::string fcPrefix = "model_settings.foot_constraint.";
     loadData::loadPtreeValue(pt, footCfg.positionErrorGain_z, fcPrefix + "positionErrorGain_z", false);
     loadData::loadPtreeValue(pt, footCfg.orientationErrorGain, fcPrefix + "orientationErrorGain", false);
@@ -332,7 +429,6 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
     loadData::loadPtreeValue(pt, footCfg.angularAccelerationErrorGain, fcPrefix + "angularAccelerationErrorGain", false);
     loadData::loadPtreeValue(pt, footCfg.constrainOrientation, fcPrefix + "constrainOrientation", false);
     hasFootConstraintGains = true;
-  } catch (...) {
   }
 
   // Build the Ax/Av config from foot constraint gains (mirrors CentroidalMpcInterface::getStanceFootConstraint)
@@ -360,7 +456,7 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
   // ────────────────────────────────────────────────────────────────
   sqp::Settings sqpUpdates = sqpSolverPtr->getSettings();
   bool hasSqpUpdates = false;
-  try {
+  if (pt.get_child_optional("multiple_shooting")) {
     size_t sqpIter = sqpUpdates.sqpIteration;
     loadData::loadPtreeValue(pt, sqpIter, "multiple_shooting.sqpIteration", false);
     sqpUpdates.sqpIteration = sqpIter;
@@ -370,7 +466,6 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
     loadData::loadPtreeValue(pt, sqpUpdates.inequalityConstraintMu, "multiple_shooting.inequalityConstraintMu", false);
     loadData::loadPtreeValue(pt, sqpUpdates.inequalityConstraintDelta, "multiple_shooting.inequalityConstraintDelta", false);
     hasSqpUpdates = true;
-  } catch (...) {
   }
 
   // ────────────────────────────────────────────────────────────────
@@ -434,6 +529,19 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
       LOG(WARNING) << "Failed to update terminalCost: unknown exception";
     }
 
+    // ── CoM and ACoM tracking cost ──
+    if (hasComAcom && ocp.stateCostPtr != nullptr) {
+      try {
+        ocp.stateCostPtr->get<ComAndAcomTrackingCost>("comAndAcomTrackingCost").setWeights(Q_com, Q_acom);
+      } catch (const std::out_of_range&) {
+        // Expected if useComAndAcomTracking is false
+      } catch (const std::exception& e) {
+        LOG(WARNING) << "Failed to update comAndAcomTrackingCost: " << e.what();
+      } catch (...) {
+        LOG(WARNING) << "Failed to update comAndAcomTrackingCost: unknown exception";
+      }
+    }
+
     // ── Foot tracking costs ──
     if (hasFootTrackingWeights || hasFootActiveInStance) {
       for (const auto& footName : contactNames_) {
@@ -495,62 +603,86 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
 
     for (const auto& footName : contactNames_) {
       // Contact wrench cone
-      try {
-        auto& softCon = ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_contactWrenchCone");
-        for (auto& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
-          penalty->setParameters(wrenchConeParams);
+      if (hasWrenchConeBarrier) {
+        try {
+          auto& softCon = ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_contactWrenchCone");
+          for (auto& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
+            penalty->setParameters(wrenchConeParams);
+          }
+        } catch (const std::exception& e) {
+          LOG(WARNING) << "Failed to update " << footName << "_contactWrenchCone: " << e.what();
+        } catch (...) {
+          LOG(WARNING) << "Failed to update " << footName << "_contactWrenchCone: unknown exception";
         }
-      } catch (const std::exception& e) {
-        LOG(WARNING) << "Failed to update " << footName << "_contactWrenchCone: " << e.what();
-      } catch (...) {
-        LOG(WARNING) << "Failed to update " << footName << "_contactWrenchCone: unknown exception";
       }
 
       // Friction force cone
-      try {
-        auto& softCon = ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_frictionForceCone");
-        for (auto& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
-          penalty->setParameters(frictionConeParams);
+      if (hasFrictionConeBarrier) {
+        try {
+          auto& softCon = ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_frictionForceCone");
+          for (auto& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
+            penalty->setParameters(frictionConeParams);
+          }
+        } catch (const std::exception& e) {
+          LOG(WARNING) << "Failed to update " << footName << "_frictionForceCone: " << e.what();
+        } catch (...) {
+          LOG(WARNING) << "Failed to update " << footName << "_frictionForceCone: unknown exception";
         }
-      } catch (const std::exception& e) {
-        LOG(WARNING) << "Failed to update " << footName << "_frictionForceCone: " << e.what();
-      } catch (...) {
-        LOG(WARNING) << "Failed to update " << footName << "_frictionForceCone: unknown exception";
       }
 
       // Contact moment XY
-      try {
-        auto& softCon = ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_contactMomentXY");
-        for (auto& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
-          penalty->setParameters(contactMomentParams);
+      if (hasContactMomentBarrier) {
+        try {
+          auto& softCon = ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_contactMomentXY");
+          for (auto& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
+            penalty->setParameters(contactMomentParams);
+          }
+        } catch (const std::exception& e) {
+          LOG(WARNING) << "Failed to update " << footName << "_contactMomentXY: " << e.what();
+        } catch (...) {
+          LOG(WARNING) << "Failed to update " << footName << "_contactMomentXY: unknown exception";
         }
-      } catch (const std::exception& e) {
-        LOG(WARNING) << "Failed to update " << footName << "_contactMomentXY: " << e.what();
-      } catch (...) {
-        LOG(WARNING) << "Failed to update " << footName << "_contactMomentXY: unknown exception";
+      }
+
+      // Basis scaling non-negativity barrier (λ ≥ 0)
+      if (hasBasisNonNegativityBarrier) {
+        try {
+          ocp.costPtr->get<BasisScalingNonNegativityConstraint>(footName + "_basisNonNegativity")
+              .setBarrierPenalty(basisNonNegativityBarrier);
+        } catch (const std::out_of_range&) {
+          // Expected if not in basis-vector mode
+        } catch (const std::exception& e) {
+          LOG(WARNING) << "Failed to update " << footName << "_basisNonNegativity: " << e.what();
+        } catch (...) {
+          LOG(WARNING) << "Failed to update " << footName << "_basisNonNegativity: unknown exception";
+        }
       }
     }
 
     // ── Joint limits ──
-    try {
-      ocp.stateSoftConstraintPtr->get<JointLimitsSoftConstraint>("jointLimits").setGains(jointLimitsBarrier.mu, jointLimitsBarrier.delta);
-    } catch (const std::exception& e) {
-      LOG(WARNING) << "Failed to update jointLimits: " << e.what();
-    } catch (...) {
-      LOG(WARNING) << "Failed to update jointLimits: unknown exception";
+    if (hasJointLimitsBarrier) {
+      try {
+        ocp.stateSoftConstraintPtr->get<JointLimitsSoftConstraint>("jointLimits").setGains(jointLimitsBarrier.mu, jointLimitsBarrier.delta);
+      } catch (const std::exception& e) {
+        LOG(WARNING) << "Failed to update jointLimits: " << e.what();
+      } catch (...) {
+        LOG(WARNING) << "Failed to update jointLimits: unknown exception";
+      }
     }
 
     // ── Foot collision ──
-    try {
-      auto& softCon = ocp.stateSoftConstraintPtr->get<StateSoftConstraint>("FootCollisionSoftConstraint");
-      const vector_t collisionParams = (vector_t(2) << collisionBarrier.mu, collisionBarrier.delta).finished();
-      for (auto& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
-        penalty->setParameters(collisionParams);
+    if (hasCollisionBarrier) {
+      try {
+        auto& softCon = ocp.stateSoftConstraintPtr->get<StateSoftConstraint>("FootCollisionSoftConstraint");
+        const vector_t collisionParams = (vector_t(2) << collisionBarrier.mu, collisionBarrier.delta).finished();
+        for (auto& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
+          penalty->setParameters(collisionParams);
+        }
+      } catch (const std::exception& e) {
+        LOG(WARNING) << "Failed to update FootCollisionSoftConstraint: " << e.what();
+      } catch (...) {
+        LOG(WARNING) << "Failed to update FootCollisionSoftConstraint: unknown exception";
       }
-    } catch (const std::exception& e) {
-      LOG(WARNING) << "Failed to update FootCollisionSoftConstraint: " << e.what();
-    } catch (...) {
-      LOG(WARNING) << "Failed to update FootCollisionSoftConstraint: unknown exception";
     }
 
     // ── Zero velocity soft constraint weight ──

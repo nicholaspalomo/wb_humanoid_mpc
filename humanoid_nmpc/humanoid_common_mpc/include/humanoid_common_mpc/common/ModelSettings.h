@@ -55,7 +55,7 @@ class ModelSettings {
     bool constrainOrientation{true};  // When true, constraint is 6D (position+orientation); when false, 3D (position-only)
   };
 
-  ModelSettings(const std::string& configFile, const std::string& urdfFile, const std::string& mpcName, bool verbose = "false");
+  ModelSettings(const std::string& configFile, const std::string& urdfFile, const std::string& mpcName, bool verbose = false);
 
   ModelSettings() = delete;
 

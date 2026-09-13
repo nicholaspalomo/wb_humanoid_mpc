@@ -25,17 +25,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """Unit tests for Angular Center of Mass (aCOM) JAX pipeline."""
 
-import unittest
 import os
-import numpy as np
+import re
+import tempfile
+import unittest
+import xml.etree.ElementTree as ET
+
 import jax
 import jax.numpy as jnp
+import mujoco
+import numpy as np
 
 from humanoid_learning.acom.models import SirenACOM
+from humanoid_learning.acom.train_main import _CPP_SUPPORTED_NUM_LAYERS
 from humanoid_learning.acom.train_acom import train_acom
 from humanoid_learning.acom.export_acom import export_to_json, export_to_cpp_header
 from humanoid_learning.acom.dataset_generator import (
     AcomDatasetGenerator,
+    _parse_pinocchio_joint_order,
     resolve_xml_path,
 )
 
@@ -112,8 +119,6 @@ class TestAcomPipeline(unittest.TestCase):
 
     def test_tensorboard_logging(self):
         """Verifies that TensorBoard SummaryWriter logs scalars, histograms, and figures."""
-        import tempfile
-
         num_samples = 100
         rng = np.random.default_rng(42)
         q_samples = rng.uniform(-1.0, 1.0, size=(num_samples, self.in_dim)).astype(
@@ -154,8 +159,6 @@ class TestAcomPipeline(unittest.TestCase):
 
     def test_export_utilities(self):
         """Verifies JSON and C++ header generation."""
-        import tempfile
-
         with tempfile.TemporaryDirectory() as tmpdir:
             json_path = os.path.join(tmpdir, "test_acom.json")
             cpp_path = os.path.join(tmpdir, "TestAcomWeights.h")
@@ -169,7 +172,7 @@ class TestAcomPipeline(unittest.TestCase):
             with open(cpp_path, "r") as f:
                 content = f.read()
                 self.assertIn("struct TestWeights", content)
-                self.assertIn("static constexpr size_t input_dim = 6;", content)
+                self.assertIn("static constexpr std::size_t input_dim = 6;", content)
 
     def test_export_round_trip_parity(self):
         """Verifies that exported C++ header weights match the original JAX parameters.
@@ -179,9 +182,6 @@ class TestAcomPipeline(unittest.TestCase):
         2. The flattened weight arrays have the expected number of elements.
         3. The serialized weight values match the original JAX params to 10 decimal places.
         """
-        import tempfile
-        import re
-
         with tempfile.TemporaryDirectory() as tmpdir:
             cpp_path = os.path.join(tmpdir, "TestParity.h")
             export_to_cpp_header(
@@ -193,12 +193,13 @@ class TestAcomPipeline(unittest.TestCase):
 
             # Verify structural metadata
             self.assertIn(
-                f"static constexpr size_t input_dim = {self.in_dim};", content
+                f"static constexpr std::size_t input_dim = {self.in_dim};", content
             )
-            self.assertIn("static constexpr size_t output_dim = 3;", content)
+            self.assertIn("static constexpr std::size_t output_dim = 3;", content)
             num_layers_total = len(self.params)  # 2 hidden + 1 output = 3
             self.assertIn(
-                f"static constexpr size_t num_layers = {num_layers_total};", content
+                f"static constexpr std::size_t num_layers = {num_layers_total};",
+                content,
             )
             self.assertIn("static constexpr double omega_0 = 30.0;", content)
 
@@ -209,10 +210,10 @@ class TestAcomPipeline(unittest.TestCase):
                 out_dim, in_dim = w_np.shape
 
                 self.assertIn(
-                    f"static constexpr size_t W{idx}_rows = {out_dim};", content
+                    f"static constexpr std::size_t W{idx}_rows = {out_dim};", content
                 )
                 self.assertIn(
-                    f"static constexpr size_t W{idx}_cols = {in_dim};", content
+                    f"static constexpr std::size_t W{idx}_cols = {in_dim};", content
                 )
 
                 # Extract the weight array from the header and verify element count
@@ -240,6 +241,54 @@ class TestAcomPipeline(unittest.TestCase):
                     b_np.flatten(),
                     atol=1e-9,
                     err_msg=f"Bias mismatch in layer {idx}",
+                )
+
+    def test_exported_num_layers_matches_cpp_loader(self):
+        """Regression: the exported header must satisfy the C++ static_assert.
+
+        AngularCenterOfMass::createFromStaticWeights hard-codes three parameter
+        tuples, two sinusoidal layers plus a linear readout. SirenACOM counts only
+        the sinusoidal layers, so an off-by-one here produces a header that fails
+        to compile rather than one that misbehaves at runtime.
+        """
+        model = SirenACOM(
+            in_dim=self.in_dim,
+            hidden_dim=8,
+            num_layers=_CPP_SUPPORTED_NUM_LAYERS,
+            out_dim=3,
+        )
+        params = model.init_params(jax.random.PRNGKey(0))
+        self.assertEqual(len(params), _CPP_SUPPORTED_NUM_LAYERS + 1)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cpp_path = os.path.join(tmpdir, "TestLayers.h")
+            export_to_cpp_header(params, cpp_path, class_name="TestLayers")
+            with open(cpp_path, "r") as f:
+                content = f.read()
+        self.assertIn("static constexpr std::size_t num_layers = 3;", content)
+
+    def test_export_records_joint_names(self):
+        """The exported header must record the joint ordering it was trained on."""
+        joint_names = [f"joint_{i}" for i in range(self.in_dim)]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cpp_path = os.path.join(tmpdir, "TestNames.h")
+            export_to_cpp_header(
+                self.params, cpp_path, class_name="TestNames", joint_names=joint_names
+            )
+            with open(cpp_path, "r") as f:
+                content = f.read()
+
+        self.assertIn(f"joint_names[{self.in_dim}]", content)
+        for name in joint_names:
+            self.assertIn(f'"{name}"', content)
+
+        # A joint list that does not describe the network must be rejected.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with self.assertRaises(ValueError):
+                export_to_cpp_header(
+                    self.params,
+                    os.path.join(tmpdir, "Bad.h"),
+                    joint_names=joint_names[:-1],
                 )
 
 
@@ -275,11 +324,10 @@ class TestDatasetGenerator(unittest.TestCase):
         """Verifies generator initializes correctly for a floating-base robot."""
         self._require_atlas()
         gen = AcomDatasetGenerator(self.atlas_xml)
-        self.assertTrue(gen.is_floating)
-        self.assertEqual(gen.num_joints, gen.nv - 6)
-        self.assertGreater(gen.num_joints, 0)
-        self.assertEqual(len(gen.joint_limits_lower), gen.num_joints)
-        self.assertEqual(len(gen.joint_limits_upper), gen.num_joints)
+        self.assertEqual(gen.num_mj_joints, gen.nv - 6)
+        self.assertGreater(gen.num_mj_joints, 0)
+        self.assertEqual(len(gen.joint_limits_lower), gen.num_mj_joints)
+        self.assertEqual(len(gen.joint_limits_upper), gen.num_mj_joints)
 
     def test_centroidal_matrices_nonzero(self):
         """Regression: Verifies that A_bar_omega is NOT all zeros.
@@ -290,7 +338,7 @@ class TestDatasetGenerator(unittest.TestCase):
         """
         self._require_atlas()
         gen = AcomDatasetGenerator(self.atlas_xml)
-        q_zero = np.zeros(gen.num_joints)
+        q_zero = np.zeros(gen.num_mj_joints)
         I_G, A_omega_j, A_bar = gen.compute_centroidal_matrices(q_zero)
 
         # I_G should be a positive-definite 3x3 matrix
@@ -299,20 +347,55 @@ class TestDatasetGenerator(unittest.TestCase):
         self.assertTrue(np.all(eigvals > 0), f"I_G not positive definite: {eigvals}")
 
         # A_omega_j and A_bar should NOT be all zeros
-        self.assertEqual(A_omega_j.shape, (3, gen.num_joints))
-        self.assertEqual(A_bar.shape, (3, gen.num_joints))
+        self.assertEqual(A_omega_j.shape, (3, gen.num_mj_joints))
+        self.assertEqual(A_bar.shape, (3, gen.num_mj_joints))
         self.assertGreater(
             np.linalg.norm(A_bar),
             1e-10,
             "A_bar_omega is all zeros! mj_subtreeVel() likely missing.",
         )
 
+    def test_locked_inertia_is_symmetric_positive_definite(self):
+        """Verifies the extracted locked inertia is a valid inertia matrix.
+
+        I_G is read out of the base angular velocity columns of the centroidal
+        momentum matrix, so a frame or index mistake there shows up as a loss of
+        symmetry or positive definiteness long before it shows up in training loss.
+        """
+        self._require_atlas()
+        gen = AcomDatasetGenerator(self.atlas_xml)
+        rng = np.random.default_rng(0)
+        for _ in range(5):
+            q = rng.uniform(-0.5, 0.5, size=gen.num_mj_joints)
+            I_G, _, A_bar = gen.compute_centroidal_matrices(q)
+            np.testing.assert_allclose(I_G, I_G.T, atol=1e-9)
+            self.assertGreater(np.min(np.linalg.eigvalsh(I_G)), 0.0)
+            # A_bar is the solve I_G^-1 @ A_omega_j, so it must reproduce it.
+            _, A_omega_j, _ = gen.compute_centroidal_matrices(q)
+            np.testing.assert_allclose(I_G @ A_bar, A_omega_j, atol=1e-8)
+
+    def test_base_translation_columns_are_zero(self):
+        """Angular momentum about the CoM is invariant to base translation."""
+        self._require_atlas()
+        gen = AcomDatasetGenerator(self.atlas_xml)
+        gen.data.qpos[:] = 0.0
+        gen.data.qpos[2] = 0.8
+        gen.data.qpos[3] = 1.0
+        gen.data.qvel[:] = 0.0
+        mujoco.mj_forward(gen.model, gen.data)
+        for col in range(3):
+            gen.data.qvel[:] = 0.0
+            gen.data.qvel[col] = 1.0
+            mujoco.mj_comVel(gen.model, gen.data)
+            mujoco.mj_subtreeVel(gen.model, gen.data)
+            np.testing.assert_allclose(gen.data.subtree_angmom[1], 0.0, atol=1e-9)
+
     def test_centroidal_matrices_configuration_dependent(self):
         """Verifies that A_bar_omega changes with joint configuration."""
         self._require_atlas()
         gen = AcomDatasetGenerator(self.atlas_xml)
-        q_zero = np.zeros(gen.num_joints)
-        q_perturbed = np.zeros(gen.num_joints)
+        q_zero = np.zeros(gen.num_mj_joints)
+        q_perturbed = np.zeros(gen.num_mj_joints)
         q_perturbed[0] = 0.3  # perturb first joint
 
         _, _, A_bar_zero = gen.compute_centroidal_matrices(q_zero)
@@ -334,8 +417,10 @@ class TestDatasetGenerator(unittest.TestCase):
         self.assertIn("A_bar_omega", dataset)
         self.assertIn("I_G", dataset)
 
-        self.assertEqual(dataset["q_joints"].shape, (num_samples, gen.num_joints))
-        self.assertEqual(dataset["A_bar_omega"].shape, (num_samples, 3, gen.num_joints))
+        self.assertEqual(dataset["q_joints"].shape, (num_samples, gen.num_mj_joints))
+        self.assertEqual(
+            dataset["A_bar_omega"].shape, (num_samples, 3, gen.num_mj_joints)
+        )
         self.assertEqual(dataset["I_G"].shape, (num_samples, 3, 3))
 
         self.assertEqual(dataset["q_joints"].dtype, np.float32)
@@ -354,47 +439,73 @@ class TestDatasetGenerator(unittest.TestCase):
             )
 
     # LINT.IfChange(joint_permutation_test)
-    def test_joint_permutation_atlas(self):
-        """Regression: Verifies that URDF joint permutation is applied correctly.
+    def test_joint_order_matches_pinocchio_kinematic_tree(self):
+        """Regression: the dataset joint axis must be in Pinocchio's ordering.
 
-        When both XML and URDF are provided, the dataset generator should:
-        1. Compute a valid permutation mapping URDF→MuJoCo joint indices.
-        2. Output q_joints and A_bar_omega columns in URDF/Pinocchio order.
+        Pinocchio numbers joints by a depth-first walk of the kinematic tree, not
+        by the order in which <joint> elements appear in the URDF. The Atlas URDF
+        lists its joints alphabetically, so a document-order permutation scrambles
+        the joint vector relative to the C++ MPC, which indexes joints via
+        Pinocchio. The scrambling is invisible downstream because the joint count
+        is unchanged, so it is asserted explicitly here.
+        """
+        self._require_atlas_urdf()
+        tree_order = _parse_pinocchio_joint_order(self.atlas_urdf)
+
+        document_order = [
+            j.attrib["name"]
+            for j in ET.parse(self.atlas_urdf).findall(".//joint")
+            if j.attrib.get("type") not in ("fixed", "floating")
+        ]
+        self.assertEqual(set(tree_order), set(document_order))
+        self.assertNotEqual(
+            tree_order,
+            document_order,
+            "Atlas is the regression fixture precisely because its URDF document "
+            "order differs from its kinematic tree order.",
+        )
+
+        # A parent joint must always precede its children in a tree walk.
+        self.assertLess(tree_order.index("back_bkz"), tree_order.index("back_bkx"))
+        self.assertLess(tree_order.index("l_arm_shz"), tree_order.index("l_arm_elx"))
+        self.assertLess(tree_order.index("l_leg_hpz"), tree_order.index("l_leg_akx"))
+
+        gen = AcomDatasetGenerator(self.atlas_xml, urdf_path=self.atlas_urdf)
+        self.assertEqual(gen.pinocchio_joint_names, tree_order)
+
+    def test_joint_permutation_atlas(self):
+        """Verifies that the URDF/MuJoCo joint permutation is applied correctly.
+
+        Both robot models happen to declare their MuJoCo joints in kinematic tree
+        order, so the permutation is the identity. That is asserted rather than
+        assumed: a non-identity permutation here would mean MuJoCo and Pinocchio
+        disagree, and the reordering path below is what keeps the dataset aligned.
         """
         self._require_atlas_urdf()
         gen_with_urdf = AcomDatasetGenerator(self.atlas_xml, urdf_path=self.atlas_urdf)
         gen_without_urdf = AcomDatasetGenerator(self.atlas_xml)
 
-        # Permutation should exist and be a valid permutation
-        self.assertIsNotNone(gen_with_urdf.joint_perm)
         perm = gen_with_urdf.joint_perm
-        self.assertEqual(len(perm), gen_with_urdf.num_joints)
-        self.assertTrue(
-            np.array_equal(np.sort(perm), np.arange(gen_with_urdf.num_joints)),
-            f"Permutation is not a valid permutation: {perm}",
+        self.assertIsNotNone(perm)
+        self.assertEqual(len(perm), gen_with_urdf.num_mj_joints)
+        np.testing.assert_array_equal(
+            np.sort(perm),
+            np.arange(gen_with_urdf.num_mj_joints),
+            "joint_perm is not a valid permutation",
         )
 
-        # URDF and MuJoCo joint names should be the same set
-        self.assertEqual(
-            set(gen_with_urdf.urdf_joint_names),
-            set(gen_with_urdf.mj_joint_names),
+        # perm[i] = MuJoCo index of Pinocchio's i-th joint.
+        for i, name in enumerate(gen_with_urdf.pinocchio_joint_names):
+            self.assertEqual(gen_with_urdf.mj_joint_names[perm[i]], name)
+
+        ds_pin = gen_with_urdf.generate_dataset(num_samples=5, seed=42)
+        ds_mj = gen_without_urdf.generate_dataset(num_samples=5, seed=42)
+        np.testing.assert_allclose(
+            ds_pin["q_joints"], ds_mj["q_joints"][:, perm], atol=1e-6
         )
-
-        # Check that the permutation actually reorders joints
-        # For Atlas, URDF order != MuJoCo order
-        if not np.array_equal(perm, np.arange(gen_with_urdf.num_joints)):
-            # Permutation is non-trivial — verify dataset reordering
-            ds_urdf = gen_with_urdf.generate_dataset(num_samples=5, seed=42)
-            ds_mj = gen_without_urdf.generate_dataset(num_samples=5, seed=42)
-
-            # q_joints with URDF order should equal q_joints_mj[:, perm]
-            np.testing.assert_allclose(
-                ds_urdf["q_joints"], ds_mj["q_joints"][:, perm], atol=1e-6
-            )
-            # A_bar_omega columns should be reordered similarly
-            np.testing.assert_allclose(
-                ds_urdf["A_bar_omega"], ds_mj["A_bar_omega"][:, :, perm], atol=1e-6
-            )
+        np.testing.assert_allclose(
+            ds_pin["A_bar_omega"], ds_mj["A_bar_omega"][:, :, perm], atol=1e-6
+        )
 
     # LINT.ThenChange(//humanoid_learning/acom/dataset_generator.py:joint_permutation)
 
@@ -417,10 +528,9 @@ class TestDatasetGenerator(unittest.TestCase):
         """Verifies generator works with G1 model."""
         self._require_g1()
         gen = AcomDatasetGenerator(self.g1_xml)
-        self.assertTrue(gen.is_floating)
-        self.assertGreater(gen.num_joints, 0)
+        self.assertGreater(gen.num_mj_joints, 0)
 
-        q_zero = np.zeros(gen.num_joints)
+        q_zero = np.zeros(gen.num_mj_joints)
         _, _, A_bar = gen.compute_centroidal_matrices(q_zero)
         self.assertGreater(np.linalg.norm(A_bar), 1e-10)
 

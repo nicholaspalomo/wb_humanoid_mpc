@@ -111,4 +111,14 @@ ScalarFunctionQuadraticApproximation BasisScalingNonNegativityConstraint::getQua
   return cost;
 }
 
+void BasisScalingNonNegativityConstraint::setBarrierPenalty(const PieceWisePolynomialBarrierPenalty::Config& barrierSettings) {
+  penaltyPtr_->setConfig(barrierSettings);
+}
+
+PieceWisePolynomialBarrierPenalty::Config BasisScalingNonNegativityConstraint::getBarrierConfig() const {
+  PieceWisePolynomialBarrierPenalty::Config config;
+  penaltyPtr_->getConfig(config);
+  return config;
+}
+
 }  // namespace ocs2::humanoid

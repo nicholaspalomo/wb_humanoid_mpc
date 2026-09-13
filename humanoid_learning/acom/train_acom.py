@@ -44,6 +44,14 @@ from tensorboardX import SummaryWriter
 
 from humanoid_learning.acom.models import SirenACOM
 
+# Fraction of the dataset used for training; the remainder is the validation set.
+_TRAIN_SPLIT_FRACTION = 0.85
+
+# Decoupled AdamW weight decay. Kept small because it also shrinks the readout
+# layer, which directly scales the learned Jacobian and therefore biases the
+# Frobenius objective toward zero.
+_WEIGHT_DECAY = 1e-4
+
 
 def create_train_step(
     model: SirenACOM, optimizer: optax.GradientTransformation, reg_weight: float = 1e-4
@@ -161,25 +169,30 @@ def train_acom(
     log_figures: bool = True,
 ) -> Tuple[SirenACOM, List[Tuple[jnp.ndarray, jnp.ndarray]], Dict[str, List[float]]]:
     """Trains a SIREN aCOM model with TensorBoard logging."""
-    rng = jax.random.PRNGKey(seed)
-
     # Initialize TensorBoard SummaryWriter if log_dir provided
     writer: Optional[SummaryWriter] = None
     if log_dir is not None:
         os.makedirs(log_dir, exist_ok=True)
         writer = SummaryWriter(log_dir=log_dir)
         if verbose:
-            print(f"📊 Logging TensorBoard metrics to: {log_dir}")
+            print(f"Logging TensorBoard metrics to: {log_dir}")
 
-    # Split dataset into train (85%) and val (15%)
+    # Shuffle before splitting so the split does not depend on how the caller
+    # happened to order the dataset.
     num_samples = dataset["q_joints"].shape[0]
-    num_train = int(0.85 * num_samples)
+    num_train = int(_TRAIN_SPLIT_FRACTION * num_samples)
+    rng = jax.random.PRNGKey(seed)
+    rng, k_split = jax.random.split(rng)
+    order = np.asarray(jax.random.permutation(k_split, num_samples))
 
-    q_train = jnp.array(dataset["q_joints"][:num_train])
-    A_train = jnp.array(dataset["A_bar_omega"][:num_train])
+    q_all = np.asarray(dataset["q_joints"])[order]
+    A_all = np.asarray(dataset["A_bar_omega"])[order]
 
-    q_val = jnp.array(dataset["q_joints"][num_train:])
-    A_val = jnp.array(dataset["A_bar_omega"][num_train:])
+    q_train = jnp.array(q_all[:num_train])
+    A_train = jnp.array(A_all[:num_train])
+
+    q_val = jnp.array(q_all[num_train:])
+    A_val = jnp.array(A_all[num_train:])
 
     # Initialize model
     model = SirenACOM(
@@ -198,7 +211,7 @@ def train_acom(
     lr_schedule = optax.cosine_decay_schedule(
         init_value=learning_rate, decay_steps=total_steps, alpha=0.01
     )
-    optimizer = optax.adamw(learning_rate=lr_schedule, weight_decay=1e-4)
+    optimizer = optax.adamw(learning_rate=lr_schedule, weight_decay=_WEIGHT_DECAY)
     opt_state = optimizer.init(params)
 
     train_step_fn, eval_step_fn = create_train_step(
@@ -232,11 +245,12 @@ def train_acom(
         train_grad_norms = []
         last_grads = None
 
+        # The trailing partial batch is dropped; the per-epoch reshuffle above
+        # means no sample is permanently excluded.
         for step in range(steps_per_epoch):
             start_idx = step * batch_size
-            end_idx = min(start_idx + batch_size, num_train)
-            q_batch = q_train_shuffled[start_idx:end_idx]
-            A_batch = A_train_shuffled[start_idx:end_idx]
+            q_batch = q_train_shuffled[start_idx : start_idx + batch_size]
+            A_batch = A_train_shuffled[start_idx : start_idx + batch_size]
 
             params, opt_state, loss_val, aux, grads, grad_norm = train_step_fn(
                 params, opt_state, q_batch, A_batch
@@ -260,7 +274,7 @@ def train_acom(
         avg_val_reg = float(val_aux["reg_loss"])
 
         # Calculate RMSE per Jacobian entry (in rad/s per rad/s)
-        val_rmse = float(np.sqrt(avg_val_frob / (3.0 * in_dim)))
+        val_rmse = float(np.sqrt(avg_val_frob / A_val.shape[-2] / A_val.shape[-1]))
 
         # Per-axis decomposition on validation set
         val_jacobians = np.array(val_aux["jacobians"])
@@ -276,9 +290,10 @@ def train_acom(
         mean_offset_deg = float(np.mean(offset_norms_deg))
         max_offset_deg = float(np.max(offset_norms_deg))
 
-        # Learning rate and execution time
-        current_step = epoch * steps_per_epoch
-        current_lr = float(lr_schedule(current_step))
+        # Learning rate and execution time. The schedule is sampled at the step
+        # count reached by the end of this epoch, which is what the weights the
+        # metrics above were computed from actually saw.
+        current_lr = float(lr_schedule((epoch + 1) * steps_per_epoch))
         epoch_time_ms = (time.time() - epoch_start) * 1000.0
         throughput = float(num_train / (epoch_time_ms / 1000.0))
 

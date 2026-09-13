@@ -1,13 +1,30 @@
 #include <gtest/gtest.h>
 
+#include <cstddef>
+#include <cstdlib>
+#include <memory>
+#include <stdexcept>
+
+#include "humanoid_common_mpc/acom/AcomSirenWeightsAtlas.h"
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
 
 using namespace ocs2;
 using namespace ocs2::humanoid;
 
+namespace {
+
+/// Seed for Eigen's Random, so a marginal finite-difference failure is
+/// reproducible instead of flaky.
+constexpr unsigned int kRandomSeed = 0;
+
+}  // namespace
+
 class AngularCenterOfMassTest : public ::testing::Test {
  protected:
-  void SetUp() override { acomPtr_ = AngularCenterOfMass::createForRobot("atlas"); }
+  void SetUp() override {
+    std::srand(kRandomSeed);
+    acomPtr_ = AngularCenterOfMass::createForRobot("atlas");
+  }
 
   std::unique_ptr<AngularCenterOfMass> acomPtr_;
 };
@@ -78,22 +95,25 @@ TEST_F(AngularCenterOfMassTest, AnalyticalJacobianMatchesFiniteDifference) {
 }
 
 /**
- * Verifies the full ACoM orientation has the correct equivariance property:
- * theta_aCOM(q) = rpy_base + Delta_theta(q_joints).
+ * Verifies the full ACoM orientation has the correct equivariance property in the
+ * centroidal state's ZYX Euler convention:
+ * theta_aCOM(q) = euler_zyx_base + P * Delta_theta(q_joints).
  */
 TEST_F(AngularCenterOfMassTest, FullAcomOrientationEquivariance) {
   const size_t inputDim = acomPtr_->getInputDim();
-  // q = [pos_base(3), rpy_base(3), q_joints(n_j)]
+  // q = [pos_base(3), euler_zyx_base(3), q_joints(n_j)]
   vector_t q = vector_t::Random(6 + inputDim);
 
-  vector3_t rpyBase = q.segment<3>(3);
-  vector_t qJoints = q.tail(inputDim);
+  const vector3_t eulerZyxBase = q.segment<3>(3);
+  const vector3_t deltaThetaZyx = acomXyzToZyx(acomPtr_->computeJointOrientationOffset(q.tail(inputDim)));
 
-  vector3_t deltaTheta = acomPtr_->computeJointOrientationOffset(qJoints);
-  vector3_t expected = rpyBase + deltaTheta;
+  EXPECT_TRUE(acomPtr_->computeAcomOrientation(q).isApprox(eulerZyxBase + deltaThetaZyx, 1e-12))
+      << "ACoM orientation does not satisfy theta_aCOM = euler_zyx_base + P * Delta_theta(q_j).";
 
-  vector3_t actual = acomPtr_->computeAcomOrientation(q);
-  EXPECT_TRUE(actual.isApprox(expected, 1e-12)) << "ACoM orientation does not satisfy theta_aCOM = rpy_base + Delta_theta(q_j).";
+  // Translating the base must leave the orientation untouched.
+  vector_t qTranslated = q;
+  qTranslated.head<3>() += vector3_t(1.0, -2.0, 0.5);
+  EXPECT_TRUE(acomPtr_->computeAcomOrientation(qTranslated).isApprox(acomPtr_->computeAcomOrientation(q), 1e-15));
 }
 
 /**
@@ -108,17 +128,17 @@ TEST_F(AngularCenterOfMassTest, FullAcomJacobianStructure) {
   EXPECT_EQ(J_acom.rows(), 3);
   EXPECT_EQ(J_acom.cols(), static_cast<int>(6 + inputDim));
 
-  // Base linear velocity block must be zero
-  EXPECT_TRUE((J_acom.block<3, 3>(0, 0).isZero(1e-15))) << "Base linear velocity block is not zero.";
+  // Base position block must be zero: translating the base does not rotate it.
+  EXPECT_TRUE((J_acom.block<3, 3>(0, 0).isZero(1e-15))) << "Base position block is not zero.";
 
-  // Base angular velocity block must be identity
-  EXPECT_TRUE((J_acom.block<3, 3>(0, 3).isApprox(matrix_t::Identity(3, 3), 1e-15))) << "Base angular velocity block is not identity.";
+  // Base orientation block must be identity, since theta_aCOM is the base Euler
+  // triple plus a joint-only offset.
+  EXPECT_TRUE((J_acom.block<3, 3>(0, 3).isApprox(matrix_t::Identity(3, 3), 1e-15))) << "Base orientation block is not identity.";
 
-  // Joint block must equal the standalone joint offset Jacobian
-  vector_t qJoints = q.tail(inputDim);
-  matrix_t J_delta = acomPtr_->computeJointOffsetJacobian(qJoints);
-  EXPECT_TRUE(J_acom.block(0, 6, 3, inputDim).isApprox(J_delta, 1e-15))
-      << "Joint block of full Jacobian does not match standalone Jacobian.";
+  // Joint block must equal the standalone joint Jacobian, reordered to ZYX.
+  const matrix_t J_delta_zyx = acomJacobianXyzToZyx(acomPtr_->computeJointOffsetJacobian(q.tail(inputDim)));
+  EXPECT_TRUE(J_acom.block(0, 6, 3, inputDim).isApprox(J_delta_zyx, 1e-15))
+      << "Joint block of full Jacobian does not match the reordered standalone Jacobian.";
 }
 
 /**
@@ -126,7 +146,54 @@ TEST_F(AngularCenterOfMassTest, FullAcomJacobianStructure) {
  */
 TEST_F(AngularCenterOfMassTest, SetWeightsRejectsWrongLayerCount) {
   const size_t inputDim = acomPtr_->getInputDim();
+  constexpr int kArbitraryWidth = 8;
   std::vector<SirenLayerWeights> tooFew;
-  tooFew.push_back({matrix_t::Zero(16, inputDim), vector_t::Zero(16)});
+  tooFew.push_back({matrix_t::Zero(kArbitraryWidth, inputDim), vector_t::Zero(kArbitraryWidth)});
   EXPECT_THROW(acomPtr_->setWeights(tooFew), std::runtime_error);
+}
+
+/**
+ * Verifies that a joint vector of the wrong length is rejected rather than read
+ * out of bounds. Eigen's own size assertions are compiled out in opt builds, so
+ * this guard is the only thing standing between a stale weights header and
+ * silent memory corruption inside the MPC.
+ */
+TEST_F(AngularCenterOfMassTest, RejectsWrongJointVectorSize) {
+  const size_t inputDim = acomPtr_->getInputDim();
+  const vector_t tooShort = vector_t::Zero(inputDim - 1);
+  const vector_t tooLong = vector_t::Zero(inputDim + 1);
+
+  EXPECT_THROW(acomPtr_->computeJointOrientationOffset(tooShort), std::runtime_error);
+  EXPECT_THROW(acomPtr_->computeJointOrientationOffset(tooLong), std::runtime_error);
+  EXPECT_THROW(acomPtr_->computeJointOffsetJacobian(tooShort), std::runtime_error);
+  EXPECT_THROW(acomPtr_->computeJointOffsetJacobian(tooLong), std::runtime_error);
+}
+
+/**
+ * An evaluator built through the raw constructor has no weights until setWeights
+ * is called. It must say so instead of silently returning a zero offset, which
+ * in an MPC cost is indistinguishable from a zero tracking weight.
+ */
+TEST_F(AngularCenterOfMassTest, EvaluatingWithoutWeightsThrows) {
+  AngularCenterOfMass unloaded(/*inputDim=*/6, /*numLayers=*/2);
+  EXPECT_THROW(unloaded.computeJointOrientationOffset(vector_t::Zero(6)), std::runtime_error);
+  EXPECT_THROW(unloaded.computeJointOffsetJacobian(vector_t::Zero(6)), std::runtime_error);
+}
+
+/**
+ * The trained weights must be indexed by the same joints, in the same order, as
+ * the Pinocchio model the MPC builds. The generated header records that ordering
+ * so it can be checked here rather than discovered as degraded tracking.
+ */
+TEST_F(AngularCenterOfMassTest, WeightsRecordJointOrdering) {
+  const size_t inputDim = acomPtr_->getInputDim();
+  ASSERT_EQ(inputDim, acom::AcomSirenWeightsAtlas::input_dim);
+  for (size_t i = 0; i < inputDim; ++i) {
+    EXPECT_NE(acom::AcomSirenWeightsAtlas::joint_names[i], nullptr);
+  }
+  // The torso chain must run parent to child, which is Pinocchio's ordering and
+  // not the alphabetical order the Atlas URDF happens to list its joints in.
+  EXPECT_STREQ(acom::AcomSirenWeightsAtlas::joint_names[0], "back_bkz");
+  EXPECT_STREQ(acom::AcomSirenWeightsAtlas::joint_names[1], "back_bky");
+  EXPECT_STREQ(acom::AcomSirenWeightsAtlas::joint_names[2], "back_bkx");
 }

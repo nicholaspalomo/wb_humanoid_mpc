@@ -27,19 +27,37 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/acom/AcomSirenWeightsAtlas.h"
 #include "humanoid_common_mpc/acom/AcomSirenWeightsG1.h"
 
+#include <cstddef>
 #include <stdexcept>
+#include <string>
 
 namespace ocs2::humanoid {
 
-AngularCenterOfMass::AngularCenterOfMass(size_t inputDim, size_t hiddenDim, size_t numLayers, double omega0)
-    : inputDim_(inputDim), hiddenDim_(hiddenDim), numLayers_(numLayers), omega0_(omega0) {}
+namespace {
+
+/// Number of generalized coordinates the floating base occupies in the Pinocchio
+/// model: 3 for position and 3 for the ZYX Euler angles.
+constexpr Eigen::Index kGeneralizedBaseDim = 6;
+
+/// Index of the first base orientation coordinate within q.
+constexpr Eigen::Index kBaseOrientationOffset = 3;
+
+}  // namespace
+
+AngularCenterOfMass::AngularCenterOfMass(std::size_t inputDim, std::size_t numLayers, double omega0)
+    : inputDim_(inputDim), numLayers_(numLayers), omega0_(omega0) {}
 
 template <typename WeightsT>
 std::unique_ptr<AngularCenterOfMass> AngularCenterOfMass::createFromStaticWeights() {
+  // LINT.IfChange(acom_layer_count)
   static_assert(WeightsT::num_layers == 3,
-                "createFromStaticWeights() hardcodes 3 layers (2 hidden + 1 output). "
-                "Update the loader if the SIREN architecture changes.");
-  auto acom = std::make_unique<AngularCenterOfMass>(WeightsT::input_dim, WeightsT::W0_rows, WeightsT::num_layers - 1, WeightsT::omega_0);
+                "createFromStaticWeights() hardcodes 3 layers (2 sinusoidal + 1 linear readout). "
+                "Retrain with --num_layers 2, or extend this loader if the SIREN architecture changes.");
+  // LINT.ThenChange(//humanoid_learning/acom/train_main.py:siren_num_layers)
+  static_assert(WeightsT::output_dim == 3,
+                "The aCOM orientation offset is a 3-vector. A header with a different "
+                "output_dim would overflow the fixed-size vector3_t return value.");
+  auto acom = std::make_unique<AngularCenterOfMass>(WeightsT::input_dim, WeightsT::num_layers - 1, WeightsT::omega_0);
 
   std::vector<SirenLayerWeights> layers;
 
@@ -87,9 +105,9 @@ void AngularCenterOfMass::setWeights(const std::vector<SirenLayerWeights>& layer
                              std::to_string(layers.size()));
   }
   // Validate dimension consistency between consecutive layers
-  for (size_t i = 0; i < layers.size(); ++i) {
-    size_t expectedIn = (i == 0) ? inputDim_ : static_cast<size_t>(layers[i - 1].weight.rows());
-    if (static_cast<size_t>(layers[i].weight.cols()) != expectedIn) {
+  for (std::size_t i = 0; i < layers.size(); ++i) {
+    const std::size_t expectedIn = (i == 0) ? inputDim_ : static_cast<std::size_t>(layers[i - 1].weight.rows());
+    if (static_cast<std::size_t>(layers[i].weight.cols()) != expectedIn) {
       throw std::runtime_error("AngularCenterOfMass::setWeights: Layer " + std::to_string(i) + " weight has " +
                                std::to_string(layers[i].weight.cols()) + " columns, expected " + std::to_string(expectedIn));
     }
@@ -98,18 +116,38 @@ void AngularCenterOfMass::setWeights(const std::vector<SirenLayerWeights>& layer
                                std::to_string(layers[i].bias.size()) + " elements, expected " + std::to_string(layers[i].weight.rows()));
     }
   }
+  // The orientation offset is returned as a fixed-size vector3_t, so a readout of
+  // any other width would overflow it.
+  if (layers.back().weight.rows() != 3) {
+    throw std::runtime_error("AngularCenterOfMass::setWeights: Readout layer has " + std::to_string(layers.back().weight.rows()) +
+                             " rows, expected 3.");
+  }
   layers_ = layers;
 }
 
-vector3_t AngularCenterOfMass::computeJointOrientationOffset(const vector_t& qJoints) const {
+void AngularCenterOfMass::checkWeightsLoaded() const {
   if (layers_.empty()) {
-    return vector3_t::Zero();
+    throw std::runtime_error(
+        "AngularCenterOfMass: no weights loaded. Construct via createForRobot(), or call setWeights() before evaluating.");
   }
+}
+
+void AngularCenterOfMass::checkJointVectorSize(const vector_t& qJoints) const {
+  if (static_cast<std::size_t>(qJoints.size()) != inputDim_) {
+    throw std::runtime_error("AngularCenterOfMass: expected " + std::to_string(inputDim_) + " joint positions, got " +
+                             std::to_string(qJoints.size()) +
+                             ". The SIREN weights were trained for a different robot model than the one in use.");
+  }
+}
+
+vector3_t AngularCenterOfMass::computeJointOrientationOffset(const vector_t& qJoints) const {
+  checkWeightsLoaded();
+  checkJointVectorSize(qJoints);
 
   vector_t x = qJoints;
 
   // Hidden sinusoidal layers: x = sin(omega_0 * (W * x + b))
-  for (size_t i = 0; i < numLayers_; ++i) {
+  for (std::size_t i = 0; i < numLayers_; ++i) {
     vector_t affine = omega0_ * (layers_[i].weight * x + layers_[i].bias);
     x = affine.array().sin().matrix();
   }
@@ -121,15 +159,14 @@ vector3_t AngularCenterOfMass::computeJointOrientationOffset(const vector_t& qJo
 }
 
 matrix_t AngularCenterOfMass::computeJointOffsetJacobian(const vector_t& qJoints) const {
-  if (layers_.empty()) {
-    return matrix_t::Zero(3, inputDim_);
-  }
+  checkWeightsLoaded();
+  checkJointVectorSize(qJoints);
 
   // Forward activation tracking + chain rule Jacobians
   vector_t x = qJoints;
   matrix_t J = matrix_t::Identity(inputDim_, inputDim_);
 
-  for (size_t i = 0; i < numLayers_; ++i) {
+  for (std::size_t i = 0; i < numLayers_; ++i) {
     vector_t affine = omega0_ * (layers_[i].weight * x + layers_[i].bias);
     vector_t cos_affine = affine.array().cos().matrix();
 
@@ -147,24 +184,22 @@ matrix_t AngularCenterOfMass::computeJointOffsetJacobian(const vector_t& qJoints
 }
 
 vector3_t AngularCenterOfMass::computeAcomOrientation(const vector_t& q) const {
-  // q = [pos_base (3), rpy_base (3), q_joints (n_j)]
-  vector3_t rpyBase = q.segment<3>(3);
-  vector_t qJoints = q.tail(q.size() - 6);
-  return rpyBase + computeJointOrientationOffset(qJoints);
+  // q = [pos_base(3), euler_zyx_base(3), q_joints(n_j)]
+  const vector3_t eulerZyxBase = q.segment<3>(kBaseOrientationOffset);
+  const vector_t qJoints = q.tail(q.size() - kGeneralizedBaseDim);
+  return eulerZyxBase + acomXyzToZyx(computeJointOrientationOffset(qJoints));
 }
 
 matrix_t AngularCenterOfMass::computeAcomJacobian(const vector_t& q) const {
-  size_t nJoints = q.size() - 6;
-  vector_t qJoints = q.tail(nJoints);
-  matrix_t J_delta = computeJointOffsetJacobian(qJoints);
+  const Eigen::Index nJoints = q.size() - kGeneralizedBaseDim;
+  const matrix_t J_delta_zyx = acomJacobianXyzToZyx(computeJointOffsetJacobian(q.tail(nJoints)));
 
-  matrix_t J_acom = matrix_t::Zero(3, 6 + nJoints);
-  // Base linear velocity columns are zero
-  // Base angular velocity columns are Identity (3x3)
-  J_acom.block<3, 3>(0, 3) = matrix_t::Identity(3, 3);
-  // Joint velocity columns are J_delta
-  J_acom.block(0, 6, 3, nJoints) = J_delta;
-
+  matrix_t J_acom = matrix_t::Zero(3, kGeneralizedBaseDim + nJoints);
+  // The base position columns are zero: translating the base does not rotate it.
+  // The base orientation columns are the identity, since the aCOM orientation is
+  // the base Euler triple plus a joint-only offset.
+  J_acom.block<3, 3>(0, kBaseOrientationOffset).setIdentity();
+  J_acom.block(0, kGeneralizedBaseDim, 3, nJoints) = J_delta_zyx;
   return J_acom;
 }
 

@@ -173,11 +173,19 @@ def register_ros2_packages():
     ros2_package_repository(
         name = "ros2_std_msgs",
         pkg_name = "std_msgs",
+        extra_linkopts = [
+            "-lstd_msgs__rosidl_typesupport_cpp",
+            "-lstd_msgs__rosidl_typesupport_c",
+        ],
     )
 
     ros2_package_repository(
         name = "ros2_geometry_msgs",
         pkg_name = "geometry_msgs",
+        extra_linkopts = [
+            "-lgeometry_msgs__rosidl_typesupport_cpp",
+            "-lgeometry_msgs__rosidl_typesupport_c",
+        ],
     )
 
     ros2_package_repository(
