@@ -39,18 +39,19 @@ namespace ocs2::humanoid {
  */
 struct ContactPlanningConfig {
   // Horizon and timing
-  scalar_t dt = 0.1;          // [s] planner node duration
-  int numNodes = 12;          // planning horizon = numNodes * dt, should cover the MPC horizon
-  scalar_t commitTime = 0.1;  // [s] contacts within this window keep the currently applied schedule
-  scalar_t comHeight = 0.85;  // [m] LIP height, omega = sqrt(g / comHeight)
-  scalar_t gravity = 9.81;    // [m/s^2]
+  scalar_t dt = 0.1;           // [s] planner node duration
+  int numNodes = 12;           // planning horizon = numNodes * dt, should cover the MPC horizon
+  scalar_t commitTime = 0.25;  // [s] contacts within this window keep the applied schedule (must cover planner latency)
+  scalar_t comHeight = 0.85;   // [m] LIP height, omega = sqrt(g / comHeight)
+  scalar_t gravity = 9.81;     // [m/s^2]
 
   // Phase duration limits [s]
   scalar_t minSwingDuration = 0.3;
   scalar_t maxSwingDuration = 0.6;
   scalar_t minContactDuration = 0.15;
-  scalar_t maxContactDuration = 0.0;   // <= 0 disables the limit (standing is allowed indefinitely)
-  bool enforceAlternatingFeet = true;  // a foot may not swing twice in a row (biped gait structure)
+  scalar_t maxContactDuration = 0.0;        // <= 0 disables the limit (standing is allowed indefinitely)
+  bool enforceAlternatingFeet = true;       // a foot may not swing twice in a row (biped gait structure)
+  scalar_t minDoubleSupportDuration = 0.1;  // [s] after a touch-down the other foot stays down at least this long (0 disables)
 
   // Support geometry [m], yaw frame
   scalar_t zmpHalfWidthX = 0.08;     // ZMP box half-width around the anchor foot (along x)
@@ -70,6 +71,8 @@ struct ContactPlanningConfig {
   scalar_t footholdRegularizationWeight = 5.0;   // ||foot displacement||^2 per node, prefers short steps
   scalar_t stepWidthWeight = 10.0;               // (step width - nominalStepWidth)^2 per node
   scalar_t contactSwitchCost = 0.2;              // linear cost per lift-off / touch-down event
+  scalar_t planConsistencyCost = 0.5;            // cost per node whose contact differs from the previous plan (hysteresis)
+  scalar_t previousFootholdWeight = 5.0;         // ||p_foot - p_foot,previous plan||^2 per node, damps foothold jitter
   scalar_t terminalDcmWeight = 200.0;            // ||DCM_N - zmp_{N-1}||^2, terminal capturability
   scalar_t constraintSlackWeight = 1.0e4;        // quadratic penalty on the soft ZMP / reachability slacks
   scalar_t constraintSlackLinearWeight = 100.0;  // linear penalty on the same slacks
@@ -93,6 +96,10 @@ struct ContactPlanningConfig {
   int minSwingNodes() const { return std::max(1, static_cast<int>(std::ceil(minSwingDuration / dt - 1e-9))); }
   int maxSwingNodes() const { return std::max(minSwingNodes(), static_cast<int>(std::floor(maxSwingDuration / dt + 1e-9))); }
   int minContactNodes() const { return std::max(1, static_cast<int>(std::ceil(minContactDuration / dt - 1e-9))); }
+  int minDoubleSupportNodes() const {
+    if (minDoubleSupportDuration <= 0.0) return 0;
+    return static_cast<int>(std::ceil(minDoubleSupportDuration / dt - 1e-9));
+  }
   int maxContactNodes() const {
     if (maxContactDuration <= 0.0) return 0;
     return std::max(minContactNodes(), static_cast<int>(std::floor(maxContactDuration / dt + 1e-9)));

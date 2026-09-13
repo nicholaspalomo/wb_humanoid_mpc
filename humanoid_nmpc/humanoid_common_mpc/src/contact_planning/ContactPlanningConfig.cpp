@@ -49,6 +49,8 @@ void ContactPlanningConfig::validate() const {
   if (reachYOuter <= reachYInner) fail("reachYOuter must exceed reachYInner");
   if (bigM <= maxStepLength) fail("bigM must exceed maxStepLength");
   if (commitTime < 0.0) fail("commitTime must be non-negative");
+  if (minDoubleSupportDuration < 0.0) fail("minDoubleSupportDuration must be non-negative");
+  if (planConsistencyCost < 0.0 || previousFootholdWeight < 0.0) fail("plan consistency terms must be non-negative");
   if (maxBranchAndBoundNodes < 1 || maxSolveTime <= 0.0 || maxQpIterations < 1) fail("invalid solver limits");
   if (localSearchIterations < 0 || localSearchMaxTime < 0.0) fail("invalid local search limits");
   if (planningFrequency <= 0.0) fail("planningFrequency must be positive");
@@ -74,6 +76,7 @@ ContactPlanningConfig loadContactPlanningConfig(const std::string& taskFile, con
   loadData::loadPtreeValue(pt, config.minContactDuration, prefix + "minContactDuration", verbose);
   loadData::loadPtreeValue(pt, config.maxContactDuration, prefix + "maxContactDuration", verbose);
   loadData::loadPtreeValue(pt, config.enforceAlternatingFeet, prefix + "enforceAlternatingFeet", verbose);
+  loadData::loadPtreeValue(pt, config.minDoubleSupportDuration, prefix + "minDoubleSupportDuration", verbose);
   loadData::loadPtreeValue(pt, config.zmpHalfWidthX, prefix + "zmpHalfWidthX", verbose);
   loadData::loadPtreeValue(pt, config.zmpHalfWidthY, prefix + "zmpHalfWidthY", verbose);
   loadData::loadPtreeValue(pt, config.nominalStepWidth, prefix + "nominalStepWidth", verbose);
@@ -89,6 +92,8 @@ ContactPlanningConfig loadContactPlanningConfig(const std::string& taskFile, con
   loadData::loadPtreeValue(pt, config.footholdRegularizationWeight, prefix + "footholdRegularizationWeight", verbose);
   loadData::loadPtreeValue(pt, config.stepWidthWeight, prefix + "stepWidthWeight", verbose);
   loadData::loadPtreeValue(pt, config.contactSwitchCost, prefix + "contactSwitchCost", verbose);
+  loadData::loadPtreeValue(pt, config.planConsistencyCost, prefix + "planConsistencyCost", verbose);
+  loadData::loadPtreeValue(pt, config.previousFootholdWeight, prefix + "previousFootholdWeight", verbose);
   loadData::loadPtreeValue(pt, config.terminalDcmWeight, prefix + "terminalDcmWeight", verbose);
   loadData::loadPtreeValue(pt, config.constraintSlackWeight, prefix + "constraintSlackWeight", verbose);
   loadData::loadPtreeValue(pt, config.constraintSlackLinearWeight, prefix + "constraintSlackLinearWeight", verbose);

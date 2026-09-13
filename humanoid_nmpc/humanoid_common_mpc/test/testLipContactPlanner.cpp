@@ -48,6 +48,7 @@ ContactPlanningConfig makeConfig() {
   config.maxSwingDuration = 0.5;
   config.minContactDuration = 0.15;
   config.maxContactDuration = 0.0;
+  config.minDoubleSupportDuration = 0.1;
   config.maxBranchAndBoundNodes = 3000;
   config.maxSolveTime = 10.0;
   config.localSearchMaxTime = 2.0;
@@ -293,6 +294,44 @@ TEST(LipContactPlannerTest, PropagationEnforcesDurations) {
     tooLong[LipContactPlanner::contactBinaryIndex(k, 1)] = 0;
   }
   EXPECT_FALSE(planner.propagate(input, tooLong));
+}
+
+TEST(LipContactPlannerTest, MinimumDoubleSupportAndConsistencyCost) {
+  ContactPlanningConfig config = makeConfig();
+  config.minDoubleSupportDuration = 0.2;  // 2 nodes
+  LipContactPlanner planner(config);
+  ContactPlannerInput input = makeStandingInput();
+  input.contacts = {true, false};  // right foot swinging
+  input.phaseElapsedTime = {1.0, 0.2};
+
+  // Right lands at node 1; the left foot may not lift before node 3.
+  MiqpAssignment tooEarly = planner.initialAssignment(input);
+  for (int k = 0; k < config.numNodes; ++k) {
+    tooEarly[LipContactPlanner::contactBinaryIndex(k, 1)] = (k < 1) ? 0 : 1;
+    tooEarly[LipContactPlanner::contactBinaryIndex(k, 0)] = (k == 2) ? 0 : 1;
+  }
+  EXPECT_FALSE(planner.propagate(input, tooEarly));
+  MiqpAssignment lateEnough = planner.initialAssignment(input);
+  for (int k = 0; k < config.numNodes; ++k) {
+    lateEnough[LipContactPlanner::contactBinaryIndex(k, 1)] = (k < 1) ? 0 : 1;
+    lateEnough[LipContactPlanner::contactBinaryIndex(k, 0)] = (k >= 3 && k < 6) ? 0 : 1;
+  }
+  EXPECT_TRUE(planner.propagate(input, lateEnough));
+
+  // Without a previous plan the assignment cost is the switch cost only.
+  const scalar_t switches = planner.assignmentCost(input, lateEnough);
+  EXPECT_NEAR(switches, 3.0 * config.contactSwitchCost, 1e-12);  // right touch-down, left lift-off, left touch-down
+
+  // After a plan exists, deviating from it is charged per node.
+  const ContactPlan first = planner.plan(input);
+  ASSERT_TRUE(first.valid);
+  MiqpAssignment same(planner.getLastResult().assignment);
+  EXPECT_NEAR(planner.assignmentCost(input, same), planner.getLastResult().incumbentObjective - planner.getLastResult().solution.objective,
+              1e-9);
+  MiqpAssignment flipped = same;
+  const int node = config.numNodes - 1;
+  flipped[LipContactPlanner::contactBinaryIndex(node, 0)] = 1 - flipped[LipContactPlanner::contactBinaryIndex(node, 0)];
+  EXPECT_GT(planner.assignmentCost(input, flipped), planner.assignmentCost(input, same) + 0.9 * config.planConsistencyCost);
 }
 
 TEST(LipContactPlannerTest, RecedingHorizonWarmStartKeepsPlanConsistent) {

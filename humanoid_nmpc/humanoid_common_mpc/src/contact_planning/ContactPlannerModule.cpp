@@ -95,6 +95,10 @@ void ContactPlannerModule::runPlanner(const ContactPlannerInput& input) {
   }
   if (plan.valid) {
     referenceManagerPtr_->setContactPlan(plan);
+    // Drop any snapshot taken before this plan is applied: the next plan must start from the schedule that includes it,
+    // otherwise its committed window would disagree with the applied schedule and the merge could cut phases short.
+    std::lock_guard<std::mutex> lock(inputMutex_);
+    pendingInput_.reset();
   }
   std::lock_guard<std::mutex> lock(statisticsMutex_);
   ++statistics_.numPlans;

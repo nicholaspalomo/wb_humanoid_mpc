@@ -137,7 +137,8 @@ swing_trajectory_config:
 contact_planning:
   dt: 0.1                     # [s] planner node duration
   numNodes: 12                # planning horizon = numNodes * dt, should cover mpc.timeHorizon
-  commitTime: 0.1             # [s] contacts within this window keep the currently applied schedule
+  commitTime: 0.3             # [s] the applied schedule is fixed this far ahead; must cover the planner latency (a swing that
+                              #     has started or starts within this window is always executed to its touch-down)
   comHeight: 0.85             # [m] LIP height, omega = sqrt(gravity / comHeight)
   gravity: 9.81               # [m/s^2]
   minSwingDuration: 0.3       # [s]
@@ -145,6 +146,7 @@ contact_planning:
   minContactDuration: 0.15    # [s] a foot stays down at least this long before lifting again
   maxContactDuration: 0.0     # [s] <= 0: no limit (standing allowed)
   enforceAlternatingFeet: true  # a foot may not swing twice in a row
+  minDoubleSupportDuration: 0.1  # [s] after a touch-down the other foot stays down at least this long
   zmpHalfWidthX: 0.08         # [m] ZMP box half-width around a supporting foot along the heading
   zmpHalfWidthY: 0.04         # [m] ZMP box half-width laterally
   nominalStepWidth: 0.25      # [m] preferred lateral distance between the feet
@@ -160,6 +162,8 @@ contact_planning:
   footholdRegularizationWeight: 5.0   # ||foot displacement||^2 per node
   stepWidthWeight: 10.0               # (step width - nominalStepWidth)^2 per node
   contactSwitchCost: 0.2              # per lift-off / touch-down event
+  planConsistencyCost: 0.5            # per node whose contact differs from the previous plan (hysteresis between plans)
+  previousFootholdWeight: 5.0         # ||foot position - previous plan||^2 per node, damps landing-target jitter
   terminalDcmWeight: 200.0            # ||DCM_N - zmp_(N-1)||^2 (terminal capturability)
   constraintSlackWeight: 10000.0      # quadratic penalty on the soft ZMP / reachability slacks
   constraintSlackLinearWeight: 100.0  # linear penalty on the same slacks
@@ -365,6 +369,7 @@ dcm_terminal_cost:
   weight_x: 400              # weight on the longitudinal DCM error
   weight_y: 400              # weight on the lateral DCM error
   velocityOffsetFactor: 1.0  # 0..1, scales the v_cmd / omega offset of the DCM reference
+  supportBlendTime: 0.1      # [s] support weights ramp through lift-off / touch-down so the reference never jumps
 # LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/src/cost/DcmTerminalCost.cpp:dcm_terminal_cost_keys)
 
 # Quadratic terminal cost on the full state (terminal_cost). Ignored while useDcmTerminalCost is true.
@@ -430,8 +435,8 @@ task_space_foot_cost_weights:
   activeInStance: false
   # pos_x / pos_y track the planned swing-foot landing spot and are only applied while a contact plan provides one
   # (useContactPlanning: true); without a plan the xy position error is switched off inside the cost.
-  pos_x: 100
-  pos_y: 100
+  pos_x: 30
+  pos_y: 30
   pos_z: 100
   orientation_x: 100
   orientation_y: 100

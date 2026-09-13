@@ -157,16 +157,6 @@ MiqpResult MixedIntegerOcpQp::solve(OcpQpProblem& problem,
   const auto runPropagation = [&](MiqpAssignment& assignment) -> bool { return !propagate || propagate(assignment); };
   const auto logicalCost = [&](const MiqpAssignment& assignment) -> scalar_t { return assignmentCost ? assignmentCost(assignment) : 0.0; };
 
-  // Merges fixed entries of `fixings` into `assignment`; false when they contradict existing fixings.
-  const auto mergeFixings = [](MiqpAssignment& assignment, const MiqpAssignment& fixings) -> bool {
-    for (std::size_t i = 0; i < assignment.size(); ++i) {
-      if (fixings[i] == kMiqpFree) continue;
-      if (assignment[i] != kMiqpFree && assignment[i] != fixings[i]) return false;
-      assignment[i] = fixings[i];
-    }
-    return true;
-  };
-
   const auto limitsHit = [&]() {
     if (result.numNodes >= settings_.maxNodes) {
       result.nodeLimitHit = true;
@@ -249,10 +239,14 @@ MiqpResult MixedIntegerOcpQp::solve(OcpQpProblem& problem,
     return result;
   }
 
-  // Warm start: try the provided complete assignment first.
+  // Warm start: try the provided complete assignment first. Where it contradicts the root fixings (e.g. a committed
+  // schedule that moved on since the warm start was made) the fixings win and the rest of the warm start is kept.
   if (warmStart != nullptr && warmStart->size() == binaries.size()) {
     MiqpAssignment warm = root;
-    if (mergeFixings(warm, *warmStart) && runPropagation(warm) && isComplete(warm)) {
+    for (std::size_t i = 0; i < warm.size(); ++i) {
+      if (warm[i] == kMiqpFree) warm[i] = (*warmStart)[i];
+    }
+    if (runPropagation(warm) && isComplete(warm)) {
       OcpQpSolution solution;
       if (solveRelaxation(warm, solution)) {
         updateIncumbent(warm, solution);

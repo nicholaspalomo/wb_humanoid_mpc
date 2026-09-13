@@ -90,12 +90,17 @@ class LipContactPlanner {
   MiqpAssignment initialAssignment(const ContactPlannerInput& input) const;
   /** Forward logical propagation of the contact logic (duration limits, no flight, foot alternation). */
   bool propagate(const ContactPlannerInput& input, MiqpAssignment& assignment) const;
-  /** Switch cost of the decided transitions (exact for complete assignments, a lower bound for partial ones). */
+  /**
+   * Logical cost of an assignment: the switch cost of the decided transitions plus the plan-consistency cost of the
+   * decided nodes that differ from the previous plan (exact for complete assignments, a lower bound for partial ones).
+   */
   scalar_t assignmentCost(const ContactPlannerInput& input, const MiqpAssignment& assignment) const;
   static int contactBinaryIndex(int node, size_t foot) { return kBinariesPerNode * node + static_cast<int>(foot); }
 
  private:
   std::optional<MiqpAssignment> warmStartAssignment(const ContactPlannerInput& input) const;
+  /** Node shift between the previous plan and `input.time` (nodes), or -1 when the previous plan is not usable. */
+  int previousPlanShift(const ContactPlannerInput& input) const;
   void localSearch(const ContactPlannerInput& input, const MiqpAssignment& initial, scalar_t timeBudget);
   ContactPlan decode(const ContactPlannerInput& input, const MiqpResult& result) const;
   int initialPhaseNodes(const ContactPlannerInput& input, size_t foot) const;

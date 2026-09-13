@@ -175,7 +175,27 @@ MiqpAssignment LipContactPlanner::initialAssignment(const ContactPlannerInput& i
   return assignment;
 }
 
+int LipContactPlanner::previousPlanShift(const ContactPlannerInput& input) const {
+  if (!previousPlan_ || !previousPlan_->valid || previousAssignment_.empty()) return -1;
+  const ContactPlan& prev = *previousPlan_;
+  if (prev.numIntervals() != config_.numNodes || std::abs(prev.dt - config_.dt) > 1e-9) return -1;
+  const int shift = static_cast<int>(std::lround((input.time - prev.startTime) / config_.dt));
+  if (shift < 0 || shift >= config_.numNodes) return -1;
+  return shift;
+}
+
 scalar_t LipContactPlanner::assignmentCost(const ContactPlannerInput& input, const MiqpAssignment& assignment) const {
+  int numInconsistent = 0;
+  const int shift = previousPlanShift(input);
+  if (shift >= 0 && config_.planConsistencyCost > 0.0) {
+    for (int k = 0; k < config_.numNodes; ++k) {
+      const int source = std::min(k + shift, config_.numNodes - 1);
+      for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+        const std::int8_t value = assignment[contactBinaryIndex(k, foot)];
+        if (value != kMiqpFree && value != previousAssignment_[contactBinaryIndex(source, foot)]) ++numInconsistent;
+      }
+    }
+  }
   int numSwitches = 0;
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
     int previous = input.contacts[foot] ? 1 : 0;
@@ -189,7 +209,8 @@ scalar_t LipContactPlanner::assignmentCost(const ContactPlannerInput& input, con
       previous = value;
     }
   }
-  return config_.contactSwitchCost * static_cast<scalar_t>(numSwitches);
+  return config_.contactSwitchCost * static_cast<scalar_t>(numSwitches) +
+         config_.planConsistencyCost * static_cast<scalar_t>(numInconsistent);
 }
 
 bool LipContactPlanner::propagate(const ContactPlannerInput& input, MiqpAssignment& a) const {
@@ -245,6 +266,37 @@ bool LipContactPlanner::propagate(const ContactPlannerInput& input, MiqpAssignme
       if (a[cR] == 0) changed |= fix(cL, 1);
     }
 
+    // Minimum double support: after a touch-down at node k the other foot may not lift off before node k + n_ds.
+    const int nDoubleSupport = config_.minDoubleSupportNodes();
+    if (nDoubleSupport > 0 && ok) {
+      std::array<std::int8_t, N_CONTACTS> kappa{input.contacts[0] ? std::int8_t(1) : std::int8_t(0),
+                                                input.contacts[1] ? std::int8_t(1) : std::int8_t(0)};
+      int lastTouchDown = -1000;
+      for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+        // A double support already in progress counts from the elapsed time of the shorter contact phase.
+        if (input.contacts[foot] && input.contacts[1 - foot]) {
+          lastTouchDown = std::max(lastTouchDown, -initialPhaseNodes(input, foot));
+        }
+      }
+      for (int k = 0; k < N && ok; ++k) {
+        bool allFixed = true;
+        for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+          const int index = contactBinaryIndex(k, foot);
+          if (kappa[foot] == 1 && k < lastTouchDown + nDoubleSupport && k >= numCommitted) {
+            if (a[index] == 0) return false;
+            changed |= fix(index, 1);
+          }
+          allFixed = allFixed && a[index] != kMiqpFree;
+        }
+        if (!allFixed || !ok) break;
+        for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+          const std::int8_t value = a[contactBinaryIndex(k, foot)];
+          if (kappa[foot] == 0 && value == 1) lastTouchDown = k;
+          kappa[foot] = value;
+        }
+      }
+    }
+
     // Foot alternation along the fixed prefix: a foot may not lift off twice without the other foot swinging in between.
     if (config_.enforceAlternatingFeet && ok) {
       int lastSwung = input.lastSwungFoot;
@@ -295,6 +347,7 @@ OcpQpProblem LipContactPlanner::buildProblem(const ContactPlannerInput& input) c
   const std::array<int, 2> pIndex{PLX, PRX};  // x index of each foot's position; y follows
   const std::array<int, 2> dIndex{DLX, DRX};
   const std::array<int, 2> cIndex{CL, CR};
+  const int previousShift = previousPlanShift(input);
 
   OcpQpProblem problem;
   problem.x0 = vector_t::Zero(STATE_DIM);
@@ -310,6 +363,17 @@ OcpQpProblem LipContactPlanner::buildProblem(const ContactPlannerInput& input) c
     s = OcpQpStage::Zero(STATE_DIM, terminal ? 0 : INPUT_DIM, !terminal);
     s.Q.diagonal().array() += kStateRegularization;
 
+    // Foothold consistency: pull the feet towards the previous plan, shifted to the current time (only matters while a
+    // foot moves, the contact constraints pin it otherwise).
+    if (previousShift >= 0 && cfg.previousFootholdWeight > 0.0) {
+      const int source = std::min(k + previousShift, static_cast<int>(previousPlan_->footholds.size()) - 1);
+      for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+        for (int axis = 0; axis < 2; ++axis) {
+          addQuadraticResidual(s, {{pIndex[foot] + axis, 1.0}}, {}, -previousPlan_->footholds[source][foot](axis),
+                               cfg.previousFootholdWeight);
+        }
+      }
+    }
     // Velocity tracking and nominal step width at every node.
     for (int axis = 0; axis < 2; ++axis) {
       addQuadraticResidual(s, {{VX + axis, 1.0}}, {}, -input.velocityCommand(axis), cfg.velocityTrackingWeight);
@@ -461,11 +525,8 @@ OcpQpProblem LipContactPlanner::buildProblem(const ContactPlannerInput& input) c
 }
 
 std::optional<MiqpAssignment> LipContactPlanner::warmStartAssignment(const ContactPlannerInput& input) const {
-  if (!previousPlan_ || !previousPlan_->valid || previousAssignment_.empty()) return std::nullopt;
-  const ContactPlan& prev = *previousPlan_;
-  if (prev.numIntervals() != config_.numNodes || std::abs(prev.dt - config_.dt) > 1e-9) return std::nullopt;
-  const int shift = static_cast<int>(std::lround((input.time - prev.startTime) / config_.dt));
-  if (shift < 0 || shift >= config_.numNodes) return std::nullopt;
+  const int shift = previousPlanShift(input);
+  if (shift < 0) return std::nullopt;
   MiqpAssignment warm(kBinariesPerNode * config_.numNodes, kMiqpFree);
   for (int k = 0; k < config_.numNodes; ++k) {
     const int source = std::min(k + shift, config_.numNodes - 1);
@@ -535,6 +596,7 @@ ContactPlan LipContactPlanner::decode(const ContactPlannerInput& input, const Mi
   ContactPlan plan;
   plan.startTime = input.time;
   plan.dt = config_.dt;
+  plan.committedUntil = input.committedUntil;
   plan.numBranchAndBoundNodes = statistics_.numBranchAndBoundRelaxations + statistics_.numLocalSearchQps;
   plan.solveTime = statistics_.branchAndBoundTime + statistics_.localSearchTime;
   plan.optimal = result.optimal;

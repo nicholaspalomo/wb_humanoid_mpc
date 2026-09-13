@@ -44,7 +44,7 @@ namespace ocs2::humanoid {
  *
  * At the end of the horizon the DCM  xi = c_xy + v_xy / omega  (omega = sqrt(g / comHeight)) is pulled towards
  *   xi_ref = p_support + velocityOffsetFactor * v_cmd / omega,
- * where p_support is the centre of the feet in contact at the terminal time (from the mode schedule) and v_cmd the
+ * where p_support is the (time-blended) centre of the feet in contact at the terminal time (from the mode schedule) and v_cmd the
  * commanded CoM velocity of the target trajectories. With velocityOffsetFactor = 0 this is the classic capturability
  * condition (the robot can come to rest over its terminal support); the velocity offset keeps the condition consistent with
  * a steadily walking robot, whose DCM leads the support point by v / omega, so that the cost does not decelerate the walk.
@@ -60,6 +60,7 @@ class DcmTerminalCost final : public StateCost {
     scalar_t gravity = 9.81;              // [m/s^2]
     vector2_t weights{100.0, 100.0};      // [x, y] weights on the DCM error
     scalar_t velocityOffsetFactor = 1.0;  // scales the v_cmd / omega offset of the DCM reference
+    scalar_t supportBlendTime = 0.1;      // [s] a foot's support weight ramps 0->1 after touch-down and 1->0 before lift-off
 
     scalar_t omega() const;
     void validate() const;
@@ -93,11 +94,19 @@ class DcmTerminalCost final : public StateCost {
   /** Loads the config from the `dcm_terminal_cost` section of the task file (missing keys keep their defaults). */
   static Config loadConfig(const std::string& taskFile, const std::string& prefix = "dcm_terminal_cost.", bool verbose = false);
 
-  /** Parameter vector [w_left, w_right, omega, v_cmd_x, v_cmd_y, offsetFactor, sqrtW_x, sqrtW_y]; public for tests. */
+  /**
+   * Parameter vector [w_left, w_right, omega, v_cmd_x, v_cmd_y, offsetFactor, sqrtW_x, sqrtW_y]; public for tests.
+   * The support weights are continuous in time: 1 while a foot is in contact and further than supportBlendTime from a
+   * lift-off or touch-down, ramping linearly through the transitions, so that the terminal reference does not jump when
+   * the receding horizon end crosses a mode switch.
+   */
   vector_t getParameters(scalar_t time, const TargetTrajectories& targetTrajectories) const;
 
   /** Unweighted DCM error xi - xi_ref for the given state and parameters; public for tests. */
   vector2_t computeDcmError(const vector_t& state, const vector_t& parameters) const;
+
+  /** Time-blended support weights [w_left, w_right] at `time`; public for tests. */
+  vector2_t computeSupportWeights(scalar_t time) const;
 
  private:
   DcmTerminalCost(const DcmTerminalCost& other);

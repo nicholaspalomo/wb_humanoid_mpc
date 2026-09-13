@@ -146,6 +146,40 @@ TEST_F(ContactPlanningIntegrationTest, PlansStandingAndWalkingSchedules) {
   EXPECT_TRUE(foundSwing) << "a walking command must produce a swing phase within the horizon";
   // The committed window right after the current time keeps the previous (double support) schedule.
   EXPECT_TRUE(referenceManager->isInStancePhase(t + 0.01));
+
+  // 4. A swing that has started must survive a later plan: advance into the first swing, command standing (which on
+  //    its own would plan no steps) and check that the swing keeps its touch-down time.
+  scalar_t firstLiftOff = -1.0, firstTouchDown = -1.0;
+  size_t swingFoot = 0;
+  for (size_t i = 0; i < schedule.eventTimes.size() && firstLiftOff < 0.0; ++i) {
+    const contact_flag_t before = modeNumber2StanceLeg(schedule.modeSequence[i]);
+    const contact_flag_t after = modeNumber2StanceLeg(schedule.modeSequence[i + 1]);
+    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+      if (before[foot] && !after[foot] && schedule.eventTimes[i] > t) {
+        firstLiftOff = schedule.eventTimes[i];
+        swingFoot = foot;
+        for (size_t j = i + 1; j < schedule.eventTimes.size(); ++j) {
+          if (modeNumber2StanceLeg(schedule.modeSequence[j + 1])[foot]) {
+            firstTouchDown = schedule.eventTimes[j];
+            break;
+          }
+        }
+      }
+    }
+  }
+  ASSERT_GT(firstLiftOff, 0.0);
+  ASSERT_GT(firstTouchDown, firstLiftOff);
+  const scalar_t midSwing = 0.5 * (firstLiftOff + firstTouchDown);
+  referenceManager->setTargetTrajectories(TargetTrajectories({midSwing}, {standingTarget}, {vector_t::Zero(inputDim)}));
+  referenceManager->preSolverRun(midSwing, midSwing + horizon, state, ModeNumber::STANCE);
+  EXPECT_GE(referenceManager->commitBoundary(midSwing), firstTouchDown - 1e-9);
+  module->preSolverRun(midSwing, midSwing + horizon, state, *referenceManager);
+  ASSERT_TRUE(module->getStatistics().lastPlanValid);
+  referenceManager->preSolverRun(midSwing + 0.02, midSwing + 0.02 + horizon, state, ModeNumber::STANCE);
+  EXPECT_FALSE(referenceManager->isInContact(midSwing + 0.02, swingFoot));
+  EXPECT_FALSE(referenceManager->isInContact(firstTouchDown - 0.01, swingFoot)) << "the in-flight swing was cut short";
+  EXPECT_TRUE(referenceManager->isInContact(firstTouchDown + 0.01, swingFoot)) << "the in-flight swing was extended";
+  EXPECT_TRUE(referenceManager->getSwingFootReference(swingFoot, midSwing + 0.02).has_value());
 }
 
 }  // namespace ocs2::humanoid

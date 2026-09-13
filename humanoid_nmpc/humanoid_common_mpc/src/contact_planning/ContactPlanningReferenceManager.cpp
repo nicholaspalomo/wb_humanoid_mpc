@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <limits>
 
 #include <pinocchio/algorithm/center-of-mass.hpp>
 
@@ -108,7 +109,14 @@ void ContactPlanningReferenceManager::modifyReferences(scalar_t initTime,
     }
   }
 
-  const scalar_t commitTime = initTime + config.commitTime;
+  // The plan honoured the applied schedule up to its own commit boundary. Merge from there (it is in the future when
+  // the plan is fresh), never earlier than the boundary that protects swings in flight or imminent in the schedule
+  // executed right now, and never in the past.
+  const scalar_t boundaryNow = hasAppliedSchedule_ ? commitBoundary(initTime) : initTime + config.commitTime;
+  scalar_t commitTime = boundaryNow;
+  if (hasActivePlan()) {
+    commitTime = std::max({initTime, activePlan_->committedUntil, boundaryNow});
+  }
   const bool planUsable = hasActivePlan() && activePlan_->endTime() > commitTime + config.dt && activePlan_->startTime <= commitTime;
 
   ModeSchedule schedule;
@@ -131,6 +139,28 @@ void ContactPlanningReferenceManager::modifyReferences(scalar_t initTime,
   appliedSchedule_ = schedule;
   hasAppliedSchedule_ = true;
   updateFootBookkeeping(initTime, initState);
+}
+
+scalar_t ContactPlanningReferenceManager::commitBoundary(scalar_t time) const {
+  const ContactPlanningConfig config = getConfig();
+  scalar_t boundary = time + config.commitTime;
+  const auto& eventTimes = appliedSchedule_.eventTimes;
+  const auto& modeSequence = appliedSchedule_.modeSequence;
+  if (modeSequence.empty()) return boundary;
+  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    // Walk the phases that overlap [time, boundary]; a swing phase among them extends the boundary to its touch-down.
+    size_t index = static_cast<size_t>(std::upper_bound(eventTimes.begin(), eventTimes.end(), time) - eventTimes.begin());
+    if (index >= modeSequence.size()) index = modeSequence.size() - 1;
+    for (size_t i = index; i < modeSequence.size(); ++i) {
+      const scalar_t phaseStart = (i == 0) ? -std::numeric_limits<scalar_t>::infinity() : eventTimes[i - 1];
+      if (phaseStart >= boundary) break;
+      const bool inContact = modeNumber2StanceLeg(modeSequence[i])[foot];
+      if (!inContact && i < eventTimes.size()) {
+        boundary = std::max(boundary, eventTimes[i]);  // touch-down of this swing
+      }
+    }
+  }
+  return boundary;
 }
 
 std::optional<std::pair<scalar_t, scalar_t>> ContactPlanningReferenceManager::swingPhase(size_t contactIndex, scalar_t time) const {
@@ -229,10 +259,13 @@ ContactPlannerInput ContactPlanningReferenceManager::makePlannerInput(scalar_t i
   }
 
   const ContactPlanningConfig config = getConfig();
-  const int numCommitted = config.commitNodes();
+  input.committedUntil = hasAppliedSchedule_ ? commitBoundary(initTime) : initTime + config.commitTime;
+  // Every node whose midpoint lies before the boundary is fixed to the applied schedule; at least one node stays free.
+  const int maxCommitted = std::max(0, config.numNodes - 1);
   input.committedContacts.clear();
-  for (int k = 0; k < numCommitted; ++k) {
+  for (int k = 0; k < maxCommitted; ++k) {
     const scalar_t t = initTime + (static_cast<scalar_t>(k) + 0.5) * config.dt;
+    if (t >= input.committedUntil) break;
     input.committedContacts.push_back(modeNumber2StanceLeg(schedule.modeAtTime(t)));
   }
   return input;

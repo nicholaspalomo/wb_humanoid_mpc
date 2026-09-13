@@ -77,6 +77,13 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
   void setConfig(const ContactPlanningConfig& config);
   ContactPlanningConfig getConfig() const;
 
+  /**
+   * Time up to which the applied schedule is treated as fixed when planning from / merging at `time`: at least
+   * `time + commitTime`, extended to the touch-down of any swing phase that has started or starts within that window, so
+   * that a swing in flight or about to start is never re-timed or cut short by a later plan.
+   */
+  scalar_t commitBoundary(scalar_t time) const;
+
  protected:
   void modifyReferences(scalar_t initTime,
                         scalar_t finalTime,

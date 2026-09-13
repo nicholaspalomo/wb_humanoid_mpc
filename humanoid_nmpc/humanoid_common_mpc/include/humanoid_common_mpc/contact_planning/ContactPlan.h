@@ -47,6 +47,7 @@ struct ContactPlannerInput {
   vector2_t velocityCommand = vector2_t::Zero();      // commanded CoM velocity
   std::vector<contact_flag_t> committedContacts;      // contacts imposed on the first nodes (commit window)
   int lastSwungFoot = -1;                             // foot that swung most recently (-1 unknown), for alternation
+  scalar_t committedUntil = 0.0;                      // [s] the applied schedule is treated as fixed up to this time
 };
 
 /** Result of the contact planner: contact sequence, footholds and the reduced-model trajectories. */
@@ -54,6 +55,7 @@ struct ContactPlan {
   bool valid = false;
   scalar_t startTime = 0.0;
   scalar_t dt = 0.1;
+  scalar_t committedUntil = 0.0;                   // [s] the plan honoured the applied schedule up to this time
   std::vector<contact_flag_t> contacts;            // per interval k = 0..N-1
   std::vector<feet_array_t<vector2_t>> footholds;  // per node k = 0..N, planned foot xy (landing spot while swinging)
   std::vector<vector2_t> comPosition;              // per node

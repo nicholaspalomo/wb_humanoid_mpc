@@ -86,6 +86,7 @@ class DcmTerminalCostTest : public ::testing::Test {
     config_.comHeight = 0.85;
     config_.weights = vector2_t(400.0, 100.0);
     config_.velocityOffsetFactor = 1.0;
+    config_.supportBlendTime = 0.1;
     modelSettings_->recompileLibrariesCppAd = false;
     cost_ = std::make_unique<DcmTerminalCost>(*referenceManager_, config_, *pinocchioInterface_, *robotModelAd_, "testDcmTerminalCost",
                                               *modelSettings_);
@@ -159,6 +160,31 @@ TEST_F(DcmTerminalCostTest, SingleSupportUsesStanceFoot) {
   // Versus double support: the two references differ by half the foot separation (laterally ~0.1 m for Atlas).
   const vector2_t errorDs = cost_->computeDcmError(state, cost_->getParameters(0.5, emptyTargets));
   EXPECT_GT(std::abs(errorRf(1) - errorDs(1)), 0.05);
+}
+
+TEST_F(DcmTerminalCostTest, SupportWeightsBlendThroughTransitions) {
+  // Right-foot single support on [1.0, 1.5): the left foot's weight ramps out before 1.0 and back in after 1.5, the
+  // right foot keeps weight 1 (its contact phase spans the whole interval).
+  EXPECT_NEAR(cost_->computeSupportWeights(0.5)(0), 1.0, 1e-12);
+  EXPECT_NEAR(cost_->computeSupportWeights(0.95)(0), 0.5, 1e-9);
+  EXPECT_NEAR(cost_->computeSupportWeights(1.25)(0), 0.0, 1e-12);
+  EXPECT_NEAR(cost_->computeSupportWeights(1.55)(0), 0.5, 1e-9);
+  EXPECT_NEAR(cost_->computeSupportWeights(1.7)(0), 1.0, 1e-12);
+  for (const scalar_t t : {0.5, 0.95, 1.25, 1.55, 1.7}) {
+    EXPECT_NEAR(cost_->computeSupportWeights(t)(1), 1.0, 1e-12) << "t=" << t;
+  }
+  // The reference is continuous across the transition: parameters at 0.999 and 1.001 are close.
+  const TargetTrajectories emptyTargets;
+  const vector2_t before = cost_->computeDcmError(initialState_, cost_->getParameters(0.999, emptyTargets));
+  const vector2_t after = cost_->computeDcmError(initialState_, cost_->getParameters(1.001, emptyTargets));
+  EXPECT_LT((before - after).norm(), 5e-3);
+  // Blending off reproduces the hard switch.
+  DcmTerminalCost::Config hard = config_;
+  hard.supportBlendTime = 0.0;
+  cost_->setConfig(hard);
+  EXPECT_NEAR(cost_->computeSupportWeights(0.95)(0), 1.0, 1e-12);
+  EXPECT_NEAR(cost_->computeSupportWeights(1.05)(0), 0.0, 1e-12);
+  cost_->setConfig(config_);
 }
 
 TEST_F(DcmTerminalCostTest, VelocityCommandShiftsReference) {

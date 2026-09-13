@@ -27,8 +27,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc/cost/DcmTerminalCost.h"
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 
 #include <boost/property_tree/ptree.hpp>
@@ -37,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <pinocchio/algorithm/center-of-mass.hpp>
 #include <pinocchio/algorithm/frames.hpp>
 
+#include <humanoid_common_mpc/gait/MotionPhaseDefinition.h>
 #include <humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h>
 
 namespace ocs2::humanoid {
@@ -56,6 +59,9 @@ void DcmTerminalCost::Config::validate() const {
   }
   if (weights.minCoeff() < 0.0) {
     throw std::invalid_argument("[DcmTerminalCost] weights must be non-negative");
+  }
+  if (supportBlendTime < 0.0) {
+    throw std::invalid_argument("[DcmTerminalCost] supportBlendTime must be non-negative");
   }
 }
 
@@ -122,11 +128,37 @@ ad_vector_t DcmTerminalCost::residual(const ad_vector_t& state, const ad_vector_
   return r;
 }
 
-vector_t DcmTerminalCost::getParameters(scalar_t time, const TargetTrajectories& targetTrajectories) const {
-  contact_flag_t contacts = referenceManagerPtr_->getContactFlags(time);
-  if (!contacts[0] && !contacts[1]) {
-    contacts = {true, true};  // flight: fall back to the centre of both feet
+vector2_t DcmTerminalCost::computeSupportWeights(scalar_t time) const {
+  const contact_flag_t contacts = referenceManagerPtr_->getContactFlags(time);
+  vector2_t weights(contacts[0] ? 1.0 : 0.0, contacts[1] ? 1.0 : 0.0);
+  const ModeSchedule& schedule = referenceManagerPtr_->getModeSchedule();
+  const auto& eventTimes = schedule.eventTimes;
+  const auto& modeSequence = schedule.modeSequence;
+  if (config_.supportBlendTime > 0.0 && !modeSequence.empty()) {
+    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+      if (!contacts[foot]) continue;
+      // Contact phase [start, end] of this foot around `time`.
+      size_t index = static_cast<size_t>(std::upper_bound(eventTimes.begin(), eventTimes.end(), time) - eventTimes.begin());
+      if (index >= modeSequence.size()) index = modeSequence.size() - 1;
+      const auto inContact = [&](size_t i) { return modeNumber2StanceLeg(modeSequence[i])[foot]; };
+      size_t first = index;
+      while (first > 0 && inContact(first - 1)) --first;
+      size_t last = index;
+      while (last + 1 < modeSequence.size() && inContact(last + 1)) ++last;
+      const scalar_t start = (first == 0) ? -std::numeric_limits<scalar_t>::infinity() : eventTimes[first - 1];
+      const scalar_t end = (last + 1 >= modeSequence.size()) ? std::numeric_limits<scalar_t>::infinity() : eventTimes[last];
+      const scalar_t ramp = std::min((time - start) / config_.supportBlendTime, (end - time) / config_.supportBlendTime);
+      weights(foot) = std::clamp(ramp, 0.0, 1.0);
+    }
   }
+  if (weights.sum() < 1e-6) {
+    weights.setOnes();  // flight, or both feet at a transition: fall back to the centre of both feet
+  }
+  return weights;
+}
+
+vector_t DcmTerminalCost::getParameters(scalar_t time, const TargetTrajectories& targetTrajectories) const {
+  const vector2_t supportWeights = computeSupportWeights(time);
   vector2_t velocityCommand = vector2_t::Zero();
   if (!targetTrajectories.empty()) {
     const vector_t desiredState = targetTrajectories.getDesiredState(time);
@@ -135,8 +167,8 @@ vector_t DcmTerminalCost::getParameters(scalar_t time, const TargetTrajectories&
     }
   }
   vector_t parameters(kNumParameters);
-  parameters(0) = contacts[0] ? 1.0 : 0.0;
-  parameters(1) = contacts[1] ? 1.0 : 0.0;
+  parameters(0) = supportWeights(0);
+  parameters(1) = supportWeights(1);
   parameters(2) = config_.omega();
   parameters.segment<2>(3) = velocityCommand;
   parameters(5) = config_.velocityOffsetFactor;
@@ -181,6 +213,7 @@ DcmTerminalCost::Config DcmTerminalCost::loadConfig(const std::string& taskFile,
   loadData::loadPtreeValue(pt, config.weights(0), prefix + "weight_x", verbose);
   loadData::loadPtreeValue(pt, config.weights(1), prefix + "weight_y", verbose);
   loadData::loadPtreeValue(pt, config.velocityOffsetFactor, prefix + "velocityOffsetFactor", verbose);
+  loadData::loadPtreeValue(pt, config.supportBlendTime, prefix + "supportBlendTime", verbose);
   // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:dcm_terminal_cost_config)
   if (verbose) {
     std::cerr << " #### =============================================================================" << std::endl;

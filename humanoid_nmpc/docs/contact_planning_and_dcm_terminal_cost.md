@@ -52,8 +52,11 @@ where
 
 * $\boldsymbol{\xi}_T = \mathbf{c}_{xy}(\mathbf{q}_T) + \mathbf{h}_{xy}(\mathbf{x}_T)/\omega$ is evaluated on the full model: the CoM position
   from the kinematics and the CoM velocity from the normalised linear momentum in the centroidal state;
-* $\mathbf{p}_{\mathrm{support}}$ is the centre of the contact frames of the feet that are in contact at $T$ according to the
-  mode schedule (both feet in double support, the stance foot in single support, both as a fallback in flight);
+* $\mathbf{p}_{\mathrm{support}}$ is the weighted centre of the contact frames of the feet in contact at $T$ according to the
+  mode schedule. The weights are continuous in time: a foot's weight is 1 in the middle of a contact phase and ramps
+  linearly to 0 over `supportBlendTime` before its lift-off and after its touch-down (both feet as a fallback in flight).
+  Without the blending the reference would jump by half the step width every time the receding horizon end crosses a
+  mode switch, which with a weight of several hundred is a visible disturbance at every solve;
 * $\mathbf{v}_{\mathrm{cmd}}$ is the commanded CoM velocity from the target trajectories and $\beta$ (`velocityOffsetFactor`)
   scales the offset. With $\beta = 0$ the cost demands pure capturability (the robot can stop over its feet). With
   $\beta = 1$ the reference is the DCM of a CoM that moves at the commanded speed over the support point
@@ -73,6 +76,7 @@ dcm_terminal_cost:
   weight_x: 400              # W = diag(weight_x, weight_y)
   weight_y: 400
   velocityOffsetFactor: 1.0  # beta
+  supportBlendTime: 0.1      # [s] ramp of the support weights through lift-off / touch-down
 ```
 
 Implementation: `humanoid_centroidal_mpc/cost/DcmTerminalCost.{h,cpp}`; wiring in `CentroidalMpcInterface.cpp`.
@@ -161,8 +165,16 @@ candidate incumbent:
 * minimum and maximum swing duration, minimum (and optionally maximum) contact duration, counted in nodes from the
   start of the phase, including the time already spent in the current phase before the planning instant;
 * foot alternation (`enforceAlternatingFeet`): a foot may not swing twice without the other foot swinging in between;
-* the committed window: contacts within `commitTime` of the planning instant are fixed to the schedule the NMPC is
-  already executing, so that phases in flight are not rewritten under the controller.
+* minimum double support (`minDoubleSupportDuration`): after a touch-down the other foot stays down for at least that
+  long, so weight transfer is never asked to happen in a single node;
+* the committed window: contacts up to the *commit boundary* are fixed to the schedule the NMPC is already executing.
+  The boundary is `commitTime` ahead of the planning instant, extended to the touch-down of any swing that has started or
+  starts within that window. A swing in flight is therefore never re-timed or cut short by a later plan, and `commitTime`
+  must cover the planner latency (plans are merged from their own boundary, never from an earlier time);
+* plan consistency (`planConsistencyCost`): every node whose contact differs from the previous plan, shifted to the
+  current time, is charged, which gives the anytime search hysteresis between cycles; the continuous footholds are
+  likewise pulled towards the previous plan (`previousFootholdWeight`) so that the landing target tracked by the foot cost
+  does not jitter from plan to plan.
 
 Keeping the duration logic out of the QP keeps the relaxations small (8 states, 8 inputs, 27 rows per stage) and costs
 nothing in accuracy, because the linear relaxation of such disjunctions is too weak to prune anyway (a foot that is "half
@@ -207,9 +219,10 @@ under 0.1 s. With the default budget of 200 relaxations / 0.1 s the receding-hor
   and velocity from the state, foot positions from the kinematics, the contact phases and their elapsed time from the
   applied schedule, the committed window and the commanded velocity from the target trajectories. With
   `runInBackgroundThread: true` the snapshot is posted to a worker thread (latest wins, rate-limited by
-  `planningFrequency`); otherwise the plan is computed inside the pre-solve hook.
+  `planningFrequency`); otherwise the plan is computed inside the pre-solve hook. After a plan is published the pending
+  snapshot is discarded, so the next plan always starts from a schedule that already contains the previous plan.
 * `ContactPlanningReferenceManager` merges every new plan into the schedule the NMPC is executing (applied schedule up to
-  the commit time, plan afterwards, always starting and ending in double support so that the swing trajectory planner
+  the plan's commit boundary, plan afterwards, never cutting a swing that is in flight or imminent, always starting and ending in double support so that the swing trajectory planner
   finds a lift-off and a touch-down for every swing), updates the foot-height swing planner and exposes the planned
   landing spot of every swing foot as a task-space reference: the xy position interpolates from the lift-off position to
   the landing spot with a smooth-step profile, the height follows the swing trajectory planner.
@@ -223,6 +236,9 @@ under 0.1 s. With the default budget of 200 relaxations / 0.1 s the receding-hor
 
 * `dt`/`numNodes`: the horizon must cover `mpc.timeHorizon`; coarser nodes make the search cheaper but quantise the
   switching times.
+* `commitTime`: at least the planner latency (solve time plus one planning period) plus the time the NMPC needs to
+  anticipate a switch; too small a value lets a fresh plan re-time switches the controller is already preparing, which
+  shows as feet that stutter or barely lift.
 * `minSwingDuration`/`maxSwingDuration`/`minContactDuration` are the main shape parameters of the gait. `maxContactDuration`
   forces stepping even without a command (leave at 0 to allow standing).
 * `zmpHalfWidthX/Y` should stay inside the physical foot (the NMPC enforces the real wrench cone); a smaller box makes the
