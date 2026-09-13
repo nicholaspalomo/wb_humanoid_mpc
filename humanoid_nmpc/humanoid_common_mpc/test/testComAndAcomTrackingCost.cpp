@@ -151,7 +151,7 @@ TEST_F(ComAndAcomTrackingCostTest, AcomJacobianRowsAreInZyxOrder) {
   const matrix_t J_acom = acomPtr_->computeAcomJacobian(q);
   ASSERT_EQ(J_acom.cols(), q.size());
   EXPECT_TRUE(J_acom.leftCols<3>().isZero(1e-15));
-  EXPECT_TRUE(J_acom.block<3, 3>(0, kBaseOrientationOffset).isApprox(matrix_t::Identity(3, 3), 1e-15));
+  EXPECT_TRUE((J_acom.block<3, 3>(0, kBaseOrientationOffset).isApprox(matrix_t::Identity(3, 3), 1e-15)));
   EXPECT_TRUE(J_acom.rightCols(nJoints_).isApprox(J_zyx));
 }
 
@@ -175,7 +175,7 @@ TEST_F(ComAndAcomTrackingCostTest, CenterOfMassIsPhysicallyPlausible) {
 
   CentroidalModelPinocchioMapping mapping(info_);
   const vector_t q = mapping.getPinocchioJointPosition(state);
-  ASSERT_EQ(q.size(), info_.generalizedCoordinatesNum);
+  ASSERT_EQ(static_cast<std::size_t>(q.size()), info_.generalizedCoordinatesNum);
 
   const vector3_t com = pinocchio::centerOfMass(pinocchioInterfacePtr_->getModel(), pinocchioInterfacePtr_->getData(), q);
   EXPECT_NEAR(com[0], 0.0, 0.5);

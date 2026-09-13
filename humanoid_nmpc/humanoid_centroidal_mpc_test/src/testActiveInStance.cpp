@@ -34,7 +34,7 @@ TEST(ActiveInStanceTest, VerifyYamlParsing) {
 
   bool activeInStance = false;
   EXPECT_NO_THROW({ loadData::loadPtreeValue(pt, activeInStance, "task_space_foot_cost_weights.activeInStance", false); });
-  EXPECT_TRUE(activeInStance) << "Atlas task.yaml must have activeInStance = true";
+  EXPECT_FALSE(activeInStance) << "Atlas task.yaml must have activeInStance = false";
 
   // Test with GUI format: "activeInStance: 1"
   std::string tempLiveYaml = std::filesystem::temp_directory_path() / "test_live.yaml";

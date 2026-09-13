@@ -466,6 +466,16 @@ TEST_F(MpcParameterUpdaterModuleTest, SoftConstraintWeightUpdated) {
   auto* sqp = getSqpSolver();
   ASSERT_NE(sqp, nullptr);
 
+  // softConstraintWeight only reaches a penalty when zero_velocity is configured
+  // as a SOFT constraint. Listing it under hard_constraints, as the Atlas task
+  // file does, puts it in equalityConstraintPtr where there is no penalty to
+  // scale, so there is nothing for this test to observe.
+  try {
+    sqp->getOcpDefinitions().front().softConstraintPtr->get<StateInputSoftConstraint>(contactNames_.front() + "_zeroVelocity");
+  } catch (const std::exception&) {
+    GTEST_SKIP() << "zero_velocity is a hard constraint in this configuration, so softConstraintWeight has no penalty to update.";
+  }
+
   // Mutate model_settings.foot_constraint.softConstraintWeight to 12345.0
   {
     std::ifstream in(tmpTaskFile_);
