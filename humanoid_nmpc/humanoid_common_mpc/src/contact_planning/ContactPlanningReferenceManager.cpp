@@ -192,8 +192,13 @@ std::optional<SwingFootReference> ContactPlanningReferenceManager::getSwingFootR
 
   const vector2_t start = liftOffPositions_[contactIndex].head<2>();
   const scalar_t tau = std::clamp((time - liftOffTime) / duration, 0.0, 1.0);
-  const scalar_t blend = tau * tau * (3.0 - 2.0 * tau);
-  const scalar_t blendRate = 6.0 * tau * (1.0 - tau) / duration;
+
+  // Use a cubic spline with p'(0) = 1 and p'(1) = 0 to command an initial velocity matching the step velocity.
+  // This prevents the swing foot from kicking backward relative to the moving body at lift-off.
+  const scalar_t tau2 = tau * tau;
+  const scalar_t blend = -tau2 * tau + tau2 + tau;
+  const scalar_t blendRate = (-3.0 * tau2 + 2.0 * tau + 1.0) / duration;
+
   const vector2_t delta = *landing - start;
 
   SwingFootReference reference;

@@ -90,6 +90,12 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    */
   virtual std::optional<SwingFootReference> getSwingFootReference(size_t /*contactIndex*/, scalar_t /*time*/) const { return std::nullopt; }
 
+  /**
+   * Task-space velocity reference for a foot that is in swing at `time`. The default reference manager returns the
+   * commanded CoM velocity as a heuristic to prevent the swing foot from dragging behind the robot during locomotion.
+   */
+  virtual std::optional<vector2_t> getSwingFootVelocityReference(size_t contactIndex, scalar_t time) const;
+
   vector_t getDesiredState(const TargetTrajectories& targetTrajectories, const vector_t& state, scalar_t time) const;
 
  protected:

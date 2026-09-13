@@ -80,6 +80,21 @@ scalar_t SwitchedModelReferenceManager::getPhaseVariable(scalar_t time) const {
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
+std::optional<vector2_t> SwitchedModelReferenceManager::getSwingFootVelocityReference(size_t contactIndex, scalar_t time) const {
+  if (isInContact(time, contactIndex)) return std::nullopt;
+
+  // Extract the commanded XY velocity from the target trajectories
+  const vector_t desiredState = getTargetTrajectories().getDesiredState(time);
+  if (desiredState.size() >= 2) {
+    // Relying on the convention that the first two elements of the target state are the CoM XY velocity command
+    return desiredState.head<2>();
+  }
+  return std::nullopt;
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
 scalar_t SwitchedModelReferenceManager::adaptToCurrentGroundHeight(TargetTrajectories& targetTrajectories,
                                                                    const vector_t& initState,
                                                                    size_t initMode) {
