@@ -155,6 +155,17 @@ vector_t CentroidalMpcEndEffectorFootCost::getParameters(scalar_t time,
   } else {
     parameters[12] = 0.0;  // sqrt weight of the x position error
     parameters[13] = 0.0;  // sqrt weight of the y position error
+
+    // Without a contact planner, provide a heuristic velocity reference to prevent the swing foot from
+    // dragging backward relative to the moving body.  The config lin_velocity_x weight is intentionally 0
+    // (to avoid penalising stance), so we temporarily override the sqrt-weight here with a small value.
+    // The impactProximityScaler already ramps this cost to zero near touchdown, which is the profile we want.
+    const std::optional<vector2_t> velocityReference = referenceManagerPtr_->getSwingFootVelocityReference(contactIndex_, time);
+    if (velocityReference.has_value()) {
+      parameters.segment(6, 2) = *velocityReference;
+      parameters[18] = 1.5;  // override sqrt(lin_velocity_x) for swing only
+      parameters[19] = 1.5;  // override sqrt(lin_velocity_y) for swing only
+    }
   }
   return parameters;
 }
