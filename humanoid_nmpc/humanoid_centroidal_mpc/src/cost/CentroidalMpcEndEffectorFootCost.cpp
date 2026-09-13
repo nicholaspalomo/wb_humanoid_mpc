@@ -145,6 +145,17 @@ vector_t CentroidalMpcEndEffectorFootCost::getParameters(scalar_t time,
 
   parameters[24] = impactProximityScaler;
 
+  // Without a contact planner there is no meaningful xy position reference (the foot is free to land where the
+  // whole-body optimization puts it), so the xy position error is switched off. A planned foothold turns it on and
+  // replaces the position and linear velocity references with the interpolated swing trajectory towards the target.
+  const std::optional<SwingFootReference> swingReference = referenceManagerPtr_->getSwingFootReference(contactIndex_, time);
+  if (swingReference.has_value()) {
+    parameters.head(3) = swingReference->position;
+    parameters.segment(6, 3) = swingReference->linearVelocity;
+  } else {
+    parameters[12] = 0.0;  // sqrt weight of the x position error
+    parameters[13] = 0.0;  // sqrt weight of the y position error
+  }
   return parameters;
 }
 

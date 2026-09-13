@@ -85,6 +85,8 @@ class ModelSettings {
 
   bool useContactBasisVectorInputs = false;
   bool useComAndAcomTracking = false;
+  bool useContactPlanning = false;  // mode schedule and footholds from the mixed-integer contact planner instead of the gait schedule
+  bool useDcmTerminalCost = false;  // DCM viability terminal cost instead of the quadratic Q_final terminal cost
 
   size_t mpc_joint_dim;
   size_t full_joint_dim;

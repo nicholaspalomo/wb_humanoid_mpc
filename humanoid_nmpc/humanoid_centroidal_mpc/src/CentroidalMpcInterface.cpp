@@ -63,9 +63,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/constraint/NormalVelocityConstraintCppAd.h"
 #include "humanoid_centroidal_mpc/constraint/ZeroVelocityConstraintCppAd.h"
 #include "humanoid_centroidal_mpc/cost/CentroidalMpcEndEffectorFootCost.h"
+#include "humanoid_centroidal_mpc/cost/DcmTerminalCost.h"
 #include "humanoid_centroidal_mpc/cost/ICPCost.h"
 #include "humanoid_centroidal_mpc/dynamics/CentroidalDynamicsAD.h"
 #include "humanoid_centroidal_mpc/dynamics/CentroidalDynamicsBasisInputsAD.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h"
 
 #include "humanoid_common_mpc/common/BasisInputsMappingDecorator.h"
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
@@ -201,9 +204,28 @@ CentroidalMpcInterface::CentroidalMpcInterface(const std::string& taskFile,
   std::unique_ptr<SwingTrajectoryPlanner> swingTrajectoryPlanner(
       new SwingTrajectoryPlanner(loadSwingTrajectorySettings(taskFile, "swing_trajectory_config", verbose_), N_CONTACTS));
 
-  referenceManagerPtr_ = std::make_shared<SwitchedModelReferenceManager>(
-      GaitSchedule::loadGaitSchedule(referenceFile, modelSettings_, verbose_), std::move(swingTrajectoryPlanner), *pinocchioInterfacePtr_,
-      *effectiveMpcRobotModelPtr_);
+  if (modelSettings_.useContactPlanning) {
+    // Online mixed-integer contact planning replaces the periodic gait schedule. The gait schedule is still loaded: it is
+    // used until the first plan arrives and whenever the planner has no valid plan.
+    ContactPlanningConfig contactPlanningConfig = loadContactPlanningConfig(taskFile, "contact_planning.", verbose_);
+    if (contactPlanningConfig.horizon() < mpcSettings_.timeHorizon_) {
+      LOG(WARNING) << "[CentroidalMpcInterface] contact_planning horizon (" << contactPlanningConfig.horizon()
+                   << " s) is shorter than the MPC horizon (" << mpcSettings_.timeHorizon_
+                   << " s); the schedule beyond the planned horizon defaults to double support.";
+    }
+    auto planningReferenceManager = std::make_shared<ContactPlanningReferenceManager>(
+        GaitSchedule::loadGaitSchedule(referenceFile, modelSettings_, verbose_), std::move(swingTrajectoryPlanner), *pinocchioInterfacePtr_,
+        *effectiveMpcRobotModelPtr_, contactPlanningConfig);
+    contactPlannerModulePtr_ = std::make_shared<ContactPlannerModule>(planningReferenceManager, contactPlanningConfig);
+    referenceManagerPtr_ = planningReferenceManager;
+    LOG(INFO) << "[CentroidalMpcInterface] Using mixed-integer contact planning (" << contactPlanningConfig.numNodes << " nodes x "
+              << contactPlanningConfig.dt << " s, " << (contactPlanningConfig.runInBackgroundThread ? "background thread" : "synchronous")
+              << ").";
+  } else {
+    referenceManagerPtr_ = std::make_shared<SwitchedModelReferenceManager>(
+        GaitSchedule::loadGaitSchedule(referenceFile, modelSettings_, verbose_), std::move(swingTrajectoryPlanner), *pinocchioInterfacePtr_,
+        *effectiveMpcRobotModelPtr_);
+  }
   referenceManagerPtr_->setArmSwingReferenceActive(true);
 
   // initial state
@@ -274,7 +296,18 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
   if (formulationTasks.hasCost(MpcCostType::InputQuadraticCost)) {
     problemPtr_->costPtr->add("inputQuadraticCost", factory.getInputQuadraticCost());
   }
-  if (formulationTasks.hasCost(MpcCostType::TerminalCost)) {
+  // Terminal cost: either the DCM viability cost (useDcmTerminalCost, or dcm_terminal_cost in the cost list) or the
+  // quadratic Q_final cost. With the DCM cost enabled, Q_final / terminal_cost are ignored.
+  const bool useDcmTerminalCost = modelSettings_.useDcmTerminalCost || formulationTasks.hasCost(MpcCostType::DcmTerminalCost);
+  if (useDcmTerminalCost) {
+    const DcmTerminalCost::Config dcmConfig = DcmTerminalCost::loadConfig(taskFile_, "dcm_terminal_cost.", verbose_);
+    problemPtr_->finalCostPtr->add("dcmTerminalCost",
+                                   std::make_unique<DcmTerminalCost>(*referenceManagerPtr_, dcmConfig, *pinocchioInterfacePtr_,
+                                                                     *effectiveMpcRobotModelADPtr_, "dcmTerminalCost", modelSettings_));
+    if (formulationTasks.hasCost(MpcCostType::TerminalCost)) {
+      LOG(INFO) << "[CentroidalMpcInterface] useDcmTerminalCost is enabled: the quadratic terminal_cost (Q_final) is ignored.";
+    }
+  } else if (formulationTasks.hasCost(MpcCostType::TerminalCost)) {
     problemPtr_->finalCostPtr->add("terminalCost", factory.getTerminalCost());
   }
 

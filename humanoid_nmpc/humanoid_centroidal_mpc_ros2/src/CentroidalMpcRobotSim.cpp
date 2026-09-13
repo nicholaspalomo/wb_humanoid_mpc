@@ -120,6 +120,11 @@ int main(int argc, char** argv) {
 
   mpc.getSolverPtr()->setReferenceManager(interface.getReferenceManagerPtr());
   mpc.getSolverPtr()->addSynchronizedModule(ros2ProceduralMpcMotionManager);
+  // Online contact planning (useContactPlanning: true in task.yaml): the planner module feeds mode schedules and footholds
+  // to the reference manager and, like the other synchronized modules, has to run before every solve.
+  if (auto contactPlannerModule = interface.getContactPlannerModulePtr()) {
+    mpc.getSolverPtr()->addSynchronizedModule(contactPlannerModule);
+  }
 
   // Register real-time MPC parameter hot-reloading. The updater is sized to the OCP input and, in basis-vector mode,
   // transforms the wrench-space R of task.yaml exactly as the OCP factory did.
@@ -127,6 +132,7 @@ int main(int argc, char** argv) {
       &mpc, taskFile, urdfFile, referenceFile, interface.getMpcRobotModel().getStateDim(), effectiveMpcRobotModel.getInputDim(),
       interface.modelSettings().contactNames, dynamic_cast<const SwitchedModelReferenceManager*>(interface.getReferenceManagerPtr().get()),
       interface.getBasisInputsCostTransformConfig());
+  mpcParameterUpdater->setContactPlannerModule(interface.getContactPlannerModulePtr());
   mpcParameterUpdater->subscribe(nodeHandle);
   mpc.getSolverPtr()->addSynchronizedModule(mpcParameterUpdater);
 

@@ -4,6 +4,8 @@ telemetryFrequency: 100      # [Hz] Telemetry publishing frequency (decimated fr
 enableOnlineTuning: true     # Enable runtime parameter and gain tuning in Controller GUI
 useContactBasisVectorInputs: true  # Set true to use basis-vector scalings λ as MPC contact inputs (instead of direct wrenches)
 useComAndAcomTracking: true      # Set true to regulate CoM + Angular Center of Mass (ACoM) instead of base pose
+useContactPlanning: false        # Set true to plan the contact sequence, timing and footholds online with the mixed-integer contact planner (replaces the gait schedule)
+useDcmTerminalCost: true         # Set true to end the horizon with the DCM (capture point) viability cost; Q_final / terminal_cost are then ignored
 
 # Weights for CoM and ACoM tracking (active when useComAndAcomTracking is true).
 #
@@ -55,7 +57,7 @@ soft_constraints:
 costs:
   - state_quadratic_cost
   - input_quadratic_cost
-  - terminal_cost
+  - terminal_cost  # quadratic Q_final terminal cost, ignored while useDcmTerminalCost is true
   - icp_cost
   - task_space_foot_cost
   - task_space_torso_cost
@@ -124,6 +126,50 @@ swing_trajectory_config:
   impactProximityFactorLiftOffVelocity: -0.15
   impactProximityFactorTouchDownVelocity: 0.3
   impactProximityFactorMidPointValue: 0
+
+# Mixed-integer contact planner (active when useContactPlanning: true).
+# A Linear Inverted Pendulum model is planned on a coarse grid of numNodes * dt seconds. Per node and foot a binary decides
+# contact vs. swing, continuous variables place the feet and the ZMP, and a run-length counter turns the min/max phase
+# durations into linear constraints. The problem is solved by branch-and-bound over HPIPM relaxations, warm-started with
+# the previous plan. The result replaces the gait schedule (mode sequence + event times) and provides the swing-foot
+# landing targets tracked by task_space_foot_cost_weights.pos_x / pos_y.
+# LINT.IfChange(contact_planning_config)
+contact_planning:
+  dt: 0.1                     # [s] planner node duration
+  numNodes: 12                # planning horizon = numNodes * dt, should cover mpc.timeHorizon
+  commitTime: 0.1             # [s] contacts within this window keep the currently applied schedule
+  comHeight: 0.85             # [m] LIP height, omega = sqrt(gravity / comHeight)
+  gravity: 9.81               # [m/s^2]
+  minSwingDuration: 0.3       # [s]
+  maxSwingDuration: 0.6       # [s]
+  minContactDuration: 0.15    # [s] a foot stays down at least this long before lifting again
+  maxContactDuration: 0.0     # [s] <= 0: no limit (standing allowed)
+  enforceAlternatingFeet: true  # a foot may not swing twice in a row
+  zmpHalfWidthX: 0.08         # [m] ZMP box half-width around a supporting foot along the heading
+  zmpHalfWidthY: 0.04         # [m] ZMP box half-width laterally
+  nominalStepWidth: 0.25      # [m] preferred lateral distance between the feet
+  minStepWidth: 0.15          # [m] self-collision margin
+  maxStepWidth: 0.45          # [m]
+  maxStepLength: 0.5          # [m] |x_left - x_right| bound
+  reachX: 0.45                # [m] foot x offset from the CoM
+  reachYInner: 0.05           # [m] left foot y - CoM y >= reachYInner (mirrored for the right foot)
+  reachYOuter: 0.45           # [m]
+  bigM: 1.0                   # [m] big-M of the contact disjunctions (must exceed maxStepLength)
+  velocityTrackingWeight: 20.0        # ||v_com - v_cmd||^2 per node
+  zmpRegularizationWeight: 2.0        # ||zmp - p_com||^2 per node
+  footholdRegularizationWeight: 5.0   # ||foot displacement||^2 per node
+  stepWidthWeight: 10.0               # (step width - nominalStepWidth)^2 per node
+  contactSwitchCost: 0.2              # per lift-off / touch-down event
+  terminalDcmWeight: 200.0            # ||DCM_N - zmp_(N-1)||^2 (terminal capturability)
+  constraintSlackWeight: 10000.0      # quadratic penalty on the soft ZMP / reachability slacks
+  constraintSlackLinearWeight: 100.0  # linear penalty on the same slacks
+  maxBranchAndBoundNodes: 200         # relaxations per plan
+  maxSolveTime: 0.1                   # [s] anytime limit, the best plan found so far is returned
+  maxQpIterations: 60
+  verbose: false
+  runInBackgroundThread: true         # false: plan synchronously in the MPC pre-solve hook
+  planningFrequency: 10.0             # [Hz] upper bound on the background planning rate
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/contact_planning/ContactPlanningConfig.cpp:contact_planning_keys)
 
 # multiple_shooting settings
 multiple_shooting:
@@ -305,6 +351,21 @@ R:
   "(35,35)": 50  # r_leg_akx
 
 
+# DCM (capture point) terminal cost, active when useDcmTerminalCost is true (it then replaces terminal_cost / Q_final).
+# At the end of the horizon the DCM  xi = p_com + v_com / omega  (omega = sqrt(g / comHeight)) is pulled towards the centre
+# of the terminal support (feet in contact at the final time) plus velocityOffsetFactor * v_cmd / omega, so that the horizon
+# ends in a capturable state that is consistent with the commanded walking speed. velocityOffsetFactor: 0 is the pure
+# "can come to rest over its feet" condition; 1 keeps a steady walk unbiased. Cost = 0.5 * (weight_x * e_x^2 + weight_y * e_y^2).
+# LINT.IfChange(dcm_terminal_cost_config)
+dcm_terminal_cost:
+  comHeight: 0.85            # [m] nominal CoM height used for omega
+  gravity: 9.81              # [m/s^2]
+  weight_x: 400              # weight on the longitudinal DCM error
+  weight_y: 400              # weight on the lateral DCM error
+  velocityOffsetFactor: 1.0  # 0..1, scales the v_cmd / omega offset of the DCM reference
+# LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/src/cost/DcmTerminalCost.cpp:dcm_terminal_cost_keys)
+
+# Quadratic terminal cost on the full state (terminal_cost). Ignored while useDcmTerminalCost is true.
 terminalCostScaling: 4
 Q_final:
   scaling: 85
@@ -365,8 +426,10 @@ icp_cost_weights:
 
 task_space_foot_cost_weights:
   activeInStance: false
-  pos_x: 0
-  pos_y: 0
+  # pos_x / pos_y track the planned swing-foot landing spot and are only applied while a contact plan provides one
+  # (useContactPlanning: true); without a plan the xy position error is switched off inside the cost.
+  pos_x: 100
+  pos_y: 100
   pos_z: 100
   orientation_x: 100
   orientation_y: 100
