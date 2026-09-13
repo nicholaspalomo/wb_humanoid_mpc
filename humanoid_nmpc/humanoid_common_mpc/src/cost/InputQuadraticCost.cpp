@@ -56,6 +56,9 @@ std::pair<vector_t, vector_t> InputQuadraticCost::getStateInputDeviation(scalar_
                                                                          const vector_t& input,
                                                                          const TargetTrajectories& targetTrajectories) const {
   const auto contactFlags = referenceManagerPtr_->getContactFlags(time);
+  // Input-only nominal input on purpose: the nominal contact force is purely vertical and a stance foot is flat, so
+  // it is identical in the world and local contact frames (yaw-invariant). The state-aware overload would add a
+  // forward-kinematics pass per node and iteration to this hot path for no practical gain.
   const vector_t uNominal = weightCompensatingInput(pinInterface_, contactFlags, *mpcRobotModelPtr_);
   return {vector_t::Zero(stateDim_), input - uNominal};
 }

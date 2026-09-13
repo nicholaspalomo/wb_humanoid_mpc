@@ -55,7 +55,7 @@ class ModelSettings {
     bool constrainOrientation{true};  // When true, constraint is 6D (position+orientation); when false, 3D (position-only)
   };
 
-  ModelSettings(const std::string& configFile, const std::string& urdfFile, const std::string& mpcName, bool verbose = "false");
+  ModelSettings(const std::string& configFile, const std::string& urdfFile, const std::string& mpcName, bool verbose = false);
 
   ModelSettings() = delete;
 
@@ -82,6 +82,9 @@ class ModelSettings {
   std::vector<size_t> mpcModelToFullJointsIndices;  // an Array of indices mapping the active joints to the full joints
   std::unordered_map<std::string, size_t> jointIndexMap;
   std::vector<std::string> contactNames;  // containing all 3Dof and 6Dof contacts
+
+  bool useContactBasisVectorInputs = false;
+  bool useComAndAcomTracking = false;
 
   size_t mpc_joint_dim;
   size_t full_joint_dim;

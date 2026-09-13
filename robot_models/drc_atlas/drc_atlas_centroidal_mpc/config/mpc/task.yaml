@@ -2,6 +2,35 @@
 enableTelemetry: true        # Enable high-rate ROS 2 telemetry publishing for PlotJuggler
 telemetryFrequency: 100      # [Hz] Telemetry publishing frequency (decimated from MRT loop)
 enableOnlineTuning: true     # Enable runtime parameter and gain tuning in Controller GUI
+useContactBasisVectorInputs: true  # Set true to use basis-vector scalings λ as MPC contact inputs (instead of direct wrenches)
+useComAndAcomTracking: true      # Set true to regulate CoM + Angular Center of Mass (ACoM) instead of base pose
+
+# Weights for CoM and ACoM tracking (active when useComAndAcomTracking is true).
+#
+# When the flag is set, the factory zeroes the base pose block of BOTH Q and
+# Q_final (indices 6..11), so the weights below are the only thing regulating base
+# position and orientation. They start out mirroring the Q entries they replace.
+#
+# Tuning note: the aCOM coordinate is essentially an integral of the centroidal
+# angular momentum that Q entries (3,3) and (4,4) already penalise, so the two
+# terms compete. If torso rotation feels over-damped, lower L_x / L_y before
+# lowering Q_acom. Expect Q_acom to need reducing relative to the base pose
+# weights it replaces, because the learned coordinate carries roughly 17% model
+# error that the directly measured base pose did not.
+Q_com:
+  scaling: 85
+  "(0,0)": 0  # p_com_x (unpenalized, matches p_base_x)
+  "(1,1)": 0  # p_com_y (unpenalized, matches p_base_y)
+  "(2,2)": 15  # p_com_z (matches p_base_z)
+
+# ACoM rows follow the centroidal state's ZYX Euler convention, the same ordering
+# as Q entries (9,9) through (11,11). Row 0 is yaw, not roll.
+Q_acom:
+  scaling: 85
+  "(0,0)": 25  # theta_acom_z / yaw (matches theta_base_z)
+  "(1,1)": 15  # theta_acom_y / pitch (matches theta_base_y)
+  "(2,2)": 15  # theta_acom_x / roll (matches theta_base_x)
+
 
 # Targeted Pinocchio frames for telemetry logging (position, orientation, twist, accel, wrench)
 telemetryFrames:
@@ -88,9 +117,9 @@ model_settings:
 
 swing_trajectory_config:
   liftOffVelocity: 0.05
-  touchDownVelocity: -0.05
-  swingHeight: 0.08
-  touchDownHeightOffset: 0
+  touchDownVelocity: 0.0
+  swingHeight: 0.10
+  touchDownHeightOffset: -0.001
   swingTimeScale: 0.4
   impactProximityFactorLiftOffVelocity: -0.15
   impactProximityFactorTouchDownVelocity: 0.3
@@ -184,32 +213,40 @@ Q:
   "(0,0)": 2  # h_com_x / robotMass
   "(1,1)": 2  # h_com_y / robotMass
   "(2,2)": 15  # h_com_z / robotMass
-  "(3,3)": 50  # L_x / robotMass
-  "(4,4)": 75  # L_y / robotMass
-  "(5,5)": 4  # L_z / robotMass
+  # Reduced for CoM + ACoM tracking: the aCOM coordinate is the integral of the
+  # locked angular velocity, so penalising angular momentum heavily fights the
+  # torso and arm counter-rotation the aCOM cost is there to produce. What is
+  # left provides damping only; orientation itself is regulated by Q_acom.
+  "(3,3)": 5  # L_x / robotMass (was 50)
+  "(4,4)": 5  # L_y / robotMass (was 75)
+  "(5,5)": 2  # L_z / robotMass (was 4)
 
   # ; Base Pose: [position, orientation] ;;
+  # Ignored while useComAndAcomTracking is true: the factory zeroes this 6x6
+  # block and Q_com / Q_acom regulate base pose instead.
   "(6,6)": 0  # p_base_x
   "(7,7)": 0  # p_base_y
-  "(8,8)": 15  # p_base_z
+  "(8,8)": 0  # p_base_z -> Q_com (2,2)
   # euler angles for base to world rotation
-  "(9,9)": 25  # theta_base_z
-  "(10,10)": 100  # theta_base_y
-  "(11,11)": 15  # theta_base_x
+  "(9,9)": 0  # theta_base_z -> Q_acom (0,0)
+  "(10,10)": 0  # theta_base_y -> Q_acom (1,1)
+  "(11,11)": 0  # theta_base_x -> Q_acom (2,2)
 
   # ; Joint Positions ;;
-  "(12,12)": 10  # back_bkz
-  "(13,13)": 25  # back_bky
-  "(14,14)": 25  # back_bkx
-  "(15,15)": 5  # l_arm_shz
-  "(16,16)": 20  # l_arm_shx
-  "(17,17)": 10  # l_arm_ely
-  "(18,18)": 5  # l_arm_elx
+  # Reduced for CoM + ACoM tracking: the torso is the main contributor to the
+  # learned orientation offset, so it must be free to rotate.
+  "(12,12)": 10.0  # back_bkz (was 10)
+  "(13,13)": 25.0  # back_bky (was 25)
+  "(14,14)": 25.0  # back_bkx (was 25)
+  "(15,15)": 0.1  # l_arm_shz
+  "(16,16)": 0.1  # l_arm_shx
+  "(17,17)": 0.1  # l_arm_ely
+  "(18,18)": 0.1  # l_arm_elx
   "(19,19)": 2  # neck_ry
-  "(20,20)": 5  # r_arm_shz
-  "(21,21)": 20  # r_arm_shx
-  "(22,22)": 10  # r_arm_ely
-  "(23,23)": 5  # r_arm_elx
+  "(20,20)": 0.1  # r_arm_shz
+  "(21,21)": 0.1  # r_arm_shx
+  "(22,22)": 0.1  # r_arm_ely
+  "(23,23)": 0.1  # r_arm_elx
   "(24,24)": 1  # l_leg_hpz
   "(25,25)": 250  # l_leg_hpx
   "(26,26)": 10  # l_leg_hpy
@@ -245,15 +282,15 @@ R:
   "(12,12)": 1000  # back_bkz
   "(13,13)": 1000  # back_bky
   "(14,14)": 25  # back_bkx
-  "(15,15)": 100  # l_arm_shz
-  "(16,16)": 100  # l_arm_shx
-  "(17,17)": 200  # l_arm_ely
-  "(18,18)": 200  # l_arm_elx
+  "(15,15)": 10.0  # l_arm_shz
+  "(16,16)": 10.0  # l_arm_shx
+  "(17,17)": 20.0  # l_arm_ely
+  "(18,18)": 20.0  # l_arm_elx
   "(19,19)": 100  # neck_ry
-  "(20,20)": 100  # r_arm_shz
-  "(21,21)": 100  # r_arm_shx
-  "(22,22)": 200  # r_arm_ely
-  "(23,23)": 200  # r_arm_elx
+  "(20,20)": 10.0  # r_arm_shz
+  "(21,21)": 10.0  # r_arm_shx
+  "(22,22)": 20.0  # r_arm_ely
+  "(23,23)": 20.0  # r_arm_elx
   "(24,24)": 500  # l_leg_hpz
   "(25,25)": 5  # l_leg_hpx
   "(26,26)": 10  # l_leg_hpy
@@ -276,43 +313,51 @@ Q_final:
   "(0,0)": 2  # h_com_x / robotMass
   "(1,1)": 2  # h_com_y / robotMass
   "(2,2)": 15  # h_com_z / robotMass
-  "(3,3)": 50  # L_x / robotMass
-  "(4,4)": 75  # L_y / robotMass
-  "(5,5)": 4  # L_z / robotMass
+  # Reduced for CoM + ACoM tracking: the aCOM coordinate is the integral of the
+  # locked angular velocity, so penalising angular momentum heavily fights the
+  # torso and arm counter-rotation the aCOM cost is there to produce. What is
+  # left provides damping only; orientation itself is regulated by Q_acom.
+  "(3,3)": 5  # L_x / robotMass (was 50)
+  "(4,4)": 5  # L_y / robotMass (was 75)
+  "(5,5)": 2  # L_z / robotMass (was 4)
 
   # ; Base Pose: [position, orientation] ;;
+  # Ignored while useComAndAcomTracking is true: the factory zeroes this 6x6
+  # block and Q_com / Q_acom regulate base pose instead.
   "(6,6)": 0  # p_base_x
   "(7,7)": 0  # p_base_y
-  "(8,8)": 15  # p_base_z
+  "(8,8)": 0  # p_base_z -> Q_com (2,2)
   # euler angles for base to world rotation
-  "(9,9)": 25  # theta_base_z
-  "(10,10)": 100  # theta_base_y
-  "(11,11)": 15  # theta_base_x
+  "(9,9)": 0  # theta_base_z -> Q_acom (0,0)
+  "(10,10)": 0  # theta_base_y -> Q_acom (1,1)
+  "(11,11)": 0  # theta_base_x -> Q_acom (2,2)
 
   # ; Joint Positions ;;
-  "(12,12)": 10  # back_bkz
-  "(13,13)": 25  # back_bky
-  "(14,14)": 25  # back_bkx
-  "(15,15)": 5  # l_arm_shz
-  "(16,16)": 20  # l_arm_shx
-  "(17,17)": 10  # l_arm_ely
-  "(18,18)": 5  # l_arm_elx
+  # Reduced for CoM + ACoM tracking: the torso is the main contributor to the
+  # learned orientation offset, so it must be free to rotate.
+  "(12,12)": 10.0  # back_bkz (was 10)
+  "(13,13)": 25.0  # back_bky (was 25)
+  "(14,14)": 25.0  # back_bkx (was 25)
+  "(15,15)": 0.1  # l_arm_shz
+  "(16,16)": 0.1  # l_arm_shx
+  "(17,17)": 0.1  # l_arm_ely
+  "(18,18)": 0.1  # l_arm_elx
   "(19,19)": 2  # neck_ry
-  "(20,20)": 5  # r_arm_shz
-  "(21,21)": 20  # r_arm_shx
-  "(22,22)": 10  # r_arm_ely
-  "(23,23)": 5  # r_arm_elx
-  "(24,24)": 10  # l_leg_hpz
-  "(25,25)": 50  # l_leg_hpx
-  "(26,26)": 1  # l_leg_hpy
-  "(27,27)": 1  # l_leg_kny
-  "(28,28)": 0.5  # l_leg_aky
+  "(20,20)": 0.1  # r_arm_shz
+  "(21,21)": 0.1  # r_arm_shx
+  "(22,22)": 0.1  # r_arm_ely
+  "(23,23)": 0.1  # r_arm_elx
+  "(24,24)": 1  # l_leg_hpz
+  "(25,25)": 250  # l_leg_hpx
+  "(26,26)": 10  # l_leg_hpy
+  "(27,27)": 10  # l_leg_kny
+  "(28,28)": 5  # l_leg_aky
   "(29,29)": 5  # l_leg_akx
-  "(30,30)": 10  # r_leg_hpz
-  "(31,31)": 50  # r_leg_hpx
-  "(32,32)": 1  # r_leg_hpy
-  "(33,33)": 1  # r_leg_kny
-  "(34,34)": 0.5  # r_leg_aky
+  "(30,30)": 1  # r_leg_hpz
+  "(31,31)": 250  # r_leg_hpx
+  "(32,32)": 10  # r_leg_hpy
+  "(33,33)": 10  # r_leg_kny
+  "(34,34)": 5  # r_leg_aky
   "(35,35)": 5  # r_leg_akx
 
 icp_cost_weights:
@@ -323,12 +368,12 @@ task_space_foot_cost_weights:
   pos_x: 0
   pos_y: 0
   pos_z: 100
-  orientation_x: 10
-  orientation_y: 10
+  orientation_x: 100
+  orientation_y: 100
   orientation_z: 0
-  lin_velocity_x: 5
+  lin_velocity_x: 0
   lin_velocity_y: 5
-  lin_velocity_z: 5
+  lin_velocity_z: 0
   ang_velocity_x: 1
   ang_velocity_y: 1
   ang_velocity_z: 1
@@ -340,21 +385,26 @@ task_space_foot_cost_weights:
   ang_acceleration_z: 0
 
 task_space_costs:
+  # The torso orientation terms are zeroed for CoM + ACoM tracking. Whole-body
+  # orientation is regulated by Q_acom, and the aCOM offset is generated largely
+  # by torso rotation, so holding the torso to a reference orientation directly
+  # cancels the behaviour the aCOM cost exists to produce. The angular velocity
+  # terms are kept, heavily reduced, purely as damping.
   torso:
     link_name: utorso
     weights:
       pos_x: 0
       pos_y: 0
       pos_z: 0
-      orientation_x: 50
-      orientation_y: 50
+      orientation_x: 0  # was 50, now handled by Q_acom (2,2)
+      orientation_y: 0  # was 50, now handled by Q_acom (1,1)
       orientation_z: 0
       lin_velocity_x: 0.1
       lin_velocity_y: 0.1
       lin_velocity_z: 0.005
-      ang_velocity_x: 5
-      ang_velocity_y: 5
-      ang_velocity_z: 2
+      ang_velocity_x: 0.5  # was 5
+      ang_velocity_y: 0.5  # was 5
+      ang_velocity_z: 0.5  # was 2
       lin_acceleration_x: 0
       lin_acceleration_y: 0
       lin_acceleration_z: 0
@@ -422,6 +472,26 @@ contacts:
     # relaxed log barrier parameters
     mu: 0.2
     delta: 5.0
+
+  # Barrier penalty enforcing λ ≥ 0 for basis-vector contact inputs.
+  # Only active when useContactBasisVectorInputs: true.
+  # The PieceWisePolynomialBarrierPenalty returns non-zero cost for λ < delta,
+  # and zero cost for λ ≥ delta. Decrease delta for a tighter barrier region;
+  # increase mu for stronger penalty on constraint violation.
+  # LINT.IfChange(basis_barrier_config)
+  basisNonNegativityBarrier:
+    mu: 1.0e-2
+    delta: 1.0e-3
+  # LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/src/CentroidalMpcInterface.cpp:basis_barrier_yaml_path)
+
+  # Quadratic regularization on the basis-vector scalings λ (only active when useContactBasisVectorInputs: true).
+  # In basis-vector mode the input cost R is defined on the contact-frame wrench W = B·λ and transformed as
+  # R_basis = Mᵀ·R·M. Each foot has more generators than wrench components, so Mᵀ·R·M is singular and the
+  # optimal λ would not be unique; this value is added to the diagonal of the λ block to make the input
+  # Hessian positive definite. Keep it small relative to the R force weights (units: cost per λ², λ in N).
+  # LINT.IfChange(basis_regularization_config)
+  basisScalingRegularization: 1.0e-4
+  # LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/src/CentroidalMpcInterface.cpp:basis_regularization_yaml_path)
 
   frictionForceConeSoftConstraint:
     frictionCoefficient: 0.5

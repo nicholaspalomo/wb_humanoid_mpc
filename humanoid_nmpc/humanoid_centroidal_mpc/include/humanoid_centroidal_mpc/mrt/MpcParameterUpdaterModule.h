@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <filesystem>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -43,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_mpc/MPC_BASE.h>
 #include <ocs2_oc/synchronized_module/SolverSynchronizedModule.h>
 
+#include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
@@ -61,6 +63,19 @@ namespace ocs2::humanoid {
  */
 class MpcParameterUpdaterModule : public SolverSynchronizedModule {
  public:
+  /**
+   * @param mpcPtr             MPC whose SqpSolver OCPs are updated in place (may be nullptr; updates are then skipped).
+   * @param taskFile           task.yaml watched for changes; also the base name of the temp file used for topic updates.
+   * @param stateDim           Dimension of the OCP state.
+   * @param inputDim           Dimension of the OCP input, i.e. the input layout the solver actually optimizes over. With
+   *                           basis-vector contact inputs this is the basis-space dimension, not the wrench-space one.
+   * @param contactNames       Contact names used to look up per-foot costs and constraints.
+   * @param referenceManager   Optional reference manager whose swing trajectory planner is re-configured.
+   * @param basisCostTransform When set, the OCP uses basis-vector contact inputs. The R matrix in task.yaml is indexed in
+   *                           wrench space (forces/moments), so it is loaded with wrenchInputDim rows/cols and transformed
+   *                           into basis space with exactly the same transform the OCP factory used. inputDim must equal
+   *                           basisCostTransform->basisInputDim(); otherwise std::invalid_argument is thrown.
+   */
   MpcParameterUpdaterModule(MPC_BASE* mpcPtr,
                             const std::string& taskFile,
                             const std::string& urdfFile,
@@ -68,7 +83,8 @@ class MpcParameterUpdaterModule : public SolverSynchronizedModule {
                             size_t stateDim,
                             size_t inputDim,
                             const std::vector<std::string>& contactNames,
-                            const SwitchedModelReferenceManager* referenceManager = nullptr);
+                            const SwitchedModelReferenceManager* referenceManager = nullptr,
+                            std::optional<BasisInputsCostTransformConfig> basisCostTransform = std::nullopt);
 
   ~MpcParameterUpdaterModule() override = default;
 
@@ -105,6 +121,8 @@ class MpcParameterUpdaterModule : public SolverSynchronizedModule {
   const size_t inputDim_;
   const std::vector<std::string> contactNames_;
   const SwitchedModelReferenceManager* referenceManagerPtr_;
+  /// Set only when the OCP uses basis-vector contact inputs; maps the wrench-space R of task.yaml into basis space.
+  std::optional<BasisInputsCostTransformConfig> basisCostTransform_;
 
   // File-watching state
   std::filesystem::file_time_type taskFileLastWriteTime_;

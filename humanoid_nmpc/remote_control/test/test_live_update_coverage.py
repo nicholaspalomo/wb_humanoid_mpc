@@ -63,72 +63,47 @@ Test matrix (DRC Atlas — 36 state DOFs, 36 input DOFs):
                       + mpc.mrtDesiredFrequency = 12
 """
 
+import importlib.util
 import os
-import re
 import shutil
 import tempfile
 import unittest
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 import yaml
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Inline copy of _update_single_key (avoids tkinter import via __init__)
+# Import the real _update_single_key under test
 # ═══════════════════════════════════════════════════════════════════════
+#
+# yaml_editor_utils imports nothing from tkinter, but remote_control.tk_app's
+# package __init__ eagerly imports the GUI widgets, which do. Loading the module
+# straight from its path skips that __init__, so the test exercises the shipped
+# implementation instead of a copy of it that would silently drift.
+
+_YAML_EDITOR_UTILS_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "remote_control",
+    "tk_app",
+    "yaml_editor_utils.py",
+)
 
 
-def _update_single_key(
-    lines: List[str], key_path: List[str], new_val: float
-) -> List[str]:
-    """Updates a single key specified by hierarchical path within YAML lines."""
-    if not key_path:
-        return lines
+def _load_yaml_editor_utils():
+    """Loads yaml_editor_utils without importing the tkinter-dependent package."""
+    spec = importlib.util.spec_from_file_location(
+        "remote_control_yaml_editor_utils", _YAML_EDITOR_UTILS_PATH
+    )
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Could not load {_YAML_EDITOR_UTILS_PATH}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
-    leaf_key = key_path[-1].strip("\"'")
-    parent_path = [k.strip("\"'") for k in key_path[:-1]]
 
-    new_lines = []
-    section_stack: List[Tuple[int, str]] = []
-    updated = False
-
-    for line in lines:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            new_lines.append(line)
-            continue
-
-        indent = len(line) - len(line.lstrip())
-        while section_stack and section_stack[-1][0] >= indent:
-            section_stack.pop()
-
-        current_sections = [s[1] for s in section_stack]
-        colon_idx = line.find(":")
-        if colon_idx != -1:
-            raw_key = line[:colon_idx].strip().strip("\"'")
-            after_colon = line[colon_idx + 1 :].strip()
-
-            if not updated and raw_key == leaf_key and current_sections == parent_path:
-                prefix = line[: colon_idx + 1] + " "
-                comment_part = ""
-                hash_idx = after_colon.find("#")
-                if hash_idx != -1:
-                    comment_part = "  " + after_colon[hash_idx:]
-                val_str = f"{new_val:.6g}"
-                if ("e" in val_str or "E" in val_str) and "." not in val_str:
-                    parts = re.split(r"([eE])", val_str, maxsplit=1)
-                    val_str = parts[0] + ".0" + "".join(parts[1:])
-                new_line = prefix + val_str + comment_part + "\n"
-                new_lines.append(new_line)
-                updated = True
-                continue
-
-            if not after_colon or after_colon.startswith("#"):
-                section_stack.append((indent, raw_key))
-
-        new_lines.append(line)
-
-    return new_lines
+_yaml_editor_utils = _load_yaml_editor_utils()
+_update_single_key = _yaml_editor_utils._update_single_key
 
 
 def _get_nested(data: dict, key_path: List[str]):
@@ -199,6 +174,26 @@ class TestLiveUpdateCoverage(unittest.TestCase):
             self.assertAlmostEqual(
                 actual, new_val, places=1, msg=f"Q({i},{i}) roundtrip failed"
             )
+
+    def test_q_com_roundtrip(self):
+        actual_s = self._roundtrip("Q_com.scaling", 99.0)
+        self.assertAlmostEqual(actual_s, 99.0, places=1)
+        for i in range(3):
+            slider_key = f'Q_com."({i},{i})"'
+            new_val = 12.5 + i
+            actual = self._roundtrip(slider_key, new_val)
+            self.assertIsNotNone(actual, f"{slider_key} not found after update")
+            self.assertAlmostEqual(actual, new_val, places=1)
+
+    def test_q_acom_roundtrip(self):
+        actual_s = self._roundtrip("Q_acom.scaling", 88.0)
+        self.assertAlmostEqual(actual_s, 88.0, places=1)
+        for i in range(3):
+            slider_key = f'Q_acom."({i},{i})"'
+            new_val = 18.5 + i
+            actual = self._roundtrip(slider_key, new_val)
+            self.assertIsNotNone(actual, f"{slider_key} not found after update")
+            self.assertAlmostEqual(actual, new_val, places=1)
 
     # ══════════════════════════════════════════════════════════════
     #  2. R matrix: scaling + 36 diagonal entries
@@ -391,6 +386,39 @@ class TestLiveUpdateCoverage(unittest.TestCase):
             self.assertAlmostEqual(
                 actual, new_val, places=2, msg=f"{slider_key} roundtrip failed"
             )
+
+    def test_contact_wrench_cone_barrier_roundtrip(self):
+        for p, new_val in [
+            ("frictionCoefficient", 0.65),
+            ("torsionalFrictionCoefficient", 0.08),
+            ("minNormalForce", 8.0),
+            ("gripperForce", 0.5),
+            ("mu", 0.35),
+            ("delta", 4.5),
+        ]:
+            slider_key = f"contacts.contactWrenchConeSoftConstraint.{p}"
+            actual = self._roundtrip(slider_key, new_val)
+            self.assertIsNotNone(actual, f"{slider_key} not found")
+            self.assertAlmostEqual(
+                actual, new_val, places=2, msg=f"{slider_key} roundtrip failed"
+            )
+
+    def test_basis_non_negativity_barrier_roundtrip(self):
+        for p, new_val in [("mu", 0.05), ("delta", 0.005)]:
+            slider_key = f"contacts.basisNonNegativityBarrier.{p}"
+            actual = self._roundtrip(slider_key, new_val)
+            self.assertIsNotNone(actual, f"{slider_key} not found")
+            self.assertAlmostEqual(
+                actual, new_val, places=3, msg=f"{slider_key} roundtrip failed"
+            )
+
+    def test_basis_scaling_regularization_roundtrip(self):
+        slider_key = "contacts.basisScalingRegularization"
+        actual = self._roundtrip(slider_key, 5.0e-4)
+        self.assertIsNotNone(actual, f"{slider_key} not found")
+        self.assertAlmostEqual(
+            actual, 5.0e-4, places=6, msg=f"{slider_key} roundtrip failed"
+        )
 
     def test_joint_limits_barrier_roundtrip(self):
         for p, new_val in [("mu", 999.0), ("delta", 0.5)]:

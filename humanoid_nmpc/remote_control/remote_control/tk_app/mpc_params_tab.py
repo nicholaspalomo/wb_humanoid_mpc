@@ -27,6 +27,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ****************************************************************************"""
 
+import logging
 import os
 import re
 import tkinter as tk
@@ -39,6 +40,31 @@ from remote_control.tk_app.yaml_editor_utils import (
     load_yaml_safe,
     update_yaml_values_in_place,
 )
+
+_LOGGER = logging.getLogger(__name__)
+
+# Contact-constraint keys that are baked into the CppAD-compiled constraint at
+# build time. MpcParameterUpdaterModule only hot-reloads the barrier's `mu` and
+# `delta`, so editing these takes effect on the next launch, not immediately.
+# They are still shown so the value can be saved to the task file, but the label
+# says so rather than implying a live control.
+# LINT.IfChange(build_time_contact_keys)
+_BUILD_TIME_CONTACT_KEYS = frozenset(
+    (
+        "frictionCoefficient",
+        "torsionalFrictionCoefficient",
+        "minNormalForce",
+        "gripperForce",
+    )
+)
+# LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/src/mrt/MpcParameterUpdaterModule.cpp:hot_reloadable_barrier_keys)
+
+
+def _contact_slider_label(prefix: str, key: str) -> str:
+    """Names a contact-constraint slider, flagging the build-time-only keys."""
+    if key in _BUILD_TIME_CONTACT_KEYS:
+        return f"{prefix}_{key} (restart)"
+    return f"{prefix}_{key}"
 
 
 class MpcParamsTab(ttk.Frame):
@@ -70,6 +96,20 @@ class MpcParamsTab(ttk.Frame):
         "Base Yaw (theta_base_z)",
         "Base Pitch (theta_base_y)",
         "Base Roll (theta_base_x)",
+    ]
+
+    COM_LABELS = [
+        "CoM Pos X (p_com_x)",
+        "CoM Pos Y (p_com_y)",
+        "CoM Pos Z (p_com_z)",
+    ]
+
+    # Q_acom rows follow the centroidal state's ZYX Euler convention, matching
+    # BASE_POSE_LABELS above. Row 0 is yaw.
+    ACOM_LABELS = [
+        "ACoM Yaw (theta_acom_z)",
+        "ACoM Pitch (theta_acom_y)",
+        "ACoM Roll (theta_acom_x)",
     ]
 
     CONTACT_FORCE_LABELS = [
@@ -408,10 +448,94 @@ class MpcParamsTab(ttk.Frame):
                 row.pack(fill="x", padx=4, pady=1)
                 self.slider_rows[f'Q."{key}"'] = row
 
+        # CoM Position Tracking (Q_com)
+        q_com_data = self.raw_data.get("Q_com", {})
+        if q_com_data:
+            com_frame = ttk.LabelFrame(
+                self.scroll_container.scrollable_content,
+                text="• CoM Position Tracking (Q_com)",
+            )
+            com_frame.pack(fill="x", padx=6, pady=4)
+            com_scaling_val = float(q_com_data.get("scaling", 1.0))
+            row = SliderRow(
+                com_frame,
+                name="Q_com.scaling",
+                initial_value=com_scaling_val,
+                min_val=0.01,
+                max_val=max(com_scaling_val * 5.0, 100.0),
+                label_width=28,
+                on_change=self._on_any_slider_change,
+            )
+            row.pack(fill="x", padx=4, pady=1)
+            self.slider_rows["Q_com.scaling"] = row
+
+            for i in range(3):
+                key = f"({i},{i})"
+                if key in q_com_data:
+                    val = float(q_com_data[key])
+                    name = self.COM_LABELS[i]
+                    row = SliderRow(
+                        com_frame,
+                        name=name,
+                        initial_value=val,
+                        min_val=0.0,
+                        max_val=max(val * 4.0, 50.0),
+                        label_width=28,
+                        on_change=self._on_any_slider_change,
+                    )
+                    row.pack(fill="x", padx=4, pady=1)
+                    self.slider_rows[f'Q_com."{key}"'] = row
+
+        # Angular CoM Tracking (Q_acom)
+        q_acom_data = self.raw_data.get("Q_acom", {})
+        if q_acom_data:
+            acom_frame = ttk.LabelFrame(
+                self.scroll_container.scrollable_content,
+                text="• Angular CoM Tracking (Q_acom)",
+            )
+            acom_frame.pack(fill="x", padx=6, pady=4)
+            acom_scaling_val = float(q_acom_data.get("scaling", 1.0))
+            row = SliderRow(
+                acom_frame,
+                name="Q_acom.scaling",
+                initial_value=acom_scaling_val,
+                min_val=0.01,
+                max_val=max(acom_scaling_val * 5.0, 100.0),
+                label_width=28,
+                on_change=self._on_any_slider_change,
+            )
+            row.pack(fill="x", padx=4, pady=1)
+            self.slider_rows["Q_acom.scaling"] = row
+
+            for i in range(3):
+                key = f"({i},{i})"
+                if key in q_acom_data:
+                    val = float(q_acom_data[key])
+                    name = self.ACOM_LABELS[i]
+                    row = SliderRow(
+                        acom_frame,
+                        name=name,
+                        initial_value=val,
+                        min_val=0.0,
+                        max_val=max(val * 4.0, 50.0),
+                        label_width=28,
+                        on_change=self._on_any_slider_change,
+                    )
+                    row.pack(fill="x", padx=4, pady=1)
+                    self.slider_rows[f'Q_acom."{key}"'] = row
+
         # Base Pose Weights (6..11)
+        use_com_acom = bool(self.raw_data.get("useComAndAcomTracking", False)) or bool(
+            q_com_data
+        )
+        base_title = (
+            "• Base Pose Tracking (6..11) [⚡ Overridden by CoM + ACoM Tracking]"
+            if use_com_acom
+            else "• Base Pose Tracking (6..11)"
+        )
         base_frame = ttk.LabelFrame(
             self.scroll_container.scrollable_content,
-            text="• Base Pose Tracking (6..11)",
+            text=base_title,
         )
         base_frame.pack(fill="x", padx=6, pady=4)
         for i in range(6, 12):
@@ -901,7 +1025,7 @@ class MpcParamsTab(ttk.Frame):
                 val = float(fric_cfg[k])
                 row = SliderRow(
                     bar_frame,
-                    name=f"frictionCone_{k}",
+                    name=_contact_slider_label("frictionCone", k),
                     initial_value=val,
                     min_val=0.01,
                     max_val=max(val * 4.0, 20.0),
@@ -929,6 +1053,77 @@ class MpcParamsTab(ttk.Frame):
                 )
                 row.pack(fill="x", padx=4, pady=1)
                 self.slider_rows[f"contacts.contactMomentXYSoftConstraint.{k}"] = row
+
+        # Contact wrench cone barrier & soft constraint
+        wrench_cfg = self.raw_data.get("contacts", {}).get(
+            "contactWrenchConeSoftConstraint", {}
+        )
+        for k in [
+            "frictionCoefficient",
+            "torsionalFrictionCoefficient",
+            "minNormalForce",
+            "gripperForce",
+            "mu",
+            "delta",
+        ]:
+            if k in wrench_cfg:
+                val = float(wrench_cfg[k])
+                min_v = (
+                    0.0
+                    if k
+                    in [
+                        "minNormalForce",
+                        "gripperForce",
+                        "torsionalFrictionCoefficient",
+                    ]
+                    else 0.001
+                )
+                max_v = max(val * 4.0, 20.0)
+                row = SliderRow(
+                    bar_frame,
+                    name=_contact_slider_label("wrenchCone", k),
+                    initial_value=val,
+                    min_val=min_v,
+                    max_val=max_v,
+                    label_width=26,
+                    on_change=self._on_any_slider_change,
+                )
+                row.pack(fill="x", padx=4, pady=1)
+                self.slider_rows[f"contacts.contactWrenchConeSoftConstraint.{k}"] = row
+
+        # Basis non-negativity barrier (for basis-vector inputs)
+        basis_bar_cfg = self.raw_data.get("contacts", {}).get(
+            "basisNonNegativityBarrier", {}
+        )
+        for k in ["mu", "delta"]:
+            if k in basis_bar_cfg:
+                val = float(basis_bar_cfg[k])
+                row = SliderRow(
+                    bar_frame,
+                    name=f"basisNonNeg_{k}",
+                    initial_value=val,
+                    min_val=1e-5,
+                    max_val=max(val * 5.0, 1.0),
+                    label_width=26,
+                    on_change=self._on_any_slider_change,
+                )
+                row.pack(fill="x", padx=4, pady=1)
+                self.slider_rows[f"contacts.basisNonNegativityBarrier.{k}"] = row
+
+        # Basis scaling regularization
+        if "basisScalingRegularization" in self.raw_data.get("contacts", {}):
+            val = float(self.raw_data["contacts"]["basisScalingRegularization"])
+            row = SliderRow(
+                bar_frame,
+                name="basisScalingRegularization",
+                initial_value=val,
+                min_val=1e-6,
+                max_val=max(val * 10.0, 0.01),
+                label_width=26,
+                on_change=self._on_any_slider_change,
+            )
+            row.pack(fill="x", padx=4, pady=1)
+            self.slider_rows["contacts.basisScalingRegularization"] = row
 
         # Joint limits barrier
         jl_cfg = self.raw_data.get("jointLimits", {})
@@ -1234,50 +1429,25 @@ class MpcParamsTab(ttk.Frame):
         """Publish current slider values as a YAML string to /mpc_parameter_updates."""
         self._debounce_publish_id = None
         if not self.enable_online_tuning or not self.param_publisher:
-            print(
-                "[MpcParamsTab] Skipping publish: online tuning disabled or no publisher"
-            )
+            _LOGGER.debug("Skipping publish: online tuning disabled or no publisher.")
             return
 
         try:
             yaml_content = self._build_yaml_with_slider_values()
-            if yaml_content:
-                from std_msgs.msg import String
+            if not yaml_content:
+                _LOGGER.warning("Not publishing: the rebuilt task YAML is empty.")
+                return
 
-                msg = String()
-                msg.data = yaml_content
-                self.param_publisher.publish(msg)
+            from std_msgs.msg import String
 
-                # Debug: show which values changed from their defaults
-                changed = []
-                for key, val in self._live_values.items():
-                    if key in self._default_values:
-                        if abs(val - self._default_values[key]) > 1e-6:
-                            changed.append(
-                                f"  {key}: {self._default_values[key]} → {val}"
-                            )
-                if changed:
-                    print(
-                        f"[MpcParamsTab] Published {len(yaml_content)} chars to /mpc_parameter_updates. "
-                        f"Changed params ({len(changed)}):"
-                    )
-                    for c in changed[:10]:  # Limit to first 10 for readability
-                        print(c)
-                    if len(changed) > 10:
-                        print(f"  ... and {len(changed) - 10} more")
-                else:
-                    print(
-                        f"[MpcParamsTab] Published {len(yaml_content)} chars (no changes from defaults)"
-                    )
-            else:
-                print(
-                    "[MpcParamsTab] WARNING: _build_yaml_with_slider_values returned empty"
-                )
+            msg = String()
+            msg.data = yaml_content
+            self.param_publisher.publish(msg)
+            _LOGGER.debug(
+                "Published %d characters to /mpc_parameter_updates.", len(yaml_content)
+            )
         except Exception as e:
-            print(f"[MpcParamsTab] ERROR in _publish_to_topic: {e}")
-            import traceback
-
-            traceback.print_exc()
+            _LOGGER.exception("Failed to publish MPC parameter updates.")
             self._show_status(f"Error publishing to topic: {e}", error=True)
 
     def save_and_checkpoint(self):

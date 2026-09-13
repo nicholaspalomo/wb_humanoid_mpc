@@ -30,7 +30,8 @@ C++ header files for real-time inference in MPC and whole-body controllers.
 """
 
 import json
-from typing import List, Tuple
+from typing import List, Optional, Tuple
+
 import numpy as np
 
 
@@ -62,28 +63,59 @@ def export_to_cpp_header(
     filepath: str,
     class_name: str = "AcomSirenWeights",
     omega_0: float = 30.0,
+    joint_names: Optional[List[str]] = None,
 ):
-    """Generates a standalone C++ header file containing SIREN weights and biases."""
+    """Generates a standalone C++ header file containing SIREN weights and biases.
+
+    Args:
+        params: Weight/bias pairs, sinusoidal layers first and the linear readout
+            last. `num_layers` in the generated header is `len(params)`, which is
+            one more than `SirenACOM.num_layers`.
+        filepath: Destination path for the generated header.
+        class_name: Name of the generated struct.
+        omega_0: Frequency scaling baked into the sinusoidal activations.
+        joint_names: Joint names, in the order the network expects them. Recorded
+            in the header so the joint ordering the network was trained on can be
+            checked against the Pinocchio model at runtime.
+
+    Raises:
+        ValueError: If `joint_names` does not have one entry per network input.
+    """
+    input_dim = int(params[0][0].shape[1])
+    if joint_names is not None and len(joint_names) != input_dim:
+        raise ValueError(
+            f"joint_names has {len(joint_names)} entries but the network takes "
+            f"{input_dim} inputs."
+        )
+
     lines = [
         "/******************************************************************************",
         " * Auto-generated Angular Center of Mass (aCOM) SIREN Model Parameters",
-        " * Generated from JAX training pipeline.",
+        " * Generated from JAX training pipeline. Do not edit by hand.",
         " ******************************************************************************/",
         "",
         "#pragma once",
         "",
-        "#include <array>",
-        "#include <vector>",
+        "#include <cstddef>",
         "",
         "namespace ocs2::humanoid::acom {",
         "",
         f"struct {class_name} {{",
         f"  static constexpr double omega_0 = {omega_0};",
-        f"  static constexpr size_t num_layers = {len(params)};",
-        f"  static constexpr size_t input_dim = {params[0][0].shape[1]};",
-        f"  static constexpr size_t output_dim = {params[-1][0].shape[0]};",
+        f"  static constexpr std::size_t num_layers = {len(params)};",
+        f"  static constexpr std::size_t input_dim = {input_dim};",
+        f"  static constexpr std::size_t output_dim = {params[-1][0].shape[0]};",
         "",
     ]
+
+    if joint_names is not None:
+        lines.append("  // Joint ordering the network was trained on. Must match the")
+        lines.append("  // MPC's Pinocchio joint ordering exactly.")
+        joined = ", ".join(f'"{name}"' for name in joint_names)
+        lines.append(
+            f"  static inline const char* const joint_names[{input_dim}] = {{{joined}}};"
+        )
+        lines.append("")
 
     for idx, (w, b) in enumerate(params):
         w_np = np.array(w, dtype=np.float64)
@@ -91,8 +123,8 @@ def export_to_cpp_header(
         out_dim, in_dim = w_np.shape
 
         lines.append(f"  // Layer {idx}: ({out_dim} x {in_dim})")
-        lines.append(f"  static constexpr size_t W{idx}_rows = {out_dim};")
-        lines.append(f"  static constexpr size_t W{idx}_cols = {in_dim};")
+        lines.append(f"  static constexpr std::size_t W{idx}_rows = {out_dim};")
+        lines.append(f"  static constexpr std::size_t W{idx}_cols = {in_dim};")
 
         # Flattened row-major weight array
         w_str = ", ".join(f"{val:.10e}" for val in w_np.flatten())

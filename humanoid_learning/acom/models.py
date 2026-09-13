@@ -29,7 +29,8 @@ Implements Sinusoidal Representation Networks (SIREN) for learning
 integrable whole-body orientation coordinates from centroidal angular momentum.
 """
 
-from typing import Any, Callable, Dict, List, Tuple
+from typing import List, Tuple
+
 import jax
 import jax.numpy as jnp
 
@@ -57,6 +58,18 @@ class SirenACOM:
     """SIREN-based Angular Center of Mass network mapping joint positions to orientation offset.
 
     Delta_theta(q_j) in R^3 represents the whole-body orientation contribution from internal joints.
+
+    The network has `num_layers` sinusoidal layers followed by a linear readout,
+    so `init_params` returns `num_layers + 1` weight/bias pairs. The C++ evaluator
+    counts the readout as a layer, so the exported header's `num_layers` is one
+    greater than this one; see `export_acom.export_to_cpp_header`.
+
+    Attributes:
+        in_dim: Number of joints the network takes as input.
+        hidden_dim: Width of every sinusoidal layer.
+        num_layers: Number of sinusoidal layers, excluding the linear readout.
+        out_dim: Output dimension, 3 for an orientation offset.
+        omega_0: Frequency scaling applied inside every sinusoidal activation.
     """
 
     def __init__(
@@ -111,12 +124,11 @@ class SirenACOM:
     ) -> jnp.ndarray:
         """Forward pass computing Delta_theta(q_j) in R^3."""
         x = q_j
-        for i, (w, b) in enumerate(params[:-1]):
+        for w, b in params[:-1]:
             x = jnp.sin(self.omega_0 * (jnp.dot(w, x) + b))
 
         w_out, b_out = params[-1]
-        out = jnp.dot(w_out, x) + b_out
-        return out
+        return jnp.dot(w_out, x) + b_out
 
     def jacobian_qj(
         self, params: List[Tuple[jnp.ndarray, jnp.ndarray]], q_j: jnp.ndarray
@@ -145,7 +157,6 @@ class SirenACOM:
         """Computes full aCOM Jacobian J_aCOM = [0_(3x3), I_(3x3), J_Delta_theta_(3xn_j)]."""
         q_j = q[6:]
         j_delta = self.jacobian_qj(params, q_j)
-        n_j = q_j.shape[0]
 
         zeros_pos = jnp.zeros((3, 3))
         eye_rot = jnp.eye(3)

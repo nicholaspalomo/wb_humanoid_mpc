@@ -60,7 +60,8 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
                                   PinocchioInterface pinocchioInterface,
                                   scalar_t mpcDesiredFrequency = -1,
                                   std::shared_ptr<DummyObserver> rVizVisualizerPtr = nullptr,
-                                  const std::string& pdGainsFile = "");
+                                  const std::string& pdGainsFile = "",
+                                  const MpcRobotModelBase<scalar_t>* effectiveMpcRobotModel = nullptr);
 
   /**
    * Destructor.
@@ -153,6 +154,10 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   PinocchioInterface pinocchioInterface_;
   ocs2::SystemObservation currentMpcObservation_;
   std::unique_ptr<CentroidalMpcRobotModel<scalar_t>> mpcRobotModelPtr_;
+  /// Owned clone of the model matching the OCP input layout (basis-vector decorator or wrench model). Every input read or
+  /// write goes through it; contact wrenches must be read with the state-aware ...InWorldFrame accessors because the
+  /// input-only accessors return the LOCAL contact-frame wrench in basis-vector mode.
+  std::unique_ptr<MpcRobotModelBase<scalar_t>> effectiveModelPtr_;
   std::vector<size_t> mpcJointIndices_;
   std::vector<size_t> otherJointIndices_;
 

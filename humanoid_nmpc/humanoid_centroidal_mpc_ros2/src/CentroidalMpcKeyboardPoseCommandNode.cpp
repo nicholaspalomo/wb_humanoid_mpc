@@ -65,8 +65,9 @@ int main(int argc, char* argv[]) {
   CHECK(create_result.ok()) << "Failed to create CentroidalMpcInterface: " << create_result.status();
   CentroidalMpcInterface& interface = **create_result;
 
+  // Reference inputs must match the OCP input layout, so use the effective model (basis-vector decorator when active).
   CentroidalMpcTargetTrajectoriesCalculator mpcTargetTrajectoriesCalculator(
-      referenceFile, interface.getMpcRobotModel(), interface.getPinocchioInterface(), interface.getCentroidalModelInfo(),
+      referenceFile, interface.getEffectiveMpcRobotModel(), interface.getPinocchioInterface(), interface.getCentroidalModelInfo(),
       interface.mpcSettings().timeHorizon_);
 
   TargetTrajectoriesKeyboardPublisher::CommandLineToTargetTrajectories targetTrajectoriesFunc =

@@ -31,6 +31,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <optional>
+
+#include <ocs2_centroidal_model/CentroidalModelInfo.h>
 #include <ocs2_pinocchio_interface/PinocchioInterface.h>
 
 #include <ocs2_core/constraint/StateInputConstraint.h>
@@ -65,8 +68,33 @@ class HumanoidCostConstraintFactory {
   HumanoidCostConstraintFactory(const HumanoidCostConstraintFactory& other) = delete;
 
   std::unique_ptr<StateInputCost> getStateInputQuadraticCost() const;
+
+  /** Creates the state quadratic tracking cost */
   std::unique_ptr<StateInputCost> getStateQuadraticCost() const;
+
+  /**
+   * Creates the CoM and ACoM tracking cost.
+   *
+   * @param info Centroidal model info for the same reduced Pinocchio model this
+   *     factory was constructed with. Passed in rather than reconstructed here,
+   *     because CentroidalModelInfo has no default member initializers and a
+   *     hand-built one leaves the contact and nominal-inertia fields indeterminate.
+   */
+  std::unique_ptr<StateCost> getComAndAcomTrackingCost(const CentroidalModelInfo& info) const;
+
   std::unique_ptr<StateInputCost> getInputQuadraticCost() const;
+
+  /**
+   * Set the basis-to-wrench mapping M matrix for cost transformation.
+   * When set, R is loaded in wrench dimensions (wrenchInputDim × wrenchInputDim)
+   * and transformed: R_basis = M^T · R_wrench · M + λ-regularization
+   * (see transformWrenchInputCostToBasisSpace).
+   * @param M                    The local-frame mapping matrix (wrenchInputDim × basisInputDim).
+   * @param wrenchInputDim       The original wrench-based input dimension.
+   * @param numBasisInputs       Number of leading λ entries in the basis-vector input.
+   * @param lambdaRegularization Non-negative diagonal regularization added to the λ block of R_basis.
+   */
+  void setBasisToWrenchMap(const matrix_t& M, size_t wrenchInputDim, size_t numBasisInputs, scalar_t lambdaRegularization);
 
   std::unique_ptr<StateCost> getTerminalCost() const;
 
@@ -85,6 +113,9 @@ class HumanoidCostConstraintFactory {
   std::unique_ptr<StateInputCost> getExternalTorqueQuadraticCost(size_t contactPointIndex) const;
 
  private:
+  /** Loads the R matrix from task file, optionally transforming from wrench to basis-vector space. */
+  matrix_t loadAndTransformR() const;
+
   std::string taskFile_;
   std::string referenceFile_;
   const SwitchedModelReferenceManager* referenceManagerPtr_;
@@ -93,6 +124,12 @@ class HumanoidCostConstraintFactory {
   const MpcRobotModelBase<ad_scalar_t>* mpcRobotModelADPtr_;
   const ModelSettings& modelSettings_;
   const bool verbose_;
+
+  /// Optional: when set, R is loaded in wrench dims then transformed to basis-vector space.
+  std::optional<matrix_t> basisToWrenchMap_;  // M: wrenchInputDim × basisInputDim
+  size_t wrenchInputDim_ = 0;
+  size_t numBasisInputs_ = 0;
+  scalar_t lambdaRegularization_ = 0.0;
 };
 
 }  // namespace ocs2::humanoid

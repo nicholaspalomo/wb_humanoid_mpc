@@ -79,7 +79,34 @@ VectorFunctionLinearApproximation ZeroWrenchConstraint::getLinearApproximation(s
   approx.f = getValue(time, state, input, preComp);
   approx.dfdx = matrix_t::Zero(n_constraints, mpcRobotModelPtr_->getStateDim());
   approx.dfdu = matrix_t::Zero(n_constraints, mpcRobotModelPtr_->getInputDim());
-  approx.dfdu.middleCols<n_constraints>(n_constraints * contactPointIndex_).diagonal() = vector_t::Ones(n_constraints);
+
+  // Use the model's start index — this correctly handles both wrench-space
+  // models (identity Jacobian at wrench columns) and basis-vector models
+  // (B matrix at λ columns). For basis-vector inputs the value is the LOCAL
+  // contact-frame wrench B·λ; since the rotation into the world frame is
+  // invertible, W_local = 0 ⇔ W_world = 0, so no state-dependent rotation is
+  // needed here.
+  const size_t colStart = mpcRobotModelPtr_->getContactWrenchStartIndices(contactPointIndex_);
+  const size_t nextBlockStart = (contactPointIndex_ + 1 < N_CONTACTS)
+                                    ? mpcRobotModelPtr_->getContactWrenchStartIndices(contactPointIndex_ + 1)
+                                    : mpcRobotModelPtr_->getJointVelocitiesStartindex();
+  const size_t colSpan = nextBlockStart - colStart;
+
+  // For wrench-space: colSpan == 6, and the Jacobian is identity.
+  // For basis-vector: colSpan == numBasisPerFoot, and the Jacobian is B.
+  if (colSpan == static_cast<size_t>(n_constraints)) {
+    // Wrench-space model: d(wrench)/d(wrench_input) = I
+    approx.dfdu.middleCols(colStart, colSpan).setIdentity();
+  } else {
+    // Basis-vector model: d(B * λ)/d(λ) = B. The wrench is linear in λ, so probing each unit
+    // vector through getContactWrench yields the exact column B[:, j] of the Jacobian.
+    for (size_t j = 0; j < colSpan; ++j) {
+      vector_t perturbedInput = vector_t::Zero(mpcRobotModelPtr_->getInputDim());
+      perturbedInput(colStart + j) = 1.0;
+      approx.dfdu.col(colStart + j) = mpcRobotModelPtr_->getContactWrench(perturbedInput, contactPointIndex_);
+    }
+  }
+
   return approx;
 }
 

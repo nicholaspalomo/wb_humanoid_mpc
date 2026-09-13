@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <gtest/gtest.h>
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <thread>
@@ -37,6 +38,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_mpc/MPC_BASE.h>
 #include <ocs2_ros2_interfaces/mrt/DummyObserver.h>
 #include "humanoid_centroidal_mpc_test/CentroidalTestingModelInterface.h"
+#include "humanoid_common_mpc/common/BasisInputsModelDecorator.h"
+#include "humanoid_common_mpc/constraint/ContactWrenchConeConstraint.h"
+#include "humanoid_common_mpc/contact/ContactRectangle.h"
+#include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
+#include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 
 using namespace ocs2;
 using namespace ocs2::humanoid;
@@ -106,4 +112,83 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testPdGainsHotReloading) {
 
   // Trigger again
   EXPECT_NO_THROW({ controller.computeJointControlAction(0.02, robotState, jointAction); });
+}
+
+// With basis-vector inputs the OCP input is [lambda_left, lambda_right, joint velocities] and the input-only accessors of the
+// effective model return the LOCAL contact-frame wrench B*lambda. The controller must (a) size its observation input to the
+// basis layout and (b) hand WORLD-frame wrenches to the inverse dynamics (which uses LOCAL_WORLD_ALIGNED Jacobians). Pitching
+// the ankles makes the local contact frames differ from the world frame, so a local-frame wrench would yield different torques.
+TEST_F(CentroidalMpcMrtJointControllerTest, testBasisVectorInputsUseWorldFrameWrenchesForFeedforward) {
+  MockMpc mockMpc;
+
+  ::robot::model::RobotDescription robotDesc(testingModelInterface.urdfFile);
+  robot::model::RobotState robotState(robotDesc);
+  robot::model::RobotJointAction jointAction(robotDesc);
+
+  // Pitch both feet so that the local contact frames are not aligned with the world frame.
+  constexpr scalar_t kAnklePitch = 0.3;
+  robotState.setJointPosition(robotDesc.getJointIndex("left_ankle_pitch_joint"), kAnklePitch);
+  robotState.setJointPosition(robotDesc.getJointIndex("right_ankle_pitch_joint"), kAnklePitch);
+
+  // Basis decorator built the same way CentroidalMpcInterface builds it in basis mode.
+  const ContactWrenchConeConstraint::Config coneConfig(4, 0.7, 0.05, 5.0, 0.0);
+  const PolygonBounds footBounds(-0.1, 0.1, -0.05, 0.05);
+  const std::array<ContactWrenchConeBasisMatrix, N_CONTACTS> basisMatrices = {
+      ContactWrenchConeBasisMatrix(
+          coneConfig, ContactRectangle(footBounds, ContactCenterPoint("foot_l_contact", "left_ankle_roll_joint", vector3_t::Zero()))),
+      ContactWrenchConeBasisMatrix(
+          coneConfig, ContactRectangle(footBounds, ContactCenterPoint("foot_r_contact", "right_ankle_roll_joint", vector3_t::Zero())))};
+  BasisInputsModelDecorator<scalar_t> basisModel(
+      std::unique_ptr<MpcRobotModelBase<scalar_t>>(testingModelInterface.getMpcRobotModel().clone()), basisMatrices,
+      testingModelInterface.getPinocchioInterface());
+  ASSERT_NE(basisModel.getInputDim(), testingModelInterface.getMpcRobotModel().getInputDim());
+
+  // A generous torque limit keeps the controller's clamp from masking the torque comparison below.
+  const std::filesystem::path gainsFile = std::filesystem::temp_directory_path() / "test_pd_gains_basis.yaml";
+  {
+    std::ofstream ofs(gainsFile);
+    ofs << "default_gains:\n  kp: 100.0\n  kd: 10.0\n  torque_limit: 1000000.0\n";
+  }
+
+  CentroidalMpcMrtJointController controller(robotDesc, testingModelInterface.getModelSettings(), testingModelInterface.getMpcRobotModel(),
+                                             mockMpc, testingModelInterface.getPinocchioInterface(), 400.0, nullptr, gainsFile.string(),
+                                             &basisModel);
+
+  // The default mode is WB_MPC and the mock MPC never publishes a policy, so the controller takes the weight-compensating
+  // feed-forward branch.
+  ASSERT_NO_THROW(controller.computeJointControlAction(0.01, robotState, jointAction));
+  std::filesystem::remove(gainsFile);
+
+  // (a) The observation input follows the basis layout: a zero contact block with the joint velocities at the tail.
+  const SystemObservation& observation = controller.getCurrentObservation();
+  ASSERT_EQ(observation.input.size(), static_cast<Eigen::Index>(basisModel.getInputDim()));
+  EXPECT_TRUE(observation.input.head(basisModel.getInputDim() - basisModel.getJointDim()).isZero());
+  EXPECT_TRUE(basisModel.getJointVelocities(observation.state, observation.input).isZero());
+
+  // (b) Reference torques: the same state-aware weight-compensating input read back in the world frame and projected with the
+  // same inverse dynamics the controller uses.
+  PinocchioInterface pinocchioInterface = testingModelInterface.getPinocchioInterface();
+  const vector_t weightInput = weightCompensatingInput(pinocchioInterface, {true, true}, basisModel, observation.state);
+  const std::array<vector6_t, 2> worldWrenches{basisModel.getContactWrenchInWorldFrame(observation.state, weightInput, 0),
+                                               basisModel.getContactWrenchInWorldFrame(observation.state, weightInput, 1)};
+  const std::array<vector6_t, 2> localWrenches{basisModel.getContactWrench(weightInput, 0), basisModel.getContactWrench(weightInput, 1)};
+
+  const vector_t q = basisModel.getGeneralizedCoordinates(observation.state);
+  const vector_t qd = basisModel.getGeneralizedVelocities(observation.state, observation.input);
+  const vector_t qddZero = vector_t::Zero(basisModel.getJointDim());
+  const vector_t expectedTorques = computeJointTorques<scalar_t>(q, qd, qddZero, worldWrenches, pinocchioInterface);
+  const vector_t localFrameTorques = computeJointTorques<scalar_t>(q, qd, qddZero, localWrenches, pinocchioInterface);
+
+  // Sanity: with pitched feet the local- and world-frame wrenches (and hence torques) differ, so the check discriminates.
+  ASSERT_GT((worldWrenches[0] - localWrenches[0]).norm(), 1.0);
+  ASSERT_GT((expectedTorques - localFrameTorques).norm(), 1.0);
+
+  const auto& mpcJointNames = testingModelInterface.getModelSettings().mpcModelJointNames;
+  const auto mpcJointIndices = robotDesc.getJointIndices(mpcJointNames);
+  ASSERT_EQ(static_cast<Eigen::Index>(mpcJointIndices.size()), expectedTorques.size());
+  for (size_t i = 0; i < mpcJointIndices.size(); ++i) {
+    const scalar_t feedforward = jointAction.at(mpcJointIndices[i]).value().feed_forward_effort;
+    EXPECT_TRUE(std::isfinite(feedforward)) << "joint " << mpcJointNames[i];
+    EXPECT_NEAR(feedforward, expectedTorques[i], 1e-6) << "joint " << mpcJointNames[i];
+  }
 }

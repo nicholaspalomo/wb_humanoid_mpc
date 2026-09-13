@@ -31,9 +31,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <stdexcept>
 #include <thread>
 
 #include <humanoid_centroidal_mpc/mrt/MpcParameterUpdaterModule.h>
+#include <humanoid_common_mpc/common/BasisInputsCostTransform.h>
+#include <humanoid_common_mpc/common/Types.h>
 #include <ocs2_oc/synchronized_module/ReferenceManager.h>
 #include "humanoid_centroidal_mpc_test/CentroidalTestingModelInterface.h"
 
@@ -86,5 +89,32 @@ TEST_F(MpcParameterUpdaterModuleTest, testFileWatcher) {
     for (int i = 0; i < 150; ++i) {
       updater.preSolverRun(0.0, 0.01, state, referenceManager);
     }
+  });
+}
+
+TEST_F(MpcParameterUpdaterModuleTest, basisCostTransformRequiresBasisSpaceInputDim) {
+  // The yaml R is indexed in wrench space, so the only sane inputDim for a module carrying a basis-space transform is
+  // the transform's basis-space dimension. Passing the wrench-space dimension must be rejected at construction.
+  const size_t stateDim = testingModelInterface.getMpcRobotModel().getStateDim();
+  const size_t wrenchInputDim = testingModelInterface.getMpcRobotModel().getInputDim();
+  const size_t numJoints = testingModelInterface.getModelSettings().mpc_joint_dim;
+  const auto& contactNames = testingModelInterface.getModelSettings().contactNames;
+
+  BasisInputsCostTransformConfig config;
+  config.wrenchInputDim = wrenchInputDim;
+  config.numBasisInputs = 8 * N_CONTACTS;
+  config.lambdaRegularization = 1e-3;
+  config.basisToWrenchMap = matrix_t::Random(wrenchInputDim, config.numBasisInputs + numJoints);
+  ASSERT_NE(config.basisInputDim(), wrenchInputDim);
+
+  EXPECT_THROW(
+      {
+        MpcParameterUpdaterModule updater(nullptr, tempTaskFile_.string(), testingModelInterface.urdfFile,
+                                          testingModelInterface.referenceFile, stateDim, wrenchInputDim, contactNames, nullptr, config);
+      },
+      std::invalid_argument);
+  EXPECT_NO_THROW({
+    MpcParameterUpdaterModule updater(nullptr, tempTaskFile_.string(), testingModelInterface.urdfFile, testingModelInterface.referenceFile,
+                                      stateDim, config.basisInputDim(), contactNames, nullptr, config);
   });
 }

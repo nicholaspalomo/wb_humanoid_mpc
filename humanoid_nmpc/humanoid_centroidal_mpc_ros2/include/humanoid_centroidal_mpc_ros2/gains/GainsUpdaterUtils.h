@@ -47,8 +47,15 @@ std::vector<std::string> getStateDescriptions(const ocs2::humanoid::ModelSetting
 
 /**
  * Returns entire list of input descriptions in the same order as they are stored in the input vector.
+ *
+ * @param inputDim Dimension of the OCP input. For the wrench-space layout (6 * N_CONTACTS + joints) the contact entries
+ *                 are named as wrench components; for any other dimension the input is assumed to be the basis-vector
+ *                 layout [λ_left, λ_right, joint velocities] and the contact entries are named lambda_<l|r>_<k>.
  * @return
  */
+std::vector<std::string> getInputDescriptions(const ocs2::humanoid::ModelSettings& modelSettings, size_t inputDim);
+
+/** Wrench-space input descriptions (6 * N_CONTACTS wrench components followed by joint velocities). */
 std::vector<std::string> getInputDescriptions(const ocs2::humanoid::ModelSettings& modelSettings);
 
 /**

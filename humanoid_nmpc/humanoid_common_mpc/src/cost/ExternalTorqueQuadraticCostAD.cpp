@@ -120,7 +120,9 @@ ad_vector_t ExternalTorqueQuadraticCostAD::costVectorFunction(ad_scalar_t time,
   ad_matrix_t J_ee = ad_matrix_t::Zero(6, mpcRobotModelADPtr->getGenCoordinatesDim());
   pinocchio::computeFrameJacobian(model, data, q, frameID_, pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED, J_ee);
 
-  ad_vector_t tauExt = J_ee.transpose() * mpcRobotModelADPtr->getContactWrench(input, contactPointIndex_);
+  // The Jacobian is LOCAL_WORLD_ALIGNED, so the wrench must be expressed in the world frame. The state-aware
+  // accessor is frame-correct for both wrench-space and basis-vector (local-frame) input parameterizations.
+  ad_vector_t tauExt = J_ee.transpose() * mpcRobotModelADPtr->getContactWrenchInWorldFrame(state, input, contactPointIndex_);
 
   ad_vector_t tauExtActive = ad_vector_t::Zero(sqrtWeights_.size());
   for (size_t i = 0; i < sqrtWeights_.size(); i++) {

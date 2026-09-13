@@ -27,7 +27,13 @@ The **whole-body dynamics** MPC optimizes directly over contact forces, joint ac
 | **DRC Atlas** | ✅ | — | ✅ | ✅ |
 | **1X Neo** | *Coming Soon* | *Coming Soon* | *Coming Soon* | *Coming Soon* |
 
-![Screencast2024-12-16180254-ezgif com-optimize(3)](https://github.com/user-attachments/assets/d4b1f0da-39ca-4ce1-b53c-e1d040abe1be)
+**Unitree G1:**
+
+![Unitree G1](https://github.com/user-attachments/assets/d4b1f0da-39ca-4ce1-b53c-e1d040abe1be)
+
+**DRC Atlas:**
+
+![DRC Atlas](https://github.com/user-attachments/assets/ab7cd9c6-6919-4e9a-b6af-1a67725b5fcf)
 
 ---
 

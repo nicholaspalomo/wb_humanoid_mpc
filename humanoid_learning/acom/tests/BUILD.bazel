@@ -11,10 +11,15 @@ py_test(
     name = "test_acom",
     size = "medium",
     srcs = ["test_acom.py"],
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_description",
+        "//robot_models/unitree_g1/g1_description",
+    ],
     deps = [
         "//humanoid_learning/acom:acom_lib",
         requirement("jax"),
         requirement("jaxlib"),
+        requirement("mujoco"),
         requirement("numpy"),
         requirement("optax"),
         requirement("tensorboardx"),

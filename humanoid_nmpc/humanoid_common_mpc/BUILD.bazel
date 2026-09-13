@@ -1,5 +1,6 @@
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
 # humanoid_common_mpc - Core humanoid MPC library
 
 package(default_visibility = ["//visibility:public"])
@@ -10,6 +11,7 @@ cc_library(
         "src/contact/ContactCenterPoint.cpp",
         "src/contact/ContactPolygon.cpp",
         "src/contact/ContactRectangle.cpp",
+        "src/contact/ContactWrenchConeBasisMatrix.cpp",
         "src/pinocchio_model/pinocchioUtils.cpp",
         "src/pinocchio_model/createPinocchioModel.cpp",
         "src/pinocchio_model/DynamicsHelperFunctions.cpp",
@@ -18,6 +20,7 @@ cc_library(
         "src/constraint/JointLimitsSoftConstraint.cpp",
         "src/constraint/FootCollisionConstraint.cpp",
         "src/constraint/ZeroWrenchConstraint.cpp",
+        "src/constraint/BasisScalingNonNegativityConstraint.cpp",
         "src/constraint/EndEffectorKinematicsTwistConstraint.cpp",
         "src/constraint/FrictionForceConeConstraint.cpp",
         "src/constraint/ContactMomentXYConstraintCppAd.cpp",
@@ -25,6 +28,7 @@ cc_library(
         "src/constraint/EndEffectorKinematicsLinearVelConstraint.cpp",
         "src/cost/StateInputQuadraticCost.cpp",
         "src/cost/StateQuadraticCost.cpp",
+        "src/cost/ComAndAcomTrackingCost.cpp",
         "src/cost/InputQuadraticCost.cpp",
         "src/cost/EndEffectorKinematicCostHelpers.cpp",
         "src/cost/EndEffectorKinematicsQuadraticCost.cpp",
@@ -59,6 +63,7 @@ cc_library(
     ],
     deps = [
         "//humanoid_nmpc/humanoid_mpc_msgs",
+        "//lib/ocs2:ocs2_centroidal_model",
         "//lib/ocs2:ocs2_core",
         "//lib/ocs2:ocs2_mpc",
         "//lib/ocs2:ocs2_pinocchio_interface",
@@ -100,5 +105,48 @@ cc_binary(
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
+    ],
+)
+
+cc_test(
+    name = "testContactWrenchConeBasisMatrix",
+    srcs = ["test/testContactWrenchConeBasisMatrix.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+        "-DBOOST_VARIANT_LIMIT_TYPES=50",
+        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+    ],
+    deps = [
+        ":humanoid_common_mpc",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "testComAndAcomTrackingCost",
+    srcs = ["test/testComAndAcomTrackingCost.cpp"],
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":humanoid_common_mpc",
+        "@googletest//:gtest_main",
+        "@ros2_ament_index_cpp",
+    ],
+)
+
+cc_test(
+    name = "testAngularCenterOfMass",
+    srcs = ["test/testAngularCenterOfMass.cpp"],
+    deps = [
+        ":humanoid_common_mpc",
+        "@googletest//:gtest_main",
     ],
 )

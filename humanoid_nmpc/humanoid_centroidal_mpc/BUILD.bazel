@@ -9,6 +9,7 @@ cc_library(
     name = "humanoid_centroidal_mpc",
     srcs = [
         "src/dynamics/CentroidalDynamicsAD.cpp",
+        "src/dynamics/CentroidalDynamicsBasisInputsAD.cpp",
         "src/cost/CentroidalMpcEndEffectorFootCost.cpp",
         "src/cost/ICPCost.cpp",
         "src/constraint/ZeroVelocityConstraintCppAd.cpp",
@@ -58,6 +59,7 @@ load("@rules_cc//cc:cc_test.bzl", "cc_test")
 
 cc_test(
     name = "testMpcParameterUpdaterModule",
+    size = "large",
     srcs = ["test/testMpcParameterUpdaterModule.cpp"],
     copts = [
         "-std=c++20",
@@ -76,6 +78,35 @@ cc_test(
     ],
     deps = [
         ":humanoid_centroidal_mpc",
-        "@gtest//:gtest_main",
+        "@googletest//:gtest_main",
+        "@ros2_rclcpp",
+        "@ros2_std_msgs",
+    ],
+)
+
+cc_test(
+    name = "testBasisInputsModelDecorator",
+    srcs = ["test/testBasisInputsModelDecorator.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+        "-DBOOST_VARIANT_LIMIT_TYPES=50",
+        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+    ],
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":humanoid_centroidal_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc_ros2",
+        "@googletest//:gtest_main",
+        "@ros2_std_msgs",
     ],
 )

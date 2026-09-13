@@ -34,18 +34,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/HumanoidCostConstraintFactory.h"
 
 #include <ocs2_core/misc/LoadData.h>
-#include <ocs2_core/penalties/Penalties.h>
-#include <boost/property_tree/info_parser.hpp>
+#include <ocs2_core/misc/LoadStdVectorOfPair.h>
+
 #include <boost/property_tree/ptree.hpp>
 #include "absl/log/log.h"
 #include "absl/strings/str_cat.h"
+#include "humanoid_common_mpc/cost/ComAndAcomTrackingCost.h"
+#include "humanoid_common_mpc/cost/EndEffectorKinematicCostHelpers.h"
 
 #include <ocs2_core/constraint/StateInputConstraint.h>
 #include <ocs2_core/cost/QuadraticStateCost.h>
 #include <ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h>
+#include <ocs2_core/penalties/penalties/RelaxedBarrierPenalty.h>
 #include <ocs2_core/soft_constraint/StateInputSoftConstraint.h>
 #include <ocs2_core/soft_constraint/StateSoftConstraint.h>
 
+#include <humanoid_common_mpc/common/BasisInputsCostTransform.h>
 #include <humanoid_common_mpc/constraint/FrictionForceConeConstraint.h>
 #include <humanoid_common_mpc/constraint/ZeroWrenchConstraint.h>
 #include <humanoid_common_mpc/contact/ContactRectangle.h>
@@ -60,6 +64,26 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/cost/ExternalTorqueQuadraticCostAD.h"
 
 namespace ocs2::humanoid {
+
+namespace {
+
+/// In the centroidal state x = [h_norm(6), p_base(3), euler_zyx(3), q_j], the
+/// base pose occupies the 6x6 block starting at index 6.
+constexpr Eigen::Index kBasePoseStateIndex = 6;
+constexpr Eigen::Index kBasePoseDim = 6;
+
+/**
+ * Zeroes the base pose block of a state weight matrix.
+ *
+ * When CoM + aCOM tracking is active it regulates base position and orientation
+ * in its own coordinates, so leaving these weights in place would penalise the
+ * same physical error twice, in two different parameterisations.
+ */
+void zeroBasePoseWeights(matrix_t& Q) {
+  Q.block(kBasePoseStateIndex, kBasePoseStateIndex, kBasePoseDim, kBasePoseDim).setZero();
+}
+
+}  // namespace
 
 HumanoidCostConstraintFactory::HumanoidCostConstraintFactory(const std::string& taskFile,
                                                              const std::string& referenceFile,
@@ -82,11 +106,47 @@ HumanoidCostConstraintFactory::HumanoidCostConstraintFactory(const std::string& 
 /******************************************************************************************************/
 /******************************************************************************************************/
 
+void HumanoidCostConstraintFactory::setBasisToWrenchMap(const matrix_t& M,
+                                                        size_t wrenchInputDim,
+                                                        size_t numBasisInputs,
+                                                        scalar_t lambdaRegularization) {
+  basisToWrenchMap_ = M;
+  wrenchInputDim_ = wrenchInputDim;
+  numBasisInputs_ = numBasisInputs;
+  lambdaRegularization_ = lambdaRegularization;
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+matrix_t HumanoidCostConstraintFactory::loadAndTransformR() const {
+  if (basisToWrenchMap_.has_value()) {
+    // Load R in wrench dimensions, then transform: R_basis = M^T * R_wrench * M
+    matrix_t R_wrench(wrenchInputDim_, wrenchInputDim_);
+    loadData::loadEigenMatrix(taskFile_, "R", R_wrench);
+    matrix_t R_basis = transformWrenchInputCostToBasisSpace(R_wrench, *basisToWrenchMap_, numBasisInputs_, lambdaRegularization_);
+    if (verbose_) {
+      LOG(INFO) << "\n #### R cost loaded in wrench space (" << wrenchInputDim_ << "x" << wrenchInputDim_
+                << ") and transformed to basis-vector space (" << R_basis.rows() << "x" << R_basis.cols()
+                << ", lambda regularization = " << lambdaRegularization_ << ")";
+    }
+    return R_basis;
+  } else {
+    matrix_t R(mpcRobotModelADPtr_->getInputDim(), mpcRobotModelADPtr_->getInputDim());
+    loadData::loadEigenMatrix(taskFile_, "R", R);
+    return R;
+  }
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
 std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getStateInputQuadraticCost() const {
   matrix_t Q(mpcRobotModelADPtr_->getStateDim(), mpcRobotModelADPtr_->getStateDim());
   loadData::loadEigenMatrix(taskFile_, "Q", Q);
-  matrix_t R(mpcRobotModelADPtr_->getInputDim(), mpcRobotModelADPtr_->getInputDim());
-  loadData::loadEigenMatrix(taskFile_, "R", R);
+  matrix_t R = loadAndTransformR();
 
   if (verbose_) {
     LOG(INFO) << "\n #### Base Tracking Cost Coefficients: \n"
@@ -110,6 +170,13 @@ std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getStateQuadratic
   matrix_t Q(mpcRobotModelADPtr_->getStateDim(), mpcRobotModelADPtr_->getStateDim());
   loadData::loadEigenMatrix(taskFile_, "Q", Q);
 
+  if (modelSettings_.useComAndAcomTracking) {
+    zeroBasePoseWeights(Q);
+    if (verbose_) {
+      LOG(INFO) << "[HumanoidCostConstraintFactory] useComAndAcomTracking is enabled. Zeroing out base pose weights in Q.";
+    }
+  }
+
   if (verbose_) {
     LOG(INFO) << "\n #### Base Tracking State Cost Coefficients: \n"
               << " #### =============================================================================\n"
@@ -121,13 +188,32 @@ std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getStateQuadratic
   return std::unique_ptr<StateInputCost>(new StateQuadraticCost(std::move(Q), mpcRobotModelADPtr_->getInputDim(), *referenceManagerPtr_));
 }
 
+std::unique_ptr<StateCost> HumanoidCostConstraintFactory::getComAndAcomTrackingCost(const CentroidalModelInfo& info) const {
+  matrix_t Q_com(3, 3);
+  matrix_t Q_acom(3, 3);
+  loadData::loadEigenMatrix(taskFile_, "Q_com", Q_com);
+  loadData::loadEigenMatrix(taskFile_, "Q_acom", Q_acom);
+
+  if (verbose_) {
+    LOG(INFO) << "\n #### CoM + ACoM Tracking Cost Coefficients: \n"
+              << " #### =============================================================================\n"
+              << "Q_com:\n"
+              << Q_com << "\n"
+              << "Q_acom (rows are ZYX Euler: yaw, pitch, roll):\n"
+              << Q_acom << "\n"
+              << " #### =============================================================================";
+  }
+
+  return std::make_unique<ComAndAcomTrackingCost>(std::move(Q_com), std::move(Q_acom), *pinocchioInterfacePtr_, info,
+                                                  modelSettings_.robotName);
+}
+
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
 std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getInputQuadraticCost() const {
-  matrix_t R(mpcRobotModelADPtr_->getInputDim(), mpcRobotModelADPtr_->getInputDim());
-  loadData::loadEigenMatrix(taskFile_, "R", R);
+  matrix_t R = loadAndTransformR();
 
   if (verbose_) {
     LOG(INFO) << "\n #### Base Tracking Input Cost Coefficients: \n"
@@ -300,6 +386,18 @@ std::unique_ptr<StateCost> HumanoidCostConstraintFactory::getTerminalCost() cons
 
   matrix_t Qf(mpcRobotModelPtr_->getStateDim(), mpcRobotModelPtr_->getStateDim());
   loadData::loadEigenMatrix(taskFile_, "Q_final", Qf);
+
+  if (modelSettings_.useComAndAcomTracking) {
+    // The running cost's base pose block is zeroed for the same reason. Leaving it
+    // in the terminal cost would regulate the end of the horizon in base
+    // coordinates while every other node is regulated in aCOM coordinates, and
+    // terminalCostScaling makes that mismatch the dominant term at the horizon end.
+    zeroBasePoseWeights(Qf);
+    if (verbose_) {
+      LOG(INFO) << "[HumanoidCostConstraintFactory] useComAndAcomTracking is enabled. Zeroing out base pose weights in Q_final.";
+    }
+  }
+
   Qf *= terminalCostScaling;
   if (verbose_) LOG(INFO) << "Q_final:\n" << Qf;
   return std::unique_ptr<StateCost>(new QuadraticStateCost(Qf));

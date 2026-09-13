@@ -113,23 +113,26 @@ vector_t SwitchedModelReferenceManager::getDesiredState(const TargetTrajectories
   vector_t xNominal = targetTrajectories.getDesiredState(time);
 
   if (armSwingReferenceActive_) {
-    scalar_t phaseVariable = this->getPhaseVariable(time);
-    vector_t desiredJointAngles = mpcRobotModelPtr_->getJointAngles(xNominal);
-
-    vector3_t linVelCommand = mpcRobotModelPtr_->getBaseComLinearVelocity(xNominal);
-    scalar_t currentEulerZ = mpcRobotModelPtr_->getBasePose(state)[3];
-
-    const scalar_t localVelXCommand = (std::cos(currentEulerZ) * linVelCommand[0] + std::sin(currentEulerZ) * linVelCommand[1]);
-
+    // Skip procedural arm swing when ACoM tracking is active; arm orientations
+    // emerge naturally from the ACoM cost and would conflict with the generator.
     const ModelSettings& modelSettings = mpcRobotModelPtr_->modelSettings;
+    if (!modelSettings.useComAndAcomTracking) {
+      scalar_t phaseVariable = this->getPhaseVariable(time);
+      vector_t desiredJointAngles = mpcRobotModelPtr_->getJointAngles(xNominal);
 
-    scalar_t gaitCycleFactor = std::sin(2 * M_PI * (phaseVariable - 0.15)) * localVelXCommand;
-    desiredJointAngles[modelSettings.j_l_shoulder_y_index] += -0.15 * gaitCycleFactor;
-    desiredJointAngles[modelSettings.j_r_shoulder_y_index] += 0.15 * gaitCycleFactor;
-    desiredJointAngles[modelSettings.j_l_elbow_y_index] += -0.15 * gaitCycleFactor;
-    desiredJointAngles[modelSettings.j_r_elbow_y_index] += 0.15 * gaitCycleFactor;
+      vector3_t linVelCommand = mpcRobotModelPtr_->getBaseComLinearVelocity(xNominal);
+      scalar_t currentEulerZ = mpcRobotModelPtr_->getBasePose(state)[3];
 
-    mpcRobotModelPtr_->setJointAngles(xNominal, desiredJointAngles);
+      const scalar_t localVelXCommand = (std::cos(currentEulerZ) * linVelCommand[0] + std::sin(currentEulerZ) * linVelCommand[1]);
+
+      scalar_t gaitCycleFactor = std::sin(2 * M_PI * (phaseVariable - 0.15)) * localVelXCommand;
+      desiredJointAngles[modelSettings.j_l_shoulder_y_index] += -0.15 * gaitCycleFactor;
+      desiredJointAngles[modelSettings.j_r_shoulder_y_index] += 0.15 * gaitCycleFactor;
+      desiredJointAngles[modelSettings.j_l_elbow_y_index] += -0.15 * gaitCycleFactor;
+      desiredJointAngles[modelSettings.j_r_elbow_y_index] += 0.15 * gaitCycleFactor;
+
+      mpcRobotModelPtr_->setJointAngles(xNominal, desiredJointAngles);
+    }
   }
   return xNominal;
 }

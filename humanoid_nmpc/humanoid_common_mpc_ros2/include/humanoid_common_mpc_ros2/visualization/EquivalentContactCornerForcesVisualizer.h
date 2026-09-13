@@ -50,7 +50,19 @@ class EquivalentContactCornerForcesVisualizer {
                                           const PinocchioInterface& pinocchioInterface,
                                           const MpcRobotModelBase<scalar_t>& mpcRobotModel);
 
-  visualization_msgs::msg::MarkerArray generateContactVisualizationForceMarkers(const vector_t& input,
+  /// \brief Generates one force marker per contact polygon corner that is statically equivalent to the contact wrench.
+  ///
+  /// The wrench is read through the state-aware world-frame accessor of the MPC robot model, so it is frame-correct for
+  /// every input parameterization (world-frame wrenches as well as local-frame basis-vector scalings).
+  ///
+  /// \param[in] state MPC state the input belongs to (defines the contact frame orientation).
+  /// \param[in] input MPC input holding the contact wrench parameterization.
+  /// \param[in] contactFlags contact flags; lifted feet get zero-length markers.
+  /// \param[in] forceScale marker scale in N/m.
+  ///
+  /// \warning Assumes that the frame placements of the pinocchio interface passed at construction are up to date.
+  visualization_msgs::msg::MarkerArray generateContactVisualizationForceMarkers(const vector_t& state,
+                                                                                const vector_t& input,
                                                                                 const contact_flag_t& contactFlags,
                                                                                 const scalar_t& forceScale) const;
 

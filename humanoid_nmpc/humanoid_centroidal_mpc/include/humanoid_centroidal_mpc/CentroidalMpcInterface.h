@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <optional>
+
 #include <ocs2_core/Types.h>
 #include <ocs2_core/penalties/Penalties.h>
 #include <ocs2_ddp/DDP_Settings.h>
@@ -38,12 +40,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_oc/rollout/TimeTriggeredRollout.h>
 #include <ocs2_pinocchio_interface/PinocchioEndEffectorKinematicsCppAd.h>
 #include <ocs2_pinocchio_interface/PinocchioInterface.h>
+#include <ocs2_pinocchio_interface/PinocchioStateInputMapping.h>
 #include <ocs2_robotic_tools/common/RobotInterface.h>
 #include <ocs2_robotic_tools/end_effector/EndEffectorKinematics.h>
 #include <ocs2_sqp/SqpSettings.h>
 
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_centroidal_mpc/initialization/CentroidalWeightCompInitializer.h"
+#include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
+#include "humanoid_common_mpc/common/BasisInputsModelDecorator.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
@@ -93,6 +98,36 @@ class CentroidalMpcInterface final : public RobotInterface {
   const CentroidalMpcRobotModel<scalar_t>& getMpcRobotModel() const { return *mpcRobotModelPtr_; }
   const CentroidalMpcRobotModel<ad_scalar_t>& getMpcRobotModelAD() const { return *mpcRobotModelADPtr_; }
 
+  /** Returns the effective model used by the OCP — either the concrete model or the basis-vector decorator. */
+  const MpcRobotModelBase<scalar_t>& getEffectiveMpcRobotModel() const { return *effectiveMpcRobotModelPtr_; }
+  const MpcRobotModelBase<ad_scalar_t>& getEffectiveMpcRobotModelAD() const { return *effectiveMpcRobotModelADPtr_; }
+
+  bool usesContactBasisVectorInputs() const { return useContactBasisVectorInputs_; }
+
+  /**
+   * Basis-vector formulation parameters (only meaningful when usesContactBasisVectorInputs() is true).
+   * The map M = blkdiag(B_0, B_1, I_joints) converts the basis-vector input into the wrench-space input with every
+   * contact wrench expressed in its local contact frame (see BasisInputsModelDecorator::getLocalBasisToWrenchMap).
+   */
+  const std::optional<matrix_t>& getBasisToWrenchMap() const { return basisToWrenchMap_; }
+  size_t getWrenchInputDim() const { return centroidalModelInfo_.inputDim; }
+  size_t getNumBasisInputs() const { return basisDecoratorPtr_ ? basisDecoratorPtr_->getNumBasisPerFoot() * N_CONTACTS : 0; }
+  scalar_t getBasisScalingRegularization() const { return basisScalingRegularization_; }
+  const BasisInputsModelDecorator<scalar_t>* getBasisDecoratorPtr() const { return basisDecoratorPtr_.get(); }
+
+  /** Config for transforming a wrench-space input cost R into basis space; std::nullopt in wrench-space mode. */
+  std::optional<BasisInputsCostTransformConfig> getBasisInputsCostTransformConfig() const {
+    if (!useContactBasisVectorInputs_) {
+      return std::nullopt;
+    }
+    BasisInputsCostTransformConfig config;
+    config.basisToWrenchMap = *basisToWrenchMap_;
+    config.wrenchInputDim = getWrenchInputDim();
+    config.numBasisInputs = getNumBasisInputs();
+    config.lambdaRegularization = basisScalingRegularization_;
+    return config;
+  }
+
   std::vector<std::string> getCostNames() const;
   std::vector<std::string> getTerminalCostNames() const;
   std::vector<std::string> getStateSoftConstraintNames() const;
@@ -113,7 +148,7 @@ class CentroidalMpcInterface final : public RobotInterface {
                                                                     size_t contactPointIndex);
   std::unique_ptr<StateInputConstraint> getJointMimicConstraint(size_t mimicIndex);
 
-  void addTaskSpaceKinematicsCosts(const CentroidalModelPinocchioMappingCppAd& pinocchioMappingCppAd,
+  void addTaskSpaceKinematicsCosts(const PinocchioStateInputMapping<ad_scalar_t>& pinocchioMappingCppAd,
                                    const PinocchioEndEffectorKinematicsCppAd::update_pinocchio_interface_callback& velocityUpdateCallback);
 
   ModelSettings modelSettings_;
@@ -129,6 +164,21 @@ class CentroidalMpcInterface final : public RobotInterface {
 
   std::unique_ptr<CentroidalMpcRobotModel<scalar_t>> mpcRobotModelPtr_;
   std::unique_ptr<CentroidalMpcRobotModel<ad_scalar_t>> mpcRobotModelADPtr_;
+
+  /// Effective model used by the OCP. Points to either the concrete model or the decorator.
+  /// Owned by either mpcRobotModelPtr_ (non-decorated) or basisDecoratorPtr_ (decorated).
+  MpcRobotModelBase<scalar_t>* effectiveMpcRobotModelPtr_ = nullptr;
+  MpcRobotModelBase<ad_scalar_t>* effectiveMpcRobotModelADPtr_ = nullptr;
+
+  /// Basis-vector decorator models (owning pointers, only populated when active).
+  std::unique_ptr<BasisInputsModelDecorator<scalar_t>> basisDecoratorPtr_;
+  std::unique_ptr<BasisInputsModelDecorator<ad_scalar_t>> basisDecoratorADPtr_;
+
+  bool useContactBasisVectorInputs_ = false;
+  /// Local-frame basis-to-wrench map M (wrenchInputDim × basisInputDim); populated only in basis-vector mode.
+  std::optional<matrix_t> basisToWrenchMap_;
+  /// Diagonal regularization added to the λ block of the transformed input cost R_basis.
+  scalar_t basisScalingRegularization_ = 0.0;
 
   rollout::Settings rolloutSettings_;
   std::unique_ptr<RolloutBase> rolloutPtr_;

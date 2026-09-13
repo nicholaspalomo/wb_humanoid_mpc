@@ -130,6 +130,18 @@ class MpcRobotModelBase {
   /*                                          Contacts                                                  */
   /******************************************************************************************************/
 
+  /**
+   * Input-only contact wrench accessors.
+   *
+   * These read/write the contact wrench *as it is parameterized in the input vector*. For wrench-space
+   * models (CentroidalMpcRobotModel, WBAccelMpcRobotModel) the input stores the wrench in the world
+   * frame, so these accessors return world-frame quantities. For the basis-vector decorator
+   * (BasisInputsModelDecorator) the input stores non-negative scalings of a *local contact-frame* basis,
+   * so these accessors return the wrench in the local contact frame.
+   *
+   * Whenever a world-frame wrench is required, prefer the state-aware
+   * `...InWorldFrame` accessors below, which are frame-correct for every model.
+   */
   virtual VECTOR6_T<SCALAR_T> getContactWrench(const VECTOR_T<SCALAR_T>& input, size_t contactIndex) const = 0;
 
   virtual VECTOR3_T<SCALAR_T> getContactForce(const VECTOR_T<SCALAR_T>& input, size_t contactIndex) const = 0;
@@ -143,6 +155,53 @@ class MpcRobotModelBase {
   virtual void setContactForce(VECTOR_T<SCALAR_T>& input, const VECTOR3_T<SCALAR_T>& force, size_t contactIndex) const = 0;
 
   virtual void setContactMoment(VECTOR_T<SCALAR_T>& input, const VECTOR3_T<SCALAR_T>& moment, size_t contactIndex) const = 0;
+
+  /******************************************************************************************************/
+  /*                              State-aware world-frame contact accessors                             */
+  /******************************************************************************************************/
+
+  /**
+   * Returns the contact wrench [f, tau] expressed in the world (inertial) frame.
+   *
+   * The state is required because some input parameterizations (basis-vector scalings) are defined in
+   * the local contact frame, whose orientation depends on the robot configuration. The default
+   * implementation assumes the input already stores a world-frame wrench and ignores the state.
+   */
+  virtual VECTOR6_T<SCALAR_T> getContactWrenchInWorldFrame(const VECTOR_T<SCALAR_T>& /*state*/,
+                                                           const VECTOR_T<SCALAR_T>& input,
+                                                           size_t contactIndex) const {
+    return getContactWrench(input, contactIndex);
+  }
+
+  virtual VECTOR3_T<SCALAR_T> getContactForceInWorldFrame(const VECTOR_T<SCALAR_T>& /*state*/,
+                                                          const VECTOR_T<SCALAR_T>& input,
+                                                          size_t contactIndex) const {
+    return getContactForce(input, contactIndex);
+  }
+
+  virtual VECTOR3_T<SCALAR_T> getContactMomentInWorldFrame(const VECTOR_T<SCALAR_T>& /*state*/,
+                                                           const VECTOR_T<SCALAR_T>& input,
+                                                           size_t contactIndex) const {
+    return getContactMoment(input, contactIndex);
+  }
+
+  /**
+   * Writes a world-frame contact wrench into the input vector, converting into the input
+   * parameterization (and local contact frame) where necessary.
+   */
+  virtual void setContactWrenchInWorldFrame(const VECTOR_T<SCALAR_T>& /*state*/,
+                                            VECTOR_T<SCALAR_T>& input,
+                                            const VECTOR6_T<SCALAR_T>& wrenchInWorld,
+                                            size_t contactIndex) const {
+    setContactWrench(input, wrenchInWorld, contactIndex);
+  }
+
+  virtual void setContactForceInWorldFrame(const VECTOR_T<SCALAR_T>& /*state*/,
+                                           VECTOR_T<SCALAR_T>& input,
+                                           const VECTOR3_T<SCALAR_T>& forceInWorld,
+                                           size_t contactIndex) const {
+    setContactForce(input, forceInWorld, contactIndex);
+  }
 
   /******************************************************************************************************/
   /*                                         Joint angle                                                */

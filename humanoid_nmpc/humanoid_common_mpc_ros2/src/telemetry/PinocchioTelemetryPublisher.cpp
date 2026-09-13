@@ -412,6 +412,11 @@ void PinocchioTelemetryPublisher::publish(const ::robot::model::RobotState& robo
     vector_t v_des = vector_t::Zero(model.nv);
     vector_t tau_des = vector_t::Zero(model.nv);
     vector_t targetInput = mpcPolicyInput;
+    // State the desired input belongs to. The world-frame contact wrench accessors need the configuration the input
+    // was generated at (basis-vector inputs are parameterized in the local contact frame). The policy input is
+    // evaluated at the current observation state, so that is the default; it is replaced by the interpolated target
+    // state whenever the input is taken from the target trajectory.
+    vector_t targetInputState = mpcObservation.state;
 
     const auto& targetTraj = mpcCommand.mpcTargetTrajectories_;
     const bool hasValidTargetState = !targetTraj.timeTrajectory.empty() && !targetTraj.stateTrajectory.empty() &&
@@ -428,6 +433,7 @@ void PinocchioTelemetryPublisher::publish(const ::robot::model::RobotState& robo
                                        targetTraj.inputTrajectory.front().size() == mpcRobotModelPtr_->getInputDim();
       if (hasValidTargetInput) {
         targetInput = LinearInterpolation::interpolate(time, targetTraj.timeTrajectory, targetTraj.inputTrajectory);
+        targetInputState = targetState;
         try {
           v_des = const_cast<MpcRobotModelBase<scalar_t>*>(mpcRobotModelPtr_)->getGeneralizedVelocities(targetState, targetInput);
         } catch (...) {
@@ -457,9 +463,14 @@ void PinocchioTelemetryPublisher::publish(const ::robot::model::RobotState& robo
       measuredForces[modelSettingsPtr_->contactNames[1]] = rightMeasuredForce;
     }
 
-    for (size_t c = 0; c < modelSettingsPtr_->contactNames.size(); ++c) {
-      if (targetInput.size() >= static_cast<int>(mpcRobotModelPtr_->getInputDim())) {
-        desiredWrenches[modelSettingsPtr_->contactNames[c]] = mpcRobotModelPtr_->getContactWrench(targetInput, c);
+    // Contact wrenches are published in the world frame, so they must go through the state-aware accessor with the
+    // state matching the input (frame-correct for wrench-space and basis-vector input parameterizations alike).
+    const bool hasValidDesiredWrenchInput = targetInput.size() == static_cast<Eigen::Index>(mpcRobotModelPtr_->getInputDim()) &&
+                                            targetInputState.size() == static_cast<Eigen::Index>(mpcRobotModelPtr_->getStateDim());
+    for (size_t c = 0; c < std::min(modelSettingsPtr_->contactNames.size(), N_CONTACTS); ++c) {
+      if (hasValidDesiredWrenchInput) {
+        desiredWrenches[modelSettingsPtr_->contactNames[c]] =
+            mpcRobotModelPtr_->getContactWrenchInWorldFrame(targetInputState, targetInput, c);
       }
     }
 
@@ -549,7 +560,8 @@ void PinocchioTelemetryPublisher::publish(const ::robot::model::RobotState& robo
                                        targetTraj.inputTrajectory.front().size() == mpcRobotModelPtr_->getInputDim();
       if (hasValidTargetInput) {
         vector_t tInput = LinearInterpolation::interpolate(time, targetTraj.timeTrajectory, targetTraj.inputTrajectory);
-        if (tInput.size() >= static_cast<int>(N_CONTACTS * CONTACT_WRENCH_DIM)) {
+        // Guard on the model's input dimension: the input layout (wrench-space or basis-vector) is model-defined.
+        if (tInput.size() == static_cast<Eigen::Index>(mpcRobotModelPtr_->getInputDim())) {
           targetLinVel = mpcRobotModelPtr_->getBaseComLinearVelocity(targetState);
         }
       }
@@ -560,11 +572,14 @@ void PinocchioTelemetryPublisher::publish(const ::robot::model::RobotState& robo
     mpcTargetBaseTwistPub_->publish(createTwistStamped(now, "world", targetLinVel, targetAngVel));
 
     // /mpc/contact_wrench/left|right
-    if (mpcPolicyInput.size() >= static_cast<int>(N_CONTACTS * CONTACT_WRENCH_DIM)) {
-      mpcContactWrenchLeftPub_->publish(
-          createWrenchStamped(now, "world", mpcPolicyInput.segment<CONTACT_WRENCH_DIM>(CONTACT_LEFT_INDEX * CONTACT_WRENCH_DIM)));
-      mpcContactWrenchRightPub_->publish(
-          createWrenchStamped(now, "world", mpcPolicyInput.segment<CONTACT_WRENCH_DIM>(CONTACT_RIGHT_INDEX * CONTACT_WRENCH_DIM)));
+    // Same reasoning as for the desired frame wrenches: the policy input is evaluated at the current observation state,
+    // and its contact block may be a local-frame basis-vector parameterization, so no fixed-offset slicing.
+    if (mpcPolicyInput.size() == static_cast<Eigen::Index>(mpcRobotModelPtr_->getInputDim()) &&
+        mpcObservation.state.size() == static_cast<Eigen::Index>(mpcRobotModelPtr_->getStateDim())) {
+      mpcContactWrenchLeftPub_->publish(createWrenchStamped(
+          now, "world", mpcRobotModelPtr_->getContactWrenchInWorldFrame(mpcObservation.state, mpcPolicyInput, CONTACT_LEFT_INDEX)));
+      mpcContactWrenchRightPub_->publish(createWrenchStamped(
+          now, "world", mpcRobotModelPtr_->getContactWrenchInWorldFrame(mpcObservation.state, mpcPolicyInput, CONTACT_RIGHT_INDEX)));
     }
 
     // /sensors/contact_wrench/left|right

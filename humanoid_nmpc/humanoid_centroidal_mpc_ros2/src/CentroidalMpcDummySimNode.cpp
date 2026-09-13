@@ -73,8 +73,9 @@ int main(int argc, char** argv) {
   mrt.initRollout(&interface.getRollout());
   mrt.launchNodes(nodeHandle, qos);
 
+  // The visualizer decodes policy inputs, so it needs the effective model ([λ, joint velocities] in basis-vector mode).
   std::shared_ptr<HumanoidVisualizer> humanoidVisualizer(
-      new HumanoidVisualizer(taskFile, interface.getPinocchioInterface(), interface.getMpcRobotModel(), nodeHandle));
+      new HumanoidVisualizer(taskFile, interface.getPinocchioInterface(), interface.getEffectiveMpcRobotModel(), nodeHandle));
 
   // Dummy legged robot
   MRT_ROS_Dummy_Loop dummySimulator(mrt, 100, interface.mpcSettings().mpcDesiredFrequency_);
@@ -83,7 +84,8 @@ int main(int argc, char** argv) {
   // Initial state
   SystemObservation initObservation;
   initObservation.state = interface.getInitialState();
-  initObservation.input = vector_t::Zero(interface.getCentroidalModelInfo().inputDim);
+  // Sized to the OCP input, which differs from the centroidal (wrench-space) input dimension in basis-vector mode.
+  initObservation.input = vector_t::Zero(interface.getEffectiveMpcRobotModel().getInputDim());
   initObservation.mode = ModeNumber::STANCE;
 
   // Initial command
