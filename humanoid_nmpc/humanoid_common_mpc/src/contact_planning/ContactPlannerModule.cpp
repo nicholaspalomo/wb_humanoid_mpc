@@ -159,6 +159,10 @@ void ContactPlannerModule::preSolverRun(scalar_t initTime,
   }
   const ContactPlannerInput input = referenceManagerPtr_->makePlannerInput(initTime, initState, velocityCommand);
 
+  // A contact event (early / late touch-down) invalidates the timing the last plan was built on: plan again right away
+  // instead of waiting for the next planning period.
+  const bool replanRequested = referenceManagerPtr_->consumeReplanRequest();
+
   const ContactPlanningConfig config = getConfig();
   if (!config.runInBackgroundThread) {
     runPlanner(input);
@@ -167,7 +171,7 @@ void ContactPlannerModule::preSolverRun(scalar_t initTime,
 
   const auto now = std::chrono::steady_clock::now();
   const std::chrono::duration<scalar_t> minPeriod(1.0 / config.planningFrequency);
-  if (hasPosted_ && (now - lastPostTime_) < minPeriod) {
+  if (hasPosted_ && !replanRequested && (now - lastPostTime_) < minPeriod) {
     return;
   }
   {

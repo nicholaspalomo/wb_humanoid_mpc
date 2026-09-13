@@ -89,6 +89,18 @@ struct ContactPlanningConfig {
   bool runInBackgroundThread = true;  // false: plan synchronously inside the MPC's pre-solve hook
   scalar_t planningFrequency = 10.0;  // [Hz] upper bound on the background planning rate
 
+  // Adaptive execution of the schedule between plans (ContactScheduleAdaptation.h), generic in the number of feet.
+  bool enablePhaseResetting = true;             // switch a swing foot to contact when it touches down early, extend when late
+  scalar_t earlyTouchdownMinSwingRatio = 0.25;  // contact during this initial fraction of the nominal swing is ignored (scuffing)
+  scalar_t maxLateTouchdownExtension = 0.15;    // [s] total extension budget of a swing past its planned touch-down
+  scalar_t lateTouchdownExtensionStep = 0.05;   // [s] the touch-down is pushed this far ahead of the current time per cycle
+  scalar_t lateTouchdownSearchVelocity = 0.05;  // [m/s] the foot height target descends at this rate during the extension
+  bool enableDcmStepAdjustment = true;          // move the landing target by the DCM error propagated to touch-down
+  scalar_t dcmAdjustmentGain = 1.0;             // gain on the closed-form LIP step adjustment (1 = exact compensation)
+  scalar_t dcmAdjustmentMaxOffset = 0.15;       // [m] bound on the landing target offset (also clipped to reachX / reachY*)
+  bool enableEnergyCadenceModulation = false;   // move the touch-down of the swing in flight by the LIP orbital energy error
+  scalar_t energyCadenceGain = 0.01;            // [s/J] touch-down shift = -gain * (E - E_plan), E = m (v^2 - w^2 x^2) / 2
+
   scalar_t omega() const { return std::sqrt(gravity / comHeight); }
   scalar_t horizon() const { return dt * static_cast<scalar_t>(numNodes); }
 

@@ -25,11 +25,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <atomic>
+#include <deque>
 #include <mutex>
 #include <optional>
+#include <utility>
 
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
 namespace ocs2::humanoid {
@@ -42,9 +46,16 @@ namespace ocs2::humanoid {
  * the MPC is already executing are not rewritten under its feet), later modes follow the plan, and the swing trajectory
  * planner is updated with the merged schedule. While no valid plan is available the gait schedule is used as before.
  *
+ * Between plans the applied schedule is adapted to the measured contact state (ContactScheduleAdaptation.h): a swing foot
+ * that touches down early is switched to contact at once, a foot that misses the ground keeps searching for it for a
+ * bounded time, and (optionally) the touch-down of the swing in flight is re-timed from the LIP orbital energy error.
+ * Whenever such an adaptation moves later events, the active plan is shifted by the same amount so that the merge stays
+ * consistent, and an immediate re-plan is requested from the planner module.
+ *
  * The planned footholds are exposed to the foot tracking cost through getSwingFootReference(): during a swing phase the
- * xy reference interpolates smoothly from the lift-off position to the planned landing spot, the height follows the
- * swing trajectory planner.
+ * xy reference interpolates smoothly from the lift-off position to the planned landing spot, corrected by the DCM error
+ * propagated to touch-down (closed-form capture point step adjustment, clipped to the reachable region); the height
+ * follows the swing trajectory planner.
  */
 class ContactPlanningReferenceManager final : public SwitchedModelReferenceManager {
  public:
@@ -84,6 +95,15 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
    */
   scalar_t commitBoundary(scalar_t time) const;
 
+  /** True once after a contact event re-timed the schedule (thread-safe); the planner module then plans immediately. */
+  bool consumeReplanRequest() { return replanRequested_.exchange(false); }
+
+  // Introspection of the adaptive execution (solver thread only; for tests and telemetry).
+  const feet_array_t<ContactEventReport>& getLastContactEvents() const { return lastContactEvents_; }
+  const feet_array_t<SwingTimingLatch>& getSwingTimingLatches() const { return swingLatches_; }
+  const feet_array_t<vector2_t>& getDcmStepAdjustment() const { return dcmStepAdjustment_; }
+  const feet_array_t<scalar_t>& getCadenceTouchDownShift() const { return cadenceTouchDownShift_; }
+
  protected:
   void modifyReferences(scalar_t initTime,
                         scalar_t finalTime,
@@ -97,8 +117,29 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
   void updateFootBookkeeping(scalar_t initTime, const vector_t& initState);
   feet_array_t<vector3_t> computeFootPositions(const vector_t& state);
 
+  /** CoM position and velocity (xy) of the full model at `state`. */
+  std::pair<vector2_t, vector2_t> computeComState(const vector_t& state);
+
   /** Swing phase [liftOff, touchDown] of a foot around `time` in the applied schedule, empty if the foot is in contact. */
   std::optional<std::pair<scalar_t, scalar_t>> swingPhase(size_t contactIndex, scalar_t time) const;
+
+  /** Swaps a pending plan in, re-timed by the schedule shifts it has not seen. */
+  void activatePendingPlan(scalar_t initTime);
+
+  /** Per-foot touch-down shift from the LIP orbital energy error (zero unless enabled and a plan is active). */
+  feet_array_t<scalar_t> computeCadenceTouchDownShifts(scalar_t initTime, const ContactPlanningConfig& config);
+
+  /** Adapts the applied schedule to the measured contact state; shifts the plan and requests a re-plan as needed. */
+  void handleContactEvents(scalar_t initTime, size_t initMode, const ContactPlanningConfig& config);
+
+  /** Updates the swing trajectory planner; a foot searching for the ground gets a descending touch-down height. */
+  void updateSwingTrajectories(const ModeSchedule& schedule,
+                               scalar_t initTime,
+                               scalar_t terrainHeight,
+                               const ContactPlanningConfig& config);
+
+  /** DCM step adjustment of every swing foot from the DCM error with respect to the plan (zero unless enabled). */
+  void updateDcmStepAdjustment(scalar_t initTime, const ContactPlanningConfig& config);
 
   mutable std::mutex configMutex_;
   ContactPlanningConfig config_;
@@ -110,9 +151,18 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
   ModeSchedule appliedSchedule_;
   bool hasAppliedSchedule_ = false;
 
-  feet_array_t<vector3_t> footPositions_{vector3_t::Zero(), vector3_t::Zero()};
-  feet_array_t<vector3_t> liftOffPositions_{vector3_t::Zero(), vector3_t::Zero()};
+  feet_array_t<vector3_t> footPositions_ = makeFeetArray(vector3_t(vector3_t::Zero()));
+  feet_array_t<vector3_t> liftOffPositions_ = makeFeetArray(vector3_t(vector3_t::Zero()));
   bool footBookkeepingInitialized_ = false;
+
+  // Adaptive execution state (solver thread).
+  feet_array_t<SwingTimingLatch> swingLatches_ = makeFeetArray(SwingTimingLatch{});
+  feet_array_t<ContactEventReport> lastContactEvents_ = makeFeetArray(ContactEventReport{});
+  feet_array_t<scalar_t> cadenceTouchDownShift_ = makeFeetArray(0.0);
+  feet_array_t<vector2_t> dcmStepAdjustment_ = makeFeetArray(vector2_t(vector2_t::Zero()));
+  vector2_t comState_[2] = {vector2_t::Zero(), vector2_t::Zero()};  // CoM position / velocity at the current solver run
+  std::deque<std::pair<scalar_t, scalar_t>> scheduleShiftLog_;      // (time, shift) of every re-timing of later events
+  std::atomic<bool> replanRequested_{false};
 };
 
 }  // namespace ocs2::humanoid

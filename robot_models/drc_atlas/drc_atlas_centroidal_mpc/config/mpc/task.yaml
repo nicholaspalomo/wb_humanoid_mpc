@@ -175,6 +175,18 @@ contact_planning:
   verbose: false
   runInBackgroundThread: true         # false: plan synchronously in the MPC pre-solve hook
   planningFrequency: 10.0             # [Hz] upper bound on the background planning rate
+
+  # Adaptive execution between plans (measured contact events, closed-form LIP corrections)
+  enablePhaseResetting: true            # early touch-down: switch the foot to contact at once; late: extend the swing
+  earlyTouchdownMinSwingRatio: 0.25     # contact during this initial fraction of the nominal swing is ignored (scuffing)
+  maxLateTouchdownExtension: 0.15       # [s] total extension budget of a swing past its planned touch-down
+  lateTouchdownExtensionStep: 0.05      # [s] the touch-down is pushed this far ahead of the current time per cycle
+  lateTouchdownSearchVelocity: 0.05     # [m/s] descent rate of the foot height target while searching for the ground
+  enableDcmStepAdjustment: true         # move the landing target by the DCM error propagated to touch-down
+  dcmAdjustmentGain: 1.0                # 1 = exact LIP compensation of the DCM error at touch-down
+  dcmAdjustmentMaxOffset: 0.15          # [m] bound on the landing target offset (also clipped to reachX / reachY*)
+  enableEnergyCadenceModulation: false  # re-time the touch-down of the swing in flight by the LIP orbital energy error
+  energyCadenceGain: 0.01               # [s/J] touch-down shift = -gain * (E - E_plan)
 # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/contact_planning/ContactPlanningConfig.cpp:contact_planning_keys)
 
 # multiple_shooting settings

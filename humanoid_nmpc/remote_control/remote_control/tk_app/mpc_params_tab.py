@@ -1307,6 +1307,10 @@ class MpcParamsTab(ttk.Frame):
         "runInBackgroundThread",
         "verbose",
         "enforceAlternatingFeet",
+        # Booleans of the adaptive execution block: toggled in the task file, not with a slider.
+        "enablePhaseResetting",
+        "enableDcmStepAdjustment",
+        "enableEnergyCadenceModulation",
     }
 
     def _render_contact_planning(self):
@@ -1377,6 +1381,20 @@ class MpcParamsTab(ttk.Frame):
                     "planningFrequency",
                 ],
             ),
+            # LINT.IfChange(contact_planning_adaptive_gui_keys)
+            (
+                "Adaptive Execution (phase resetting, DCM step adjustment, cadence)",
+                [
+                    "earlyTouchdownMinSwingRatio",
+                    "maxLateTouchdownExtension",
+                    "lateTouchdownExtensionStep",
+                    "lateTouchdownSearchVelocity",
+                    "dcmAdjustmentGain",
+                    "dcmAdjustmentMaxOffset",
+                    "energyCadenceGain",
+                ],
+            ),
+            # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/contact_planning/ContactPlanningConfig.cpp:contact_planning_keys)
         ]
         for title, keys in groups:
             frame = ttk.LabelFrame(

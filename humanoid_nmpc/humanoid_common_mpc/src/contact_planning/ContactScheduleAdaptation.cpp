@@ -1,0 +1,289 @@
+/******************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+******************************************************************************/
+
+#include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
+
+#include <algorithm>
+#include <cmath>
+#include <limits>
+
+#include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+
+namespace ocs2::humanoid {
+
+namespace {
+constexpr scalar_t kSameSwingTolerance = 1e-6;  // [s] lift-off times closer than this identify the same swing
+constexpr scalar_t kMinTimeShift = 1e-6;        // [s] smaller event shifts are not applied
+constexpr scalar_t kMinRemainingSwing = 0.02;   // [s] a re-timed touch-down stays at least this far in the future
+
+bool footInContact(const ModeSchedule& schedule, size_t phaseIndex, size_t foot) {
+  return modeNumber2StanceLeg(schedule.modeSequence[phaseIndex])[foot];
+}
+
+/** First phase of the swing of `foot` that contains phase `index` (the foot is out of contact in `index`). */
+size_t firstSwingPhase(const ModeSchedule& schedule, size_t foot, size_t index) {
+  while (index > 0 && !footInContact(schedule, index - 1, foot)) --index;
+  return index;
+}
+
+/** Last phase of the swing of `foot` that contains phase `index`. */
+size_t lastSwingPhase(const ModeSchedule& schedule, size_t foot, size_t index) {
+  while (index + 1 < schedule.modeSequence.size() && !footInContact(schedule, index + 1, foot)) ++index;
+  return index;
+}
+}  // namespace
+
+/*============================================ schedule queries ============================================*/
+
+size_t modeIndexAtTime(const ModeSchedule& schedule, scalar_t time) {
+  const auto& eventTimes = schedule.eventTimes;
+  size_t index = static_cast<size_t>(std::upper_bound(eventTimes.begin(), eventTimes.end(), time) - eventTimes.begin());
+  if (!schedule.modeSequence.empty() && index >= schedule.modeSequence.size()) index = schedule.modeSequence.size() - 1;
+  return index;
+}
+
+contact_flag_t contactFlagsAtTime(const ModeSchedule& schedule, scalar_t time) {
+  if (schedule.modeSequence.empty()) return makeFeetArray(true);
+  return modeNumber2StanceLeg(schedule.modeSequence[modeIndexAtTime(schedule, time)]);
+}
+
+std::optional<std::pair<size_t, size_t>> swingPhaseIndexRange(const ModeSchedule& schedule, size_t foot, scalar_t time) {
+  if (schedule.modeSequence.empty()) return std::nullopt;
+  const size_t index = modeIndexAtTime(schedule, time);
+  if (footInContact(schedule, index, foot)) return std::nullopt;
+  return std::make_pair(firstSwingPhase(schedule, foot, index), lastSwingPhase(schedule, foot, index));
+}
+
+std::optional<std::pair<scalar_t, scalar_t>> swingPhaseAtTime(const ModeSchedule& schedule, size_t foot, scalar_t time) {
+  const auto range = swingPhaseIndexRange(schedule, foot, time);
+  if (!range.has_value()) return std::nullopt;
+  const auto [first, last] = *range;
+  if (first == 0 || last + 1 >= schedule.modeSequence.size()) return std::nullopt;  // no lift-off or no touch-down event
+  return std::make_pair(schedule.eventTimes[first - 1], schedule.eventTimes[last]);
+}
+
+std::optional<size_t> touchDownEventIndex(const ModeSchedule& schedule, size_t foot, scalar_t time) {
+  const auto range = swingPhaseIndexRange(schedule, foot, time);
+  if (!range.has_value() || range->second + 1 >= schedule.modeSequence.size()) return std::nullopt;
+  return range->second;
+}
+
+/*============================================ schedule edits ==============================================*/
+
+void removeRedundantEvents(ModeSchedule& schedule) {
+  auto& eventTimes = schedule.eventTimes;
+  auto& modeSequence = schedule.modeSequence;
+  size_t i = 0;
+  while (i + 1 < modeSequence.size()) {
+    if (modeSequence[i] == modeSequence[i + 1]) {
+      modeSequence.erase(modeSequence.begin() + static_cast<std::ptrdiff_t>(i) + 1);
+      eventTimes.erase(eventTimes.begin() + static_cast<std::ptrdiff_t>(i));
+    } else {
+      ++i;
+    }
+  }
+}
+
+std::optional<scalar_t> truncateSwingPhase(ModeSchedule& schedule, size_t foot, scalar_t time) {
+  auto& eventTimes = schedule.eventTimes;
+  auto& modeSequence = schedule.modeSequence;
+  const auto range = swingPhaseIndexRange(schedule, foot, time);
+  if (!range.has_value()) return std::nullopt;
+  size_t index = modeIndexAtTime(schedule, time);
+  size_t last = range->second;
+  if (last + 1 >= modeSequence.size()) return std::nullopt;  // the swing never touches down within the schedule
+  const scalar_t touchDown = eventTimes[last];
+
+  // Split the phase containing `time` unless `time` already is the start of that phase.
+  if (index == 0 || eventTimes[index - 1] < time) {
+    eventTimes.insert(eventTimes.begin() + static_cast<std::ptrdiff_t>(index), time);
+    modeSequence.insert(modeSequence.begin() + static_cast<std::ptrdiff_t>(index) + 1, modeSequence[index]);
+    ++index;
+    ++last;
+  }
+  for (size_t p = index; p <= last; ++p) {
+    contact_flag_t flags = modeNumber2StanceLeg(modeSequence[p]);
+    flags[foot] = true;
+    modeSequence[p] = stanceLeg2ModeNumber(flags);
+  }
+  removeRedundantEvents(schedule);
+  return touchDown;
+}
+
+bool shiftEventsFrom(ModeSchedule& schedule, size_t firstEventIndex, scalar_t shift) {
+  auto& eventTimes = schedule.eventTimes;
+  if (firstEventIndex >= eventTimes.size()) return false;
+  if (firstEventIndex > 0 && eventTimes[firstEventIndex] + shift <= eventTimes[firstEventIndex - 1]) return false;
+  for (size_t j = firstEventIndex; j < eventTimes.size(); ++j) {
+    eventTimes[j] += shift;
+  }
+  return true;
+}
+
+/*============================================ contact events ==============================================*/
+
+feet_array_t<ContactEventReport> adaptScheduleToContactEvents(ModeSchedule& schedule,
+                                                              scalar_t time,
+                                                              const contact_flag_t& measuredContact,
+                                                              const feet_array_t<scalar_t>& cadenceTouchDownShift,
+                                                              const ContactPlanningConfig& config,
+                                                              feet_array_t<SwingTimingLatch>& latches) {
+  feet_array_t<ContactEventReport> reports = makeFeetArray(ContactEventReport{});
+  if (schedule.modeSequence.empty()) return reports;
+
+  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    SwingTimingLatch& latch = latches[foot];
+    ContactEventReport& report = reports[foot];
+
+    const auto phase = swingPhaseAtTime(schedule, foot, time);
+    if (phase.has_value()) {
+      // ---- the foot is scheduled to swing at `time` ----
+      const auto [liftOff, touchDown] = *phase;
+      if (!latch.active || std::abs(latch.liftOffTime - liftOff) > kSameSwingTolerance) {
+        latch = SwingTimingLatch{};
+        latch.active = true;
+        latch.liftOffTime = liftOff;
+        latch.nominalTouchDownTime = touchDown;
+      }
+
+      // Early touch-down: contact measured after the initial fraction of the nominal swing that is ignored as scuffing.
+      const scalar_t nominalDuration = latch.nominalTouchDownTime - liftOff;
+      const bool pastScuffingWindow = nominalDuration > 0.0 && (time - liftOff) >= config.earlyTouchdownMinSwingRatio * nominalDuration;
+      if (config.enablePhaseResetting && measuredContact[foot] && pastScuffingWindow) {
+        if (truncateSwingPhase(schedule, foot, time).has_value()) {
+          report.type = ContactEventReport::Type::EARLY_TOUCH_DOWN;
+          report.touchDownTime = time;
+          report.timeShift = 0.0;
+          latch = SwingTimingLatch{};
+          continue;
+        }
+      }
+
+      // Cadence modulation of the touch-down, relative to the nominal touch-down and within the swing duration limits.
+      // Not applied while the swing is being extended past its planned touch-down (late touch-down search).
+      if (config.enableEnergyCadenceModulation && latch.lateExtension <= 0.0) {
+        const auto tdIndex = touchDownEventIndex(schedule, foot, time);
+        if (tdIndex.has_value()) {
+          scalar_t target = latch.nominalTouchDownTime + cadenceTouchDownShift[foot];
+          target = std::clamp(target, liftOff + config.minSwingDuration, liftOff + config.maxSwingDuration);
+          const scalar_t previousEvent = (*tdIndex > 0) ? schedule.eventTimes[*tdIndex - 1] : time;
+          target = std::max(target, std::max(time, previousEvent) + kMinRemainingSwing);
+          const scalar_t shift = target - touchDown;
+          if (std::abs(shift) > kMinTimeShift && shiftEventsFrom(schedule, *tdIndex, shift)) {
+            latch.cadenceShift = target - latch.nominalTouchDownTime;
+            report.type = ContactEventReport::Type::CADENCE_SHIFT;
+            report.touchDownTime = target;
+            report.timeShift = shift;
+          }
+        }
+      }
+      continue;
+    }
+
+    // ---- the foot is scheduled to be in contact at `time` ----
+    if (!latch.active) continue;
+    // The latched swing must be the one that ended at the last event before `time`; otherwise the latch is stale.
+    const size_t index = modeIndexAtTime(schedule, time);
+    const bool justLanded = index > 0 && !footInContact(schedule, index - 1, foot);
+    if (!justLanded) {
+      latch = SwingTimingLatch{};
+      continue;
+    }
+    const size_t first = firstSwingPhase(schedule, foot, index - 1);
+    const scalar_t liftOff = (first > 0) ? schedule.eventTimes[first - 1] : -std::numeric_limits<scalar_t>::infinity();
+    if (std::abs(liftOff - latch.liftOffTime) > kSameSwingTolerance) {
+      latch = SwingTimingLatch{};
+      continue;
+    }
+    if (measuredContact[foot] || !config.enablePhaseResetting) {
+      latch = SwingTimingLatch{};  // landed as scheduled (possibly within an extension), nothing to adapt
+      continue;
+    }
+
+    // Late touch-down: extend the swing in small steps up to the total extension budget, measured from the planned touch-down.
+    const scalar_t touchDown = schedule.eventTimes[index - 1];
+    const scalar_t plannedTouchDown = latch.plannedTouchDownTime();
+    const scalar_t latestTouchDown = plannedTouchDown + config.maxLateTouchdownExtension;
+    const scalar_t target = std::min(time + config.lateTouchdownExtensionStep, latestTouchDown);
+    if (target <= time + kMinTimeShift) {
+      latch = SwingTimingLatch{};  // budget used up: the contact phase proceeds as scheduled
+      continue;
+    }
+    const scalar_t shift = target - touchDown;
+    if (shift > kMinTimeShift && shiftEventsFrom(schedule, index - 1, shift)) {
+      latch.lateExtension = target - plannedTouchDown;
+      report.type = ContactEventReport::Type::LATE_TOUCH_DOWN;
+      report.touchDownTime = target;
+      report.timeShift = shift;
+    }
+  }
+  return reports;
+}
+
+/*============================================ LIP helpers =================================================*/
+
+std::optional<LipState> lipReferenceState(const ContactPlan& plan, scalar_t omega, scalar_t time) {
+  const size_t numIntervals = plan.contacts.size();
+  const bool consistent = plan.valid && numIntervals > 0 && plan.zmp.size() == numIntervals &&
+                          plan.comPosition.size() == numIntervals + 1 && plan.comVelocity.size() == numIntervals + 1;
+  if (!consistent || omega <= 0.0 || plan.dt <= 0.0) return std::nullopt;
+  if (time < plan.startTime - 1e-9 || time > plan.endTime() + 1e-9) return std::nullopt;
+
+  const int k = plan.intervalIndex(time);
+  const scalar_t tau = std::clamp(time - (plan.startTime + plan.dt * static_cast<scalar_t>(k)), 0.0, plan.dt);
+  const scalar_t ch = std::cosh(omega * tau);
+  const scalar_t sh = std::sinh(omega * tau);
+  LipState state;
+  state.zmp = plan.zmp[k];
+  const vector2_t offset = plan.comPosition[k] - state.zmp;
+  state.com = state.zmp + offset * ch + plan.comVelocity[k] * (sh / omega);
+  state.comVelocity = offset * (omega * sh) + plan.comVelocity[k] * ch;
+  return state;
+}
+
+vector2_t dcmStepAdjustment(const vector2_t& dcmError, scalar_t omega, scalar_t timeToTouchDown, scalar_t gain, scalar_t maxOffset) {
+  vector2_t adjustment = gain * std::exp(omega * std::max(timeToTouchDown, 0.0)) * dcmError;
+  const scalar_t norm = adjustment.norm();
+  if (maxOffset >= 0.0 && norm > maxOffset) {
+    adjustment *= (norm > 0.0) ? maxOffset / norm : 0.0;
+  }
+  return adjustment;
+}
+
+vector2_t clipFootholdToReach(const vector2_t& foothold,
+                              const vector2_t& nominalFoothold,
+                              const vector2_t& comAtTouchDown,
+                              scalar_t yaw,
+                              const ContactPlanningConfig& config) {
+  const vector2_t ex(std::cos(yaw), std::sin(yaw));
+  const vector2_t ey(-std::sin(yaw), std::cos(yaw));
+  const vector2_t relative = foothold - comAtTouchDown;
+  const scalar_t side = (ey.dot(nominalFoothold - comAtTouchDown) >= 0.0) ? 1.0 : -1.0;
+  const scalar_t x = std::clamp(ex.dot(relative), -config.reachX, config.reachX);
+  const scalar_t y = side * std::clamp(side * ey.dot(relative), config.reachYInner, config.reachYOuter);
+  return comAtTouchDown + x * ex + y * ey;
+}
+
+}  // namespace ocs2::humanoid

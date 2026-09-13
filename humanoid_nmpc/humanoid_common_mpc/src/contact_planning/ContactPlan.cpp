@@ -39,8 +39,13 @@ int ContactPlan::intervalIndex(scalar_t time) const {
 }
 
 contact_flag_t ContactPlan::contactsAtTime(scalar_t time) const {
-  if (contacts.empty()) return contact_flag_t{true, true};
+  if (contacts.empty()) return makeFeetArray(true);
   return contacts[intervalIndex(time)];
+}
+
+void ContactPlan::shiftInTime(scalar_t shift) {
+  startTime += shift;
+  committedUntil += shift;
 }
 
 std::optional<vector2_t> ContactPlan::footholdAtTime(size_t contactIndex, scalar_t time) const {

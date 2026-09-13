@@ -41,13 +41,13 @@ struct ContactPlannerInput {
   vector2_t comPosition = vector2_t::Zero();
   vector2_t comVelocity = vector2_t::Zero();
   scalar_t yaw = 0.0;  // base yaw, defines the planning frame
-  feet_array_t<vector2_t> footPositions{vector2_t::Zero(), vector2_t::Zero()};
-  contact_flag_t contacts{true, true};                // contact state of the phase active at `time`
-  feet_array_t<scalar_t> phaseElapsedTime{0.0, 0.0};  // [s] time already spent in that phase, per foot
-  vector2_t velocityCommand = vector2_t::Zero();      // commanded CoM velocity
-  std::vector<contact_flag_t> committedContacts;      // contacts imposed on the first nodes (commit window)
-  int lastSwungFoot = -1;                             // foot that swung most recently (-1 unknown), for alternation
-  scalar_t committedUntil = 0.0;                      // [s] the applied schedule is treated as fixed up to this time
+  feet_array_t<vector2_t> footPositions = makeFeetArray(vector2_t(vector2_t::Zero()));
+  contact_flag_t contacts = makeFeetArray(true);                 // contact state of the phase active at `time`
+  feet_array_t<scalar_t> phaseElapsedTime = makeFeetArray(0.0);  // [s] time already spent in that phase, per foot
+  vector2_t velocityCommand = vector2_t::Zero();                 // commanded CoM velocity
+  std::vector<contact_flag_t> committedContacts;                 // contacts imposed on the first nodes (commit window)
+  int lastSwungFoot = -1;                                        // foot that swung most recently (-1 unknown), for alternation
+  scalar_t committedUntil = 0.0;                                 // [s] the applied schedule is treated as fixed up to this time
 };
 
 /** Result of the contact planner: contact sequence, footholds and the reduced-model trajectories. */
@@ -56,6 +56,7 @@ struct ContactPlan {
   scalar_t startTime = 0.0;
   scalar_t dt = 0.1;
   scalar_t committedUntil = 0.0;                   // [s] the plan honoured the applied schedule up to this time
+  scalar_t yaw = 0.0;                              // [rad] base yaw at planning time; the geometry was planned in this frame
   std::vector<contact_flag_t> contacts;            // per interval k = 0..N-1
   std::vector<feet_array_t<vector2_t>> footholds;  // per node k = 0..N, planned foot xy (landing spot while swinging)
   std::vector<vector2_t> comPosition;              // per node
@@ -81,6 +82,13 @@ struct ContactPlan {
 
   /** Planned foot position of the node nearest to `time` (clamped). Empty when the plan is not valid. */
   std::optional<vector2_t> footholdAtTime(size_t contactIndex, scalar_t time) const;
+
+  /**
+   * Moves the whole plan by `shift` seconds (start time and commit boundary). Used when the executed schedule is re-timed
+   * after the plan was made (late touch-down, cadence modulation) so that the plan's later events keep their timing
+   * relative to the re-timed switch.
+   */
+  void shiftInTime(scalar_t shift);
 
   /**
    * Converts the plan to a mode schedule. Event times are placed at the node times where the contact set changes. After the

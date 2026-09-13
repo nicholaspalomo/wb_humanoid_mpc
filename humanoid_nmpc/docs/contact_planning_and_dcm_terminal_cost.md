@@ -95,9 +95,10 @@ Implementation: `humanoid_centroidal_mpc/cost/DcmTerminalCost.{h,cpp}`; wiring i
                  background thread)       + propagation + local search │ footholds, CoM, ZMP
                                                                        ▼
                         ContactPlanningReferenceManager ◄──────────────┘
+                          ├─ applied schedule adapted to measured contacts (early / late touch-down, 2.8)
                           ├─ mode schedule  = committed window of the applied schedule + plan
                           ├─ swing trajectory planner (foot height)   ──► constraints / pre-computation
-                          └─ swing-foot references (planned landing)  ──► task_space_foot_cost (pos_x, pos_y)
+                          └─ swing-foot references (planned landing + DCM step adjustment) ──► task_space_foot_cost (pos_x, pos_y)
                                                                        ▼
                                                               SQP NMPC (unchanged)
 ```
@@ -249,3 +250,128 @@ under 0.1 s. With the default budget of 200 relaxations / 0.1 s the receding-hor
 Implementation: `humanoid_common_mpc/contact_planning/` (`OcpQpHpipm`, `MixedIntegerOcpQp`, `LipContactPlanner`,
 `ContactPlan`, `ContactPlanningReferenceManager`, `ContactPlannerModule`); tests in `humanoid_common_mpc/test/` and
 `humanoid_centroidal_mpc/test/testContactPlanningIntegration.cpp`.
+
+### 2.8 Adaptive execution between plans
+
+The planner decides the contact sequence on a coarse grid (0.1 s) and re-plans at about 10 Hz, and the commit window
+protects a swing in flight from being re-timed by a later plan. On its own that makes the executed schedule rigid at
+exactly the moments that matter for disturbance rejection: a swing foot that hits the ground early is still commanded to
+fly (zero-wrench constraint against the ground), a foot that misses the ground is switched to stance in mid-air, and a
+push during a swing cannot move the landing target before the next plan arrives. The reference manager therefore adapts
+the schedule it executes between plans, using only the measured contact state and the closed-form LIP. The features are
+implemented in `humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.{h,cpp}` as pure functions of a
+`ModeSchedule`, written for any number of feet (`N_CONTACTS`), and driven from `ContactPlanningReferenceManager`. They are
+configured in the `contact_planning` block of `task.yaml`:
+
+```yaml
+contact_planning:
+  # ... planner keys ...
+  enablePhaseResetting: true            # early touch-down: switch the foot to contact at once; late: extend the swing
+  earlyTouchdownMinSwingRatio: 0.25     # contact during this initial fraction of the nominal swing is ignored (scuffing)
+  maxLateTouchdownExtension: 0.15       # [s] total extension budget of a swing past its planned touch-down
+  lateTouchdownExtensionStep: 0.05      # [s] the touch-down is pushed this far ahead of the current time per cycle
+  lateTouchdownSearchVelocity: 0.05     # [m/s] descent rate of the foot height target while searching for the ground
+  enableDcmStepAdjustment: true         # move the landing target by the DCM error propagated to touch-down
+  dcmAdjustmentGain: 1.0                # 1 = exact LIP compensation of the DCM error at touch-down
+  dcmAdjustmentMaxOffset: 0.15          # [m] bound on the landing target offset (also clipped to reachX / reachY*)
+  enableEnergyCadenceModulation: false  # re-time the touch-down of the swing in flight by the LIP orbital energy error
+  energyCadenceGain: 0.01               # [s/J] touch-down shift = -gain * (E - E_plan)
+```
+
+Every query of the schedule in this layer treats an event at exactly the query time as already passed. That is the
+convention of the SQP (after a post-event node the first interval starts an epsilon after the event), but the opposite of
+`ocs2::ModeSchedule::modeAtTime`, so the two must not be mixed; the helpers `modeIndexAtTime` / `contactFlagsAtTime` are
+used throughout the reference manager for this reason.
+
+#### 2.8.1 Phase resetting on measured contact events (`enablePhaseResetting`)
+
+The measured contact flags reach the MPC as the observation mode (`RobotState::getContactFlags()` in the MRT controller,
+MuJoCo contact sensors in simulation) and are compared with the schedule at the start of every solve. Per foot the
+manager keeps a small latch of the swing currently in flight (its lift-off, its nominal touch-down, and any re-timing
+applied so far).
+
+**Early touch-down.** A foot that is scheduled to swing but is measured in contact after the first
+`earlyTouchdownMinSwingRatio` of the *nominal* swing duration (scuffing right after lift-off is ignored) is switched to
+contact at the current time: the phase containing the current time is split there and the foot is in contact from then
+until its old touch-down, which disappears. The detection is level-triggered, so a contact that started inside the
+ignored window and persists past it is a landing too. Nothing else moves: the other feet and every later event keep
+their timing, because those were planned consistently with the plan that is about to be merged (shifting the tail would
+make the applied schedule disagree with the plan at the merge point and produce phantom micro-swings). The touch-down
+now lies before the commit window, so the boundary shrinks back to `commitTime` and the planner is free to re-time the
+following phases; the reference manager additionally raises a re-plan request that makes `ContactPlannerModule` skip its
+rate limiter once. The commit window itself is not shortened below `commitTime`, because it covers the planner latency
+and a shorter window would let the fresh plan re-time a phase the controller has already started. The lift-off
+position latch records the landed position on the next cycle, so the foot reference does not jitter.
+
+**Late touch-down.** A foot whose swing has reached its planned touch-down without measured contact would be switched to
+stance in the air. Instead its touch-down is pushed to `now + lateTouchdownExtensionStep` and every later event is delayed
+by the same amount, so that the following double support and the other feet's phases keep their durations (no flight
+phase can appear). The extension is repeated every cycle while contact is missing, in total at most
+`maxLateTouchdownExtension` past the planned touch-down (measured from the planned touch-down, not from the last
+extension); when the budget is used up the contact phase proceeds as scheduled. During the extension the xy foot
+reference holds the landing target (its interpolation is timed on the swing without the extension) and the touch-down
+height target handed to the swing trajectory planner descends at `lateTouchdownSearchVelocity`, so the foot keeps moving
+down towards the ground instead of hovering. Contact measured at any time during the extension ends the swing at once
+through the early touch-down path.
+
+Because a late extension moves later events, the active plan is shifted by the same amount (`ContactPlan::shiftInTime`,
+start time and commit boundary), which keeps the merge consistent, and the shift is logged so that a plan that was still
+being computed from the pre-shift schedule is shifted too when it arrives (a plan is shifted by every logged shift that
+is younger than its start time; the planner snapshot is taken after the reference manager ran in the same cycle).
+
+#### 2.8.2 DCM step adjustment (`enableDcmStepAdjustment`)
+
+Between plans the landing target of every swing foot is corrected with the capture point. With
+$\boldsymbol{\xi} = \mathbf{c} + \dot{\mathbf{c}}/\omega$ the DCM of the full model (CoM from the kinematics, CoM velocity from
+the normalised momentum) and $\boldsymbol{\xi}^{\mathrm{ref}}(t)$ the DCM of the plan's LIP trajectory, evaluated at the
+current time by propagating the node state through the interval with its constant ZMP
+($\boldsymbol{\xi}^{\mathrm{ref}}(t) = \mathbf{z}_k + (\boldsymbol{\xi}_k - \mathbf{z}_k) e^{\omega (t - t_k)}$, not the stale
+node value), the error $\Delta\boldsymbol{\xi}(t) = \boldsymbol{\xi}(t) - \boldsymbol{\xi}^{\mathrm{ref}}(t)$ grows on the LIP until the
+touch-down at $t_{\mathrm{TD}}$ as $e^{\omega (t_{\mathrm{TD}} - t)}$. Moving the foothold by exactly that amount restores the
+planned DCM offset with respect to the new support:
+
+$$\mathbf{p}^{\mathrm{adj}}_{\mathrm{land}} = \mathbf{p}^{\mathrm{nom}}_{\mathrm{land}} + K_{\mathrm{dcm}}\, e^{\omega (t_{\mathrm{TD}} - t)}\, \Delta\boldsymbol{\xi}(t),$$
+
+with $K_{\mathrm{dcm}} = 1$ the exact LIP compensation (`dcmAdjustmentGain`). The offset is limited to
+`dcmAdjustmentMaxOffset` in norm and the adjusted foothold is clipped to the planner's reachable region around the
+planned CoM at touch-down, in the plan's yaw frame (`reachX`, `reachYInner`, `reachYOuter`), where the side of the foot
+(left or right of the CoM) is taken from the nominal foothold so that a foot is never moved across the body. The
+adjustment is recomputed at every solve (it is a function of the current state, so it cannot run faster than the MPC)
+and blended into the swing reference with the same smooth-step profile as the step itself, so it is invisible at lift-off
+and fully applied at touch-down. When the next plan arrives it already contains the correction, the error with respect
+to the new plan is small and the adjustment fades, so there is no double counting. The adjustment only modulates the
+landing target; it never triggers an early touch-down.
+
+#### 2.8.3 Energy-based cadence modulation (`enableEnergyCadenceModulation`, off by default)
+
+The orbital energy of the LIP along the heading of the plan, relative to the planned ZMP,
+
+$$E = \tfrac{1}{2} m \big(\dot{x}^2 - \omega^2 x^2\big), \qquad x = \mathbf{e}_x^\top(\mathbf{c} - \mathbf{z}),$$
+
+is conserved between contact switches. A CoM that carries more energy than the plan passes over the support earlier and
+should step earlier; less energy should delay the step. The touch-down of the swing in flight is moved by
+$\Delta t_{\mathrm{TD}} = -K_E\,(E - E^{\mathrm{ref}})$ relative to its *nominal* touch-down (not cumulatively), clipped to
+`[minSwingDuration, maxSwingDuration]` after lift-off and never closer than 20 ms to the current time; every later event
+moves with it and the plan is shifted alongside, exactly as for a late touch-down. It is not applied while a foot is
+searching for the ground. `energyCadenceGain` is in seconds per joule of the full robot mass; the default 0.01 s/J moves
+the touch-down by about 0.1 s for a 0.15 m/s forward velocity error of a 150 kg robot walking at 0.4 m/s. The feature is
+a heuristic that overlaps with the DCM step adjustment and the planner's own re-timing; it is disabled by default and
+should be enabled only with simulation tests.
+
+#### 2.8.4 What the tests cover
+
+`humanoid_common_mpc/test/testContactPhaseResetting.cpp` exercises the schedule layer without a robot model, for every
+foot: the event conventions, in-place truncation (also for swings spanning several phases), tail shifting, early
+touch-down acceptance / rejection / level triggering, late extension in steps up to the budget, contact during an
+extension, cadence clamping, an alternating-gait simulation with random early and late landings (schedule stays
+consistent, no flight phase), the LIP closed form, energy conservation, the step adjustment propagation and bound, the
+reach clipping in rotated frames, plan time shifting and the configuration keys.
+`humanoid_centroidal_mpc/test/testContactPlanningIntegration.cpp` runs the same scenarios on the DRC Atlas model through
+the interface: a forward velocity error moves the landing reference forward within the bound, an early contact switches
+the foot to stance in place and yields a consistent planner input, a missing contact extends the swing in steps up to
+the budget while the xy reference holds and the height keeps descending, and extra energy shortens the swing in flight.
+
+Implementation: `humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.{h,cpp}` (pure schedule and LIP
+functions), `ContactPlanningReferenceManager` (event handling, plan shifting, DCM adjustment, swing height search),
+`ContactPlannerModule` (immediate re-plan on a contact event). Note that the mixed-integer planner itself
+(`LipContactPlanner`) is formulated for two feet; the execution layer described here is not.

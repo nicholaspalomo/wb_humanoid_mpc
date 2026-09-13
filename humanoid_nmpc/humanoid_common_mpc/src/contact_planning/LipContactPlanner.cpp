@@ -597,6 +597,7 @@ ContactPlan LipContactPlanner::decode(const ContactPlannerInput& input, const Mi
   plan.startTime = input.time;
   plan.dt = config_.dt;
   plan.committedUntil = input.committedUntil;
+  plan.yaw = input.yaw;
   plan.numBranchAndBoundNodes = statistics_.numBranchAndBoundRelaxations + statistics_.numLocalSearchQps;
   plan.solveTime = statistics_.branchAndBoundTime + statistics_.localSearchTime;
   plan.optimal = result.optimal;

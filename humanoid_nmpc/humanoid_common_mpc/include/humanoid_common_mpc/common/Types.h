@@ -98,6 +98,14 @@ constexpr size_t CONTACT_RIGHT_INDEX = 1;
 template <typename T>
 using feet_array_t = std::array<T, N_CONTACTS>;
 
+/** A per-foot array with every entry set to `value`; use it instead of brace lists that hard-code the number of feet. */
+template <typename T>
+feet_array_t<T> makeFeetArray(const T& value) {
+  feet_array_t<T> array;
+  array.fill(value);
+  return array;
+}
+
 template <typename T>
 using feet_vec_t = std::vector<T>;
 

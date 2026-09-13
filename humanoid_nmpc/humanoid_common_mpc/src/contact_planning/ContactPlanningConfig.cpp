@@ -55,6 +55,13 @@ void ContactPlanningConfig::validate() const {
   if (localSearchIterations < 0 || localSearchMaxTime < 0.0) fail("invalid local search limits");
   if (planningFrequency <= 0.0) fail("planningFrequency must be positive");
   if (commitNodes() >= numNodes) fail("commitTime must be shorter than the planning horizon");
+  if (earlyTouchdownMinSwingRatio < 0.0 || earlyTouchdownMinSwingRatio > 1.0) fail("earlyTouchdownMinSwingRatio must be in [0, 1]");
+  if (maxLateTouchdownExtension < 0.0) fail("maxLateTouchdownExtension must be non-negative");
+  if (lateTouchdownExtensionStep <= 0.0) fail("lateTouchdownExtensionStep must be positive");
+  if (lateTouchdownSearchVelocity < 0.0) fail("lateTouchdownSearchVelocity must be non-negative");
+  if (dcmAdjustmentGain < 0.0) fail("dcmAdjustmentGain must be non-negative");
+  if (dcmAdjustmentMaxOffset < 0.0) fail("dcmAdjustmentMaxOffset must be non-negative");
+  if (energyCadenceGain < 0.0) fail("energyCadenceGain must be non-negative");
 }
 
 ContactPlanningConfig loadContactPlanningConfig(const std::string& taskFile, const std::string& prefix, bool verbose) {
@@ -105,6 +112,16 @@ ContactPlanningConfig loadContactPlanningConfig(const std::string& taskFile, con
   loadData::loadPtreeValue(pt, config.verbose, prefix + "verbose", verbose);
   loadData::loadPtreeValue(pt, config.runInBackgroundThread, prefix + "runInBackgroundThread", verbose);
   loadData::loadPtreeValue(pt, config.planningFrequency, prefix + "planningFrequency", verbose);
+  loadData::loadPtreeValue(pt, config.enablePhaseResetting, prefix + "enablePhaseResetting", verbose);
+  loadData::loadPtreeValue(pt, config.earlyTouchdownMinSwingRatio, prefix + "earlyTouchdownMinSwingRatio", verbose);
+  loadData::loadPtreeValue(pt, config.maxLateTouchdownExtension, prefix + "maxLateTouchdownExtension", verbose);
+  loadData::loadPtreeValue(pt, config.lateTouchdownExtensionStep, prefix + "lateTouchdownExtensionStep", verbose);
+  loadData::loadPtreeValue(pt, config.lateTouchdownSearchVelocity, prefix + "lateTouchdownSearchVelocity", verbose);
+  loadData::loadPtreeValue(pt, config.enableDcmStepAdjustment, prefix + "enableDcmStepAdjustment", verbose);
+  loadData::loadPtreeValue(pt, config.dcmAdjustmentGain, prefix + "dcmAdjustmentGain", verbose);
+  loadData::loadPtreeValue(pt, config.dcmAdjustmentMaxOffset, prefix + "dcmAdjustmentMaxOffset", verbose);
+  loadData::loadPtreeValue(pt, config.enableEnergyCadenceModulation, prefix + "enableEnergyCadenceModulation", verbose);
+  loadData::loadPtreeValue(pt, config.energyCadenceGain, prefix + "energyCadenceGain", verbose);
   // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:contact_planning_config)
   if (verbose) {
     std::cerr << " #### =============================================================================" << std::endl;
