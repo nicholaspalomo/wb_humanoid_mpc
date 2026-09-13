@@ -4,7 +4,7 @@ telemetryFrequency: 100      # [Hz] Telemetry publishing frequency (decimated fr
 enableOnlineTuning: true     # Enable runtime parameter and gain tuning in Controller GUI
 useContactBasisVectorInputs: true  # Set true to use basis-vector scalings λ as MPC contact inputs (instead of direct wrenches)
 useComAndAcomTracking: true      # Set true to regulate CoM + Angular Center of Mass (ACoM) instead of base pose
-useContactPlanning: true        # Set true to plan the contact sequence, timing and footholds online with the mixed-integer contact planner (replaces the gait schedule)
+useContactPlanning: false        # Set true to plan the contact sequence, timing and footholds online with the mixed-integer contact planner (replaces the gait schedule)
 useDcmTerminalCost: true         # Set true to end the horizon with the DCM (capture point) viability cost; Q_final / terminal_cost are then ignored
 
 # Weights for CoM and ACoM tracking (active when useComAndAcomTracking is true).
@@ -435,8 +435,8 @@ task_space_foot_cost_weights:
   activeInStance: false
   # pos_x / pos_y track the planned swing-foot landing spot and are only applied while a contact plan provides one
   # (useContactPlanning: true); without a plan the xy position error is switched off inside the cost.
-  pos_x: 30
-  pos_y: 30
+  pos_x: 0
+  pos_y: 0
   pos_z: 100
   orientation_x: 100
   orientation_y: 100
