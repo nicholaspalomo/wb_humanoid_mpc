@@ -27,7 +27,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <Eigen/Core>
 #include <Eigen/Dense>
-#include <cmath>
 #include <vector>
 
 #include "humanoid_common_mpc/common/Types.h"
@@ -53,10 +52,21 @@ class AngularCenterOfMass {
   AngularCenterOfMass(size_t inputDim, size_t hiddenDim, size_t numLayers, double omega0 = 30.0);
 
   /**
-   * Creates an AngularCenterOfMass instance and loads weights statically
-   * compiled in AcomSirenWeights.h.
+   * Creates an AngularCenterOfMass instance from statically compiled weights
+   * for a specific robot's weight struct (e.g., AcomSirenWeightsAtlas).
+   *
+   * @tparam WeightsT  Auto-generated weight struct with static constexpr members.
    */
+  template <typename WeightsT>
   static std::unique_ptr<AngularCenterOfMass> createFromStaticWeights();
+
+  /**
+   * Runtime dispatch: creates an AngularCenterOfMass with the correct
+   * per-robot weights selected by robot name (e.g., "atlas", "g1").
+   *
+   * @throws std::runtime_error if robotName is not recognized.
+   */
+  static std::unique_ptr<AngularCenterOfMass> createForRobot(const std::string& robotName);
 
   /**
    * Loads layer weights and biases from standard Eigen matrices.

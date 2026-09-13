@@ -40,11 +40,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/log/log.h"
 #include "absl/strings/str_cat.h"
 #include "humanoid_common_mpc/cost/ComAndAcomTrackingCost.h"
-#include "humanoid_common_mpc/cost/EndEffectorKinematicCostHelpers.hpp"
+#include "humanoid_common_mpc/cost/EndEffectorKinematicCostHelpers.h"
 
 #include <ocs2_core/constraint/StateInputConstraint.h>
 #include <ocs2_core/cost/QuadraticStateCost.h>
 #include <ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h>
+#include <ocs2_core/penalties/penalties/RelaxedBarrierPenalty.h>
 #include <ocs2_core/soft_constraint/StateInputSoftConstraint.h>
 #include <ocs2_core/soft_constraint/StateSoftConstraint.h>
 
@@ -150,8 +151,11 @@ std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getStateQuadratic
   loadData::loadEigenMatrix(taskFile_, "Q", Q);
 
   if (modelSettings_.useComAndAcomTracking) {
-    size_t baseIdx = mpcRobotModelADPtr_->getCentroidalModelInfo().generalizedCoordinatesIndex;
-    Q.block<6, 6>(baseIdx, baseIdx).setZero();
+    // In the centroidal model, generalized coordinates start at index 6
+    // (after the 6D normalized momentum h_norm). Zero out the base pose
+    // (position + orientation) block so CoM/ACoM tracking handles it instead.
+    constexpr size_t kGeneralizedCoordinatesStartIndex = 6;
+    Q.block<6, 6>(kGeneralizedCoordinatesStartIndex, kGeneralizedCoordinatesStartIndex).setZero();
     if (verbose_) {
       LOG(INFO) << "[HumanoidCostConstraintFactory] useComAndAcomTracking is enabled. Zeroing out base pose weights in Q.";
     }
@@ -184,8 +188,21 @@ std::unique_ptr<StateCost> HumanoidCostConstraintFactory::getComAndAcomTrackingC
               << " #### =============================================================================";
   }
 
-  return std::make_unique<ComAndAcomTrackingCost>(std::move(Q_com), std::move(Q_acom), *pinocchioInterfacePtr_,
-                                                  mpcRobotModelADPtr_->getCentroidalModelInfo(), *referenceManagerPtr_);
+  // Construct a CentroidalModelInfo from the PinocchioInterface model dimensions.
+  // MpcRobotModelBase does not expose getCentroidalModelInfo(), so we derive the
+  // fields that ComAndAcomTrackingCost needs (stateDim, generalizedCoordinatesNum,
+  // actuatedDofNum) directly from the Pinocchio model.
+  const auto& pinocchioModel = pinocchioInterfacePtr_->getModel();
+  CentroidalModelInfo info;
+  info.generalizedCoordinatesNum = pinocchioModel.nq;
+  info.actuatedDofNum = info.generalizedCoordinatesNum - 6;
+  info.stateDim = info.generalizedCoordinatesNum + 6;
+  info.inputDim = mpcRobotModelPtr_->getInputDim();
+  // robotMass is not used by ComAndAcomTrackingCost's getValue/getQuadraticApproximation.
+  info.robotMass = 0.0;
+
+  return std::make_unique<ComAndAcomTrackingCost>(std::move(Q_com), std::move(Q_acom), *pinocchioInterfacePtr_, std::move(info),
+                                                  *referenceManagerPtr_, modelSettings_.robotName);
 }
 
 /******************************************************************************************************/

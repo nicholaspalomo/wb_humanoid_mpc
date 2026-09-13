@@ -32,7 +32,8 @@ using MuJoCo rigid-body dynamics.
 """
 
 import os
-from typing import Dict, Optional, Tuple
+import xml.etree.ElementTree as ET
+from typing import Dict, List, Optional, Tuple
 import mujoco
 import numpy as np
 
@@ -58,9 +59,22 @@ def resolve_xml_path(path: str) -> str:
 
 
 class AcomDatasetGenerator:
-    """Generates training datasets for aCOM from MuJoCo robot models."""
+    """Generates training datasets for aCOM from MuJoCo robot models.
 
-    def __init__(self, xml_path: str):
+    Args:
+        xml_path: Path to MuJoCo XML model file.
+        urdf_path: Optional path to URDF file. When provided, a joint permutation
+            is computed so that all dataset outputs (q_joints, A_bar_omega) use
+            URDF/Pinocchio joint ordering instead of MuJoCo joint ordering. This
+            is critical for C++ runtime parity because the MPC uses Pinocchio.
+    """
+
+    def __init__(
+        self,
+        xml_path: str,
+        urdf_path: Optional[str] = None,
+        fixed_joints: Optional[List[str]] = None,
+    ):
         """Initializes generator from a MuJoCo XML file."""
         resolved_path = resolve_xml_path(xml_path)
         self.model = mujoco.MjModel.from_xml_path(resolved_path)
@@ -76,17 +90,30 @@ class AcomDatasetGenerator:
         if self.is_floating:
             self.base_qpos_dim = 7
             self.base_qvel_dim = 6
-            self.num_joints = self.nv - 6
+            self.num_mj_joints = self.nv - 6
         else:
             self.base_qpos_dim = 0
             self.base_qvel_dim = 0
-            self.num_joints = self.nv
+            self.num_mj_joints = self.nv
 
-        # Extract joint limits for actuated internal joints
+        # Collect MuJoCo actuated joint names (skip the free joint if present)
+        start_jnt = 1 if self.is_floating else 0
+        self.mj_joint_names: List[str] = []
+        for j in range(start_jnt, self.model.njnt):
+            name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_JOINT, j)
+            self.mj_joint_names.append(name)
+
+        self.fixed_joints = set(fixed_joints or [])
+        self.mj_fixed_indices = [
+            self.mj_joint_names.index(name)
+            for name in self.fixed_joints
+            if name in self.mj_joint_names
+        ]
+
+        # Extract joint limits for actuated internal joints (in MuJoCo order)
         self.joint_limits_lower = []
         self.joint_limits_upper = []
 
-        start_jnt = 1 if self.is_floating else 0
         for j in range(start_jnt, self.model.njnt):
             if self.model.jnt_limited[j]:
                 self.joint_limits_lower.append(self.model.jnt_range[j, 0])
@@ -98,31 +125,85 @@ class AcomDatasetGenerator:
         self.joint_limits_lower = np.array(self.joint_limits_lower, dtype=np.float64)
         self.joint_limits_upper = np.array(self.joint_limits_upper, dtype=np.float64)
 
+        # Compute URDF ↔ MuJoCo joint permutation if URDF provided.
+        # perm[i] = MuJoCo index of URDF's i-th joint.
+        # Usage:
+        #   MuJoCo→URDF (gather):   q_urdf = q_mj[perm]
+        #   URDF→MuJoCo (scatter):  q_mj[perm] = q_urdf
+        # LINT.IfChange(joint_permutation)
+        if urdf_path is not None:
+            resolved_urdf = resolve_xml_path(urdf_path)
+            self.urdf_joint_names, self.joint_perm = self._compute_joint_permutation(
+                resolved_urdf
+            )
+        else:
+            self.urdf_joint_names = self.mj_joint_names
+            self.joint_perm = None
+
+        self.num_active_joints = len(
+            [j for j in self.urdf_joint_names if j not in self.fixed_joints]
+        )
+        # LINT.ThenChange(//humanoid_learning/acom/tests/test_acom.py:joint_permutation_test)
+
+    def _compute_joint_permutation(
+        self, urdf_path: str
+    ) -> Tuple[List[str], np.ndarray]:
+        """Computes index permutation from URDF joint ordering to MuJoCo joint ordering.
+
+        Returns:
+            urdf_joint_names: list of non-fixed URDF joint names in URDF document order.
+            perm: np.ndarray where perm[i] = MuJoCo joint index of URDF's i-th joint.
+        """
+        urdf_tree = ET.parse(urdf_path)
+        urdf_joint_names = [
+            j.attrib["name"]
+            for j in urdf_tree.findall(".//joint")
+            if j.attrib.get("type") not in ("fixed", "floating")
+        ]
+
+        # Validate that every URDF joint exists in MuJoCo (and vice-versa)
+        mj_set = set(self.mj_joint_names)
+        urdf_set = set(urdf_joint_names)
+        missing_in_mj = urdf_set - mj_set
+        missing_in_urdf = mj_set - urdf_set
+        if missing_in_mj:
+            raise ValueError(f"URDF joints not found in MuJoCo model: {missing_in_mj}")
+        if missing_in_urdf:
+            raise ValueError(
+                f"MuJoCo joints not found in URDF model: {missing_in_urdf}"
+            )
+
+        perm = np.array(
+            [self.mj_joint_names.index(name) for name in urdf_joint_names],
+            dtype=np.int64,
+        )
+        return urdf_joint_names, perm
+
     def compute_centroidal_matrices(
-        self, q_joints: np.ndarray
+        self, q_joints_mj: np.ndarray
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Computes I_G, A_omega, and locked normalized A_bar_omega for a given joint configuration.
 
+        Args:
+            q_joints_mj: Joint angles in **MuJoCo** ordering.
+
         Returns:
             I_G: (3, 3) whole-body locked inertia at CoM
-            A_omega_j: (3, n_j) centroidal angular momentum matrix for joint velocities
-            A_bar_omega: (3, n_j) locked-inertia normalized matrix I_G^{-1} * A_omega_j
+            A_omega_j: (3, n_j) centroidal angular momentum matrix for joint velocities (MuJoCo order)
+            A_bar_omega: (3, n_j) locked-inertia normalized matrix I_G^{-1} * A_omega_j (MuJoCo order)
         """
         # Set configuration (base at origin, orientation identity)
         self.data.qpos[:] = 0.0
         if self.is_floating:
             self.data.qpos[2] = 0.8  # nominal height
             self.data.qpos[3] = 1.0  # quat w
-            self.data.qpos[7:] = q_joints
+            self.data.qpos[7:] = q_joints_mj
         else:
-            self.data.qpos[:] = q_joints
+            self.data.qpos[:] = q_joints_mj
 
         # Forward kinematics and composite rigid body inertia
         self.data.qvel[:] = 0.0
         mujoco.mj_forward(self.model, self.data)
-
-        com = np.copy(self.data.subtree_com[0])  # whole-body CoM
-        total_mass = self.model.body_mass.sum()
 
         # Compute centroidal momentum matrix A(q) via unit-velocity evaluations
         # For floating base: nv = 6 (3 lin, 3 ang) + n_j
@@ -133,6 +214,9 @@ class AcomDatasetGenerator:
             self.data.qvel[:] = 0.0
             self.data.qvel[col] = 1.0
             mujoco.mj_forward(self.model, self.data)
+            # mj_subtreeVel must be called after mj_forward to populate
+            # subtree_angmom; without it, angular momentum remains zero.
+            mujoco.mj_subtreeVel(self.model, self.data)
 
             # Subtree angular momentum about world origin
             # Subtree angmom at root body in MuJoCo is about the subtree CoM!
@@ -159,6 +243,9 @@ class AcomDatasetGenerator:
     ) -> Dict[str, np.ndarray]:
         """Samples random joint configurations and generates training dataset.
 
+        All outputs are in **URDF/Pinocchio** joint ordering when a URDF path was
+        provided at construction, or in MuJoCo ordering otherwise.
+
         Returns:
             dict containing:
                 - 'q_joints': (num_samples, n_j)
@@ -168,19 +255,44 @@ class AcomDatasetGenerator:
         rng = np.random.default_rng(seed)
 
         # Sample joint positions uniformly within 80% of joint limits to stay away from singularities
+        # Limits are in MuJoCo order
         margin = 0.1 * (self.joint_limits_upper - self.joint_limits_lower)
         low = self.joint_limits_lower + margin
         high = self.joint_limits_upper - margin
 
-        q_samples = rng.uniform(low, high, size=(num_samples, self.num_joints))
+        # Samples are generated in MuJoCo order (limits are in MuJoCo order)
+        q_samples_mj = rng.uniform(low, high, size=(num_samples, self.num_mj_joints))
 
-        A_bar_samples = np.zeros((num_samples, 3, self.num_joints), dtype=np.float32)
+        # Zero out fixed joints
+        if self.mj_fixed_indices:
+            q_samples_mj[:, self.mj_fixed_indices] = 0.0
+
+        A_bar_samples = np.zeros((num_samples, 3, self.num_mj_joints), dtype=np.float32)
         I_G_samples = np.zeros((num_samples, 3, 3), dtype=np.float32)
 
         for i in range(num_samples):
-            I_G, _, A_bar = self.compute_centroidal_matrices(q_samples[i])
-            A_bar_samples[i] = A_bar.astype(np.float32)
+            I_G, _, A_bar_mj = self.compute_centroidal_matrices(q_samples_mj[i])
+            A_bar_samples[i] = A_bar_mj.astype(np.float32)
             I_G_samples[i] = I_G.astype(np.float32)
+
+        # Reorder from MuJoCo to URDF/Pinocchio joint ordering so that the
+        # trained SIREN network is consistent with the C++ runtime, which
+        # indexes joints via Pinocchio (URDF order).
+        if self.joint_perm is not None:
+            q_samples = q_samples_mj[:, self.joint_perm]  # gather: MuJoCo → URDF
+            A_bar_samples = A_bar_samples[:, :, self.joint_perm]  # reorder columns
+        else:
+            q_samples = q_samples_mj
+
+        # Drop fixed joints from the dataset
+        if self.fixed_joints:
+            active_indices = [
+                i
+                for i, name in enumerate(self.urdf_joint_names)
+                if name not in self.fixed_joints
+            ]
+            q_samples = q_samples[:, active_indices]
+            A_bar_samples = A_bar_samples[:, :, active_indices]
 
         return {
             "q_joints": q_samples.astype(np.float32),

@@ -63,6 +63,7 @@ cc_library(
     ],
     deps = [
         "//humanoid_nmpc/humanoid_mpc_msgs",
+        "//lib/ocs2:ocs2_centroidal_model",
         "//lib/ocs2:ocs2_core",
         "//lib/ocs2:ocs2_mpc",
         "//lib/ocs2:ocs2_pinocchio_interface",

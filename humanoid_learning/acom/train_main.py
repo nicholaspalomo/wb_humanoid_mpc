@@ -27,10 +27,40 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import argparse
 import os
+import shutil
+
 import jax
 from humanoid_learning.acom.dataset_generator import AcomDatasetGenerator
 from humanoid_learning.acom.train_acom import train_acom
 from humanoid_learning.acom.export_acom import export_to_json, export_to_cpp_header
+
+# LINT.IfChange(robot_paths)
+# Default XML and URDF paths per robot. Keep in sync with Bazel data dependencies.
+_ROBOT_CONFIGS = {
+    "g1": {
+        "xml": "robot_models/unitree_g1/g1_description/urdf/g1_29dof.xml",
+        "urdf": "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf",
+        "fixed_joints": [
+            "left_wrist_roll_joint",
+            "left_wrist_pitch_joint",
+            "left_wrist_yaw_joint",
+            "right_wrist_roll_joint",
+            "right_wrist_pitch_joint",
+            "right_wrist_yaw_joint",
+        ],
+    },
+    "atlas": {
+        "xml": "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.xml",
+        "urdf": "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf",
+        "fixed_joints": ["l_arm_wry", "l_arm_wrx", "r_arm_wry", "r_arm_wrx"],
+    },
+}
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/acom/AngularCenterOfMass.cpp:acom_robot_dispatch)
+
+# Directory where per-robot AcomSirenWeights<Robot>.h headers are consumed by the C++ build.
+_CPP_HEADER_INSTALL_DIR = (
+    "humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/acom"
+)
 
 
 def main():
@@ -38,9 +68,20 @@ def main():
         description="Train Angular Center of Mass (aCOM) in JAX"
     )
     parser.add_argument(
-        "--robot", type=str, default="g1", choices=["g1", "atlas"], help="Robot model"
+        "--robot",
+        type=str,
+        default="g1",
+        choices=list(_ROBOT_CONFIGS.keys()),
+        help="Robot model",
     )
     parser.add_argument("--xml", type=str, default=None, help="Path to MuJoCo XML file")
+    parser.add_argument(
+        "--urdf",
+        type=str,
+        default=None,
+        help="Path to URDF file for joint order alignment with Pinocchio. "
+        "If not given, inferred from --robot.",
+    )
     parser.add_argument(
         "--num_samples", type=int, default=5000, help="Number of dataset samples"
     )
@@ -55,6 +96,12 @@ def main():
         "--output_dir", type=str, default="/tmp/acom_export", help="Output directory"
     )
     parser.add_argument(
+        "--install_header",
+        action="store_true",
+        help="Install the exported C++ header directly into the workspace at "
+        f"{_CPP_HEADER_INSTALL_DIR}/AcomSirenWeights<Robot>.h",
+    )
+    parser.add_argument(
         "--log_dir",
         type=str,
         default=None,
@@ -67,12 +114,13 @@ def main():
     )
     args = parser.parse_args()
 
-    # Determine XML path
+    # Determine XML and URDF paths
+    robot_cfg = _ROBOT_CONFIGS.get(args.robot, {})
     if args.xml is None:
-        if args.robot == "g1":
-            args.xml = "robot_models/unitree_g1/g1_description/urdf/g1_29dof.xml"
-        elif args.robot == "atlas":
-            args.xml = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.xml"
+        args.xml = robot_cfg.get("xml")
+    if args.urdf is None:
+        args.urdf = robot_cfg.get("urdf")
+    fixed_joints = robot_cfg.get("fixed_joints", [])
 
     log_dir = None
     if not args.no_tb:
@@ -83,10 +131,16 @@ def main():
         )
 
     print(f"🤖 Generating aCOM dataset for {args.robot.upper()} from {args.xml}...")
-    generator = AcomDatasetGenerator(args.xml)
+    if args.urdf:
+        print(f"  Using URDF for joint ordering: {args.urdf}")
+    if fixed_joints:
+        print(f"  Fixing {len(fixed_joints)} joints: {fixed_joints}")
+    generator = AcomDatasetGenerator(
+        args.xml, urdf_path=args.urdf, fixed_joints=fixed_joints
+    )
     dataset = generator.generate_dataset(num_samples=args.num_samples)
     print(
-        f"  Dataset generated: {args.num_samples} configurations, {generator.num_joints} joints."
+        f"  Dataset generated: {args.num_samples} configurations, {generator.num_active_joints} active joints."
     )
 
     print(
@@ -94,7 +148,7 @@ def main():
     )
     model, params, history = train_acom(
         dataset=dataset,
-        in_dim=generator.num_joints,
+        in_dim=generator.num_active_joints,
         hidden_dim=args.hidden_dim,
         num_layers=args.num_layers,
         num_epochs=args.epochs,
@@ -104,18 +158,32 @@ def main():
 
     os.makedirs(args.output_dir, exist_ok=True)
     json_path = os.path.join(args.output_dir, f"acom_{args.robot}.json")
-    cpp_path = os.path.join(
-        args.output_dir, f"AngularCenterOfMassWeights_{args.robot}.h"
-    )
+
+    # Per-robot class name and header filename (e.g., AcomSirenWeightsAtlas)
+    robot_name_cap = args.robot.capitalize()
+    class_name = f"AcomSirenWeights{robot_name_cap}"
+    header_filename = f"{class_name}.h"
+    cpp_path = os.path.join(args.output_dir, header_filename)
 
     export_to_json(params, json_path)
-    export_to_cpp_header(
-        params, cpp_path, class_name=f"AcomSirenWeights_{args.robot.capitalize()}"
-    )
+    export_to_cpp_header(params, cpp_path, class_name=class_name)
 
     print(f"✅ Training complete!")
     print(f"  Exported JSON to: {json_path}")
     print(f"  Exported C++ header to: {cpp_path}")
+
+    if args.install_header:
+        ws_dir = os.environ.get("BUILD_WORKSPACE_DIRECTORY", "")
+        if not ws_dir:
+            # Try to find workspace root from current file location
+            ws_dir = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), "..", "..")
+            )
+        install_path = os.path.join(ws_dir, _CPP_HEADER_INSTALL_DIR, header_filename)
+        os.makedirs(os.path.dirname(install_path), exist_ok=True)
+
+        shutil.copy2(cpp_path, install_path)
+        print(f"  Installed C++ header to: {install_path}")
 
 
 if __name__ == "__main__":

@@ -24,7 +24,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
-#include "humanoid_common_mpc/acom/AcomSirenWeights.h"
+#include "humanoid_common_mpc/acom/AcomSirenWeightsAtlas.h"
+#include "humanoid_common_mpc/acom/AcomSirenWeightsG1.h"
 
 #include <stdexcept>
 
@@ -33,42 +34,69 @@ namespace ocs2::humanoid {
 AngularCenterOfMass::AngularCenterOfMass(size_t inputDim, size_t hiddenDim, size_t numLayers, double omega0)
     : inputDim_(inputDim), hiddenDim_(hiddenDim), numLayers_(numLayers), omega0_(omega0) {}
 
+template <typename WeightsT>
 std::unique_ptr<AngularCenterOfMass> AngularCenterOfMass::createFromStaticWeights() {
-  using namespace ocs2::humanoid::acom;
-  auto acom = std::make_unique<AngularCenterOfMass>(AcomSirenWeights::input_dim, AcomSirenWeights::W0_rows, AcomSirenWeights::num_layers,
-                                                    AcomSirenWeights::omega_0);
+  static_assert(WeightsT::num_layers == 3,
+                "createFromStaticWeights() hardcodes 3 layers (2 hidden + 1 output). "
+                "Update the loader if the SIREN architecture changes.");
+  auto acom = std::make_unique<AngularCenterOfMass>(WeightsT::input_dim, WeightsT::W0_rows, WeightsT::num_layers - 1, WeightsT::omega_0);
 
   std::vector<SirenLayerWeights> layers;
 
   // Layer 0
   SirenLayerWeights l0;
-  l0.weight = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(
-      AcomSirenWeights::W0, AcomSirenWeights::W0_rows, AcomSirenWeights::W0_cols);
-  l0.bias = Eigen::Map<const Eigen::VectorXd>(AcomSirenWeights::b0, AcomSirenWeights::W0_rows);
+  l0.weight = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(WeightsT::W0, WeightsT::W0_rows,
+                                                                                                       WeightsT::W0_cols);
+  l0.bias = Eigen::Map<const Eigen::VectorXd>(WeightsT::b0, WeightsT::W0_rows);
   layers.push_back(l0);
 
   // Layer 1
   SirenLayerWeights l1;
-  l1.weight = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(
-      AcomSirenWeights::W1, AcomSirenWeights::W1_rows, AcomSirenWeights::W1_cols);
-  l1.bias = Eigen::Map<const Eigen::VectorXd>(AcomSirenWeights::b1, AcomSirenWeights::W1_rows);
+  l1.weight = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(WeightsT::W1, WeightsT::W1_rows,
+                                                                                                       WeightsT::W1_cols);
+  l1.bias = Eigen::Map<const Eigen::VectorXd>(WeightsT::b1, WeightsT::W1_rows);
   layers.push_back(l1);
 
   // Layer 2
   SirenLayerWeights l2;
-  l2.weight = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(
-      AcomSirenWeights::W2, AcomSirenWeights::W2_rows, AcomSirenWeights::W2_cols);
-  l2.bias = Eigen::Map<const Eigen::VectorXd>(AcomSirenWeights::b2, AcomSirenWeights::W2_rows);
+  l2.weight = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(WeightsT::W2, WeightsT::W2_rows,
+                                                                                                       WeightsT::W2_cols);
+  l2.bias = Eigen::Map<const Eigen::VectorXd>(WeightsT::b2, WeightsT::W2_rows);
   layers.push_back(l2);
 
   acom->setWeights(layers);
   return acom;
 }
 
+// LINT.IfChange(acom_robot_dispatch)
+std::unique_ptr<AngularCenterOfMass> AngularCenterOfMass::createForRobot(const std::string& robotName) {
+  using namespace ocs2::humanoid::acom;
+  if (robotName == "atlas") {
+    return createFromStaticWeights<AcomSirenWeightsAtlas>();
+  } else if (robotName == "g1") {
+    return createFromStaticWeights<AcomSirenWeightsG1>();
+  }
+  throw std::runtime_error("AngularCenterOfMass::createForRobot: Unknown robot '" + robotName +
+                           "'. Add a new AcomSirenWeights<Robot>.h header and update this dispatch.");
+}
+// LINT.ThenChange(//humanoid_learning/acom/train_main.py:robot_paths)
+
 void AngularCenterOfMass::setWeights(const std::vector<SirenLayerWeights>& layers) {
   if (layers.size() != numLayers_ + 1) {
     throw std::runtime_error("AngularCenterOfMass::setWeights: Expected " + std::to_string(numLayers_ + 1) + " layers, got " +
                              std::to_string(layers.size()));
+  }
+  // Validate dimension consistency between consecutive layers
+  for (size_t i = 0; i < layers.size(); ++i) {
+    size_t expectedIn = (i == 0) ? inputDim_ : static_cast<size_t>(layers[i - 1].weight.rows());
+    if (static_cast<size_t>(layers[i].weight.cols()) != expectedIn) {
+      throw std::runtime_error("AngularCenterOfMass::setWeights: Layer " + std::to_string(i) + " weight has " +
+                               std::to_string(layers[i].weight.cols()) + " columns, expected " + std::to_string(expectedIn));
+    }
+    if (layers[i].bias.size() != layers[i].weight.rows()) {
+      throw std::runtime_error("AngularCenterOfMass::setWeights: Layer " + std::to_string(i) + " bias has " +
+                               std::to_string(layers[i].bias.size()) + " elements, expected " + std::to_string(layers[i].weight.rows()));
+    }
   }
   layers_ = layers;
 }

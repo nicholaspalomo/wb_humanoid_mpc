@@ -15,7 +15,8 @@ class ComAndAcomTrackingCost : public StateCost {
                          matrix_t Q_acom,
                          PinocchioInterface pinocchioInterface,
                          CentroidalModelInfo info,
-                         const SwitchedModelReferenceManager& referenceManager);
+                         const SwitchedModelReferenceManager& referenceManager,
+                         const std::string& robotName);
 
   ~ComAndAcomTrackingCost() override = default;
   ComAndAcomTrackingCost* clone() const override;
@@ -37,9 +38,10 @@ class ComAndAcomTrackingCost : public StateCost {
 
   matrix_t Q_com_;
   matrix_t Q_acom_;
-  PinocchioInterface pinocchioInterface_;
+  mutable PinocchioInterface pinocchioInterface_;
   CentroidalModelInfo info_;
   const SwitchedModelReferenceManager* referenceManagerPtr_;
+  std::string robotName_;
   std::unique_ptr<AngularCenterOfMass> acom_;
 };
 
