@@ -235,18 +235,18 @@ Q:
   # ; Joint Positions ;;
   # Reduced for CoM + ACoM tracking: the torso is the main contributor to the
   # learned orientation offset, so it must be free to rotate.
-  "(12,12)": 1  # back_bkz (was 10)
-  "(13,13)": 2.5  # back_bky (was 25)
-  "(14,14)": 2.5  # back_bkx (was 25)
+  "(12,12)": 10.0  # back_bkz (was 10)
+  "(13,13)": 25.0  # back_bky (was 25)
+  "(14,14)": 25.0  # back_bkx (was 25)
   "(15,15)": 0.1  # l_arm_shz
-  "(16,16)": 0.001  # l_arm_shx
-  "(17,17)": 0.001  # l_arm_ely
-  "(18,18)": 0.001  # l_arm_elx
+  "(16,16)": 0.1  # l_arm_shx
+  "(17,17)": 0.1  # l_arm_ely
+  "(18,18)": 0.1  # l_arm_elx
   "(19,19)": 2  # neck_ry
   "(20,20)": 0.1  # r_arm_shz
-  "(21,21)": 0.001  # r_arm_shx
-  "(22,22)": 0.001  # r_arm_ely
-  "(23,23)": 0.001  # r_arm_elx
+  "(21,21)": 0.1  # r_arm_shx
+  "(22,22)": 0.1  # r_arm_ely
+  "(23,23)": 0.1  # r_arm_elx
   "(24,24)": 1  # l_leg_hpz
   "(25,25)": 250  # l_leg_hpx
   "(26,26)": 10  # l_leg_hpy
@@ -283,14 +283,14 @@ R:
   "(13,13)": 1000  # back_bky
   "(14,14)": 25  # back_bkx
   "(15,15)": 100  # l_arm_shz
-  "(16,16)": 100  # l_arm_shx
-  "(17,17)": 200  # l_arm_ely
-  "(18,18)": 200  # l_arm_elx
+  "(16,16)": 1  # l_arm_shx
+  "(17,17)": 2  # l_arm_ely
+  "(18,18)": 2  # l_arm_elx
   "(19,19)": 100  # neck_ry
   "(20,20)": 100  # r_arm_shz
-  "(21,21)": 100  # r_arm_shx
-  "(22,22)": 200  # r_arm_ely
-  "(23,23)": 200  # r_arm_elx
+  "(21,21)": 1  # r_arm_shx
+  "(22,22)": 2  # r_arm_ely
+  "(23,23)": 2  # r_arm_elx
   "(24,24)": 500  # l_leg_hpz
   "(25,25)": 5  # l_leg_hpx
   "(26,26)": 10  # l_leg_hpy
@@ -335,18 +335,18 @@ Q_final:
   # ; Joint Positions ;;
   # Reduced for CoM + ACoM tracking: the torso is the main contributor to the
   # learned orientation offset, so it must be free to rotate.
-  "(12,12)": 1  # back_bkz (was 10)
-  "(13,13)": 2.5  # back_bky (was 25)
-  "(14,14)": 2.5  # back_bkx (was 25)
+  "(12,12)": 10.0  # back_bkz (was 10)
+  "(13,13)": 25.0  # back_bky (was 25)
+  "(14,14)": 25.0  # back_bkx (was 25)
   "(15,15)": 0.1  # l_arm_shz
-  "(16,16)": 0.001  # l_arm_shx
-  "(17,17)": 0.001  # l_arm_ely
-  "(18,18)": 0.001  # l_arm_elx
+  "(16,16)": 0.1  # l_arm_shx
+  "(17,17)": 0.1  # l_arm_ely
+  "(18,18)": 0.1  # l_arm_elx
   "(19,19)": 2  # neck_ry
   "(20,20)": 0.1  # r_arm_shz
-  "(21,21)": 0.001  # r_arm_shx
-  "(22,22)": 0.001  # r_arm_ely
-  "(23,23)": 0.001  # r_arm_elx
+  "(21,21)": 0.1  # r_arm_shx
+  "(22,22)": 0.1  # r_arm_ely
+  "(23,23)": 0.1  # r_arm_elx
   "(24,24)": 1  # l_leg_hpz
   "(25,25)": 250  # l_leg_hpx
   "(26,26)": 10  # l_leg_hpy
@@ -367,9 +367,9 @@ task_space_foot_cost_weights:
   activeInStance: false
   pos_x: 0
   pos_y: 0
-  pos_z: 0
-  orientation_x: 500
-  orientation_y: 500
+  pos_z: 100
+  orientation_x: 100
+  orientation_y: 100
   orientation_z: 0
   lin_velocity_x: 0
   lin_velocity_y: 5
