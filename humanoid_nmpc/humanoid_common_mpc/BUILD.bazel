@@ -5,6 +5,18 @@ load("@rules_cc//cc:cc_test.bzl", "cc_test")
 
 package(default_visibility = ["//visibility:public"])
 
+_COMMON_COPTS = [
+    "-std=c++20",
+    "-Wall",
+    "-Wextra",
+    "-Wpedantic",
+    "-Werror=return-type",
+    "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+    "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+    "-DBOOST_VARIANT_LIMIT_TYPES=50",
+    "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+]
+
 cc_library(
     name = "humanoid_common_mpc",
     srcs = [
@@ -47,6 +59,13 @@ cc_library(
         "src/HumanoidPreComputation.cpp",
         "src/acom/AngularCenterOfMass.cpp",
         "src/initialization/WeightCompInitializer.cpp",
+        "src/contact_planning/OcpQpHpipm.cpp",
+        "src/contact_planning/MixedIntegerOcpQp.cpp",
+        "src/contact_planning/ContactPlanningConfig.cpp",
+        "src/contact_planning/ContactPlan.cpp",
+        "src/contact_planning/LipContactPlanner.cpp",
+        "src/contact_planning/ContactPlanningReferenceManager.cpp",
+        "src/contact_planning/ContactPlannerModule.cpp",
     ],
     hdrs = glob(["include/**"], allow_empty = True),
     includes = ["include"],
@@ -67,6 +86,8 @@ cc_library(
         "//lib/ocs2:ocs2_core",
         "//lib/ocs2:ocs2_mpc",
         "//lib/ocs2:ocs2_pinocchio_interface",
+        "@blasfeo",
+        "@hpipm",
         "@eigen",
         "@boost",
         "@pinocchio",
@@ -139,6 +160,39 @@ cc_test(
         ":humanoid_common_mpc",
         "@googletest//:gtest_main",
         "@ros2_ament_index_cpp",
+    ],
+)
+
+cc_test(
+    name = "testOcpQpHpipm",
+    size = "small",
+    srcs = ["test/testOcpQpHpipm.cpp"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "testMixedIntegerOcpQp",
+    size = "small",
+    srcs = ["test/testMixedIntegerOcpQp.cpp"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "testLipContactPlanner",
+    size = "medium",
+    srcs = ["test/testLipContactPlanner.cpp"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        "@googletest//:gtest_main",
     ],
 )
 

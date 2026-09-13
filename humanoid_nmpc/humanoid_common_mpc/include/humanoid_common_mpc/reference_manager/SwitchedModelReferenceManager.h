@@ -30,6 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <optional>
+
 #include <ocs2_core/thread_support/Synchronized.h>
 #include <ocs2_oc/synchronized_module/ReferenceManager.h>
 #include <ocs2_pinocchio_interface/PinocchioInterface.h>
@@ -40,6 +42,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 
 namespace ocs2::humanoid {
+
+/** Task-space reference of a swing foot, provided by a contact planner. */
+struct SwingFootReference {
+  vector3_t position = vector3_t::Zero();
+  vector3_t linearVelocity = vector3_t::Zero();
+};
 
 /**
  * Manages the ModeSchedule and the TargetTrajectories for switched model.
@@ -72,6 +80,21 @@ class SwitchedModelReferenceManager : public ReferenceManager {
   const std::shared_ptr<SwingTrajectoryPlanner>& getSwingTrajectoryPlanner() const { return swingTrajectoryPtr_; }
 
   scalar_t getPhaseVariable(scalar_t time) const;
+
+  /** True when the mode schedule is produced by an online contact planner instead of the gait schedule. */
+  virtual bool usesContactPlanning() const { return false; }
+
+  /**
+   * Task-space reference for a foot that is in swing at `time`, when a contact planner provides one. The default (gait
+   * schedule based) reference manager has no foothold targets and returns an empty optional.
+   */
+  virtual std::optional<SwingFootReference> getSwingFootReference(size_t /*contactIndex*/, scalar_t /*time*/) const { return std::nullopt; }
+
+  /**
+   * Task-space velocity reference for a foot that is in swing at `time`. The default reference manager returns the
+   * commanded CoM velocity as a heuristic to prevent the swing foot from dragging behind the robot during locomotion.
+   */
+  virtual std::optional<vector2_t> getSwingFootVelocityReference(size_t contactIndex, scalar_t time) const;
 
   vector_t getDesiredState(const TargetTrajectories& targetTrajectories, const vector_t& state, scalar_t time) const;
 

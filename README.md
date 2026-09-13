@@ -16,6 +16,58 @@ The centroidal MPC optimizes over the **whole-body kinematics** and the center o
 ### Whole-Body Dynamics MPC
 The **whole-body dynamics** MPC optimizes directly over contact forces, joint accelerations, and joint torques across the planning horizon. For details on the optimization and dynamic consistency formulation, see [Galliker et al., *Bipedal Locomotion with Nonlinear Model Predictive Control: Online Gait Generation using Whole-Body Dynamics*](http://ames.caltech.edu/galliker2022bipedal.pdf).
 
+### System Overview
+
+```mermaid
+flowchart LR
+    subgraph cmd["Commands"]
+        VEL["Velocity command<br/>(joystick / keyboard / GUI)"]
+        GUI["Controller GUI<br/>live task.yaml tuning"]
+    end
+
+    subgraph ref["Reference generation (solver pre-solve hooks)"]
+        MM["Procedural motion manager<br/>target trajectories (CoM velocity, base pose)"]
+        GS["Gait schedule<br/>periodic mode templates"]
+        CP["Mixed-integer contact planner<br/>LIP MIQP: contacts, timing, footholds<br/><i>useContactPlanning</i>"]
+        RM["Switched-model reference manager<br/>mode schedule · swing-foot height · landing references"]
+    end
+
+    subgraph mpc["Centroidal NMPC (OCS2 SQP + HPIPM)"]
+        OCP["Costs: state / input / CoM+aCoM / foot & torso task-space<br/>Terminal: DCM viability (<i>useDcmTerminalCost</i>) or Q_final<br/>Constraints: contact wrench cone / basis vectors, zero velocity, normal velocity, joint limits"]
+        UPD["Parameter updater<br/>hot-reload of task.yaml"]
+    end
+
+    subgraph rt["Runtime"]
+        MRT["MRT joint controller<br/>inverse dynamics + PD tracking"]
+        SIM["MuJoCo simulation or robot"]
+        TEL["Telemetry<br/>PlotJuggler"]
+    end
+
+    VEL --> MM
+    MM --> RM
+    GS -. "default" .-> RM
+    CP -. "when enabled" .-> RM
+    MM -. "commanded velocity" .-> CP
+    RM --> OCP
+    OCP --> MRT
+    MRT --> SIM
+    SIM -- "state feedback" --> OCP
+    SIM -- "state feedback" --> CP
+    GUI --> UPD
+    UPD --> OCP
+    UPD -. "planner config" .-> CP
+    SIM --> TEL
+```
+
+The reference layer decides *when* and *where* the feet touch the ground, the NMPC decides *how* the whole body moves. Two optional formulation features change the reference layer and the end of the NMPC horizon; both are toggled in the robot's `config/mpc/task.yaml`:
+
+| Toggle | What it does |
+| --- | --- |
+| `useDcmTerminalCost` | Ends the horizon with a Divergent Component of Motion (capture point) viability cost instead of the quadratic `Q_final` terminal cost, which is then ignored. Keeps the horizon end capturable for any gait cadence. |
+| `useContactPlanning` | Replaces the periodic gait schedule with an online mixed-integer contact planner (LIP model, branch-and-bound over HPIPM relaxations) that chooses the contact sequence, the switching times and the footholds from the current state and the velocity command. |
+
+The formulation and the math of both features are described in [humanoid_nmpc/docs/contact_planning_and_dcm_terminal_cost.md](humanoid_nmpc/docs/contact_planning_and_dcm_terminal_cost.md).
+
 ---
 
 ## 🦾 Supported Robot Models

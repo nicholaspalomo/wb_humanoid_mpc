@@ -284,6 +284,7 @@ class MpcParamsTab(ttk.Frame):
             "Task Space Costs",
             "Constraints & Barriers",
             "Solver & Horizon",
+            "Contact Planning",
         ]
 
         for cat in self.categories:
@@ -385,6 +386,8 @@ class MpcParamsTab(ttk.Frame):
             self._render_constraints_and_barriers()
         elif cat == "Solver & Horizon":
             self._render_solver_and_horizon()
+        elif cat == "Contact Planning":
+            self._render_contact_planning()
 
         # Restore saved slider values and defaults (from previous edits on this tab)
         for key, row in self.slider_rows.items():
@@ -676,6 +679,43 @@ class MpcParamsTab(ttk.Frame):
         )
         row.pack(fill="x", padx=4, pady=2)
         self.slider_rows["terminalCostScaling"] = row
+
+        # DCM (capture point) terminal cost. When useDcmTerminalCost is on it replaces Q_final, whose sliders are then
+        # still shown but have no effect on the running controller.
+        dcm_data = self.raw_data.get("dcm_terminal_cost", {})
+        if dcm_data:
+            use_dcm = bool(self.raw_data.get("useDcmTerminalCost", False))
+            dcm_frame = ttk.LabelFrame(
+                self.scroll_container.scrollable_content,
+                text="• DCM Terminal Cost (dcm_terminal_cost)"
+                + (
+                    "  [active, Q_final ignored]"
+                    if use_dcm
+                    else "  [inactive: useDcmTerminalCost is false]"
+                ),
+            )
+            dcm_frame.pack(fill="x", padx=6, pady=4)
+            for key, (
+                min_val,
+                max_scale,
+                min_max,
+            ) in self.DCM_TERMINAL_COST_RANGES.items():
+                if key not in dcm_data:
+                    continue
+                val = self._to_float(dcm_data[key])
+                if val is None:
+                    continue
+                row = SliderRow(
+                    dcm_frame,
+                    name=key,
+                    initial_value=val,
+                    min_val=min_val,
+                    max_val=max(val * max_scale, min_max),
+                    label_width=24,
+                    on_change=self._on_any_slider_change,
+                )
+                row.pack(fill="x", padx=4, pady=1)
+                self.slider_rows[f"dcm_terminal_cost.{key}"] = row
 
         qf_data = self.raw_data.get("Q_final", {})
         if not qf_data:
@@ -1250,6 +1290,116 @@ class MpcParamsTab(ttk.Frame):
                     self.slider_rows[
                         "collision_constraint.knee.kneeCollisionSphereRadius"
                     ] = row
+
+    # Slider ranges (min, max scale factor, minimum max) for the DCM terminal cost keys.
+    # LINT.IfChange(dcm_terminal_cost_gui_keys)
+    DCM_TERMINAL_COST_RANGES = {
+        "comHeight": (0.3, 2.0, 1.5),
+        "weight_x": (0.0, 4.0, 100.0),
+        "weight_y": (0.0, 4.0, 100.0),
+        "velocityOffsetFactor": (0.0, 2.0, 1.0),
+    }
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/src/cost/DcmTerminalCost.cpp:dcm_terminal_cost_keys)
+
+    # Contact planning keys that are not tunable online (they change the problem structure or the threading).
+    CONTACT_PLANNING_STATIC_KEYS = {
+        "numNodes",
+        "runInBackgroundThread",
+        "verbose",
+        "enforceAlternatingFeet",
+    }
+
+    def _render_contact_planning(self):
+        """Render the mixed-integer contact planner parameters (contact_planning block)."""
+        cp_data = self.raw_data.get("contact_planning", {})
+        use_cp = bool(self.raw_data.get("useContactPlanning", False))
+        header = ttk.LabelFrame(
+            self.scroll_container.scrollable_content,
+            text="• Mixed-Integer Contact Planner"
+            + ("  [active]" if use_cp else "  [inactive: useContactPlanning is false]"),
+        )
+        header.pack(fill="x", padx=6, pady=4)
+        if not cp_data:
+            ttk.Label(header, text="No contact_planning section in task.yaml.").pack(
+                anchor="w", padx=6, pady=4
+            )
+            return
+        groups = [
+            (
+                "Timing & Model",
+                [
+                    "dt",
+                    "commitTime",
+                    "comHeight",
+                    "gravity",
+                    "minSwingDuration",
+                    "maxSwingDuration",
+                    "minContactDuration",
+                    "maxContactDuration",
+                ],
+            ),
+            (
+                "Support & Reachability Geometry",
+                [
+                    "zmpHalfWidthX",
+                    "zmpHalfWidthY",
+                    "nominalStepWidth",
+                    "minStepWidth",
+                    "maxStepWidth",
+                    "maxStepLength",
+                    "reachX",
+                    "reachYInner",
+                    "reachYOuter",
+                    "bigM",
+                ],
+            ),
+            (
+                "Objective Weights",
+                [
+                    "velocityTrackingWeight",
+                    "zmpRegularizationWeight",
+                    "footholdRegularizationWeight",
+                    "stepWidthWeight",
+                    "contactSwitchCost",
+                    "terminalDcmWeight",
+                    "constraintSlackWeight",
+                    "constraintSlackLinearWeight",
+                ],
+            ),
+            (
+                "Solver Budget",
+                [
+                    "maxBranchAndBoundNodes",
+                    "maxSolveTime",
+                    "maxQpIterations",
+                    "localSearchIterations",
+                    "localSearchMaxTime",
+                    "planningFrequency",
+                ],
+            ),
+        ]
+        for title, keys in groups:
+            frame = ttk.LabelFrame(
+                self.scroll_container.scrollable_content, text=f"• {title}"
+            )
+            frame.pack(fill="x", padx=6, pady=4)
+            for key in keys:
+                if key not in cp_data or key in self.CONTACT_PLANNING_STATIC_KEYS:
+                    continue
+                val = self._to_float(cp_data[key])
+                if val is None:
+                    continue
+                row = SliderRow(
+                    frame,
+                    name=key,
+                    initial_value=val,
+                    min_val=0.0,
+                    max_val=max(val * 4.0, 1.0),
+                    label_width=30,
+                    on_change=self._on_any_slider_change,
+                )
+                row.pack(fill="x", padx=4, pady=1)
+                self.slider_rows[f"contact_planning.{key}"] = row
 
     def _render_solver_and_horizon(self):
         """Render MPC loop frequencies, horizon, SQP multiple shooting, and rollout settings."""

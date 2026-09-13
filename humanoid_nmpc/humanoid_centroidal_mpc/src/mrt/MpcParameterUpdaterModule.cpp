@@ -46,9 +46,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc/constraint/ZeroVelocityConstraintCppAd.h"
 #include "humanoid_centroidal_mpc/cost/CentroidalMpcEndEffectorFootCost.h"
+#include "humanoid_centroidal_mpc/cost/DcmTerminalCost.h"
 #include "humanoid_centroidal_mpc/cost/ICPCost.h"
 #include "humanoid_common_mpc/constraint/BasisScalingNonNegativityConstraint.h"
 #include "humanoid_common_mpc/constraint/JointLimitsSoftConstraint.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/cost/ComAndAcomTrackingCost.h"
 #include "humanoid_common_mpc/cost/EndEffectorKinematicCostHelpers.h"
 #include "humanoid_common_mpc/cost/EndEffectorKinematicsQuadraticCost.h"
@@ -247,6 +249,7 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
   matrix_t R = matrix_t::Zero(inputDim_, inputDim_);
   matrix_t Q_final = matrix_t::Zero(stateDim_, stateDim_);
   scalar_t terminalCostScaling = 1.0;
+  bool hasQFinal = false;
 
   const bool useComAndAcom = pt.get<bool>("useComAndAcomTracking", false);
 
@@ -274,8 +277,12 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
     } else {
       loadEigenMatrixFromPtree(pt, "R", R);
     }
-    loadEigenMatrixFromPtree(pt, "Q_final", Q_final);
-    terminalCostScaling = pt.get<scalar_t>("terminalCostScaling", terminalCostScaling);
+    // Q_final is optional, and ignored while useDcmTerminalCost is on (the OCP then has no quadratic terminal cost).
+    hasQFinal = pt.get_child_optional("Q_final").is_initialized() && !pt.get<bool>("useDcmTerminalCost", false);
+    if (hasQFinal) {
+      loadEigenMatrixFromPtree(pt, "Q_final", Q_final);
+      terminalCostScaling = pt.get<scalar_t>("terminalCostScaling", terminalCostScaling);
+    }
 
     // The factory zeroes the base pose block of both the running and the terminal
     // state cost when CoM + aCOM tracking is on, so live updates must do the same
@@ -338,6 +345,16 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
     icpWeights = ICPCost::getWeights(yamlFile, "icp_cost_weights.", false);
     hasIcpWeights = true;
   } catch (...) {
+  }
+
+  // DCM terminal cost (weights, CoM height, velocity offset); the CppAD model is parameterised, no recompilation needed.
+  std::optional<DcmTerminalCost::Config> dcmTerminalConfig;
+  if (pt.get_child_optional("dcm_terminal_cost")) {
+    try {
+      dcmTerminalConfig = DcmTerminalCost::loadConfig(yamlFile, "dcm_terminal_cost.", false);
+    } catch (const std::exception& e) {
+      LOG(WARNING) << "[MpcParameterUpdaterModule] dcm_terminal_cost section could not be applied: " << e.what();
+    }
   }
 
   // Parse task-space torso/body tracking cost weights
@@ -519,14 +536,29 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
       LOG(WARNING) << "Failed to update inputQuadraticCost: unknown exception";
     }
 
-    try {
-      ocp.finalCostPtr->get<QuadraticStateCost>("terminalCost").setGains(Q_final);
-    } catch (const std::out_of_range&) {
-      // Expected if not used in task.yaml
-    } catch (const std::exception& e) {
-      LOG(WARNING) << "Failed to update terminalCost: " << e.what();
-    } catch (...) {
-      LOG(WARNING) << "Failed to update terminalCost: unknown exception";
+    if (hasQFinal) {
+      try {
+        ocp.finalCostPtr->get<QuadraticStateCost>("terminalCost").setGains(Q_final);
+      } catch (const std::out_of_range&) {
+        // Expected if not used in task.yaml
+      } catch (const std::exception& e) {
+        LOG(WARNING) << "Failed to update terminalCost: " << e.what();
+      } catch (...) {
+        LOG(WARNING) << "Failed to update terminalCost: unknown exception";
+      }
+    }
+
+    // ── DCM terminal cost ──
+    if (dcmTerminalConfig.has_value()) {
+      try {
+        ocp.finalCostPtr->get<DcmTerminalCost>("dcmTerminalCost").setConfig(*dcmTerminalConfig);
+      } catch (const std::out_of_range&) {
+        // Expected if dcm_terminal_cost is not in the cost list
+      } catch (const std::exception& e) {
+        LOG(WARNING) << "Failed to update dcmTerminalCost: " << e.what();
+      } catch (...) {
+        LOG(WARNING) << "Failed to update dcmTerminalCost: unknown exception";
+      }
     }
 
     // ── CoM and ACoM tracking cost ──
@@ -746,6 +778,15 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
     auto swingPlanner = referenceManagerPtr_->getSwingTrajectoryPlanner();
     if (swingPlanner) {
       swingPlanner->setConfig(swingConfig);
+    }
+  }
+
+  // ── Contact planning config (applied before the planner's next run) ──
+  if (contactPlannerModulePtr_ != nullptr && pt.get_child_optional("contact_planning")) {
+    try {
+      contactPlannerModulePtr_->setConfig(loadContactPlanningConfig(yamlFile, "contact_planning.", false));
+    } catch (const std::exception& e) {
+      LOG(WARNING) << "[MpcParameterUpdaterModule] contact_planning section could not be applied: " << e.what();
     }
   }
 

@@ -76,6 +76,9 @@ const absl::flat_hash_map<std::string, MpcCostType> kCostMap = {
     {"externaltorquecost", MpcCostType::ExternalTorqueCost},
     {"legtorquecost", MpcCostType::ExternalTorqueCost},
     {"jointtorquecost", MpcCostType::JointTorqueCost},
+    {"dcmterminalcost", MpcCostType::DcmTerminalCost},
+    {"terminaldcmcost", MpcCostType::DcmTerminalCost},
+    {"dcmviabilityterminalcost", MpcCostType::DcmTerminalCost},
 };
 
 const absl::flat_hash_map<std::string, MpcSoftConstraintType> kSoftConstraintMap = {
@@ -112,7 +115,7 @@ absl::StatusOr<MpcCostType> stringToMpcCostType(absl::string_view name) {
   return absl::InvalidArgumentError(absl::StrCat(
       "Unknown MPC cost type: '", name,
       "'. Supported costs are: ", "state_quadratic_cost, input_quadratic_cost, state_input_quadratic_cost, terminal_cost, icp_cost, ",
-      "task_space_foot_cost, task_space_torso_cost, external_torque_cost, joint_torque_cost."));
+      "task_space_foot_cost, task_space_torso_cost, external_torque_cost, joint_torque_cost, dcm_terminal_cost."));
 }
 
 absl::StatusOr<std::string> mpcCostTypeToString(MpcCostType type) {
@@ -135,6 +138,8 @@ absl::StatusOr<std::string> mpcCostTypeToString(MpcCostType type) {
       return "external_torque_cost";
     case MpcCostType::JointTorqueCost:
       return "joint_torque_cost";
+    case MpcCostType::DcmTerminalCost:
+      return "dcm_terminal_cost";
     default:
       return absl::InvalidArgumentError(absl::StrCat("Unknown MpcCostType: ", static_cast<int>(type)));
   }

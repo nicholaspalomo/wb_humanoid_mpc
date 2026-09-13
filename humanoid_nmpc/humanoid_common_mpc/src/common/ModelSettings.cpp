@@ -134,6 +134,16 @@ ModelSettings::ModelSettings(const std::string& configFile, const std::string& u
   } catch (...) {
     this->useComAndAcomTracking = false;
   }
+  try {
+    loadData::loadPtreeValue(pt, this->useContactPlanning, "useContactPlanning", verbose);
+  } catch (...) {
+    this->useContactPlanning = false;
+  }
+  try {
+    loadData::loadPtreeValue(pt, this->useDcmTerminalCost, "useDcmTerminalCost", verbose);
+  } catch (...) {
+    this->useDcmTerminalCost = false;
+  }
 
   loadData::loadPtreeValue(pt, this->j_l_shoulder_y_name, prefix + "armJointNames.left_shoulder_y", verbose);
   loadData::loadPtreeValue(pt, this->j_r_shoulder_y_name, prefix + "armJointNames.right_shoulder_y", verbose);

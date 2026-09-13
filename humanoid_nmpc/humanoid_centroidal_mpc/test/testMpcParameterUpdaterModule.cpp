@@ -47,6 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_centroidal_mpc/constraint/ZeroVelocityConstraintCppAd.h"
 #include "humanoid_centroidal_mpc/cost/CentroidalMpcEndEffectorFootCost.h"
+#include "humanoid_centroidal_mpc/cost/DcmTerminalCost.h"
 #include "humanoid_centroidal_mpc/cost/ICPCost.h"
 #include "humanoid_centroidal_mpc/mrt/MpcParameterUpdaterModule.h"
 #include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
@@ -766,7 +767,16 @@ TEST_F(MpcParameterUpdaterModuleTest, BasePoseWeightsZeroedInBothRunningAndTermi
                                     basisCostTransform_);
   touchTaskFileAndRunUpdater(updater);
 
+  bool useDcmTerminalCost = false;
+  loadData::loadCppDataType(taskFile_, "useDcmTerminalCost", useDcmTerminalCost);
   for (auto& ocp : sqp->getOcpDefinitions()) {
+    if (useDcmTerminalCost) {
+      // The DCM terminal cost replaces the quadratic terminal cost, so there is no Q_final to zero: the base pose is not
+      // regulated at the horizon end at all.
+      EXPECT_THROW(ocp.finalCostPtr->get<QuadraticStateCost>("terminalCost"), std::out_of_range);
+      EXPECT_NO_THROW(ocp.finalCostPtr->get<DcmTerminalCost>("dcmTerminalCost"));
+      continue;
+    }
     matrix_t Q_final;
     ocp.finalCostPtr->get<QuadraticStateCost>("terminalCost").getGains(Q_final);
     EXPECT_TRUE(Q_final.block(kBasePoseStateIndex, kBasePoseStateIndex, kBasePoseDim, kBasePoseDim).isZero(1e-12))

@@ -50,6 +50,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
 #include "humanoid_common_mpc/common/BasisInputsModelDecorator.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlannerModule.h"
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
@@ -103,6 +104,14 @@ class CentroidalMpcInterface final : public RobotInterface {
   const MpcRobotModelBase<ad_scalar_t>& getEffectiveMpcRobotModelAD() const { return *effectiveMpcRobotModelADPtr_; }
 
   bool usesContactBasisVectorInputs() const { return useContactBasisVectorInputs_; }
+
+  /** True when the mode schedule and footholds come from the online mixed-integer contact planner (useContactPlanning). */
+  bool usesContactPlanning() const { return contactPlannerModulePtr_ != nullptr; }
+  /**
+   * The contact planner module, or nullptr when contact planning is off. It must be registered with the solver
+   * (SolverBase::addSynchronizedModule) by the node that owns the MPC so that it runs before every solve.
+   */
+  std::shared_ptr<ContactPlannerModule> getContactPlannerModulePtr() const { return contactPlannerModulePtr_; }
 
   /**
    * Basis-vector formulation parameters (only meaningful when usesContactBasisVectorInputs() is true).
@@ -161,6 +170,7 @@ class CentroidalMpcInterface final : public RobotInterface {
 
   std::unique_ptr<OptimalControlProblem> problemPtr_;
   std::shared_ptr<SwitchedModelReferenceManager> referenceManagerPtr_;
+  std::shared_ptr<ContactPlannerModule> contactPlannerModulePtr_;
 
   std::unique_ptr<CentroidalMpcRobotModel<scalar_t>> mpcRobotModelPtr_;
   std::unique_ptr<CentroidalMpcRobotModel<ad_scalar_t>> mpcRobotModelADPtr_;
