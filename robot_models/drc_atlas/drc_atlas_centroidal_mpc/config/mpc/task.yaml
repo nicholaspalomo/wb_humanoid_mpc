@@ -4,7 +4,7 @@ telemetryFrequency: 100      # [Hz] Telemetry publishing frequency (decimated fr
 enableOnlineTuning: true     # Enable runtime parameter and gain tuning in Controller GUI
 useContactBasisVectorInputs: true  # Set true to use basis-vector scalings λ as MPC contact inputs (instead of direct wrenches)
 useComAndAcomTracking: true      # Set true to regulate CoM + Angular Center of Mass (ACoM) instead of base pose
-useContactPlanning: false        # Set true to plan the contact sequence, timing and footholds online with the mixed-integer contact planner (replaces the gait schedule)
+useContactPlanning: true        # Set true to plan the contact sequence, timing and footholds online with the mixed-integer contact planner (replaces the gait schedule)
 useDcmTerminalCost: true         # Set true to end the horizon with the DCM (capture point) viability cost; Q_final / terminal_cost are then ignored
 
 # Weights for CoM and ACoM tracking (active when useComAndAcomTracking is true).
@@ -166,6 +166,8 @@ contact_planning:
   maxBranchAndBoundNodes: 200         # relaxations per plan
   maxSolveTime: 0.1                   # [s] anytime limit, the best plan found so far is returned
   maxQpIterations: 60
+  localSearchIterations: 10           # rounds of event-shift local search on the incumbent (0 disables)
+  localSearchMaxTime: 0.05            # [s]
   verbose: false
   runInBackgroundThread: true         # false: plan synchronously in the MPC pre-solve hook
   planningFrequency: 10.0             # [Hz] upper bound on the background planning rate

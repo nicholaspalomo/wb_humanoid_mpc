@@ -50,6 +50,7 @@ void ContactPlanningConfig::validate() const {
   if (bigM <= maxStepLength) fail("bigM must exceed maxStepLength");
   if (commitTime < 0.0) fail("commitTime must be non-negative");
   if (maxBranchAndBoundNodes < 1 || maxSolveTime <= 0.0 || maxQpIterations < 1) fail("invalid solver limits");
+  if (localSearchIterations < 0 || localSearchMaxTime < 0.0) fail("invalid local search limits");
   if (planningFrequency <= 0.0) fail("planningFrequency must be positive");
   if (commitNodes() >= numNodes) fail("commitTime must be shorter than the planning horizon");
 }
@@ -94,6 +95,8 @@ ContactPlanningConfig loadContactPlanningConfig(const std::string& taskFile, con
   loadData::loadPtreeValue(pt, config.maxBranchAndBoundNodes, prefix + "maxBranchAndBoundNodes", verbose);
   loadData::loadPtreeValue(pt, config.maxSolveTime, prefix + "maxSolveTime", verbose);
   loadData::loadPtreeValue(pt, config.maxQpIterations, prefix + "maxQpIterations", verbose);
+  loadData::loadPtreeValue(pt, config.localSearchIterations, prefix + "localSearchIterations", verbose);
+  loadData::loadPtreeValue(pt, config.localSearchMaxTime, prefix + "localSearchMaxTime", verbose);
   loadData::loadPtreeValue(pt, config.verbose, prefix + "verbose", verbose);
   loadData::loadPtreeValue(pt, config.runInBackgroundThread, prefix + "runInBackgroundThread", verbose);
   loadData::loadPtreeValue(pt, config.planningFrequency, prefix + "planningFrequency", verbose);

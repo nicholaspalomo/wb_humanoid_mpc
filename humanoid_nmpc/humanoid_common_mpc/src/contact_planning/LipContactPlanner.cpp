@@ -26,8 +26,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/LipContactPlanner.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <iostream>
+#include <set>
 #include <utility>
 
 namespace ocs2::humanoid {
@@ -39,6 +41,11 @@ constexpr scalar_t kInputRegularization = 1.0e-6;
 constexpr scalar_t kStateRegularization = 1.0e-8;
 
 using Coefficients = std::vector<std::pair<int, scalar_t>>;
+using Clock = std::chrono::steady_clock;
+
+scalar_t elapsedSeconds(const Clock::time_point& start) {
+  return std::chrono::duration<scalar_t>(Clock::now() - start).count();
+}
 
 /** Collects general constraint rows of one stage and writes them into the OcpQpStage. */
 class RowBuilder {
@@ -101,9 +108,6 @@ void addQuadraticResidual(
   }
 }
 
-}  // namespace
-
-namespace {
 /** HPIPM settings for branch-and-bound relaxations: moderate accuracy is enough for bounding and integrality decisions. */
 OcpQpHpipmSolver::Settings relaxationQpSettings(const ContactPlanningConfig& config) {
   OcpQpHpipmSolver::Settings qpSettings;
@@ -116,27 +120,26 @@ OcpQpHpipmSolver::Settings relaxationQpSettings(const ContactPlanningConfig& con
   qpSettings.tolComp = 1e-6;
   return qpSettings;
 }
+
 }  // namespace
 
 LipContactPlanner::LipContactPlanner(ContactPlanningConfig config) : config_(std::move(config)) {
   config_.validate();
-  const OcpQpHpipmSolver::Settings qpSettings = relaxationQpSettings(config_);
+  rebuildSolver();
+}
+
+void LipContactPlanner::rebuildSolver() {
   MiqpSettings miqpSettings;
   miqpSettings.maxNodes = config_.maxBranchAndBoundNodes;
   miqpSettings.maxSolveTime = config_.maxSolveTime;
   miqpSettings.verbose = config_.verbose;
-  miqp_ = std::make_unique<MixedIntegerOcpQp>(qpSettings, miqpSettings);
+  miqp_ = std::make_unique<MixedIntegerOcpQp>(relaxationQpSettings(config_), miqpSettings);
 }
 
 void LipContactPlanner::setConfig(const ContactPlanningConfig& config) {
   config.validate();
   config_ = config;
-  const OcpQpHpipmSolver::Settings qpSettings = relaxationQpSettings(config_);
-  MiqpSettings miqpSettings;
-  miqpSettings.maxNodes = config_.maxBranchAndBoundNodes;
-  miqpSettings.maxSolveTime = config_.maxSolveTime;
-  miqpSettings.verbose = config_.verbose;
-  miqp_ = std::make_unique<MixedIntegerOcpQp>(qpSettings, miqpSettings);
+  rebuildSolver();
   reset();
 }
 
@@ -172,6 +175,23 @@ MiqpAssignment LipContactPlanner::initialAssignment(const ContactPlannerInput& i
   return assignment;
 }
 
+scalar_t LipContactPlanner::assignmentCost(const ContactPlannerInput& input, const MiqpAssignment& assignment) const {
+  int numSwitches = 0;
+  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    int previous = input.contacts[foot] ? 1 : 0;
+    for (int k = 0; k < config_.numNodes; ++k) {
+      const std::int8_t value = assignment[contactBinaryIndex(k, foot)];
+      if (value == kMiqpFree) {
+        previous = -1;  // transitions involving undecided nodes are not counted (lower bound)
+        continue;
+      }
+      if (previous >= 0 && value != previous) ++numSwitches;
+      previous = value;
+    }
+  }
+  return config_.contactSwitchCost * static_cast<scalar_t>(numSwitches);
+}
+
 bool LipContactPlanner::propagate(const ContactPlannerInput& input, MiqpAssignment& a) const {
   const int N = config_.numNodes;
   const int nSwingMin = config_.minSwingNodes();
@@ -193,7 +213,7 @@ bool LipContactPlanner::propagate(const ContactPlannerInput& input, MiqpAssignme
   for (int iteration = 0; iteration < 4 * N && ok; ++iteration) {
     bool changed = false;
 
-    // Per-foot forward pass along the fixed prefix.
+    // Per-foot forward pass along the fixed prefix: minimum and maximum phase durations.
     for (size_t foot = 0; foot < N_CONTACTS && ok; ++foot) {
       std::int8_t kappa = input.contacts[foot] ? 1 : 0;
       int tau = initialPhaseNodes(input, foot);
@@ -265,13 +285,7 @@ OcpQpProblem LipContactPlanner::buildProblem(const ContactPlannerInput& input) c
   const scalar_t omega = cfg.omega();
   const scalar_t ch = std::cosh(omega * dt);
   const scalar_t sh = std::sinh(omega * dt);
-  const scalar_t bigMTau = 4.0 * N + 4.0;
-  const scalar_t tauUpper = 4.0 * N;
-  const int nSwingMin = cfg.minSwingNodes();
-  const int nSwingMax = cfg.maxSwingNodes();
-  const int nContactMin = cfg.minContactNodes();
-  const int nContactMax = cfg.maxContactNodes();
-  const int numCommitted = std::min(static_cast<int>(input.committedContacts.size()), N);
+  const scalar_t M = cfg.bigM;
 
   // Yaw-aligned constraint frame: components of the world-frame unit vectors of the local x and y axes.
   const vector2_t ex(std::cos(input.yaw), std::sin(input.yaw));
@@ -281,10 +295,6 @@ OcpQpProblem LipContactPlanner::buildProblem(const ContactPlannerInput& input) c
   const std::array<int, 2> pIndex{PLX, PRX};  // x index of each foot's position; y follows
   const std::array<int, 2> dIndex{DLX, DRX};
   const std::array<int, 2> cIndex{CL, CR};
-  const std::array<int, 2> sIndex{SL, SR};
-  const std::array<int, 2> kIndex{KL, KR};
-  const std::array<int, 2> tIndex{TL, TR};
-  const std::array<int, 2> tnIndex{TNL, TNR};
 
   OcpQpProblem problem;
   problem.x0 = vector_t::Zero(STATE_DIM);
@@ -292,10 +302,6 @@ OcpQpProblem LipContactPlanner::buildProblem(const ContactPlannerInput& input) c
   problem.x0.segment<2>(VX) = input.comVelocity;
   problem.x0.segment<2>(PLX) = input.footPositions[0];
   problem.x0.segment<2>(PRX) = input.footPositions[1];
-  problem.x0(KL) = input.contacts[0] ? 1.0 : 0.0;
-  problem.x0(KR) = input.contacts[1] ? 1.0 : 0.0;
-  problem.x0(TL) = static_cast<scalar_t>(initialPhaseNodes(input, 0));
-  problem.x0(TR) = static_cast<scalar_t>(initialPhaseNodes(input, 1));
 
   problem.stages.resize(N + 1);
   for (int k = 0; k <= N; ++k) {
@@ -304,11 +310,10 @@ OcpQpProblem LipContactPlanner::buildProblem(const ContactPlannerInput& input) c
     s = OcpQpStage::Zero(STATE_DIM, terminal ? 0 : INPUT_DIM, !terminal);
     s.Q.diagonal().array() += kStateRegularization;
 
-    // Velocity tracking at every node.
+    // Velocity tracking and nominal step width at every node.
     for (int axis = 0; axis < 2; ++axis) {
       addQuadraticResidual(s, {{VX + axis, 1.0}}, {}, -input.velocityCommand(axis), cfg.velocityTrackingWeight);
     }
-    // Nominal step width.
     {
       Coefficients xc;
       for (int axis = 0; axis < 2; ++axis) {
@@ -334,30 +339,11 @@ OcpQpProblem LipContactPlanner::buildProblem(const ContactPlannerInput& input) c
       s.B(PLX + axis, DLX + axis) = 1.0;
       s.B(PRX + axis, DRX + axis) = 1.0;
     }
-    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-      s.A(kIndex[foot], kIndex[foot]) = 0.0;
-      s.B(kIndex[foot], cIndex[foot]) = 1.0;
-      s.A(tIndex[foot], tIndex[foot]) = 0.0;
-      s.B(tIndex[foot], tnIndex[foot]) = 1.0;
-    }
 
     // ---------------- input boxes ----------------
-    s.idxbu = {DLX, DLY, DRX, DRY, CL, CR, SL, SR, TNL, TNR};
-    s.lbu = vector_t::Zero(s.idxbu.size());
-    s.ubu = vector_t::Zero(s.idxbu.size());
-    for (std::size_t i = 0; i < s.idxbu.size(); ++i) {
-      const int idx = s.idxbu[i];
-      if (idx == DLX || idx == DLY || idx == DRX || idx == DRY) {
-        s.lbu(i) = -cfg.bigM;
-        s.ubu(i) = cfg.bigM;
-      } else if (idx == TNL || idx == TNR) {
-        s.lbu(i) = 1.0;
-        s.ubu(i) = tauUpper;
-      } else {
-        s.lbu(i) = 0.0;
-        s.ubu(i) = 1.0;
-      }
-    }
+    s.idxbu = {DLX, DLY, DRX, DRY, CL, CR};
+    s.lbu = (vector_t(6) << -M, -M, -M, -M, 0.0, 0.0).finished();
+    s.ubu = (vector_t(6) << M, M, M, M, 1.0, 1.0).finished();
 
     // ---------------- running cost ----------------
     for (int axis = 0; axis < 2; ++axis) {
@@ -365,9 +351,6 @@ OcpQpProblem LipContactPlanner::buildProblem(const ContactPlannerInput& input) c
       for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
         addQuadraticResidual(s, {}, {{dIndex[foot] + axis, 1.0}}, 0.0, cfg.footholdRegularizationWeight);
       }
-    }
-    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-      s.r(sIndex[foot]) += cfg.contactSwitchCost;
     }
     if (k == N - 1) {
       // Terminal capturability: xi_N - zmp_{N-1} = e^{omega dt} (xi_{N-1} - zmp_{N-1}).
@@ -381,61 +364,59 @@ OcpQpProblem LipContactPlanner::buildProblem(const ContactPlannerInput& input) c
     RowBuilder rows(STATE_DIM, INPUT_DIM);
     // No flight phase.
     rows.add({}, {{CL, 1.0}, {CR, 1.0}}, 1.0, 2.0, false);
+
     // ZMP support region (soft). Single support: the box of the supporting foot. Double support: laterally the exact hull
     // of both boxes (the feet never cross laterally), along the heading a box around the midpoint of the feet, which is a
     // conservative inner approximation of the hull that needs no extra binary for the foot order.
+    const auto zmpMinusFoot = [&](size_t foot, int axis, scalar_t sign, Coefficients& xc, Coefficients& uc) {
+      for (int w = 0; w < 2; ++w) {
+        xc.push_back({pIndex[foot] + w, -sign * axes[axis](w)});
+        uc.push_back({ZX + w, sign * axes[axis](w)});
+      }
+    };
+    // Single-support boxes: +-e_j'(zmp - p_i) <= r_j + M (1 - c_i) + M c_other.
+    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+      const size_t other = 1 - foot;
+      for (int axis = 0; axis < 2; ++axis) {
+        for (const scalar_t sign : {1.0, -1.0}) {
+          Coefficients xc, uc;
+          zmpMinusFoot(foot, axis, sign, xc, uc);
+          uc.push_back({cIndex[foot], M});
+          uc.push_back({cIndex[other], -M});
+          rows.add(xc, uc, -kLooseBound, zmpHalfWidth[axis] + M, true);
+        }
+      }
+    }
+    // Double support, heading axis: +-e_x'(zmp - (p_L + p_R) / 2) <= r_x + M (1 - c_L) + M (1 - c_R).
+    for (const scalar_t sign : {1.0, -1.0}) {
+      Coefficients xc, uc;
+      for (int w = 0; w < 2; ++w) {
+        xc.push_back({PLX + w, -0.5 * sign * axes[0](w)});
+        xc.push_back({PRX + w, -0.5 * sign * axes[0](w)});
+        uc.push_back({ZX + w, sign * axes[0](w)});
+      }
+      uc.push_back({CL, M});
+      uc.push_back({CR, M});
+      rows.add(xc, uc, -kLooseBound, zmpHalfWidth[0] + 2.0 * M, true);
+    }
+    // Double support, lateral axis: upper bound from the left foot, lower bound from the right foot.
     {
-      const scalar_t M = cfg.bigM;
-      const auto zmpMinusFoot = [&](size_t foot, int axis, scalar_t sign, Coefficients& xc, Coefficients& uc) {
-        for (int w = 0; w < 2; ++w) {
-          xc.push_back({pIndex[foot] + w, -sign * axes[axis](w)});
-          uc.push_back({ZX + w, sign * axes[axis](w)});
-        }
-      };
-      // Single-support boxes: +-e_j'(zmp - p_i) <= r_j + M (1 - c_i) + M c_other.
-      for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-        const size_t other = 1 - foot;
-        for (int axis = 0; axis < 2; ++axis) {
-          for (const scalar_t sign : {1.0, -1.0}) {
-            Coefficients xc, uc;
-            zmpMinusFoot(foot, axis, sign, xc, uc);
-            uc.push_back({cIndex[foot], M});
-            uc.push_back({cIndex[other], -M});
-            rows.add(xc, uc, -kLooseBound, zmpHalfWidth[axis] + M, true);
-          }
-        }
-      }
-      // Double support, heading axis: +-e_x'(zmp - (p_L + p_R) / 2) <= r_x + M (1 - c_L) + M (1 - c_R).
-      for (const scalar_t sign : {1.0, -1.0}) {
-        Coefficients xc, uc;
-        for (int w = 0; w < 2; ++w) {
-          xc.push_back({PLX + w, -0.5 * sign * axes[0](w)});
-          xc.push_back({PRX + w, -0.5 * sign * axes[0](w)});
-          uc.push_back({ZX + w, sign * axes[0](w)});
-        }
-        uc.push_back({CL, M});
-        uc.push_back({CR, M});
-        rows.add(xc, uc, -kLooseBound, zmpHalfWidth[0] + 2.0 * M, true);
-      }
-      // Double support, lateral axis: upper bound from the left foot, lower bound from the right foot.
-      {
-        Coefficients xc, uc;  // e_y'(zmp - p_L) <= r + M (1 - c_L)
-        zmpMinusFoot(0, 1, 1.0, xc, uc);
-        uc.push_back({CL, M});
-        rows.add(xc, uc, -kLooseBound, zmpHalfWidth[1] + M, true);
-      }
-      {
-        Coefficients xc, uc;  // -e_y'(zmp - p_R) <= r + M (1 - c_R)
-        zmpMinusFoot(1, 1, -1.0, xc, uc);
-        uc.push_back({CR, M});
-        rows.add(xc, uc, -kLooseBound, zmpHalfWidth[1] + M, true);
-      }
+      Coefficients xc, uc;  // e_y'(zmp - p_L) <= r + M (1 - c_L)
+      zmpMinusFoot(0, 1, 1.0, xc, uc);
+      uc.push_back({CL, M});
+      rows.add(xc, uc, -kLooseBound, zmpHalfWidth[1] + M, true);
+    }
+    {
+      Coefficients xc, uc;  // -e_y'(zmp - p_R) <= r + M (1 - c_R)
+      zmpMinusFoot(1, 1, -1.0, xc, uc);
+      uc.push_back({CR, M});
+      rows.add(xc, uc, -kLooseBound, zmpHalfWidth[1] + M, true);
     }
     // A foot only moves while it is not in contact: +-dp_ij + M c_i <= M.
     for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
       for (int axis = 0; axis < 2; ++axis) {
         for (const scalar_t sign : {1.0, -1.0}) {
-          rows.add({}, {{dIndex[foot] + axis, sign}, {cIndex[foot], cfg.bigM}}, -kLooseBound, cfg.bigM, false);
+          rows.add({}, {{dIndex[foot] + axis, sign}, {cIndex[foot], M}}, -kLooseBound, M, false);
         }
       }
     }
@@ -474,29 +455,6 @@ OcpQpProblem LipContactPlanner::buildProblem(const ContactPlannerInput& input) c
         rows.add(xc, {}, cfg.minStepWidth, cfg.maxStepWidth, true);
       }
     }
-    // Switch indicator s = |c - kappa| (exact for binary c, kappa) and run-length counter update.
-    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-      const int c = cIndex[foot], a = sIndex[foot], kap = kIndex[foot], tau = tIndex[foot], tauNext = tnIndex[foot];
-      rows.add({{kap, 1.0}}, {{a, 1.0}, {c, -1.0}}, 0.0, 2.0, false);                    // s >= c - kappa
-      rows.add({{kap, -1.0}}, {{a, 1.0}, {c, 1.0}}, 0.0, 2.0, false);                    // s >= kappa - c
-      rows.add({{kap, -1.0}}, {{a, 1.0}, {c, -1.0}}, -2.0, 0.0, false);                  // s <= c + kappa
-      rows.add({{kap, 1.0}}, {{a, 1.0}, {c, 1.0}}, 0.0, 2.0, false);                     // s <= 2 - c - kappa
-      rows.add({{tau, -1.0}}, {{tauNext, 1.0}}, -kLooseBound, 1.0, false);               // tau+ <= tau + 1
-      rows.add({{tau, -1.0}}, {{tauNext, 1.0}, {a, bigMTau}}, 1.0, kLooseBound, false);  // tau+ >= tau + 1 - M s
-      rows.add({}, {{tauNext, 1.0}, {a, bigMTau}}, -kLooseBound, 1.0 + bigMTau, false);  // tau+ <= 1 + M (1 - s)
-      if (k >= numCommitted) {
-        // Minimum durations: a switch is only allowed once the current phase lasted long enough.
-        rows.add({{tau, 1.0}, {kap, static_cast<scalar_t>(nSwingMin)}}, {{c, -static_cast<scalar_t>(nSwingMin)}}, 0.0, kLooseBound, false);
-        rows.add({{tau, 1.0}, {kap, -static_cast<scalar_t>(nContactMin)}}, {{c, static_cast<scalar_t>(nContactMin)}}, 0.0, kLooseBound,
-                 false);
-        // Maximum swing duration: staying in swing (c = kappa = 0) requires tau <= nSwingMax - 1.
-        rows.add({{tau, 1.0}, {kap, -bigMTau}}, {{c, -bigMTau}}, -kLooseBound, static_cast<scalar_t>(nSwingMax - 1), false);
-        if (nContactMax > 0) {
-          rows.add({{tau, 1.0}, {kap, bigMTau}}, {{c, bigMTau}}, -kLooseBound, static_cast<scalar_t>(nContactMax - 1) + 2.0 * bigMTau,
-                   false);
-        }
-      }
-    }
     rows.writeTo(s, cfg.constraintSlackWeight, cfg.constraintSlackLinearWeight);
   }
   return problem;
@@ -518,12 +476,67 @@ std::optional<MiqpAssignment> LipContactPlanner::warmStartAssignment(const Conta
   return warm;
 }
 
+void LipContactPlanner::localSearch(const ContactPlannerInput& input, const MiqpAssignment& initial, scalar_t timeBudget) {
+  const auto start = Clock::now();
+  if (!lastResult_.hasIncumbent || config_.localSearchIterations <= 0 || timeBudget <= 0.0) return;
+  const std::vector<MiqpBinaryVariable> binaries = binaryVariables();
+  const MiqpPropagateFn propagateFn = [this, &input](MiqpAssignment& assignment) { return propagate(input, assignment); };
+  const MiqpAssignmentCostFn costFn = [this, &input](const MiqpAssignment& assignment) { return assignmentCost(input, assignment); };
+  const int N = config_.numNodes;
+
+  std::set<MiqpAssignment> evaluated;
+  evaluated.insert(lastResult_.assignment);
+  for (int round = 0; round < config_.localSearchIterations; ++round) {
+    if (elapsedSeconds(start) > timeBudget) break;
+    const MiqpAssignment base = lastResult_.assignment;
+    bool improved = false;
+    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+      for (int k = 1; k < N; ++k) {
+        const int index = contactBinaryIndex(k, foot);
+        const int previousIndex = contactBinaryIndex(k - 1, foot);
+        if (base[index] == base[previousIndex]) continue;  // no transition at k
+        // Move the transition one node earlier (the previous node takes the new value) or later (this node keeps the old).
+        for (const int shift : {-1, +1}) {
+          MiqpAssignment candidate = base;
+          if (shift < 0) {
+            if (initial[previousIndex] != kMiqpFree) continue;
+            candidate[previousIndex] = base[index];
+          } else {
+            if (initial[index] != kMiqpFree) continue;
+            candidate[index] = base[previousIndex];
+          }
+          if (!propagateFn(candidate)) continue;
+          if (!evaluated.insert(candidate).second) continue;
+          if (elapsedSeconds(start) > timeBudget) break;
+          OcpQpSolution solution;
+          scalar_t objective = 0.0;
+          ++statistics_.numLocalSearchQps;
+          if (!miqp_->solveFixed(problem_, binaries, candidate, propagateFn, costFn, solution, objective)) continue;
+          statistics_.totalQpIterations += solution.iterations;
+          if (objective < lastResult_.incumbentObjective - 1e-6) {
+            lastResult_.incumbentObjective = objective;
+            lastResult_.solution = solution;
+            lastResult_.assignment = candidate;
+            improved = true;
+            statistics_.localSearchImproved = true;
+            if (config_.verbose) {
+              std::cout << "[LipContactPlanner] local search improved the objective to " << objective << std::endl;
+            }
+          }
+        }
+      }
+    }
+    if (!improved) break;
+  }
+  statistics_.localSearchTime = elapsedSeconds(start);
+}
+
 ContactPlan LipContactPlanner::decode(const ContactPlannerInput& input, const MiqpResult& result) const {
   ContactPlan plan;
   plan.startTime = input.time;
   plan.dt = config_.dt;
-  plan.numBranchAndBoundNodes = result.numNodes;
-  plan.solveTime = result.solveTime;
+  plan.numBranchAndBoundNodes = statistics_.numBranchAndBoundRelaxations + statistics_.numLocalSearchQps;
+  plan.solveTime = statistics_.branchAndBoundTime + statistics_.localSearchTime;
   plan.optimal = result.optimal;
   plan.nodeLimitHit = result.nodeLimitHit;
   plan.timeLimitHit = result.timeLimitHit;
@@ -554,22 +567,36 @@ ContactPlan LipContactPlanner::decode(const ContactPlannerInput& input, const Mi
 }
 
 ContactPlan LipContactPlanner::plan(const ContactPlannerInput& input) {
+  const auto start = Clock::now();
+  statistics_ = Statistics();
   problem_ = buildProblem(input);
   const std::vector<MiqpBinaryVariable> binaries = binaryVariables();
   const MiqpAssignment initial = initialAssignment(input);
   const std::optional<MiqpAssignment> warm = warmStartAssignment(input);
   const MiqpPropagateFn propagateFn = [this, &input](MiqpAssignment& assignment) { return propagate(input, assignment); };
+  const MiqpAssignmentCostFn costFn = [this, &input](const MiqpAssignment& assignment) { return assignmentCost(input, assignment); };
 
   try {
-    lastResult_ = miqp_->solve(problem_, binaries, initial, propagateFn, warm ? &*warm : nullptr);
+    lastResult_ = miqp_->solve(problem_, binaries, initial, propagateFn, warm ? &*warm : nullptr, costFn);
   } catch (const std::exception& e) {
     std::cerr << "[LipContactPlanner] solver failure: " << e.what() << std::endl;
     lastResult_ = MiqpResult();
   }
+  statistics_.numBranchAndBoundRelaxations = lastResult_.numNodes;
+  statistics_.totalQpIterations = lastResult_.totalQpIterations;
+  statistics_.branchAndBoundTime = lastResult_.solveTime;
+
+  try {
+    localSearch(input, initial, config_.localSearchMaxTime);
+  } catch (const std::exception& e) {
+    std::cerr << "[LipContactPlanner] local search failure: " << e.what() << std::endl;
+  }
+
   ContactPlan plan = decode(input, lastResult_);
   if (config_.verbose) {
-    std::cout << "[LipContactPlanner] valid=" << plan.valid << " objective=" << plan.objective << " nodes=" << plan.numBranchAndBoundNodes
-              << " time=" << plan.solveTime << "s optimal=" << plan.optimal << std::endl;
+    std::cout << "[LipContactPlanner] valid=" << plan.valid << " objective=" << plan.objective
+              << " relaxations=" << statistics_.numBranchAndBoundRelaxations << " localSearchQps=" << statistics_.numLocalSearchQps
+              << " time=" << elapsedSeconds(start) << "s optimal=" << plan.optimal << std::endl;
   }
   if (plan.valid) {
     previousPlan_ = plan;

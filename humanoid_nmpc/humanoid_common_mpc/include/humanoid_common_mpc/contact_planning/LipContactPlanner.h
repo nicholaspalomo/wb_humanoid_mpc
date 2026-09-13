@@ -39,26 +39,38 @@ namespace ocs2::humanoid {
  * Mixed-integer contact planner on a Linear Inverted Pendulum (LIP) model.
  *
  * Over a horizon of N nodes of duration dt the planner decides, per node and foot, whether the foot is in contact (binary
- * c) and where the feet are placed (continuous), together with the LIP CoM and ZMP
- * trajectories. Phase durations are enforced with a per-foot run-length counter tau that is reset by the (linearised)
- * switch indicator s, so the min/max swing and contact durations become linear big-M constraints and the whole problem is
- * an OCP-structured MIQP that MixedIntegerOcpQp solves by branch-and-bound over HPIPM relaxations.
+ * c) and where the feet are placed (continuous), together with the LIP CoM and ZMP trajectories. The problem is an
+ * OCP-structured MIQP: the continuous part (LIP dynamics, ZMP support region, foot motion, reachability) is a QP that
+ * MixedIntegerOcpQp relaxes with HPIPM, the combinatorial part (no flight phase, min/max swing and contact durations,
+ * foot alternation, a price per contact switch) is enforced exactly by logical propagation on the binaries.
  *
  * Reduced model, per stage k (world frame, yaw-aligned constraint frame):
- *   state  x_k = [c_xy, v_xy, p_L, p_R, kappa_L, kappa_R, tau_L, tau_R]
- *   input  u_k = [zmp_xy, dp_L, dp_R, c_L, c_R, s_L, s_R, tau+_L, tau+_R]
- *   c_{k+1} = LIP(c_k, v_k, zmp_k), p_{k+1} = p_k + dp_k, kappa_{k+1} = c_k, tau_{k+1} = tau+_k
+ *   state  x_k = [c_xy, v_xy, p_L, p_R]              (CoM position / velocity, foot positions)
+ *   input  u_k = [zmp_xy, dp_L, dp_R, c_L, c_R]      (ZMP, foot displacements, contact binaries)
+ *   c_{k+1} = LIP(c_k, v_k, zmp_k),  p_{k+1} = p_k + dp_k
+ *
+ * After the branch-and-bound an event-shift local search moves every lift-off / touch-down of the incumbent by one node
+ * (fixed-assignment QPs) while it improves the objective, which refines the phase timing cheaply.
  */
 class LipContactPlanner {
  public:
-  enum StateIndex : int { CX = 0, CY, VX, VY, PLX, PLY, PRX, PRY, KL, KR, TL, TR, STATE_DIM };
-  enum InputIndex : int { ZX = 0, ZY, DLX, DLY, DRX, DRY, CL, CR, SL, SR, TNL, TNR, INPUT_DIM };
+  enum StateIndex : int { CX = 0, CY, VX, VY, PLX, PLY, PRX, PRY, STATE_DIM };
+  enum InputIndex : int { ZX = 0, ZY, DLX, DLY, DRX, DRY, CL, CR, INPUT_DIM };
   static constexpr int kBinariesPerNode = 2;  // c_L, c_R
+
+  struct Statistics {
+    int numBranchAndBoundRelaxations = 0;
+    int numLocalSearchQps = 0;
+    int totalQpIterations = 0;
+    scalar_t branchAndBoundTime = 0.0;
+    scalar_t localSearchTime = 0.0;
+    bool localSearchImproved = false;
+  };
 
   explicit LipContactPlanner(ContactPlanningConfig config);
 
-  /** Plans from the given input. The previous plan (if any) seeds the branch-and-bound incumbent. Never throws on solver failure:
-   * an invalid plan is returned instead. */
+  /** Plans from the given input. The previous plan (if any) seeds the incumbent. Never throws on solver failure: an invalid
+   * plan is returned instead. */
   ContactPlan plan(const ContactPlannerInput& input);
 
   /** Replaces the configuration (validated) and drops the warm start. */
@@ -70,6 +82,7 @@ class LipContactPlanner {
 
   const MiqpResult& getLastResult() const { return lastResult_; }
   const OcpQpProblem& getLastProblem() const { return problem_; }
+  const Statistics& getLastStatistics() const { return statistics_; }
 
   // The following are public for testing.
   OcpQpProblem buildProblem(const ContactPlannerInput& input) const;
@@ -77,18 +90,22 @@ class LipContactPlanner {
   MiqpAssignment initialAssignment(const ContactPlannerInput& input) const;
   /** Forward logical propagation of the contact logic (duration limits, no flight, foot alternation). */
   bool propagate(const ContactPlannerInput& input, MiqpAssignment& assignment) const;
-  static int binaryIndex(int node, InputIndex input) { return kBinariesPerNode * node + (static_cast<int>(input) - static_cast<int>(CL)); }
+  /** Switch cost of the decided transitions (exact for complete assignments, a lower bound for partial ones). */
+  scalar_t assignmentCost(const ContactPlannerInput& input, const MiqpAssignment& assignment) const;
   static int contactBinaryIndex(int node, size_t foot) { return kBinariesPerNode * node + static_cast<int>(foot); }
 
  private:
   std::optional<MiqpAssignment> warmStartAssignment(const ContactPlannerInput& input) const;
+  void localSearch(const ContactPlannerInput& input, const MiqpAssignment& initial, scalar_t timeBudget);
   ContactPlan decode(const ContactPlannerInput& input, const MiqpResult& result) const;
   int initialPhaseNodes(const ContactPlannerInput& input, size_t foot) const;
+  void rebuildSolver();
 
   ContactPlanningConfig config_;
   std::unique_ptr<MixedIntegerOcpQp> miqp_;
   OcpQpProblem problem_;
   MiqpResult lastResult_;
+  Statistics statistics_;
   std::optional<ContactPlan> previousPlan_;
   MiqpAssignment previousAssignment_;
 };

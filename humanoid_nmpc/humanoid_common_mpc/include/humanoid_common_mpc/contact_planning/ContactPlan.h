@@ -91,8 +91,8 @@ struct ContactPlan {
  * Merges the committed part of the currently applied schedule with a new plan.
  *
  * Modes strictly before `commitTime` are taken from `applied`, modes from `commitTime` on from `plan`. The result covers at
- * least [lowerBoundTime, upperBoundTime] and always starts with a STANCE mode so that the swing trajectory planner finds a
- * lift-off for every swing phase.
+ * least [lowerBoundTime, upperBoundTime], always starts and ends with a STANCE mode and always has at least one event, so
+ * that the swing trajectory planner finds a lift-off and a touch-down for every swing phase.
  */
 ModeSchedule mergeModeSchedules(
     const ModeSchedule& applied, const ModeSchedule& plan, scalar_t commitTime, scalar_t lowerBoundTime, scalar_t upperBoundTime);

@@ -119,6 +119,12 @@ ModeSchedule mergeModeSchedules(
     eventTimes.push_back(lastTime);
     modeSequence.push_back(ModeNumber::STANCE);
   }
+  // The swing trajectory planner rejects a schedule without events (it needs a preceding and a following phase for every
+  // subsystem), so an all-stance schedule is expressed as two stance phases, like the initial schedule of the reference file.
+  if (eventTimes.empty()) {
+    eventTimes.push_back(upperBoundTime);
+    modeSequence.push_back(ModeNumber::STANCE);
+  }
   return ModeSchedule(eventTimes, modeSequence);
 }
 

@@ -50,6 +50,7 @@ ContactPlanningConfig makeConfig() {
   config.maxContactDuration = 0.0;
   config.maxBranchAndBoundNodes = 3000;
   config.maxSolveTime = 10.0;
+  config.localSearchMaxTime = 2.0;
   config.verbose = false;
   config.validate();
   return config;
@@ -205,7 +206,7 @@ TEST(LipContactPlannerTest, WalkingCommandProducesAlternatingSteps) {
     EXPECT_TRUE(zmpInsideSupport(plan, config, k)) << "k=" << k << " zmp=" << plan.zmp[k].transpose();
   }
   std::cout << "walking plan solved in " << plan.solveTime * 1e3 << " ms with " << plan.numBranchAndBoundNodes << " relaxations, "
-            << planner.getLastResult().totalQpIterations << " IPM iterations\n";
+            << planner.getLastStatistics().totalQpIterations << " IPM iterations\n";
 }
 
 TEST(LipContactPlannerTest, ForwardPushTriggersRecoveryStep) {
@@ -357,6 +358,21 @@ TEST(ContactPlanTest, ModeScheduleConversionAndMerge) {
   }
   for (size_t i = 1; i < merged.modeSequence.size(); ++i) {
     EXPECT_NE(merged.modeSequence[i], merged.modeSequence[i - 1]);
+  }
+}
+
+TEST(ContactPlanTest, AllStanceMergeKeepsOneEvent) {
+  ContactPlan plan;
+  plan.valid = true;
+  plan.startTime = 1.0;
+  plan.dt = 0.1;
+  plan.contacts.assign(12, contact_flag_t{true, true});
+  const ModeSchedule applied({0.5}, {ModeNumber::STANCE, ModeNumber::STANCE});
+  const ModeSchedule merged = mergeModeSchedules(applied, plan.toModeSchedule(), 1.1, 0.0, 3.0);
+  ASSERT_FALSE(merged.eventTimes.empty());
+  ASSERT_EQ(merged.modeSequence.size(), merged.eventTimes.size() + 1);
+  for (const size_t mode : merged.modeSequence) {
+    EXPECT_EQ(mode, static_cast<size_t>(ModeNumber::STANCE));
   }
 }
 

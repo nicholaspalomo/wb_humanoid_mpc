@@ -40,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_centroidal_mpc/cost/DcmTerminalCost.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
+#include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
@@ -73,7 +74,10 @@ class DcmTerminalCostTest : public ::testing::Test {
     auto gaitSchedule = GaitSchedule::loadGaitSchedule(referenceFile_, *modelSettings_, false);
     referenceManager_ = std::make_shared<SwitchedModelReferenceManager>(std::move(gaitSchedule), std::move(swingPlanner),
                                                                         *pinocchioInterface_, *robotModel_);
-    referenceManager_->setModeSchedule(ModeSchedule({1.0, 2.0}, {ModeNumber::STANCE, ModeNumber::RF, ModeNumber::STANCE}));
+    // Right-foot single support on [1.0, 1.5) (and [2.0, 2.5)): the reference manager rebuilds its schedule from the gait
+    // schedule on every preSolverRun, so the phase has to be inserted there.
+    referenceManager_->getGaitSchedule()->insertModeSequenceTemplate(
+        ModeSequenceTemplate({0.0, 0.5, 1.0}, {ModeNumber::RF, ModeNumber::STANCE}), 1.0, 3.0);
     initialState_.setZero(info_.stateDim);
     loadData::loadEigenMatrix(taskFile_, "initialState", initialState_);
     // The reference manager needs one preSolverRun to swap in the buffered mode schedule.
@@ -144,8 +148,9 @@ TEST_F(DcmTerminalCostTest, DcmErrorMatchesAnalyticDefinition) {
 TEST_F(DcmTerminalCostTest, SingleSupportUsesStanceFoot) {
   const TargetTrajectories emptyTargets;
   const vector_t& state = initialState_;
-  // Right foot single support between t = 1 and 2.
-  const vector_t paramsRf = cost_->getParameters(1.5, emptyTargets);
+  // Right foot single support on [1.0, 1.5).
+  ASSERT_EQ(referenceManager_->getModeSchedule().modeAtTime(1.25), static_cast<size_t>(ModeNumber::RF));
+  const vector_t paramsRf = cost_->getParameters(1.25, emptyTargets);
   EXPECT_DOUBLE_EQ(paramsRf(0), 0.0);
   EXPECT_DOUBLE_EQ(paramsRf(1), 1.0);
   const vector2_t errorRf = cost_->computeDcmError(state, paramsRf);

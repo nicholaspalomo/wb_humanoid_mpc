@@ -78,6 +78,8 @@ struct ContactPlanningConfig {
   int maxBranchAndBoundNodes = 200;
   scalar_t maxSolveTime = 0.1;  // [s]
   int maxQpIterations = 60;
+  int localSearchIterations = 10;      // rounds of event-shift local search after the branch-and-bound (0 disables)
+  scalar_t localSearchMaxTime = 0.05;  // [s] time budget of the local search
   bool verbose = false;
 
   // Runtime integration
