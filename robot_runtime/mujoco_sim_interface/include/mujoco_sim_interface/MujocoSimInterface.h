@@ -140,6 +140,15 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   /// Snapshot of the timeline for the render thread, oldest sample first.
   void copyContactTimeline(std::vector<ContactTimelineSample>& out) const;
 
+  void setTargetVelocities(double vx, double vy, double yawRate) {
+    targetVelocityX_.store(vx, std::memory_order_relaxed);
+    targetVelocityY_.store(vy, std::memory_order_relaxed);
+    targetYawRate_.store(yawRate, std::memory_order_relaxed);
+  }
+  double getTargetVelocityX() const { return targetVelocityX_.load(std::memory_order_relaxed); }
+  double getTargetVelocityY() const { return targetVelocityY_.load(std::memory_order_relaxed); }
+  double getTargetYawRate() const { return targetYawRate_.load(std::memory_order_relaxed); }
+
  private:
   void setupContactDetection();
   void updateGroundTruthContacts();
@@ -218,6 +227,9 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   /// Ground-truth contact detection (simulation thread) and the timeline read by the renderer.
   std::vector<int> contactBodyIds_;  // MuJoCo body per contact point, -1 if unresolved
   uint32_t unresolvedContactMask_{0};
+  std::atomic<double> targetVelocityX_{0.0};  // commanded base velocities, from the control thread (see setTargetVelocities)
+  std::atomic<double> targetVelocityY_{0.0};
+  std::atomic<double> targetYawRate_{0.0};
   std::atomic<uint32_t> targetContactMask_{0};
   std::atomic<bool> targetContactKnown_{false};
   std::atomic<uint32_t> groundTruthContactMask_{0};

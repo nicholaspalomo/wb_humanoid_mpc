@@ -114,6 +114,7 @@ class MujocoRenderer {
   void renderLoop();
 
   void renderExternalForces();
+  void renderVelocities();
 
   /// Contact timeline overlay (see MujocoSimInterface::copyContactTimeline).
   void renderContactTimeline();

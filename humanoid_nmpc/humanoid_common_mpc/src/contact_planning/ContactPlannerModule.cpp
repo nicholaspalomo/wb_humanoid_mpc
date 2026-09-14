@@ -78,7 +78,14 @@ void ContactPlannerModule::stopWorker() {
   }
 }
 
-void ContactPlannerModule::setConfig(const ContactPlanningConfig& config) {
+void ContactPlannerModule::setModelParameters(const ContactPlanningModelParameters& parameters) {
+  modelParameters_ = parameters;
+  setConfig(getConfig());
+}
+
+void ContactPlannerModule::setConfig(const ContactPlanningConfig& configIn) {
+  ContactPlanningConfig config = configIn;
+  if (modelParameters_.has_value()) modelParameters_->applyTo(config);
   config.validate();
   referenceManagerPtr_->setConfig(config);
 

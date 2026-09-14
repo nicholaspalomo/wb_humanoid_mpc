@@ -291,6 +291,9 @@ int main(int argc, char** argv) {
       robotInterface.setTargetContactFlags({});
     }
 
+    WalkingVelocityCommand targetCmd = ros2ProceduralMpcMotionManager->getScaledWalkingVelocityCommand();
+    robotInterface.setTargetVelocities(targetCmd.linear_velocity_x, targetCmd.linear_velocity_y, targetCmd.angular_velocity_z);
+
     // Apply mode-specific overrides for modes other than JOINT_PD (which is handled by the controller)
     fsmBridge.applyModeAction(currentModeName, robotDescription, robotInterface.getRobotJointAction());
 

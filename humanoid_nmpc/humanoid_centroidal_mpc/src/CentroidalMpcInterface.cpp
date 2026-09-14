@@ -67,7 +67,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/cost/ICPCost.h"
 #include "humanoid_centroidal_mpc/dynamics/CentroidalDynamicsAD.h"
 #include "humanoid_centroidal_mpc/dynamics/CentroidalDynamicsBasisInputsAD.h"
+#include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningModelParameters.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h"
 
 #include "humanoid_common_mpc/common/BasisInputsMappingDecorator.h"
@@ -216,7 +218,33 @@ CentroidalMpcInterface::CentroidalMpcInterface(const std::string& taskFile,
   if (modelSettings_.useContactPlanning) {
     // Online mixed-integer contact planning replaces the periodic gait schedule. The gait schedule is still loaded: it is
     // used until the first plan arrives and whenever the planner has no valid plan.
-    ContactPlanningConfig contactPlanningConfig = loadContactPlanningConfig(taskFile, "contact_planning.", verbose_);
+    ContactPlanningConfig contactPlanningConfig = loadContactPlanningConfig(taskFile, "contact_planning.", verbose_, /*validate=*/false);
+    {
+      // Parameters left at 0 in the task file are derived from the robot model and from the ground parameters of the
+      // wrench cone, so that the planner never assumes more friction, torque or footprint than the whole-body
+      // constraints allow. The initial state of the task file is the nominal posture for the LIP height.
+      vector_t nominalState = vector_t::Zero(centroidalModelInfo_.stateDim);
+      loadData::loadEigenMatrix(taskFile, "initialState", nominalState);
+      boost::property_tree::ptree conePt;
+      loadData::readPropertyTree(taskFile, conePt);
+      const std::string conePrefix = "contacts.contactWrenchConeSoftConstraint.";
+      ContactPlanningGroundParameters ground;
+      loadData::loadPtreeValue(conePt, ground.frictionCoefficient, conePrefix + "frictionCoefficient", verbose_);
+      loadData::loadPtreeValue(conePt, ground.torsionalFrictionCoefficient, conePrefix + "torsionalFrictionCoefficient", verbose_);
+      try {
+        const ContactRectangle footprint = ContactRectangle::loadContactRectangle(taskFile, modelSettings_, 0, verbose_);
+        ground.footprintHalfLengthX = 0.5 * (footprint.getBounds().x_max - footprint.getBounds().x_min);
+        ground.footprintHalfWidthY = 0.5 * (footprint.getBounds().y_max - footprint.getBounds().y_min);
+      } catch (const std::exception& e) {
+        LOG(WARNING) << "[CentroidalMpcInterface] no footprint for the contact planner's ZMP box: " << e.what();
+      }
+      contactPlanningModelParameters_ = deriveContactPlanningModelParameters(
+          *pinocchioInterfacePtr_, *effectiveMpcRobotModelPtr_, nominalState, modelSettings_.contactParentJointNames, ground,
+          contactPlanningConfig.gravity, contactPlanningConfig.nominalStepWidth);
+      contactPlanningModelParameters_->applyTo(contactPlanningConfig);
+      LOG(INFO) << "[CentroidalMpcInterface] contact planner model parameters: " << contactPlanningModelParameters_->summary();
+    }
+    contactPlanningConfig.validate();
     if (contactPlanningConfig.horizon() < mpcSettings_.timeHorizon_) {
       LOG(WARNING) << "[CentroidalMpcInterface] contact_planning horizon (" << contactPlanningConfig.horizon()
                    << " s) is shorter than the MPC horizon (" << mpcSettings_.timeHorizon_
@@ -225,7 +253,18 @@ CentroidalMpcInterface::CentroidalMpcInterface(const std::string& taskFile,
     auto planningReferenceManager = std::make_shared<ContactPlanningReferenceManager>(
         GaitSchedule::loadGaitSchedule(referenceFile, modelSettings_, verbose_), std::move(swingTrajectoryPlanner), *pinocchioInterfacePtr_,
         *effectiveMpcRobotModelPtr_, contactPlanningConfig);
+    if (contactPlanningConfig.useAcomDynamics) {
+      try {
+        planningReferenceManager->setAngularCenterOfMass(AngularCenterOfMass::createForRobot(modelSettings_.robotName));
+        LOG(INFO) << "[CentroidalMpcInterface] contact planner heading model: angular centre of mass of '" << modelSettings_.robotName
+                  << "'.";
+      } catch (const std::exception& e) {
+        LOG(WARNING) << "[CentroidalMpcInterface] contact planner heading model: no ACoM network for '" << modelSettings_.robotName << "' ("
+                     << e.what() << "); the base yaw is the heading.";
+      }
+    }
     contactPlannerModulePtr_ = std::make_shared<ContactPlannerModule>(planningReferenceManager, contactPlanningConfig);
+    contactPlannerModulePtr_->setModelParameters(*contactPlanningModelParameters_);
     referenceManagerPtr_ = planningReferenceManager;
     LOG(INFO) << "[CentroidalMpcInterface] Using mixed-integer contact planning (" << contactPlanningConfig.numNodes << " nodes x "
               << contactPlanningConfig.dt << " s, " << (contactPlanningConfig.runInBackgroundThread ? "background thread" : "synchronous")

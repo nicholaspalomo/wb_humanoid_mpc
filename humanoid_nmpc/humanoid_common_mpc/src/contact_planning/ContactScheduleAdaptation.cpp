@@ -113,7 +113,10 @@ scalar_t commitBoundaryForSchedule(const ModeSchedule& schedule, scalar_t time, 
     // Walk the phases that overlap [time, boundary]; a swing phase among them extends the boundary to its touch-down.
     for (size_t i = modeIndexAtTime(schedule, time); i < modeSequence.size(); ++i) {
       const scalar_t phaseStart = (i == 0) ? -std::numeric_limits<scalar_t>::infinity() : eventTimes[i - 1];
-      if (phaseStart >= boundary) break;
+      // Closed at the far end: a swing that starts exactly on the boundary is executed too. Leaving it out let a plan
+      // re-decide a lift-off that the previous plan had aligned onto this very boundary, and with the planning period
+      // equal to the plan's age the lift-off receded by one period per plan and the robot never stepped.
+      if (phaseStart > boundary + 1e-9) break;
       const bool inContact = modeNumber2StanceLeg(modeSequence[i])[foot];
       if (!inContact && i < eventTimes.size()) {
         boundary = std::max(boundary, eventTimes[i]);  // touch-down of this swing
@@ -121,6 +124,13 @@ scalar_t commitBoundaryForSchedule(const ModeSchedule& schedule, scalar_t time, 
     }
   }
   return boundary;
+}
+
+scalar_t alignPlanToCommitBoundary(ContactPlan& plan, scalar_t boundary) {
+  const scalar_t lateness = boundary - plan.committedUntil;
+  if (lateness <= 1e-9) return 0.0;
+  plan.shiftInTime(lateness);
+  return lateness;
 }
 
 std::vector<contact_flag_t> committedContactsForPlanner(

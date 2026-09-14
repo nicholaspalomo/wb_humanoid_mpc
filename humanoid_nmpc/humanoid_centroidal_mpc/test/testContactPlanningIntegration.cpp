@@ -39,7 +39,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
 
+#include <ocs2_core/misc/LoadData.h>
 #include <ocs2_oc/oc_data/PrimalSolution.h>
+#include <pinocchio/algorithm/center-of-mass.hpp>
+
+#include "humanoid_common_mpc/contact_planning/ContactPlanningModelParameters.h"
 
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerModule.h"
@@ -650,6 +654,73 @@ TEST_F(ContactPlanningIntegrationTest, LaterSwingOfTheSameFootStartsFromItsPlann
       << "the two starts must differ by a step for this test to mean anything";
 
   module->setConfig(config);
+}
+
+/**
+ * The planner's ground and body limits left at 0 in the task file are derived from the model and from the wrench cone,
+ * so that the planner and the whole-body constraint agree on friction, torque and hip range.
+ */
+TEST_F(ContactPlanningIntegrationTest, DerivesHeadingModelParametersFromTheModel) {
+  auto module = interface_->getContactPlannerModulePtr();
+  ASSERT_NE(module, nullptr);
+  const ContactPlanningConfig config = module->getConfig();
+  const auto& model = interface_->getPinocchioInterface().getModel();
+  const scalar_t weight = pinocchio::computeTotalMass(model) * config.gravity;
+
+  boost::property_tree::ptree pt;
+  loadData::readPropertyTree(tmpTaskFile_, pt);
+  scalar_t mu = 0.0, muTorsion = 0.0;
+  loadData::loadPtreeValue(pt, mu, "contacts.contactWrenchConeSoftConstraint.frictionCoefficient", false);
+  loadData::loadPtreeValue(pt, muTorsion, "contacts.contactWrenchConeSoftConstraint.torsionalFrictionCoefficient", false);
+  ASSERT_GT(mu, 0.0);
+  EXPECT_TRUE(config.hasModelParameters());
+  EXPECT_NEAR(config.torsionalFrictionTorque, muTorsion * weight, 1e-9) << "torsional friction times the weight";
+  EXPECT_NEAR(config.doubleSupportYawCouple, mu * 0.5 * weight * config.nominalStepWidth, 1e-9) << "friction couple of two feet";
+  EXPECT_GT(config.torsionalFrictionTorque, 0.0);
+
+  // Hip yaw limits per leg: l_leg_hpz [-0.174, 0.787], r_leg_hpz [-0.787, 0.174] on the DRC Atlas.
+  const auto [leftLower, leftUpper] = config.footYawOffsetBounds(0);
+  const auto [rightLower, rightUpper] = config.footYawOffsetBounds(1);
+  const int leftHip = model.joints[model.getJointId("l_leg_hpz")].idx_q();
+  const int rightHip = model.joints[model.getJointId("r_leg_hpz")].idx_q();
+  EXPECT_NEAR(leftLower, model.lowerPositionLimit(leftHip), 1e-9);
+  EXPECT_NEAR(leftUpper, model.upperPositionLimit(leftHip), 1e-9);
+  EXPECT_NEAR(rightLower, model.lowerPositionLimit(rightHip), 1e-9);
+  EXPECT_NEAR(rightUpper, model.upperPositionLimit(rightHip), 1e-9);
+  EXPECT_LT(leftLower, 0.0);
+  EXPECT_GT(leftUpper, 0.0);
+  EXPECT_NEAR(leftLower, -rightUpper, 1e-9) << "mirrored legs";
+
+  // The derived values survive a configuration reload that does not carry them (the hot reload from the task file).
+  ContactPlanningConfig reloaded = loadContactPlanningConfig(tmpTaskFile_, "contact_planning.", false);
+  EXPECT_FALSE(reloaded.hasModelParameters()) << "the task file has no such keys";
+  module->setConfig(reloaded);
+  EXPECT_TRUE(module->getConfig().hasModelParameters());
+  EXPECT_NEAR(module->getConfig().torsionalFrictionTorque, config.torsionalFrictionTorque, 1e-12);
+  EXPECT_NEAR(module->getConfig().footYawOffsetBounds(1).first, rightLower, 1e-12);
+
+  // comHeight and the ZMP box are only filled where the task file leaves them at 0.
+  ContactPlanningGroundParameters ground;
+  ground.frictionCoefficient = mu;
+  ground.torsionalFrictionCoefficient = muTorsion;
+  PinocchioInterface pinocchio = interface_->getPinocchioInterface();
+  const ContactPlanningModelParameters derived = deriveContactPlanningModelParameters(
+      pinocchio, interface_->getEffectiveMpcRobotModel(), interface_->getInitialState(),
+      interface_->modelSettings().contactParentJointNames, ground, config.gravity, config.nominalStepWidth);
+  EXPECT_GT(derived.comHeight, 0.6);
+  EXPECT_LT(derived.comHeight, 1.2);
+  ContactPlanningConfig explicitHeight = reloaded;
+  explicitHeight.comHeight = 0.85;
+  derived.applyTo(explicitHeight);
+  EXPECT_NEAR(explicitHeight.comHeight, 0.85, 1e-12) << "an explicit height is kept";
+  ContactPlanningConfig modelHeight = reloaded;
+  modelHeight.comHeight = 0.0;
+  derived.applyTo(modelHeight);
+  EXPECT_NEAR(modelHeight.comHeight, derived.comHeight, 1e-12) << "0 means from the model";
+  EXPECT_NO_THROW(modelHeight.validate());
+  EXPECT_EQ(derived.hipYawJoints.size(), N_CONTACTS);
+  EXPECT_EQ(derived.hipYawJoints[0], "l_leg_hpz");
+  EXPECT_EQ(derived.hipYawJoints[1], "r_leg_hpz");
 }
 
 /**

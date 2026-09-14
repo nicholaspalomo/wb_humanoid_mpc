@@ -243,6 +243,9 @@ int main(int argc, char** argv) {
       robotInterface.setTargetContactFlags({});
     }
 
+    WalkingVelocityCommand targetCmd = ros2ProceduralMpcMotionManager->getScaledWalkingVelocityCommand();
+    robotInterface.setTargetVelocities(targetCmd.linear_velocity_x, targetCmd.linear_velocity_y, targetCmd.angular_velocity_z);
+
     // Apply any pending joint target position updates from the GUI
     fsmBridge.applyJointTargetUpdates();
 

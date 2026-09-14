@@ -48,6 +48,13 @@ struct ContactPlannerInput {
   std::vector<contact_flag_t> committedContacts;                 // contacts imposed on the first nodes (commit window)
   int lastSwungFoot = -1;                                        // foot that swung most recently (-1 unknown), for alternation
   scalar_t committedUntil = 0.0;                                 // [s] the applied schedule is treated as fixed up to this time
+
+  // Heading model (ContactPlanningConfig::useAcomDynamics). `yaw` then equals `heading`.
+  scalar_t heading = 0.0;                                // [rad] whole-body heading at planning time (ACoM yaw, or base yaw)
+  scalar_t headingRate = 0.0;                            // [rad/s] its rate: angular momentum about the vertical / yaw inertia
+  scalar_t headingRateCommand = 0.0;                     // [rad/s] commanded yaw rate
+  scalar_t yawInertia = 0.0;                             // [kg m^2] whole-body inertia about the vertical; <= 0: configured value
+  feet_array_t<scalar_t> footYaws = makeFeetArray(0.0);  // [rad] foot yaws at planning time, unwrapped near `heading`
 };
 
 /** Result of the contact planner: contact sequence, footholds and the reduced-model trajectories. */
@@ -62,6 +69,10 @@ struct ContactPlan {
   std::vector<vector2_t> comPosition;              // per node
   std::vector<vector2_t> comVelocity;              // per node
   std::vector<vector2_t> zmp;                      // per interval
+  // Heading model only (empty otherwise): per node k = 0..N.
+  std::vector<scalar_t> heading;                 // [rad] whole-body heading
+  std::vector<scalar_t> headingRate;             // [rad/s]
+  std::vector<feet_array_t<scalar_t>> footYaws;  // [rad] planned foot yaw (the landing yaw while the foot swings)
 
   // Solver statistics
   scalar_t objective = 0.0;
@@ -82,6 +93,13 @@ struct ContactPlan {
 
   /** Planned foot position of the node nearest to `time` (clamped). Empty when the plan is not valid. */
   std::optional<vector2_t> footholdAtTime(size_t contactIndex, scalar_t time) const;
+  bool hasHeading() const { return valid && !heading.empty(); }
+  /** Planned heading / heading rate at `time`, linearly interpolated between nodes and clamped to the plan; empty without the heading
+   * model. */
+  std::optional<scalar_t> headingAtTime(scalar_t time) const;
+  std::optional<scalar_t> headingRateAtTime(scalar_t time) const;
+  /** Planned foot yaw at the node nearest to `time` (the landing yaw while the foot swings); empty without the heading model. */
+  std::optional<scalar_t> footYawAtTime(size_t contactIndex, scalar_t time) const;
 
   /**
    * Moves the whole plan by `shift` seconds (start time and commit boundary). Used when the executed schedule is re-timed

@@ -96,6 +96,16 @@ std::optional<scalar_t> currentOrNextLiftOffTime(const ModeSchedule& schedule, s
 scalar_t commitBoundaryForSchedule(const ModeSchedule& schedule, scalar_t time, scalar_t commitTime);
 
 /**
+ * Aligns a freshly activated plan with the schedule executed right now. The plan may only change the schedule after
+ * `plan.committedUntil`, the boundary it honoured when it was made; the executed schedule may only change after
+ * `boundary`, its own commit boundary now, which lies later by the plan's age and by any swing that started meanwhile.
+ * Merging the plan at `boundary` cut its first lift-off short by that difference (the merged swing began at the
+ * boundary but kept the plan's touch-down). The plan is shifted forward by the difference instead, whole, so that its
+ * first free decision lands on the boundary. Returns the shift applied (0 when the plan's boundary is not behind).
+ */
+scalar_t alignPlanToCommitBoundary(ContactPlan& plan, scalar_t boundary);
+
+/**
  * Contacts the planner has to keep fixed on its first nodes, taken from the executed schedule: every node that starts
  * before `committedUntil`, at most `maxNodes` of them. A node that lies entirely inside the window is sampled at its
  * midpoint; the node that straddles the boundary is sampled just after the boundary, i.e. with the contact state the

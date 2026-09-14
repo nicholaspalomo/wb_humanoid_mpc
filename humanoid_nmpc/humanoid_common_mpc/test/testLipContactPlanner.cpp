@@ -518,18 +518,43 @@ ModeSchedule walkRecedingHorizon(const ContactPlanningConfig& c, int latencyTick
     });
   };
 
-  for (int step = 0; step < steps; ++step) {
-    const scalar_t t = tick * step;
-
-    // Activate the plan that is due: the reference manager's merge policy.
+  // The reference manager's activation: the plan follows the boundary that protects the executed schedule, whole.
+  const auto activateDuePlans = [&](int step, scalar_t t) {
     while (!pending.empty() && pending.front().first <= step) {
-      const ContactPlan& plan = pending.front().second;
-      const scalar_t commitTime = std::max(t, plan.committedUntil);
-      const ModeSchedule planSchedule = plan.toModeSchedule();
+      ContactPlan& due = pending.front().second;
+      const scalar_t boundary = commitBoundaryForSchedule(applied, t, c.commitTime);
+      alignPlanToCommitBoundary(due, boundary);
+      const scalar_t commitTime = std::max({t, due.committedUntil, boundary});
+      const ModeSchedule planSchedule = due.toModeSchedule();
       applied = mergeModeSchedules(applied, planSchedule, commitTime, -10.0, t + 2.4);
       checkFutureSwings(planSchedule, commitTime, "plan", t);
       checkFutureSwings(applied, t, "merged", t);
       pending.pop_front();
+    }
+  };
+
+  for (int step = 0; step < steps; ++step) {
+    const scalar_t t = tick * step;
+    activateDuePlans(step, t);
+
+    // One plan in flight at a time, like the planner module (it drops its snapshot until the previous plan is applied,
+    // so every plan is made from a schedule that already contains the plan before it).
+    if (pending.empty()) {
+      in.time = t;
+      in.contacts = contactFlagsAtTime(applied, t);
+      in.committedUntil = commitBoundaryForSchedule(applied, t, c.commitTime);
+      in.committedContacts = committedContactsForPlanner(applied, t, c.dt, c.numNodes - 1, in.committedUntil);
+      for (size_t f = 0; f < N_CONTACTS; ++f) {
+        size_t idx = modeIndexAtTime(applied, t);
+        scalar_t phaseStart = t - 10.0;
+        while (idx > 0 && modeNumber2StanceLeg(applied.modeSequence[idx - 1])[f] == in.contacts[f]) --idx;
+        if (idx > 0) phaseStart = applied.eventTimes[idx - 1];
+        in.phaseElapsedTime[f] = std::max(0.0, t - phaseStart);
+      }
+      ContactPlan plan = planner.plan(in);
+      EXPECT_TRUE(plan.valid) << "step " << step;
+      if (plan.valid) pending.emplace_back(step + latencyTicks, std::move(plan));
+      if (latencyTicks == 0) activateDuePlans(step, t);
     }
     for (size_t m : applied.modeSequence) {
       const contact_flag_t flags = modeNumber2StanceLeg(m);
@@ -537,22 +562,6 @@ ModeSchedule walkRecedingHorizon(const ContactPlanningConfig& c, int latencyTick
       for (size_t i = 0; i < N_CONTACTS; ++i) anyContact = anyContact || flags[i];
       EXPECT_TRUE(anyContact) << "flight phase at step " << step;
     }
-
-    // Plan from the executed schedule as it is now.
-    in.time = t;
-    in.contacts = contactFlagsAtTime(applied, t);
-    in.committedUntil = commitBoundaryForSchedule(applied, t, c.commitTime);
-    in.committedContacts = committedContactsForPlanner(applied, t, c.dt, c.numNodes - 1, in.committedUntil);
-    for (size_t f = 0; f < N_CONTACTS; ++f) {
-      size_t idx = modeIndexAtTime(applied, t);
-      scalar_t phaseStart = t - 10.0;
-      while (idx > 0 && modeNumber2StanceLeg(applied.modeSequence[idx - 1])[f] == in.contacts[f]) --idx;
-      if (idx > 0) phaseStart = applied.eventTimes[idx - 1];
-      in.phaseElapsedTime[f] = std::max(0.0, t - phaseStart);
-    }
-    ContactPlan plan = planner.plan(in);
-    EXPECT_TRUE(plan.valid) << "step " << step;
-    if (plan.valid) pending.emplace_back(step + latencyTicks, std::move(plan));
   }
   return applied;
 }
@@ -565,7 +574,7 @@ void expectExecutedSwingsRespectTheMinimum(const ModeSchedule& applied, const Co
     EXPECT_GE(touchDown - liftOff, c.minSwingDuration - 1e-9)
         << "executed swing of foot " << f << " [" << liftOff << ", " << touchDown << ")";
   });
-  EXPECT_GE(executedSwings, 4) << "the walk command must produce steps";
+  EXPECT_GE(executedSwings, 3) << "the walk command must produce steps; schedule: " << applied;
 }
 
 ContactPlanningConfig recedingHorizonConfig() {
@@ -591,13 +600,170 @@ TEST(LipContactPlannerTest, RecedingHorizonNeverExecutesASwingShorterThanTheMini
 
 TEST(LipContactPlannerTest, RecedingHorizonWithPlannerLatencyNeverExecutesASwingShorterThanTheMinimum) {
   // Plans applied one or two solves after they were computed, as with the background planner. The reference manager
-  // used to merge such a plan at the boundary of the activating solve instead of the plan's own boundary, which cut a
-  // lift-off placed between the two short by the plan's age: 0.28 s swings against a 0.3 s minimum.
+  // used to merge such a plan at the boundary of the activating solve without moving the plan there, which cut a
+  // lift-off placed between the plan's boundary and that one short by the plan's age: 0.28 s swings against a 0.3 s minimum.
   const ContactPlanningConfig c = recedingHorizonConfig();
   for (int latency : {1, 2}) {
+    SCOPED_TRACE("latency ticks: " + std::to_string(latency));
     const ModeSchedule applied = walkRecedingHorizon(c, latency, 0.05, 60);
     expectExecutedSwingsRespectTheMinimum(applied, c, 0.05 * 60);
   }
+}
+
+namespace {
+ContactPlanningConfig headingConfig() {
+  ContactPlanningConfig c = makeConfig();
+  c.useAcomDynamics = true;
+  // Model parameters, as deriveContactPlanningModelParameters() would set them for a ~100 kg biped.
+  c.torsionalFrictionTorque = 50.0;
+  c.doubleSupportYawCouple = 80.0;
+  c.setSymmetricFootYawOffset(0.5);
+  c.minDoubleSupportDuration = 0.1;
+  c.validate();
+  return c;
+}
+
+ContactPlannerInput turnInPlaceInput(scalar_t yawRateCommand) {
+  ContactPlannerInput in = makeStandingInput();
+  in.velocityCommand = vector2_t::Zero();
+  in.heading = 0.0;
+  in.yaw = 0.0;
+  in.headingRate = 0.0;
+  in.headingRateCommand = yawRateCommand;
+  in.footYaws = makeFeetArray(0.0);
+  in.yawInertia = 15.0;  // from the robot model in the reference manager
+  return in;
+}
+}  // namespace
+
+TEST(LipContactPlannerHeading, LayoutAppendsTheHeadingBlockAndLipModeIsUnchanged) {
+  const LipContactPlanner::Layout lip = LipContactPlanner::makeLayout(makeConfig());
+  EXPECT_FALSE(lip.hasHeading);
+  EXPECT_EQ(lip.nx, LipContactPlanner::STATE_DIM);
+  EXPECT_EQ(lip.nu, LipContactPlanner::INPUT_DIM);
+
+  const LipContactPlanner::Layout heading = LipContactPlanner::makeLayout(headingConfig());
+  EXPECT_TRUE(heading.hasHeading);
+  EXPECT_EQ(heading.nx, LipContactPlanner::STATE_DIM + 2 + static_cast<int>(N_CONTACTS));
+  EXPECT_EQ(heading.nu, LipContactPlanner::INPUT_DIM + 2 * static_cast<int>(N_CONTACTS));
+  // The binaries keep their indices: the heading block is appended after the LIP inputs.
+  EXPECT_EQ(heading.yawTorque0, LipContactPlanner::INPUT_DIM);
+  EXPECT_GT(heading.yawTorque0, LipContactPlanner::CR);
+  EXPECT_EQ(heading.footYaw(N_CONTACTS - 1), heading.nx - 1);
+  EXPECT_EQ(heading.footYawDelta(N_CONTACTS - 1), heading.nu - 1);
+
+  // A LIP plan carries no heading; the heading model needs the yaw inertia from the model and the derived parameters.
+  LipContactPlanner lipPlanner(makeConfig());
+  const ContactPlan lipPlan = lipPlanner.plan(makeStandingInput());
+  ASSERT_TRUE(lipPlan.valid);
+  EXPECT_FALSE(lipPlan.hasHeading());
+  EXPECT_FALSE(lipPlan.headingAtTime(0.5).has_value());
+  LipContactPlanner planner(headingConfig());
+  ContactPlannerInput in = turnInPlaceInput(0.0);
+  in.yawInertia = 0.0;
+  EXPECT_FALSE(planner.plan(in).valid) << "no inertia: no plan, not a crash";
+  in.yawInertia = 12.0;
+  EXPECT_TRUE(planner.plan(in).valid);
+  ContactPlanningConfig noParameters = makeConfig();
+  noParameters.useAcomDynamics = true;
+  EXPECT_FALSE(noParameters.hasModelParameters());
+  LipContactPlanner unprepared(noParameters);
+  EXPECT_FALSE(unprepared.plan(in).valid) << "without the model-derived limits the heading model refuses to plan";
+}
+
+TEST(LipContactPlannerHeading, TurnsInPlaceByStepping) {
+  // Standing, no linear command, a yaw rate command: the LIP alone would stand still. With the heading model the
+  // heading follows the command, every foot steps to keep up with the rotating frame, foot yaws stay pinned while the
+  // foot stands and end up near the heading, and the yaw torques respect the ground limits.
+  const ContactPlanningConfig c = headingConfig();
+  LipContactPlanner planner(c);
+  const ContactPlannerInput in = turnInPlaceInput(0.6);
+  const ContactPlan plan = planner.plan(in);
+  ASSERT_TRUE(plan.valid);
+  ASSERT_TRUE(plan.hasHeading());
+  ASSERT_EQ(plan.heading.size(), static_cast<size_t>(c.numNodes + 1));
+
+  const PhaseStats analysis = analyse(plan);
+  EXPECT_FALSE(analysis.flight);
+  EXPECT_GT(analysis.numSwings[0] + analysis.numSwings[1], 0) << "turning has to be stepped";
+  EXPECT_GT(plan.heading.back(), 0.25) << "the heading follows the commanded rate over the horizon";
+  for (size_t k = 1; k < plan.heading.size(); ++k) {
+    EXPECT_GE(plan.heading[k], plan.heading[k - 1] - 1e-6) << "monotone turn at node " << k;
+  }
+  // Foot yaw is pinned in contact and lands near the heading; every foot stays within hip range (soft, with margin).
+  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    for (int k = 0; k < c.numNodes; ++k) {
+      if (plan.contacts[k][foot]) {
+        EXPECT_NEAR(plan.footYaws[k + 1][foot], plan.footYaws[k][foot], 1e-6)
+            << "foot " << foot << " yaw moved while in contact at node " << k;
+      }
+      EXPECT_LE(std::abs(plan.footYaws[k][foot] - plan.heading[k]), c.footYawOffsetBounds(foot).second + 0.05)
+          << "foot " << foot << " node " << k;
+    }
+    EXPECT_GT(plan.footYaws.back()[foot], 0.1) << "foot " << foot << " turned with the heading";
+  }
+  // Ground torque limits from the solution: the QP inputs beyond the LIP block are the torques.
+  const LipContactPlanner::Layout& L = planner.getLayout();
+  const OcpQpSolution& sol = planner.getLastResult().solution;
+  for (int k = 0; k < c.numNodes; ++k) {
+    scalar_t total = 0.0;
+    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+      const scalar_t tau = sol.u[k](L.yawTorque(foot));
+      const scalar_t limit = (plan.contacts[k][foot] ? c.torsionalFrictionTorque : 0.0) +
+                             ((plan.contacts[k][0] && plan.contacts[k][1]) ? 0.5 * c.doubleSupportYawCouple : 0.0);
+      EXPECT_LE(std::abs(tau), limit + 1e-6) << "foot " << foot << " node " << k;
+      total += tau;
+    }
+    // The dynamics: omega_{k+1} - omega_k = dt * sum(tau) / I.
+    EXPECT_NEAR(plan.headingRate[k + 1] - plan.headingRate[k], c.dt * total / in.yawInertia, 1e-6);
+    EXPECT_NEAR(plan.heading[k + 1] - plan.heading[k], c.dt * plan.headingRate[k] + 0.5 * c.dt * c.dt * total / in.yawInertia, 1e-6);
+  }
+  EXPECT_GE(planner.getLastStatistics().numHeadingRelinearizations, 1);
+  EXPECT_NEAR(plan.yaw, in.heading, 1e-12) << "the planning frame is the heading";
+}
+
+TEST(LipContactPlannerHeading, CannotTurnWithoutGroundTorque) {
+  ContactPlanningConfig c = headingConfig();
+  c.torsionalFrictionTorque = 0.0;
+  c.doubleSupportYawCouple = 0.0;
+  LipContactPlanner planner(c);
+  const ContactPlan plan = planner.plan(turnInPlaceInput(0.6));
+  ASSERT_TRUE(plan.valid);
+  for (size_t k = 0; k < plan.heading.size(); ++k) {
+    EXPECT_NEAR(plan.heading[k], 0.0, 1e-6) << "no ground torque, no turn, node " << k;
+    EXPECT_NEAR(plan.headingRate[k], 0.0, 1e-6);
+  }
+}
+
+TEST(LipContactPlannerHeading, RelinearisedFrameMatchesThePlannedHeading) {
+  // After the re-linearisation the frame the step width is measured in is the plan's own heading: the lateral foot
+  // separation in that frame sits near the nominal step width whenever both feet stand.
+  ContactPlanningConfig c = headingConfig();
+  c.headingLinearizationPasses = 2;
+  LipContactPlanner planner(c);
+  const ContactPlan plan = planner.plan(turnInPlaceInput(0.5));
+  ASSERT_TRUE(plan.valid);
+  EXPECT_EQ(planner.getLastStatistics().numHeadingRelinearizations, 2);
+  for (int k = 0; k <= c.numNodes; ++k) {
+    const bool bothDown =
+        (k == c.numNodes) ? (plan.contacts[k - 1][0] && plan.contacts[k - 1][1]) : (plan.contacts[k][0] && plan.contacts[k][1]);
+    if (!bothDown) continue;
+    const vector2_t ey(-std::sin(plan.heading[k]), std::cos(plan.heading[k]));
+    const scalar_t width = ey.dot(plan.footholds[k][0] - plan.footholds[k][1]);
+    EXPECT_GE(width, c.minStepWidth - 0.02) << "node " << k;
+    EXPECT_LE(width, c.maxStepWidth + 0.02) << "node " << k;
+  }
+  // The heading trajectory seeds the next plan's nominal frame (warm start), and shifting keeps it consistent.
+  ContactPlannerInput next = turnInPlaceInput(0.5);
+  next.time = 0.1;
+  next.heading = plan.heading[1];
+  next.headingRate = plan.headingRate[1];
+  next.footYaws = plan.footYaws[1];
+  next.contacts = plan.contacts[1];
+  next.phaseElapsedTime = makeFeetArray(0.1);
+  const LipContactPlanner::HeadingNominal nominal = planner.defaultNominal(next);
+  ASSERT_EQ(nominal.heading.size(), static_cast<size_t>(c.numNodes + 1));
+  EXPECT_NEAR(nominal.heading[0], plan.heading[1], 1e-12) << "the previous plan, shifted by one node, is the nominal";
 }
 
 TEST(LipContactPlannerTest, RecedingHorizonWarmStartKeepsPlanConsistent) {

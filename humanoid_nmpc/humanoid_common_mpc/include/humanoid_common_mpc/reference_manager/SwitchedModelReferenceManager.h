@@ -47,6 +47,7 @@ namespace ocs2::humanoid {
 struct SwingFootReference {
   vector3_t position = vector3_t::Zero();
   vector3_t linearVelocity = vector3_t::Zero();
+  std::optional<scalar_t> yaw;  // [rad] planned foot yaw, present with the contact planner's heading model
 };
 
 /**

@@ -784,6 +784,39 @@ TEST(PlanShiftLog, ShiftsYoungerThanTheSnapshotAreSummedAgainstTheOriginalStartT
   EXPECT_NEAR(applyScheduleShiftsToPlan(plan, {}), 0.0, kTol);
 }
 
+TEST(PlanShiftLog, LatePlanIsMovedOntoTheCurrentBoundaryWhole) {
+  ContactPlan plan = makePlan(1.0, 0.1, 5, vector2_t::Zero(), vector2_t::Zero(), vector2_t::Zero());
+  plan.committedUntil = 1.3;
+  // The executed schedule's boundary has moved to 1.35 by the time the plan is activated: the plan follows, whole.
+  EXPECT_NEAR(alignPlanToCommitBoundary(plan, 1.35), 0.05, kTol);
+  EXPECT_NEAR(plan.committedUntil, 1.35, kTol);
+  EXPECT_NEAR(plan.startTime, 1.05, kTol);
+  // A boundary at or before the plan's own leaves it alone.
+  EXPECT_NEAR(alignPlanToCommitBoundary(plan, 1.35), 0.0, kTol);
+  EXPECT_NEAR(alignPlanToCommitBoundary(plan, 1.2), 0.0, kTol);
+  EXPECT_NEAR(plan.committedUntil, 1.35, kTol);
+}
+
+TEST(PlanHeading, InterpolatesHeadingAndLooksUpFootYaw) {
+  ContactPlan plan = makePlan(1.0, 0.1, 4, vector2_t::Zero(), vector2_t::Zero(), vector2_t::Zero());
+  EXPECT_FALSE(plan.hasHeading());
+  EXPECT_FALSE(plan.headingAtTime(1.0).has_value());
+  EXPECT_FALSE(plan.footYawAtTime(0, 1.0).has_value());
+  plan.heading = {0.0, 0.1, 0.2, 0.3, 0.4};
+  plan.headingRate = {1.0, 1.0, 1.0, 1.0, 1.0};
+  plan.footYaws = {makeFeetArray(0.0), makeFeetArray(0.0), makeFeetArray(0.2), makeFeetArray(0.2), makeFeetArray(0.4)};
+  ASSERT_TRUE(plan.hasHeading());
+  EXPECT_NEAR(*plan.headingAtTime(1.0), 0.0, kTol);
+  EXPECT_NEAR(*plan.headingAtTime(1.15), 0.15, kTol) << "linear between nodes";
+  EXPECT_NEAR(*plan.headingAtTime(0.5), 0.0, kTol) << "clamped before the plan";
+  EXPECT_NEAR(*plan.headingAtTime(9.0), 0.4, kTol) << "clamped after the plan";
+  EXPECT_NEAR(*plan.headingRateAtTime(1.23), 1.0, kTol);
+  EXPECT_NEAR(*plan.footYawAtTime(0, 1.24), 0.2, kTol) << "nearest node";
+  EXPECT_NEAR(*plan.footYawAtTime(0, 1.36), 0.4, kTol);
+  plan.shiftInTime(0.5);
+  EXPECT_NEAR(*plan.headingAtTime(1.65), 0.15, kTol) << "the heading moves with the plan";
+}
+
 TEST(SwingQueries, CurrentOrNextLiftOff) {
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
     const ModeSchedule schedule = twoStepSchedule(foot, foot);  // the same foot swings [1.0, 1.4] and [1.5, 1.9]

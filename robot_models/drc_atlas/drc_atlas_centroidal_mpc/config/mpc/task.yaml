@@ -150,7 +150,7 @@ contact_planning:
   numNodes: 12                # planning horizon = numNodes * dt, should cover mpc.timeHorizon
   commitTime: 0.3             # [s] the applied schedule is fixed this far ahead; must cover the planner latency (a swing that
                               #     has started or starts within this window is always executed to its touch-down)
-  comHeight: 0.85             # [m] LIP height, omega = sqrt(gravity / comHeight)
+  comHeight: 0.85             # [m] LIP height, omega = sqrt(gravity / comHeight); 0 = CoM height above the feet at initialState
   gravity: 9.81               # [m/s^2]
   minSwingDuration: 0.4      # [s]
   maxSwingDuration: 0.7       # [s]
@@ -204,6 +204,23 @@ contact_planning:
   dcmAdjustmentMaxOffset: 0.05          # [m] bound on the landing target offset (also clipped to reachX / reachY*)
   enableEnergyCadenceModulation: false  # re-time the touch-down of the swing in flight by the LIP orbital energy error
   energyCadenceGain: 0.01               # [s/J] touch-down shift = -gain * (E - E_plan)
+  # Heading model (ACoM dynamics). The whole-body heading (the angular centre of mass) and its angular momentum about the
+  # vertical join the reduced model, driven by the yaw torques the stance feet can carry: torsional friction on every
+  # stance foot and the friction couple of both feet in double support. Every foot gets a yaw, pinned while it stands
+  # and within hip range of the heading. Turning becomes a stepping decision bounded by the ground torques, and the
+  # foothold frame follows the planned heading (successive linearisation, the relaxations stay convex). Opt-in; the
+  # planned foot yaw reaches the foot cost through task_space_foot_cost_weights.orientation_z (0 = not tracked).
+  useAcomDynamics: false
+  # The yaw inertia, the yaw torque limits (torsional friction coefficient * weight, friction coefficient * half the
+  # weight * nominalStepWidth, both from contactWrenchConeSoftConstraint) and the per-leg hip yaw range are taken from
+  # the robot model and are not keys here.
+  headingRateTrackingWeight: 20.0       # (heading rate - commanded yaw rate)^2 per node
+  headingTrackingWeight: 5.0            # (heading - commanded heading)^2 per node
+  yawTorqueWeight: 0.001                # yaw torque^2 per node
+  footYawTrackingWeight: 5.0            # (foot yaw - heading)^2 per node
+  footYawRegularizationWeight: 1.0      # (foot yaw displacement)^2 per node
+  headingLinearizationPasses: 1         # re-linearisations of the heading frame at the incumbent (0 disables)
+  planHeadingOverridesTarget: true      # the plan's heading replaces the commanded yaw in the MPC target trajectory
 # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/contact_planning/ContactPlanningConfig.cpp:contact_planning_keys)
 
 # multiple_shooting settings

@@ -62,9 +62,9 @@ class Ros2ProceduralMpcMotionManager : public ProceduralMpcMotionManager {
 
   void subscribe(rclcpp::Node::SharedPtr nodeHandle, const rclcpp::QoS& qos);
 
- private:
   WalkingVelocityCommand getScaledWalkingVelocityCommand() override;
 
+ private:
   rclcpp::Subscription<humanoid_mpc_msgs::msg::WalkingVelocityCommand>::SharedPtr velCommandSubscriber_;
   std::mutex walkingVelCommandMutex_;
 };

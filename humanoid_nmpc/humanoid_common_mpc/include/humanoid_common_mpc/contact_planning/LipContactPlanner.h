@@ -49,6 +49,17 @@ namespace ocs2::humanoid {
  *   input  u_k = [zmp_xy, dp_L, dp_R, c_L, c_R]      (ZMP, foot displacements, contact binaries)
  *   c_{k+1} = LIP(c_k, v_k, zmp_k),  p_{k+1} = p_k + dp_k
  *
+ * Heading model (ContactPlanningConfig::useAcomDynamics), appended to the LIP block so that the binaries keep their place:
+ *   state  += [theta, omega, psi_L, psi_R]          (whole-body heading, its rate, foot yaws)
+ *   input  += [tau_L, tau_R, dpsi_L, dpsi_R]        (yaw torque per foot, foot yaw displacements)
+ *   omega_{k+1} = omega_k + dt (tau_L + tau_R) / I_zz,  theta_{k+1} = theta_k + dt omega_k + dt^2 (tau_L + tau_R) / (2 I_zz)
+ *   (exact zero-order-hold discretisation of the double integrator),  psi_{k+1} = psi_k + dpsi_k
+ *   |tau_i| <= T_t c_i + T_c (c_L + c_R - 1) / 2  (torsional friction per stance foot, the friction couple in double support)
+ *   |dpsi_i| <= 2 pi (1 - c_i)                    (a foot's yaw is pinned while it is in contact)
+ *   lower_i <= psi_i - theta <= upper_i           (hip yaw range of the leg, from the model, soft)
+ * The constraint frame of node k is the planned heading of node k, linearised to first order around a nominal heading
+ * trajectory (the previous plan, or the commanded yaw integrated) and re-solved once at the incumbent.
+ *
  * After the branch-and-bound an event-shift local search moves every lift-off / touch-down of the incumbent by one node
  * (fixed-assignment QPs) while it improves the objective, which refines the phase timing cheaply.
  */
@@ -61,10 +72,35 @@ class LipContactPlanner {
   struct Statistics {
     int numBranchAndBoundRelaxations = 0;
     int numLocalSearchQps = 0;
+    int numHeadingRelinearizations = 0;
     int totalQpIterations = 0;
     scalar_t branchAndBoundTime = 0.0;
     scalar_t localSearchTime = 0.0;
     bool localSearchImproved = false;
+  };
+
+  /** Runtime layout: the LIP block (the enums above) plus the heading block when the heading model is on. */
+  struct Layout {
+    int nx = STATE_DIM;
+    int nu = INPUT_DIM;
+    bool hasHeading = false;
+    int heading = -1;        // state: whole-body heading [rad]
+    int headingRate = -1;    // state: heading rate [rad/s]
+    int footYaw0 = -1;       // states: foot yaws, one per foot
+    int yawTorque0 = -1;     // inputs: yaw torque per foot [N m]
+    int footYawDelta0 = -1;  // inputs: foot yaw displacement per foot [rad]
+    int footYaw(size_t foot) const { return footYaw0 + static_cast<int>(foot); }
+    int yawTorque(size_t foot) const { return yawTorque0 + static_cast<int>(foot); }
+    int footYawDelta(size_t foot) const { return footYawDelta0 + static_cast<int>(foot); }
+  };
+  static Layout makeLayout(const ContactPlanningConfig& config);
+  const Layout& getLayout() const { return layout_; }
+
+  /** Nominal trajectory the heading frame of the foothold constraints is linearised around (heading model), per node. */
+  struct HeadingNominal {
+    std::vector<scalar_t> heading;
+    std::vector<vector2_t> com;
+    std::vector<feet_array_t<vector2_t>> feet;
   };
 
   explicit LipContactPlanner(ContactPlanningConfig config);
@@ -85,7 +121,13 @@ class LipContactPlanner {
   const Statistics& getLastStatistics() const { return statistics_; }
 
   // The following are public for testing.
+  /** Builds the OCP-QP around the default nominal heading trajectory (previous plan, or the commanded yaw integrated). */
   OcpQpProblem buildProblem(const ContactPlannerInput& input) const;
+  OcpQpProblem buildProblem(const ContactPlannerInput& input, const HeadingNominal& nominal) const;
+  HeadingNominal defaultNominal(const ContactPlannerInput& input) const;
+  static HeadingNominal nominalFromSolution(const Layout& layout, const OcpQpSolution& solution);
+  /** Yaw inertia used by the heading model, from the input (the robot model). Throws if it is not positive. */
+  scalar_t yawInertia(const ContactPlannerInput& input) const;
   std::vector<MiqpBinaryVariable> binaryVariables() const;
   MiqpAssignment initialAssignment(const ContactPlannerInput& input) const;
   /** Forward logical propagation of the contact logic (duration limits, no flight, foot alternation). */
@@ -111,6 +153,7 @@ class LipContactPlanner {
   void rebuildSolver();
 
   ContactPlanningConfig config_;
+  Layout layout_;
   std::unique_ptr<MixedIntegerOcpQp> miqp_;
   OcpQpProblem problem_;
   MiqpResult lastResult_;

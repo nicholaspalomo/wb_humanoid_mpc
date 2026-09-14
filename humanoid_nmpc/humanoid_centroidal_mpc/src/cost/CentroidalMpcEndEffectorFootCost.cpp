@@ -46,6 +46,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
+namespace {
+// Reference (12) + sqrt weights (12) + impact proximity scaler (1) + foot yaw reference (1) + its flag (1).
+constexpr size_t kNumParameters = 27;
+}  // namespace
+
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -66,8 +71,8 @@ CentroidalMpcEndEffectorFootCost::CentroidalMpcEndEffectorFootCost(const Switche
       pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
       mpcRobotModelAdPtr_(mpcRobotModelAD.clone()),
       contactIndex_(contactIndex) {
-  initialize(mpcRobotModelAD.getStateDim(), mpcRobotModelAD.getInputDim(), 25, costName, modelSettings.modelFolderCppAd,
-             modelSettings.recompileLibrariesCppAd);
+  initialize(mpcRobotModelAD.getStateDim(), mpcRobotModelAD.getInputDim(), kNumParameters, costName + "_yawRef",
+             modelSettings.modelFolderCppAd, modelSettings.recompileLibrariesCppAd);
   std::cout << "Frame ID: " << frameID_ << std::endl;
   std::cout << "Initialized CentroidalMpcEndEffectorFootCost (activeInStance=" << (activeInStance_ ? "true" : "false")
             << ") with weights: " << weights.toVector().transpose() << std::endl;
@@ -100,6 +105,8 @@ ad_vector_t CentroidalMpcEndEffectorFootCost::costVectorFunction(ad_scalar_t tim
   const PlanarEndEffectorKinematicsPlanarReference<ad_scalar_t> reference(parameters.head(12));
   const ad_vector_t sqrtWeightParams = parameters.segment(12, 12);  // EndEffectorKinematicsWeights vector element
   const ad_scalar_t impactProximityScaler = parameters[24];
+  const ad_scalar_t yawReference = parameters[25];
+  const ad_scalar_t hasYawReference = parameters[26];
 
   const auto& model = pinocchioInterfaceCppAd_.getModel();
   auto& data = pinocchioInterfaceCppAd_.getData();
@@ -115,8 +122,16 @@ ad_vector_t CentroidalMpcEndEffectorFootCost::costVectorFunction(ad_scalar_t tim
   ad_matrix3_t orientation = frameData.rotation();
   ad_vector_t angularVelocity = pinocchio::getFrameVelocity(model, data, frameID_, rf).angular();
 
+  // Orientation error: the distance to the ground plane (roll, pitch). With a planned foot yaw (contact planner heading
+  // model) the third component tracks it, wrapped so that a crossing of +-pi is not a discontinuity; the config weight
+  // orientation_z selects whether that error costs anything.
+  ad_vector_t orientationError = rotationMatrixDistanceToPlane<ad_scalar_t>(orientation, reference.getPlaneNormal());
+  const ad_scalar_t footYaw = CppAD::atan2(orientation(1, 0), orientation(0, 0));
+  const ad_scalar_t yawError = CppAD::atan2(CppAD::sin(footYaw - yawReference), CppAD::cos(footYaw - yawReference));
+  orientationError(2) = hasYawReference * yawError + (ad_scalar_t(1.0) - hasYawReference) * orientationError(2);
+
   ad_vector_t errors(12);
-  errors << (position - reference.getPosition()), rotationMatrixDistanceToPlane<ad_scalar_t>(orientation, reference.getPlaneNormal()),
+  errors << (position - reference.getPosition()), orientationError,
       (linearVelocity - reference.getLinearVelocity()) * impactProximityScaler, (angularVelocity - reference.getAngularVelocity());
 
   return errors.cwiseProduct(sqrtWeightParams);
@@ -136,7 +151,7 @@ vector_t CentroidalMpcEndEffectorFootCost::getParameters(scalar_t time,
   const scalar_t impactProximityScaler = referenceManagerPtr_->getSwingTrajectoryPlanner()->getImpactProximityFactor(contactIndex_, time);
 
   // TODO Update this reference for non flat ground in the future
-  vector_t parameters(25);
+  vector_t parameters(kNumParameters);
   parameters.head(3) = vector3_t(0.0, 0.0, 0.0);        // Reference position
   parameters.segment(3, 3) = vector3_t(0.0, 0.0, 1.0);  // Ground plane normal
   parameters.segment(6, 3) = vector3_t(0.0, 0.0, 0.0);  // Reference linear velocity
@@ -144,6 +159,8 @@ vector_t CentroidalMpcEndEffectorFootCost::getParameters(scalar_t time,
   parameters.segment(12, 12) = sqrtWeights_;            // EndEffectorKinematicsWeights vector element
 
   parameters[24] = impactProximityScaler;
+  parameters[25] = 0.0;  // planned foot yaw reference
+  parameters[26] = 0.0;  // 1 when the yaw reference is to be tracked
 
   // Without a contact planner there is no meaningful xy position reference (the foot is free to land where the
   // whole-body optimization puts it), so the xy position error is switched off. A planned foothold turns it on and
@@ -152,6 +169,10 @@ vector_t CentroidalMpcEndEffectorFootCost::getParameters(scalar_t time,
   if (swingReference.has_value()) {
     parameters.head(3) = swingReference->position;
     parameters.segment(6, 3) = swingReference->linearVelocity;
+    if (swingReference->yaw.has_value()) {
+      parameters[25] = *swingReference->yaw;
+      parameters[26] = 1.0;
+    }
   } else {
     parameters[12] = 0.0;  // sqrt weight of the x position error
     parameters[13] = 0.0;  // sqrt weight of the y position error

@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <optional>
 #include <utility>
 
+#include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
@@ -85,6 +86,16 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
    * from the applied schedule, and the committed contacts of the commit window. Solver thread only.
    */
   ContactPlannerInput makePlannerInput(scalar_t initTime, const vector_t& initState, const vector2_t& velocityCommand);
+  /**
+   * Heading model: the whole-body heading handed to the planner is the angular centre of mass yaw when an evaluator is
+   * given here, the base yaw otherwise. Solver thread only (set once at construction of the interface).
+   */
+  void setAngularCenterOfMass(std::shared_ptr<AngularCenterOfMass> acom) { acom_ = std::move(acom); }
+  bool hasAngularCenterOfMass() const { return acom_ != nullptr; }
+  /** Whole-body heading at `state`: the ACoM yaw with an evaluator, the base yaw otherwise. */
+  scalar_t computeHeading(const vector_t& state) const;
+  /** Commanded yaw rate: the desired base yaw of the target trajectory differentiated over a short window after `time`. */
+  scalar_t commandedYawRate(scalar_t time) const;
 
   void setConfig(const ContactPlanningConfig& config);
   ContactPlanningConfig getConfig() const;
@@ -129,6 +140,12 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
   /** Foot positions from the state; latches the lift-off position of every foot while it is in contact. */
   void updateFootBookkeeping(scalar_t initTime, const vector_t& initState);
   feet_array_t<vector3_t> computeFootPositions(const vector_t& state);
+  /** Foot yaws from the frame placements computed by the last computeFootPositions() call. */
+  feet_array_t<scalar_t> readFootYaws() const;
+  /** Whole-body inertia about the vertical through the centre of mass at `state`. */
+  scalar_t computeYawInertia(const vector_t& state);
+  /** Heading model: the plan's heading replaces the commanded base yaw of the target trajectory. */
+  void applyPlannedHeading(TargetTrajectories& targetTrajectories) const;
 
   /** CoM position and velocity (xy) of the full model at `state`. */
   std::pair<vector2_t, vector2_t> computeComState(const vector_t& state);
@@ -167,7 +184,13 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
   ModeSchedule appliedSchedule_;
   bool hasAppliedSchedule_ = false;
   scalar_t lastSolveTime_ = std::numeric_limits<scalar_t>::lowest();  // initTime of the last modifyReferences()
-  size_t stalePlanCount_ = 0;                                         // solves that found the active plan stale (rate-limits the warning)
+  size_t latePlanCount_ = 0;  // plans that arrived later than the commit window (rate-limits the warning)
+
+  // Heading model.
+  std::shared_ptr<AngularCenterOfMass> acom_;
+  scalar_t totalMass_ = 0.0;
+  feet_array_t<scalar_t> footYaws_ = makeFeetArray(0.0);
+  feet_array_t<scalar_t> liftOffYaws_ = makeFeetArray(0.0);
 
   feet_array_t<vector3_t> footPositions_ = makeFeetArray(vector3_t(vector3_t::Zero()));
   feet_array_t<vector3_t> liftOffPositions_ = makeFeetArray(vector3_t(vector3_t::Zero()));
