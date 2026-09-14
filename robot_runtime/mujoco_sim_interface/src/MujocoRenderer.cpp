@@ -338,6 +338,14 @@ void fillRect(int left, int bottom, int width, int height, const Rgba& color) {
   mjr_rectangle(mjrRect{left, bottom, width, height}, color.r, color.g, color.b, color.a);
 }
 
+/// Width in pixels of `text` in the normal font of `con`. A label box narrower or shorter than its text leaves the
+/// string's raster position outside the box, and OpenGL then drops the whole string, so boxes are sized from this.
+int textWidth(const char* text, const mjrContext* con) {
+  int width = 0;
+  for (; *text != '\0'; ++text) width += con->charWidth[static_cast<unsigned char>(*text) & 127];
+  return width;
+}
+
 void drawLabel(int left, int bottom, int width, int height, const char* text, const mjrContext* con) {
   if (width <= 0 || height <= 0) return;
   mjr_label(mjrRect{left, bottom, width, height}, mjFONT_NORMAL, text, 0.0f, 0.0f, 0.0f, 0.0f, kText.r, kText.g, kText.b, con);
@@ -364,11 +372,17 @@ void MujocoRenderer::renderContactTimeline() {
   const uint32_t unresolved = simInterface_->getUnresolvedContactMask();
 
   // Layout in framebuffer pixels (origin bottom-left): a translucent panel along the bottom edge, the label columns on
-  // the left, the time axis running left (oldest) to right (now).
-  constexpr int margin = 12, pad = 8, stripH = 12, stripGap = 2, groupGap = 8, headerH = 20, axisH = 18, tagW = 44;
-  size_t longestName = 0;
-  for (const std::string& name : names) longestName = std::max(longestName, name.size());
-  const int nameW = std::clamp(static_cast<int>(longestName) * 9 + 16, 80, 320);
+  // the left, the time axis running left (oldest) to right (now). Every box that holds text is sized from the font.
+  const mjrContext* con = &mujocoContext_;
+  const int fontH = std::max(12, con->charHeight);
+  constexpr int margin = 12, pad = 8, stripGap = 2, groupGap = 8;
+  const int stripH = fontH + 4;  // tall enough for its "plan" / "sim" tag
+  const int headerH = fontH + 6;
+  const int axisH = fontH + 6;
+  const int tagW = std::max(textWidth("plan", con), textWidth("sim", con)) + 12;
+  int nameTextW = 0;
+  for (const std::string& name : names) nameTextW = std::max(nameTextW, textWidth(name.c_str(), con));
+  const int nameW = std::clamp(nameTextW + 12, 60, 400);
   const int groupH = 2 * stripH + stripGap;
   const int panelH = 2 * pad + headerH + numContacts * (groupH + groupGap) + axisH;
   const int panelW = viewport_.width - 2 * margin;
@@ -387,19 +401,22 @@ void MujocoRenderer::renderContactTimeline() {
 
   // Header: title and legend.
   const int headerB = panelB + panelH - pad - headerH;
-  drawLabel(panelL + pad, headerB, nameW + tagW, headerH, "contact timeline [b]", &mujocoContext_);
-  if (stripW >= 720) {
+  const char* title = "contact timeline [b]";
+  drawLabel(panelL + pad, headerB, std::max(nameW + tagW, textWidth(title, con) + 8), headerH, title, con);
+  {
     int lx = x0;
-    const auto legend = [&](const Rgba& color, const char* text, int textW) {
-      fillRect(lx, headerB + 4, 14, headerH - 8, color);
-      lx += 18;
-      drawLabel(lx, headerB, textW, headerH, text, &mujocoContext_);
+    const auto legend = [&](const Rgba& color, const char* text) {
+      const int textW = textWidth(text, con) + 8;
+      if (lx + 18 + textW > x1) return;  // no room: the rest of the legend is dropped
+      fillRect(lx, headerB + 4, fontH - 4, headerH - 8, color);
+      lx += fontH;
+      drawLabel(lx, headerB, textW, headerH, text, con);
       lx += textW + 14;
     };
-    legend(kPlanContact, "plan: contact", 104);
-    legend(kSimContact, "sim: contact", 96);
-    legend(kSimEarly, "sim touching, plan swing", 186);
-    legend(kSimLate, "sim in air, plan contact", 186);
+    legend(kPlanContact, "plan: contact");
+    legend(kSimContact, "sim: contact");
+    legend(kSimEarly, "sim touching, plan swing");
+    legend(kSimLate, "sim in air, plan contact");
   }
 
   // One group of two strips per contact point: the plan on top, the physics below.
@@ -408,13 +425,13 @@ void MujocoRenderer::renderContactTimeline() {
   for (int contact = 0; contact < numContacts; ++contact) {
     const int targetB = groupTop - stripH;
     const int actualB = targetB - stripGap - stripH;
-    drawLabel(panelL + pad, actualB, nameW, groupH, names[contact].c_str(), &mujocoContext_);
-    drawLabel(panelL + pad + nameW, targetB, tagW, stripH, "plan", &mujocoContext_);
-    drawLabel(panelL + pad + nameW, actualB, tagW, stripH, "sim", &mujocoContext_);
+    drawLabel(panelL + pad, actualB, nameW, groupH, names[contact].c_str(), con);
+    drawLabel(panelL + pad + nameW, targetB, tagW, stripH, "plan", con);
+    drawLabel(panelL + pad + nameW, actualB, tagW, stripH, "sim", con);
 
     if (((unresolved >> contact) & 1u) != 0u) {
       fillRect(x0, actualB, stripW, groupH, kUnknown);
-      drawLabel(x0, actualB, stripW, groupH, "no MuJoCo body resolved for this contact frame", &mujocoContext_);
+      drawLabel(x0, actualB, stripW, groupH, "no MuJoCo body resolved for this contact frame", con);
       groupTop = actualB - groupGap;
       continue;
     }
@@ -449,8 +466,13 @@ void MujocoRenderer::renderContactTimeline() {
     const int x = xOf(now - secondsAgo);
     fillRect(x, axisB + axisH, 1, ticksH, kTick);
     char text[16];
-    std::snprintf(text, sizeof(text), secondsAgo == 0 ? "now" : "-%d s", secondsAgo);
-    drawLabel(x - 24, axisB, 48, axisH, text, &mujocoContext_);
+    if (secondsAgo == 0) {
+      std::snprintf(text, sizeof(text), "now");
+    } else {
+      std::snprintf(text, sizeof(text), "-%d s", secondsAgo);
+    }
+    const int labelW = textWidth(text, con) + 8;
+    drawLabel(std::clamp(x - labelW / 2, panelL, x1 - labelW), axisB, labelW, axisH, text, con);
   }
 }
 
