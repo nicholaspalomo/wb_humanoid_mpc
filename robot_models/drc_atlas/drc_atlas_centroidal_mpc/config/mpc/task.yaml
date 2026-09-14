@@ -104,7 +104,9 @@ model_settings:
     # the last row of the 6D stance constraint is identically zero and the foot may pivot about the contact normal.
     # Enabling this fills that row with the yaw rate about the contact normal. It removes one input degree of freedom
     # per stance foot, so turn it on deliberately and re-check yaw behaviour.
-    constrainYawRateAboutContactNormal: false
+    # Enabled together with contact_planning.useAcomDynamics: the planner budgets its yaw torque against the torsional
+    # friction each stance foot can carry.
+    constrainYawRateAboutContactNormal: true
   # LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/src/mrt/MpcParameterUpdaterModule.cpp:softConstraintWeight_yaml_path)
 
   phaseTransitionStanceTime: 0
@@ -237,7 +239,7 @@ contact_planning:
   # and within hip range of the heading. Turning becomes a stepping decision bounded by the ground torques, and the
   # foothold frame follows the planned heading (successive linearisation, the relaxations stay convex). Opt-in; the
   # planned foot yaw reaches the foot cost through task_space_foot_cost_weights.orientation_z (0 = not tracked).
-  useAcomDynamics: false
+  useAcomDynamics: true
   # The yaw inertia, the yaw torque limits (torsional friction coefficient * weight, friction coefficient * half the
   # weight * nominalStepWidth, both from contactWrenchConeSoftConstraint) and the per-leg hip yaw range are taken from
   # the robot model and are not keys here.
@@ -522,7 +524,7 @@ task_space_foot_cost_weights:
   # the toe 2.1 mm. G1 and R1 use 1000 here with a much shorter foot.
   orientation_x: 800
   orientation_y: 800
-  orientation_z: 0
+  orientation_z: 150
   lin_velocity_x: 0
   lin_velocity_y: 5
   lin_velocity_z: 0

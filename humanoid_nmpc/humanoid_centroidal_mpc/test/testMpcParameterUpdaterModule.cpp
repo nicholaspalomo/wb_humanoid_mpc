@@ -495,11 +495,14 @@ TEST_F(MpcParameterUpdaterModuleTest, StanceFootYawRateFlagAppliedOnReload) {
   if (before.empty()) {
     GTEST_SKIP() << "zero_velocity is not part of this configuration";
   }
+
+  const bool shipped = interface_->modelSettings().footConstraintConfig.constrainYawRateAboutContactNormal;
   for (const auto* twist : before) {
-    EXPECT_FALSE(twist->getConstrainYawRateAboutNormal()) << "the shipped task file keeps the yaw-rate row off";
+    EXPECT_EQ(twist->getConstrainYawRateAboutNormal(), shipped) << "every OCP copy starts from the shipped task file";
   }
 
-  // Switch the flag on in the task file and reload.
+  // Flip the flag in the task file and reload.
+  const bool flipped = !shipped;
   {
     std::ifstream in(tmpTaskFile_);
     std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
@@ -508,7 +511,7 @@ TEST_F(MpcParameterUpdaterModuleTest, StanceFootYawRateFlagAppliedOnReload) {
     const auto pos = content.find(key);
     ASSERT_NE(pos, std::string::npos) << "the task file must carry the key so that the reload can set it";
     const auto lineEnd = content.find('\n', pos);
-    content.replace(pos, lineEnd - pos, key + " true");
+    content.replace(pos, lineEnd - pos, key + (flipped ? " true" : " false"));
     std::ofstream out(tmpTaskFile_);
     out << content;
   }
@@ -517,13 +520,13 @@ TEST_F(MpcParameterUpdaterModuleTest, StanceFootYawRateFlagAppliedOnReload) {
   const std::vector<EndEffectorKinematicsTwistConstraint*> after = twistConstraints();
   ASSERT_EQ(after.size(), before.size());
   for (const auto* twist : after) {
-    EXPECT_TRUE(twist->getConstrainYawRateAboutNormal()) << "the reload must apply the flag to every OCP copy";
+    EXPECT_EQ(twist->getConstrainYawRateAboutNormal(), flipped) << "the reload must apply the flag to every OCP copy";
   }
 
   // The loader of the model settings reads the same key (the interface uses it at construction).
   const ModelSettings reloaded(tmpTaskFile_, urdfFile_, "centroidal_mpc_", false);  // the name the interface uses
-  EXPECT_TRUE(reloaded.footConstraintConfig.constrainYawRateAboutContactNormal);
-  EXPECT_FALSE(interface_->modelSettings().footConstraintConfig.constrainYawRateAboutContactNormal)
+  EXPECT_EQ(reloaded.footConstraintConfig.constrainYawRateAboutContactNormal, flipped);
+  EXPECT_EQ(interface_->modelSettings().footConstraintConfig.constrainYawRateAboutContactNormal, shipped)
       << "the interface still holds the settings it was built with";
 }
 
