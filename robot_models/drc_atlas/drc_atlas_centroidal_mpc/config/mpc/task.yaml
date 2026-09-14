@@ -70,6 +70,11 @@ costs:
   - external_torque_cost
 
 useGravityCompFeedforward: false
+# [s] Hand-over into WB_MPC from JOINT_PD / GRAVITY_COMP. 0 (default) switches in one control cycle, as before. > 0: the
+# previous mode's action is held until the first policy solved after the entry reset is active (the MRT keeps handing out
+# the pre-reset policy until then), and targets, gains and feedforward torques are then ramped linearly into the MPC
+# action over this duration. Try 0.3 to 0.5 once validated in MuJoCo.
+mpcEntryBlendTime: 2.0
 
 interface:
   verbose: true  # show the loaded parameters
@@ -131,7 +136,7 @@ model_settings:
 swing_trajectory_config:
   liftOffVelocity: 0.05
   touchDownVelocity: 0.0
-  swingHeight: 0.10
+  swingHeight: 0.16
   touchDownHeightOffset: -0.001
   swingTimeScale: 0.4
   impactProximityFactorLiftOffVelocity: -0.15
@@ -391,14 +396,14 @@ R:
   "(23,23)": 20.0  # r_arm_elx
   "(24,24)": 500  # l_leg_hpz
   "(25,25)": 5  # l_leg_hpx
-  "(26,26)": 10  # l_leg_hpy
-  "(27,27)": 10  # l_leg_kny
+  "(26,26)": 1.0  # l_leg_hpy
+  "(27,27)": 1.0  # l_leg_kny
   "(28,28)": 5  # l_leg_aky
   "(29,29)": 50  # l_leg_akx
   "(30,30)": 500  # r_leg_hpz
   "(31,31)": 5  # r_leg_hpx
-  "(32,32)": 10  # r_leg_hpy
-  "(33,33)": 10  # r_leg_kny
+  "(32,32)": 1.0  # r_leg_hpy
+  "(33,33)": 1.0  # r_leg_kny
   "(34,34)": 5  # r_leg_aky
   "(35,35)": 50  # r_leg_akx
 

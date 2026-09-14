@@ -46,8 +46,13 @@ struct ContactPlannerInput {
   feet_array_t<scalar_t> phaseElapsedTime = makeFeetArray(0.0);  // [s] time already spent in that phase, per foot
   vector2_t velocityCommand = vector2_t::Zero();                 // commanded CoM velocity
   std::vector<contact_flag_t> committedContacts;                 // contacts imposed on the first nodes (commit window)
-  int lastSwungFoot = -1;                                        // foot that swung most recently (-1 unknown), for alternation
-  scalar_t committedUntil = 0.0;                                 // [s] the applied schedule is treated as fixed up to this time
+  // [s] per committed node and foot: the time the foot entered the contact state it has at that node, from the executed
+  // schedule (committedPhaseStartsForPlanner). A phase that begins inside a committed node is then counted from its real
+  // start instead of from the node start. Empty, or shorter than committedContacts: the remaining nodes count from
+  // their node start.
+  std::vector<feet_array_t<scalar_t>> committedPhaseStartTimes;
+  int lastSwungFoot = -1;         // foot that swung most recently (-1 unknown), for alternation
+  scalar_t committedUntil = 0.0;  // [s] the applied schedule is treated as fixed up to this time
 
   // Heading model (ContactPlanningConfig::useAcomDynamics). `yaw` then equals `heading`.
   scalar_t heading = 0.0;                                // [rad] whole-body heading at planning time (ACoM yaw, or base yaw)

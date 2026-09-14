@@ -138,8 +138,11 @@ TEST_F(ContactPlanningIntegrationTest, PlansStandingAndWalkingSchedules) {
   const ModeSchedule& schedule = referenceManager->getModeSchedule();
   std::cout << "mode schedule: " << schedule;
 
+  // Sampled between the possible event instants: the plan's events lie on its node grid, and at an event instant the
+  // contact flags (ocs2 mode lookup, the event has not passed) and the swing queries of this manager (the event has
+  // passed) disagree by design.
   bool foundSwing = false;
-  for (scalar_t tau = t; tau < t + horizon; tau += 0.02) {
+  for (scalar_t tau = t + 0.01; tau < t + horizon; tau += 0.02) {
     const contact_flag_t contacts = referenceManager->getContactFlags(tau);
     ASSERT_TRUE(contacts[0] || contacts[1]) << "no flight phase allowed at tau=" << tau;
     for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
@@ -151,7 +154,10 @@ TEST_F(ContactPlanningIntegrationTest, PlansStandingAndWalkingSchedules) {
         ASSERT_TRUE(reference.has_value()) << "swing foot " << foot << " at tau=" << tau << " has no reference";
         EXPECT_TRUE(reference->position.allFinite());
         EXPECT_TRUE(reference->linearVelocity.allFinite());
-        EXPECT_GE(reference->position(2), -1e-6);  // never below the (flat) ground
+        // Never below the flat ground, except for the configured touch-down offset (a slightly negative offset presses
+        // the foot onto the ground at the end of the swing).
+        EXPECT_GE(reference->position(2),
+                  std::min(0.0, referenceManager->getSwingTrajectoryPlanner()->getConfig().touchDownHeightOffset) - 1e-6);
       }
     }
   }

@@ -185,12 +185,19 @@ candidate incumbent:
 * the committed window: contacts up to the *commit boundary* are fixed to the schedule the NMPC is already executing.
   The boundary is `commitTime` ahead of the planning instant, extended to the touch-down of any swing that has started or
   starts within that window. A swing in flight is therefore never re-timed or cut short by a later plan, and `commitTime`
-  must cover the planner latency. A plan may only change the schedule after its own boundary, `commitTime` after the snapshot it was planned from, while the executed schedule may only change after the boundary of the solve that activates the plan, which lies later by the plan's age. On activation the plan is shifted forward onto that boundary, whole; merging it there without the shift cut its first lift-off short by the plan's age and the controller executed swings shorter than `minSwingDuration`. A plan older than the whole window is delayed by more than `commitTime` and a rate-limited warning names the latency. The planner's
+  must cover the planner latency. A plan is merged into the executed schedule exactly at its own boundary, `commitTime` after the snapshot it was planned from; merging it any later (for instance at the boundary of the solve that activates it) cut its first lift-off short by the plan's age and the controller executed swings shorter than `minSwingDuration`. A plan whose boundary has already passed when it is activated is stale and dropped with a rate-limited warning (the planner latency exceeded `commitTime`, or a touch-down the boundary was extended to happened while the plan was computed); so is a plan that has a foot down where the executed schedule already has it in flight at the merge point, which means a swing was activated between the plan's snapshot and its activation. In both cases the executed schedule keeps running until a fresh plan arrives. Shifting a late plan forward onto the current boundary instead, whole, was tried and is wrong: a plan made just before a touch-down and activated just after it was delayed by a whole swing, and the foot that had just landed was lifted again at once, which threw the robot. The planner's
   node grid is not aligned with the executed events, so every node that *starts* before the boundary is committed: a
   node entirely inside the window takes the executed contacts at its midpoint, the node straddling the boundary takes
   the contacts the executed schedule hands over at the boundary itself. Sampling the straddling node at its midpoint let
   the plan contradict the executed schedule inside that node, and the merge then delayed an in-flight touch-down by up
-  to half a node or re-lifted a foot that had just landed;
+  to half a node or re-lifted a foot that had just landed. A phase that begins inside a committed node (a touch-down
+  between two node boundaries) is counted from the executed event, not from the node start: the reference manager hands
+  the planner the phase start times of the committed nodes, and the propagation counts the nodes spent in such a phase
+  rounded down against a minimum and up against a maximum, exactly like the elapsed time of the phase active at the
+  planning instant. Counting from the node start credited a touch-down at 0.97 s inside the node [0.9, 1.0) with a full
+  node of contact at 1.0 s, so the minimum double support, counted in whole nodes, let the other foot lift at 1.0 s and
+  the merged schedule contained a double support of 0.03 s against a 0.1 s minimum (and contacts of 0.13 s against
+  0.15 s). The merge itself is exact; those spurious short phases were the planner's grid accounting, not the stitching;
 * plan consistency (`planConsistencyCost`): every node whose contact differs from the previous plan, shifted to the
   current time, is charged, which gives the anytime search hysteresis between cycles; the continuous footholds are
   likewise pulled towards the previous plan (`previousFootholdWeight`) so that the landing target tracked by the foot cost

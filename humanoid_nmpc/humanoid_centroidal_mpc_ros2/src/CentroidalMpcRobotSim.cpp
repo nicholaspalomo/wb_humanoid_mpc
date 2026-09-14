@@ -199,6 +199,11 @@ int main(int argc, char** argv) {
       mpcJointController.setUseGravityCompFeedforward(true);
       LOG(INFO) << "Using gravity-comp feedforward in WB_MPC mode (useGravityCompFeedforward=true).";
     }
+    // Hand-over into WB_MPC: hold the previous mode until a post-reset policy is active, then ramp over this duration.
+    if (taskYaml["mpcEntryBlendTime"]) {
+      mpcJointController.setMpcEntryBlendTime(taskYaml["mpcEntryBlendTime"].as<double>());
+      LOG(INFO) << "WB_MPC entry blend time: " << mpcJointController.getMpcEntryBlendTime() << " s (mpcEntryBlendTime).";
+    }
   } catch (...) {
   }
 

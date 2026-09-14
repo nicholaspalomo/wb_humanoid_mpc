@@ -153,7 +153,10 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
   /** Swing phase [liftOff, touchDown] of a foot around `time` in the applied schedule, empty if the foot is in contact. */
   std::optional<std::pair<scalar_t, scalar_t>> swingPhase(size_t contactIndex, scalar_t time) const;
 
-  /** Swaps a pending plan in, re-timed by the schedule shifts it has not seen. */
+  /**
+   * Takes a pending plan over, re-timed by the schedule shifts it has not seen. A plan whose commit boundary has already
+   * passed, or that contradicts a swing in flight at its merge point, is dropped and the previous plan stays active.
+   */
   void activatePendingPlan(scalar_t initTime);
 
   /** Interpolates the NMPC prediction at `initTime` and evaluates its CoM state; clears the flag if none covers it. */
@@ -184,7 +187,8 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
   ModeSchedule appliedSchedule_;
   bool hasAppliedSchedule_ = false;
   scalar_t lastSolveTime_ = std::numeric_limits<scalar_t>::lowest();  // initTime of the last modifyReferences()
-  size_t latePlanCount_ = 0;  // plans that arrived later than the commit window (rate-limits the warning)
+  size_t stalePlanCount_ = 0;         // plans dropped because their commit boundary had passed (rate-limits the warning)
+  size_t inconsistentPlanCount_ = 0;  // plans dropped because a swing they did not know about was in flight (rate-limited)
 
   // Heading model.
   std::shared_ptr<AngularCenterOfMass> acom_;

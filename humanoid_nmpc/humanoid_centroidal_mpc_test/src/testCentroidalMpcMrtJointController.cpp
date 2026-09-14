@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <filesystem>
 #include <fstream>
 #include <thread>
+#include <tuple>
 
 #include <humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h>
 #include <ocs2_mpc/MPC_BASE.h>
@@ -112,6 +113,56 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testPdGainsHotReloading) {
 
   // Trigger again
   EXPECT_NO_THROW({ controller.computeJointControlAction(0.02, robotState, jointAction); });
+}
+
+// Entering WB_MPC from JOINT_PD requests an MPC reset, but the MRT keeps handing out the policy solved before the reset
+// (resetMpcNode does not clear its buffers) until the first post-reset solve is swapped in. With an entry blend time the
+// controller keeps the JOINT_PD action until then; without one it switches at once, as it always did.
+TEST_F(CentroidalMpcMrtJointControllerTest, testEntryBlendHoldsThePreviousModeUntilAPostResetPolicyIsActive) {
+  MockMpc mockMpc;
+  ::robot::model::RobotDescription robotDesc(testingModelInterface.urdfFile);
+  robot::model::RobotState robotState(robotDesc);
+
+  const auto run = [&](scalar_t blendTime) {
+    CentroidalMpcMrtJointController controller(robotDesc, testingModelInterface.getModelSettings(),
+                                               testingModelInterface.getMpcRobotModel(), mockMpc,
+                                               testingModelInterface.getPinocchioInterface(), 400.0, nullptr, tempPdGainsFile_.string());
+    controller.setMpcEntryBlendTime(blendTime);
+    controller.setControlMode("JOINT_PD");
+    robot::model::RobotJointAction held(robotDesc);
+    controller.computeJointControlAction(0.01, robotState, held);
+    controller.setControlMode("WB_MPC");  // requests a reset; the mock never solves, so no post-reset policy ever arrives
+    robot::model::RobotJointAction entered(robotDesc);
+    controller.computeJointControlAction(0.02, robotState, entered);
+    controller.computeJointControlAction(0.03, robotState, entered);
+    return std::make_tuple(controller.isEnteringMpc(), held, entered);
+  };
+
+  const auto maxFeedforwardDifference = [&](const robot::model::RobotJointAction& a, const robot::model::RobotJointAction& b) {
+    scalar_t maxDifference = 0.0;
+    for (size_t index = 0; index < robotDesc.getNumJoints(); ++index) {
+      if (!a.at(index).has_value() || !b.at(index).has_value()) continue;
+      maxDifference = std::max(maxDifference, std::abs(a.at(index)->feed_forward_effort - b.at(index)->feed_forward_effort));
+    }
+    return maxDifference;
+  };
+
+  // Immediate switch (default): the weight-compensating branch runs, whose contact-force feedforward differs from the
+  // gravity term of JOINT_PD on the leg joints.
+  const auto [enteringWithoutBlend, heldWithoutBlend, enteredWithoutBlend] = run(0.0);
+  EXPECT_FALSE(enteringWithoutBlend);
+  EXPECT_GT(maxFeedforwardDifference(heldWithoutBlend, enteredWithoutBlend), 1e-3);
+
+  // With a blend time the JOINT_PD action is held, field by field, while no post-reset policy is active.
+  const auto [enteringWithBlend, heldWithBlend, enteredWithBlend] = run(0.3);
+  EXPECT_TRUE(enteringWithBlend);
+  EXPECT_NEAR(maxFeedforwardDifference(heldWithBlend, enteredWithBlend), 0.0, 1e-12);
+  for (size_t index = 0; index < robotDesc.getNumJoints(); ++index) {
+    if (!heldWithBlend.at(index).has_value()) continue;
+    EXPECT_DOUBLE_EQ(enteredWithBlend.at(index)->q_des, heldWithBlend.at(index)->q_des) << "joint " << index;
+    EXPECT_DOUBLE_EQ(enteredWithBlend.at(index)->kp, heldWithBlend.at(index)->kp) << "joint " << index;
+    EXPECT_DOUBLE_EQ(enteredWithBlend.at(index)->kd, heldWithBlend.at(index)->kd) << "joint " << index;
+  }
 }
 
 // With basis-vector inputs the OCP input is [lambda_left, lambda_right, joint velocities] and the input-only accessors of the

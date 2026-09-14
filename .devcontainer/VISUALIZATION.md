@@ -136,12 +136,13 @@ When focused in the MuJoCo simulation viewport on `:99`, the following keys and 
 | Symptom | Fix |
 |---------|-----|
 | Browser shows "connection refused" | Run `make start-vnc` inside the container first |
+| "Failed to connect to server" in a noVNC tab that worked before | The VNC services died with the terminal they were started from (a Ctrl-C on a `make launch-*-vnc` target used to kill them along with the simulation; they now run detached). Run `make start-vnc` and press Connect again; `pgrep -a "Xvfb|websockify"` inside the container shows whether they are alive |
 | Port 6080 not reachable | Check `forwardPorts` in `devcontainer.json`; or visit `http://127.0.0.1:6080/vnc.html` |
 | Black/blank screen in browser | The WM may not have started. Run `make stop-vnc && make start-vnc` |
 | RViz: `Unable to create glx context` | Ensure `LIBGL_ALWAYS_INDIRECT=0` is set (the `-vnc` targets do this). See Manual Workflow above |
 | RViz renders but is slow | Expected with software rendering — use lower resolution: `make start-vnc RESOLUTION=1280x720` |
 | "Failed to connect" but the page loads | You are on a port whose container has no VNC server. Each dev container publishes its own 6080; check `docker ps` and use the one for the container your IDE is attached to |
-| Growing zombie process count | Each `start-vnc` restarts Xvfb/x11vnc/websockify and orphans the old ones. `init: true` in `docker-compose.yaml` makes tini PID 1 so they are reaped; run `make check-zombies` to see the holder. Zombies cannot be killed, so rebuild the container to clear an existing backlog |
+| Growing zombie process count | Each `start-vnc` restarts Xvfb/x11vnc/websockify and orphans the old ones. `init: true` in `docker-compose.yaml` makes tini PID 1 so they are reaped, but only for containers created after that setting was added: if `cat /proc/1/comm` prints `sleep`, the container predates it and must be recreated (`docker compose up -d --force-recreate`). Run `make check-zombies` to see the holder. Zombies cannot be killed, so rebuild the container to clear an existing backlog |
 
 ## Notes
 

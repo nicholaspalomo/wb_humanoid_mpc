@@ -44,7 +44,7 @@ fi
 VNC_PORT="${VNC_PORT:-5901}"
 NOVNC_PORT="${NOVNC_PORT:-6080}"
 VNC_DEPTH="${VNC_DEPTH:-24}"
-VNC_DISPLAY=":99"
+VNC_DISPLAY="${VNC_DISPLAY:-:99}"
 
 # Secondary display config (PlotJuggler)
 PJ_VNC_PORT="${PJ_VNC_PORT:-5903}"
@@ -100,15 +100,25 @@ is_pj_running() {
 
 # If requested services are already running healthy, keep them active
 if [ "$MODE" = "all" ] && is_main_running && is_pj_running; then
-    echo "✅ All VNC servers are already running (:99 on ${NOVNC_PORT}, :100 on ${PJ_NOVNC_PORT})"
+    echo "✅ All VNC servers are already running (${VNC_DISPLAY} on ${NOVNC_PORT}, ${PJ_DISPLAY} on ${PJ_NOVNC_PORT})"
+    echo "   🎮 Simulation & RViz : http://localhost:${NOVNC_PORT}/vnc.html"
+    echo "   📊 PlotJuggler       : http://localhost:${PJ_NOVNC_PORT}/vnc.html"
     exit 0
 elif [ "$MODE" = "main" ] && is_main_running; then
-    echo "✅ Main VNC server is already running on ${VNC_DISPLAY} (noVNC port ${NOVNC_PORT})"
+    echo "✅ Main VNC server is already running on ${VNC_DISPLAY}: http://localhost:${NOVNC_PORT}/vnc.html"
     exit 0
 elif [ "$MODE" = "plotjuggler" ] && is_pj_running; then
-    echo "✅ PlotJuggler VNC server is already running on ${PJ_DISPLAY} (noVNC port ${PJ_NOVNC_PORT})"
+    echo "✅ PlotJuggler VNC server is already running on ${PJ_DISPLAY}: http://localhost:${PJ_NOVNC_PORT}/vnc.html"
     exit 0
 fi
+
+# The services are started in their own sessions (setsid), detached from this terminal. Started as plain background
+# jobs they belonged to the terminal's foreground process group, so the Ctrl-C that stops a `make launch-*-vnc` target,
+# or closing that terminal, killed Xvfb and websockify along with the simulation (x11vnc then exited with its X server).
+# The noVNC tab that was still open then reported "Failed to connect to server" until the next launch restarted them.
+detached() {
+    setsid -f "$@" >/dev/null 2>&1 </dev/null
+}
 
 # Clean up any stale sockets/locks for displays we intend to start
 if [ "$MODE" = "all" ] || [ "$MODE" = "main" ]; then
@@ -192,23 +202,21 @@ fi
 if [ "$MODE" = "all" ] || [ "$MODE" = "main" ]; then
     if ! is_main_running; then
         echo "Starting Xvfb on display ${VNC_DISPLAY} ..."
-        Xvfb ${VNC_DISPLAY} -screen 0 "${RESOLUTION}x${VNC_DEPTH}" +iglx >/dev/null 2>&1 &
+        detached Xvfb ${VNC_DISPLAY} -screen 0 "${RESOLUTION}x${VNC_DEPTH}" +iglx
         sleep 1
 
         echo "Starting x11vnc on port ${VNC_PORT} ..."
-        x11vnc -display ${VNC_DISPLAY} \
+        detached x11vnc -display ${VNC_DISPLAY} \
             -rfbport "${VNC_PORT}" \
             -nopw \
             -shared \
             -forever \
             -noxdamage \
-            -bg \
-            -o /tmp/x11vnc.log \
-            >/dev/null 2>&1 || true
+            -o /tmp/x11vnc.log
         sleep 0.5
 
         if command -v openbox >/dev/null 2>&1; then
-            DISPLAY=${VNC_DISPLAY} openbox &
+            DISPLAY=${VNC_DISPLAY} detached openbox
             sleep 0.5
         fi
         if command -v xsetroot >/dev/null 2>&1; then
@@ -216,7 +224,7 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "main" ]; then
         fi
 
         echo "Starting noVNC websockify on port ${NOVNC_PORT} ..."
-        websockify --web="${NOVNC_DIR}" ${NOVNC_PORT} localhost:${VNC_PORT} >/dev/null 2>&1 &
+        detached websockify --web="${NOVNC_DIR}" ${NOVNC_PORT} localhost:${VNC_PORT}
         sleep 0.5
     fi
 fi
@@ -225,23 +233,21 @@ fi
 if [ "$MODE" = "all" ] || [ "$MODE" = "plotjuggler" ]; then
     if ! is_pj_running; then
         echo "Starting Xvfb on display ${PJ_DISPLAY} (PlotJuggler) ..."
-        Xvfb ${PJ_DISPLAY} -screen 0 "${RESOLUTION}x${VNC_DEPTH}" +iglx >/dev/null 2>&1 &
+        detached Xvfb ${PJ_DISPLAY} -screen 0 "${RESOLUTION}x${VNC_DEPTH}" +iglx
         sleep 1
 
         echo "Starting x11vnc on port ${PJ_VNC_PORT} (PlotJuggler) ..."
-        x11vnc -display ${PJ_DISPLAY} \
+        detached x11vnc -display ${PJ_DISPLAY} \
             -rfbport "${PJ_VNC_PORT}" \
             -nopw \
             -shared \
             -forever \
             -noxdamage \
-            -bg \
-            -o /tmp/x11vnc_pj.log \
-            >/dev/null 2>&1 || true
+            -o /tmp/x11vnc_pj.log
         sleep 0.5
 
         if command -v openbox >/dev/null 2>&1; then
-            DISPLAY=${PJ_DISPLAY} openbox &
+            DISPLAY=${PJ_DISPLAY} detached openbox
             sleep 0.5
         fi
         if command -v xsetroot >/dev/null 2>&1; then
@@ -249,7 +255,7 @@ if [ "$MODE" = "all" ] || [ "$MODE" = "plotjuggler" ]; then
         fi
 
         echo "Starting noVNC websockify on port ${PJ_NOVNC_PORT} (PlotJuggler) ..."
-        websockify --web="${NOVNC_DIR}" ${PJ_NOVNC_PORT} localhost:${PJ_VNC_PORT} >/dev/null 2>&1 &
+        detached websockify --web="${NOVNC_DIR}" ${PJ_NOVNC_PORT} localhost:${PJ_VNC_PORT}
         sleep 0.5
     fi
 fi

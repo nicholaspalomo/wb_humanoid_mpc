@@ -263,6 +263,44 @@ bool LipContactPlanner::propagate(const ContactPlannerInput& input, MiqpAssignme
   // cannot, because the other foot is in the air or has just landed, lifts at the first node where it can instead of
   // making the horizon infeasible. Without this, a standing start with maxContactDuration set (both feet overdue) had no
   // feasible assignment at all, since both feet were forced to lift at the same node.
+  // A phase that switches at node k begins at the node start, except along the committed prefix, where the executed
+  // schedule knows the real event time (input.committedPhaseStartTimes): a touch-down at 0.97 s inside the node
+  // [0.9, 1.0) has lasted 0.03 s when the node ends, not a whole node. Counting it from the node start let every
+  // minimum-duration rule after it (double support, contact, swing) be satisfied up to a node too early, and the merged
+  // schedule contained double supports of a few hundredths of a second against a 0.1 s minimum.
+  const auto switchTime = [&](int k, size_t foot) -> scalar_t {
+    const scalar_t nodeStart = input.time + static_cast<scalar_t>(k) * config_.dt;
+    if (k < static_cast<int>(input.committedPhaseStartTimes.size())) {
+      const scalar_t start = input.committedPhaseStartTimes[k][foot];
+      // The switch is detected between two samples; an event outside that window is not the switch we are looking at.
+      if (std::isfinite(start) && start > nodeStart - config_.dt && start <= nodeStart + config_.dt) return start;
+    }
+    return nodeStart;
+  };
+  // Switch time of node k in node units from the grid start (k itself for a switch at the node start).
+  const auto switchNode = [&](int k, size_t foot) { return (switchTime(k, foot) - input.time) / config_.dt; };
+  // Nodes spent in the phase that switched at node k, at the start of node k + 1: rounded down against a minimum,
+  // up against a maximum, like the elapsed time of the phase active at planning time (initialPhaseNodes).
+  const auto switchedPhaseNodes = [&](int k, size_t foot, bool roundUp) -> int {
+    const scalar_t nodes = static_cast<scalar_t>(k + 1) - switchNode(k, foot);
+    const int rounded = static_cast<int>(roundUp ? std::ceil(nodes - 1e-9) : std::floor(nodes + 1e-9));
+    return std::max(roundUp ? 1 : 0, rounded);
+  };
+
+  // Minimum double support, in (fractional) nodes: after a touch-down at node time t_td the other foot may not lift at a
+  // node that starts before t_td + minDoubleSupportDuration.
+  const scalar_t minDoubleSupportNodes = config_.minDoubleSupportDuration / config_.dt;
+  const auto heldAfterTouchDown = [&](int k, scalar_t latestTouchDownNode) {
+    return static_cast<scalar_t>(k) < latestTouchDownNode + minDoubleSupportNodes - 1e-9;
+  };
+  // A double support already in progress at planning time counts from its touch-down, the start of the shorter contact.
+  scalar_t initialTouchDownNode = -1000.0;
+  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    if (input.contacts[foot] && input.contacts[1 - foot]) {
+      initialTouchDownNode = std::max(initialTouchDownNode, -std::max(0.0, input.phaseElapsedTime[foot]) / config_.dt);
+    }
+  }
+
   const int nDoubleSupportHold = config_.minDoubleSupportNodes();
   std::array<std::vector<bool>, N_CONTACTS> heldByDoubleSupport;
   for (auto& hold : heldByDoubleSupport) hold.assign(N, false);
@@ -271,25 +309,22 @@ bool LipContactPlanner::propagate(const ContactPlannerInput& input, MiqpAssignme
     if (nDoubleSupportHold <= 0) return;
     std::array<std::int8_t, N_CONTACTS> kappa;
     for (size_t foot = 0; foot < N_CONTACTS; ++foot) kappa[foot] = input.contacts[foot] ? 1 : 0;
-    int lastTouchDown = -1000;
-    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-      if (input.contacts[foot] && input.contacts[1 - foot]) lastTouchDown = std::max(lastTouchDown, -initialPhaseNodes(input, foot));
-    }
+    scalar_t lastTouchDown = initialTouchDownNode;
     for (int k = 0; k < N; ++k) {
-      int latestTouchDown = lastTouchDown;
+      scalar_t latestTouchDown = lastTouchDown;
       bool allFixed = true;
       for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
         const std::int8_t value = a[contactBinaryIndex(k, foot)];
         allFixed = allFixed && value != kMiqpFree;
-        if (kappa[foot] == 0 && value == 1) latestTouchDown = k;
+        if (kappa[foot] == 0 && value == 1) latestTouchDown = std::max(latestTouchDown, switchNode(k, foot));
       }
       for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-        heldByDoubleSupport[foot][k] = kappa[foot] == 1 && k < latestTouchDown + nDoubleSupportHold;
+        heldByDoubleSupport[foot][k] = kappa[foot] == 1 && heldAfterTouchDown(k, latestTouchDown);
       }
       if (!allFixed) break;
       for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
         const std::int8_t value = a[contactBinaryIndex(k, foot)];
-        if (kappa[foot] == 0 && value == 1) lastTouchDown = k;
+        if (kappa[foot] == 0 && value == 1) lastTouchDown = std::max(lastTouchDown, switchNode(k, foot));
         kappa[foot] = value;
       }
     }
@@ -314,7 +349,7 @@ bool LipContactPlanner::propagate(const ContactPlannerInput& input, MiqpAssignme
       if (value == kappa) {
         ++tau;
       } else {
-        tau = 1;
+        tau = switchedPhaseNodes(k, foot, true);
         kappa = value;
       }
     }
@@ -388,7 +423,8 @@ bool LipContactPlanner::propagate(const ContactPlannerInput& input, MiqpAssignme
           ++tauMin;
           ++tauMax;
         } else {
-          tauMin = tauMax = 1;
+          tauMin = switchedPhaseNodes(k, foot, false);
+          tauMax = switchedPhaseNodes(k, foot, true);
           kappa = a[index];
         }
       }
@@ -403,29 +439,22 @@ bool LipContactPlanner::propagate(const ContactPlannerInput& input, MiqpAssignme
     }
 
     // Minimum double support: after a touch-down at node k the other foot may not lift off before node k + n_ds.
-    const int nDoubleSupport = config_.minDoubleSupportNodes();
-    if (nDoubleSupport > 0 && ok) {
+    if (nDoubleSupportHold > 0 && ok) {
       std::array<std::int8_t, N_CONTACTS> kappa{input.contacts[0] ? std::int8_t(1) : std::int8_t(0),
                                                 input.contacts[1] ? std::int8_t(1) : std::int8_t(0)};
-      int lastTouchDown = -1000;
-      for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-        // A double support already in progress counts from the elapsed time of the shorter contact phase.
-        if (input.contacts[foot] && input.contacts[1 - foot]) {
-          lastTouchDown = std::max(lastTouchDown, -initialPhaseNodes(input, foot));
-        }
-      }
+      scalar_t lastTouchDown = initialTouchDownNode;
       for (int k = 0; k < N && ok; ++k) {
         // A touch-down decided at this very node already binds the other foot at this node: lifting it here would turn
         // single support on one foot into single support on the other with no double support at all, which is the
         // weight transfer the rule forbids. Counting it only after the node let that instantaneous switch through.
-        int latestTouchDown = lastTouchDown;
+        scalar_t latestTouchDown = lastTouchDown;
         for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-          if (kappa[foot] == 0 && a[contactBinaryIndex(k, foot)] == 1) latestTouchDown = k;
+          if (kappa[foot] == 0 && a[contactBinaryIndex(k, foot)] == 1) latestTouchDown = std::max(latestTouchDown, switchNode(k, foot));
         }
         bool allFixed = true;
         for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
           const int index = contactBinaryIndex(k, foot);
-          if (kappa[foot] == 1 && k < latestTouchDown + nDoubleSupport && k >= numCommitted) {
+          if (kappa[foot] == 1 && heldAfterTouchDown(k, latestTouchDown) && k >= numCommitted) {
             if (a[index] == 0) return false;
             changed |= fix(index, 1);
           }
@@ -434,7 +463,7 @@ bool LipContactPlanner::propagate(const ContactPlannerInput& input, MiqpAssignme
         if (!allFixed || !ok) break;
         for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
           const std::int8_t value = a[contactBinaryIndex(k, foot)];
-          if (kappa[foot] == 0 && value == 1) lastTouchDown = k;
+          if (kappa[foot] == 0 && value == 1) lastTouchDown = std::max(lastTouchDown, switchNode(k, foot));
           kappa[foot] = value;
         }
       }

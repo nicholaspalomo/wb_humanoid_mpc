@@ -58,8 +58,11 @@ struct ContactPlanningConfig {
   scalar_t minDoubleSupportDuration = 0.1;  // [s] after a touch-down the other foot stays down at least this long (0 disables)
 
   // Support geometry [m], yaw frame
-  scalar_t zmpHalfWidthX = 0.08;     // ZMP box half-width around the anchor foot (along x)
-  scalar_t zmpHalfWidthY = 0.04;     // ZMP box half-width around the anchor foot (along y)
+  // ZMP support region half-widths. Single support: a box of these half-widths around the stance foot. Double support:
+  // along the heading a box of half-width zmpHalfWidthX around the midpoint of the feet, laterally the strip between the
+  // right foot minus and the left foot plus zmpHalfWidthY (LipContactPlanner, ZMP rows).
+  scalar_t zmpHalfWidthX = 0.08;     // [m] along the heading
+  scalar_t zmpHalfWidthY = 0.04;     // [m] lateral
   scalar_t nominalStepWidth = 0.25;  // lateral distance left foot - right foot the planner is drawn to
   scalar_t minStepWidth = 0.15;      // self-collision margin
   scalar_t maxStepWidth = 0.45;

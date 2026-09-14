@@ -277,53 +277,65 @@ VNC_GL_ENV := export DISPLAY=:99 && \
 	export GALLIUM_DRIVER=llvmpipe && \
 	export MESA_GL_VERSION_OVERRIDE=3.3 && \
 	export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
+# Printed right before a -vnc target launches, so the URLs are not buried under the build output.
+vnc_urls := echo "🖥️  noVNC: http://localhost:6080/vnc.html (simulation & RViz)  |  http://localhost:6082/vnc.html (PlotJuggler)"
 # LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_ports, //docker-compose.yaml:vnc_ports, //.devcontainer/devcontainer.json:vnc_ports, //.devcontainer/VISUALIZATION.md:vnc_ports)
 
 launch-g1-dummy-sim-vnc: kill-sims start-vnc
+	@$(vnc_urls)
 	@echo "🚀 Building targets and launching G1 Centroidal MPC Dummy Simulation..."
 	@bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_dummy_sim_node && \
 	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch g1_centroidal_mpc dummy_sim.launch.py
 
 launch-g1-sim-vnc: kill-sims start-vnc
+	@$(vnc_urls)
 	@echo "🚀 Building targets and launching G1 Centroidal MPC MuJoCo Simulation..."
 	@bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sim && \
 	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch g1_centroidal_mpc mujoco_sim.launch.py
 
 launch-wb-g1-dummy-sim-vnc: kill-sims start-vnc
+	@$(vnc_urls)
 	@echo "🚀 Building targets and launching G1 Whole-Body MPC Dummy Simulation..."
 	@bazel build //humanoid_nmpc/humanoid_wb_mpc_ros2:humanoid_wb_mpc_sqp_node //humanoid_nmpc/humanoid_wb_mpc_ros2:humanoid_wb_mpc_dummy_sim_node && \
 	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch g1_wb_mpc dummy_sim.launch.py
 
 launch-wb-g1-sim-vnc: kill-sims start-vnc
+	@$(vnc_urls)
 	@echo "🚀 Building targets and launching G1 Whole-Body MPC MuJoCo Simulation..."
 	@bazel build //humanoid_nmpc/humanoid_wb_mpc_ros2:humanoid_wb_mpc_sqp_node //humanoid_nmpc/humanoid_wb_mpc_ros2:humanoid_wb_mpc_sim && \
 	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch g1_wb_mpc mujoco_sim.launch.py
 
 launch-drc-atlas-dummy-sim-vnc: kill-sims start-vnc
+	@$(vnc_urls)
 	@echo "🚀 Building targets and launching DRC Atlas Dummy Simulation..."
 	@bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_dummy_sim_node && \
 	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch drc_atlas_centroidal_mpc dummy_sim.launch.py
 
 launch-drc-atlas-sim-vnc: kill-sims start-vnc
+	@$(vnc_urls)
 	@echo "🚀 Building targets and launching DRC Atlas MuJoCo Simulation..."
 	@bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sim && \
 	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch drc_atlas_centroidal_mpc mujoco_sim.launch.py
 
 launch-drc-atlas-sandbox-vnc: kill-sims start-vnc
+	@$(vnc_urls)
 	@echo "🚀 Building targets and launching DRC Atlas URDF Viewer..."
 	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch drc_atlas_description display.launch.py
 
 launch-r1-dummy-sim-vnc: kill-sims start-vnc
+	@$(vnc_urls)
 	@echo "🚀 Building targets and launching Unitree R1 Centroidal MPC Dummy Simulation..."
 	@bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_dummy_sim_node && \
 	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch unitree_r1_centroidal_mpc dummy_sim.launch.py
 
 launch-r1-sim-vnc: kill-sims start-vnc
+	@$(vnc_urls)
 	@echo "🚀 Building targets and launching Unitree R1 Centroidal MPC MuJoCo Simulation..."
 	@bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sim && \
 	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch unitree_r1_centroidal_mpc mujoco_sim.launch.py
 
 launch-r1-sandbox-vnc: kill-sims start-vnc
+	@$(vnc_urls)
 	@echo "🚀 Building targets and launching Unitree R1 URDF Viewer..."
 	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch unitree_r1_description display.launch.py
 # LINT.ThenChange(//setup_env.sh:registered_packages, //.devcontainer/VISUALIZATION.md:launch_targets)

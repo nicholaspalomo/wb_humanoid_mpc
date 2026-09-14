@@ -219,3 +219,14 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "testContactPlan",
+    size = "small",
+    srcs = ["test/testContactPlan.cpp"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        "@googletest//:gtest_main",
+    ],
+)
