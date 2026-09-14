@@ -50,6 +50,7 @@ enum class MpcCostType {
   TaskSpaceTorsoCost,
   ExternalTorqueCost,
   JointTorqueCost,
+  DcmTerminalCost,
 };
 
 /**

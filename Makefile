@@ -23,7 +23,7 @@ cleanup_trap := trap 'pkill -P $$$$ 2>/dev/null; wait' EXIT INT TERM
         launch-g1-dummy-sim launch-g1-sim launch-wb-g1-dummy-sim launch-wb-g1-sim \
         launch-drc-atlas-dummy-sim launch-drc-atlas-sim launch-drc-atlas-sandbox test-pinocchio-model-atlas \
         launch-r1-dummy-sim launch-r1-sim launch-r1-sandbox test-pinocchio-model-r1 \
-        start-vnc stop-vnc kill-sims kill-builds \
+        start-vnc stop-vnc kill-sims kill-builds check-zombies \
         launch-g1-dummy-sim-vnc launch-g1-sim-vnc launch-wb-g1-dummy-sim-vnc launch-wb-g1-sim-vnc \
         launch-drc-atlas-dummy-sim-vnc launch-drc-atlas-sim-vnc launch-drc-atlas-sandbox-vnc \
         launch-r1-dummy-sim-vnc launch-r1-sim-vnc launch-r1-sandbox-vnc \
@@ -49,14 +49,37 @@ kill-builds:
 	done
 	@echo "✅ Build cleanup done."
 
-## Kill any running or zombie sim processes before launching a new one.
+## Kill any running sim processes before launching a new one.
 ## Note: The [x] character-class trick prevents pkill -f from matching its own shell.
+## This cannot remove zombies: a zombie has already exited and only its parent can reap it. See check-zombies.
 kill-sims: kill-builds
 	@echo "🧹 Cleaning up previous sim processes..."
 	@pkill -9 -f 'humanoid_centroidal_mpc_si[m]|humanoid_centroidal_mpc_sq[p]|humanoid_wb_mpc_si[m]|humanoid_wb_mpc_sq[p]' 2>/dev/null || true
 	@pkill -9 -f 'robot_state_publishe[r]|base_velocity_controlle[r]' 2>/dev/null || true
 	@sleep 0.5
 	@echo "✅ Cleanup done."
+	@$(MAKE) --no-print-directory check-zombies WARN_ONLY=1
+
+## Report zombie processes and which parent is holding them.
+## A zombie has already exited and only its parent can reap it, so kill/pkill have no effect; that is why kill-sims
+## and kill-builds never cleared them. Docker's init (tini) reaps orphans, which is why docker-compose.yaml sets
+## `init: true`. Run this inside the dev container for a container-local view.
+check-zombies:
+	@z=$$(ps -eo stat --no-headers 2>/dev/null | awk '/^Z/ {n++} END {print n+0}'); \
+	if [ "$$z" -eq 0 ]; then \
+		[ -n "$(WARN_ONLY)" ] || echo "✅ No zombie processes."; \
+	else \
+		echo "⚠️  $$z zombie process(es). They cannot be killed; only their parent can reap them."; \
+		echo "   Held by:"; \
+		ps -eo ppid,stat --no-headers | awk '$$2 ~ /^Z/ {print $$1}' | sort | uniq -c | sort -rn | head -3 | \
+		while read -r n ppid; do \
+			echo "     $$n under PID $$ppid ($$(ps -p $$ppid -o comm= 2>/dev/null || echo '<gone>'))"; \
+		done; \
+		echo "   If the holder is the container's PID 1 (sleep/bash), it never calls wait() and they are permanent."; \
+		echo "   docker-compose.yaml now sets 'init: true' so tini becomes PID 1 and reaps orphans."; \
+		echo "   Apply it and clear the backlog: Dev Containers 'Rebuild Container', or on the host"; \
+		echo "     docker compose -f docker-compose.yaml up -d --force-recreate"; \
+	fi
 
 ## Build everything
 build-all:

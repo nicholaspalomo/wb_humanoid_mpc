@@ -63,9 +63,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/constraint/NormalVelocityConstraintCppAd.h"
 #include "humanoid_centroidal_mpc/constraint/ZeroVelocityConstraintCppAd.h"
 #include "humanoid_centroidal_mpc/cost/CentroidalMpcEndEffectorFootCost.h"
+#include "humanoid_centroidal_mpc/cost/DcmTerminalCost.h"
 #include "humanoid_centroidal_mpc/cost/ICPCost.h"
 #include "humanoid_centroidal_mpc/dynamics/CentroidalDynamicsAD.h"
 #include "humanoid_centroidal_mpc/dynamics/CentroidalDynamicsBasisInputsAD.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h"
 
 #include "humanoid_common_mpc/common/BasisInputsMappingDecorator.h"
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
@@ -165,6 +168,15 @@ CentroidalMpcInterface::CentroidalMpcInterface(const std::string& taskFile,
         ContactWrenchConeBasisMatrix(coneConfig, ContactRectangle::loadContactRectangle(taskFile, modelSettings_, 0, verbose_)),
         ContactWrenchConeBasisMatrix(coneConfig, ContactRectangle::loadContactRectangle(taskFile, modelSettings_, 1, verbose_))};
 
+    // A conic combination is homogeneous, so the basis can represent neither the minimum normal force nor a gripper
+    // adhesion force: both are affine offsets of the cone and lambda = 0 always yields the zero wrench.
+    if (coneConfig.minNormalForce > 0.0 || coneConfig.gripperForce > 0.0) {
+      LOG(WARNING) << "[CentroidalMpcInterface] contacts.contactWrenchConeSoftConstraint.minNormalForce (" << coneConfig.minNormalForce
+                   << " N) and gripperForce (" << coneConfig.gripperForce
+                   << " N) are NOT enforced with useContactBasisVectorInputs: true. The friction, CoP and torsional "
+                      "limits are enforced structurally by the basis; these two affine offsets cannot be.";
+    }
+
     const size_t numBasisPerFoot = basisMatrices[0].numBasis();
     LOG(INFO) << "[CentroidalMpcInterface] Basis vectors per foot: " << numBasisPerFoot
               << " (total basis input dim: " << numBasisPerFoot * N_CONTACTS + modelSettings_.mpc_joint_dim << ")";
@@ -201,9 +213,28 @@ CentroidalMpcInterface::CentroidalMpcInterface(const std::string& taskFile,
   std::unique_ptr<SwingTrajectoryPlanner> swingTrajectoryPlanner(
       new SwingTrajectoryPlanner(loadSwingTrajectorySettings(taskFile, "swing_trajectory_config", verbose_), N_CONTACTS));
 
-  referenceManagerPtr_ = std::make_shared<SwitchedModelReferenceManager>(
-      GaitSchedule::loadGaitSchedule(referenceFile, modelSettings_, verbose_), std::move(swingTrajectoryPlanner), *pinocchioInterfacePtr_,
-      *effectiveMpcRobotModelPtr_);
+  if (modelSettings_.useContactPlanning) {
+    // Online mixed-integer contact planning replaces the periodic gait schedule. The gait schedule is still loaded: it is
+    // used until the first plan arrives and whenever the planner has no valid plan.
+    ContactPlanningConfig contactPlanningConfig = loadContactPlanningConfig(taskFile, "contact_planning.", verbose_);
+    if (contactPlanningConfig.horizon() < mpcSettings_.timeHorizon_) {
+      LOG(WARNING) << "[CentroidalMpcInterface] contact_planning horizon (" << contactPlanningConfig.horizon()
+                   << " s) is shorter than the MPC horizon (" << mpcSettings_.timeHorizon_
+                   << " s); the schedule beyond the planned horizon defaults to double support.";
+    }
+    auto planningReferenceManager = std::make_shared<ContactPlanningReferenceManager>(
+        GaitSchedule::loadGaitSchedule(referenceFile, modelSettings_, verbose_), std::move(swingTrajectoryPlanner), *pinocchioInterfacePtr_,
+        *effectiveMpcRobotModelPtr_, contactPlanningConfig);
+    contactPlannerModulePtr_ = std::make_shared<ContactPlannerModule>(planningReferenceManager, contactPlanningConfig);
+    referenceManagerPtr_ = planningReferenceManager;
+    LOG(INFO) << "[CentroidalMpcInterface] Using mixed-integer contact planning (" << contactPlanningConfig.numNodes << " nodes x "
+              << contactPlanningConfig.dt << " s, " << (contactPlanningConfig.runInBackgroundThread ? "background thread" : "synchronous")
+              << ").";
+  } else {
+    referenceManagerPtr_ = std::make_shared<SwitchedModelReferenceManager>(
+        GaitSchedule::loadGaitSchedule(referenceFile, modelSettings_, verbose_), std::move(swingTrajectoryPlanner), *pinocchioInterfacePtr_,
+        *effectiveMpcRobotModelPtr_);
+  }
   referenceManagerPtr_->setArmSwingReferenceActive(true);
 
   // initial state
@@ -274,7 +305,18 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
   if (formulationTasks.hasCost(MpcCostType::InputQuadraticCost)) {
     problemPtr_->costPtr->add("inputQuadraticCost", factory.getInputQuadraticCost());
   }
-  if (formulationTasks.hasCost(MpcCostType::TerminalCost)) {
+  // Terminal cost: either the DCM viability cost (useDcmTerminalCost, or dcm_terminal_cost in the cost list) or the
+  // quadratic Q_final cost. With the DCM cost enabled, Q_final / terminal_cost are ignored.
+  const bool useDcmTerminalCost = modelSettings_.useDcmTerminalCost || formulationTasks.hasCost(MpcCostType::DcmTerminalCost);
+  if (useDcmTerminalCost) {
+    const DcmTerminalCost::Config dcmConfig = DcmTerminalCost::loadConfig(taskFile_, "dcm_terminal_cost.", verbose_);
+    problemPtr_->finalCostPtr->add("dcmTerminalCost",
+                                   std::make_unique<DcmTerminalCost>(*referenceManagerPtr_, dcmConfig, *pinocchioInterfacePtr_,
+                                                                     *effectiveMpcRobotModelADPtr_, "dcmTerminalCost", modelSettings_));
+    if (formulationTasks.hasCost(MpcCostType::TerminalCost)) {
+      LOG(INFO) << "[CentroidalMpcInterface] useDcmTerminalCost is enabled: the quadratic terminal_cost (Q_final) is ignored.";
+    }
+  } else if (formulationTasks.hasCost(MpcCostType::TerminalCost)) {
     problemPtr_->finalCostPtr->add("terminalCost", factory.getTerminalCost());
   }
 
@@ -351,12 +393,13 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
 
     if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::ContactWrenchCone)) {
       if (useContactBasisVectorInputs_) {
-        // In basis-vector mode the wrench cone is enforced structurally:
-        // all basis vectors lie inside the cone, so λ ≥ 0 ⟹ W ∈ cone.
-        // The ContactWrenchConeConstraint is wrench-space specific and
-        // cannot operate on basis-vector inputs.
+        // In basis-vector mode the friction, CoP and torsional limits are enforced structurally: every generator lies
+        // inside the cone (ContactWrenchConeBasisMatrix verifies this against the constraint's own rows at
+        // construction) and the cone is convex, so λ ≥ 0 ⟹ W ∈ cone. The ContactWrenchConeConstraint is wrench-space
+        // specific and cannot operate on basis-vector inputs. The minimum normal force and the gripper force are the
+        // exception and are not enforced; a warning is logged where the basis is built.
         LOG(INFO) << "[CentroidalMPC] Skipping contact_wrench_cone soft constraint for " << footName
-                  << " (enforced structurally via basis-vector inputs).";
+                  << " (friction, CoP and torsional limits enforced structurally via basis-vector inputs).";
 
         // Add λ ≥ 0 non-negativity constraint as a barrier penalty.
         // This is the structural enforcement: all basis scalings must be non-negative
@@ -478,8 +521,10 @@ std::unique_ptr<StateInputConstraint> CentroidalMpcInterface::getStanceFootConst
     return config;
   };
 
-  return std::unique_ptr<StateInputConstraint>(new ZeroVelocityConstraintCppAd(*referenceManagerPtr_, eeKinematics, contactPointIndex,
-                                                                               numConstraints, eeZeroVelConConfig(footConfig)));
+  auto constraint = std::make_unique<ZeroVelocityConstraintCppAd>(*referenceManagerPtr_, eeKinematics, contactPointIndex, numConstraints,
+                                                                  eeZeroVelConConfig(footConfig));
+  constraint->getTwistConstraint().setConstrainYawRateAboutNormal(footConfig.constrainYawRateAboutContactNormal);
+  return constraint;
 }
 
 /******************************************************************************************************/

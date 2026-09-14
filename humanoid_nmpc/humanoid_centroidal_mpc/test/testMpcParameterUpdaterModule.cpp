@@ -47,11 +47,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_centroidal_mpc/constraint/ZeroVelocityConstraintCppAd.h"
 #include "humanoid_centroidal_mpc/cost/CentroidalMpcEndEffectorFootCost.h"
+#include "humanoid_centroidal_mpc/cost/DcmTerminalCost.h"
 #include "humanoid_centroidal_mpc/cost/ICPCost.h"
 #include "humanoid_centroidal_mpc/mrt/MpcParameterUpdaterModule.h"
 #include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/constraint/BasisScalingNonNegativityConstraint.h"
+#include "humanoid_common_mpc/constraint/EndEffectorKinematicsTwistConstraint.h"
 #include "humanoid_common_mpc/constraint/JointLimitsSoftConstraint.h"
 #include "humanoid_common_mpc/cost/ComAndAcomTrackingCost.h"
 #include "humanoid_common_mpc/cost/EndEffectorKinematicsQuadraticCost.h"
@@ -459,6 +461,72 @@ TEST_F(MpcParameterUpdaterModuleTest, SqpSettingsUpdated) {
 /******************************************************************************************************/
 // Test: Verify that zero velocity soft constraint weight (QuadraticPenalty scale) is updated.
 /******************************************************************************************************/
+/******************************************************************************************************/
+// Test: the stance-foot yaw-rate row is switched on a live reload and applied to the constraint in every OCP copy.
+/******************************************************************************************************/
+TEST_F(MpcParameterUpdaterModuleTest, StanceFootYawRateFlagAppliedOnReload) {
+  MpcParameterUpdaterModule updater(mpc_.get(), tmpTaskFile_, urdfFile_, referenceFile_, stateDim_, inputDim_, contactNames_, nullptr,
+                                    basisCostTransform_);
+  auto* sqp = getSqpSolver();
+  ASSERT_NE(sqp, nullptr);
+
+  // Collect the twist constraints behind every foot's zeroVelocity term, hard or soft.
+  const auto twistConstraints = [&]() {
+    std::vector<EndEffectorKinematicsTwistConstraint*> found;
+    for (auto& ocp : sqp->getOcpDefinitions()) {
+      for (const auto& footName : contactNames_) {
+        const std::string name = footName + "_zeroVelocity";
+        size_t index = 0;
+        if (ocp.equalityConstraintPtr->getTermIndex(name, index)) {
+          if (auto* con = dynamic_cast<ZeroVelocityConstraintCppAd*>(&ocp.equalityConstraintPtr->get(name)))
+            found.push_back(&con->getTwistConstraint());
+        }
+        if (ocp.softConstraintPtr->getTermIndex(name, index)) {
+          if (auto* soft = dynamic_cast<StateInputSoftConstraint*>(&ocp.softConstraintPtr->get(name))) {
+            if (auto* con = dynamic_cast<ZeroVelocityConstraintCppAd*>(soft->getConstraintPtr().get()))
+              found.push_back(&con->getTwistConstraint());
+          }
+        }
+      }
+    }
+    return found;
+  };
+  const std::vector<EndEffectorKinematicsTwistConstraint*> before = twistConstraints();
+  if (before.empty()) {
+    GTEST_SKIP() << "zero_velocity is not part of this configuration";
+  }
+  for (const auto* twist : before) {
+    EXPECT_FALSE(twist->getConstrainYawRateAboutNormal()) << "the shipped task file keeps the yaw-rate row off";
+  }
+
+  // Switch the flag on in the task file and reload.
+  {
+    std::ifstream in(tmpTaskFile_);
+    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.close();
+    const std::string key = "constrainYawRateAboutContactNormal:";
+    const auto pos = content.find(key);
+    ASSERT_NE(pos, std::string::npos) << "the task file must carry the key so that the reload can set it";
+    const auto lineEnd = content.find('\n', pos);
+    content.replace(pos, lineEnd - pos, key + " true");
+    std::ofstream out(tmpTaskFile_);
+    out << content;
+  }
+  touchTaskFileAndRunUpdater(updater);
+
+  const std::vector<EndEffectorKinematicsTwistConstraint*> after = twistConstraints();
+  ASSERT_EQ(after.size(), before.size());
+  for (const auto* twist : after) {
+    EXPECT_TRUE(twist->getConstrainYawRateAboutNormal()) << "the reload must apply the flag to every OCP copy";
+  }
+
+  // The loader of the model settings reads the same key (the interface uses it at construction).
+  const ModelSettings reloaded(tmpTaskFile_, urdfFile_, "centroidal_mpc_", false);  // the name the interface uses
+  EXPECT_TRUE(reloaded.footConstraintConfig.constrainYawRateAboutContactNormal);
+  EXPECT_FALSE(interface_->modelSettings().footConstraintConfig.constrainYawRateAboutContactNormal)
+      << "the interface still holds the settings it was built with";
+}
+
 TEST_F(MpcParameterUpdaterModuleTest, SoftConstraintWeightUpdated) {
   MpcParameterUpdaterModule updater(mpc_.get(), tmpTaskFile_, urdfFile_, referenceFile_, stateDim_, inputDim_, contactNames_, nullptr,
                                     basisCostTransform_);
@@ -766,7 +834,16 @@ TEST_F(MpcParameterUpdaterModuleTest, BasePoseWeightsZeroedInBothRunningAndTermi
                                     basisCostTransform_);
   touchTaskFileAndRunUpdater(updater);
 
+  bool useDcmTerminalCost = false;
+  loadData::loadCppDataType(taskFile_, "useDcmTerminalCost", useDcmTerminalCost);
   for (auto& ocp : sqp->getOcpDefinitions()) {
+    if (useDcmTerminalCost) {
+      // The DCM terminal cost replaces the quadratic terminal cost, so there is no Q_final to zero: the base pose is not
+      // regulated at the horizon end at all.
+      EXPECT_THROW(ocp.finalCostPtr->get<QuadraticStateCost>("terminalCost"), std::out_of_range);
+      EXPECT_NO_THROW(ocp.finalCostPtr->get<DcmTerminalCost>("dcmTerminalCost"));
+      continue;
+    }
     matrix_t Q_final;
     ocp.finalCostPtr->get<QuadraticStateCost>("terminalCost").getGains(Q_final);
     EXPECT_TRUE(Q_final.block(kBasePoseStateIndex, kBasePoseStateIndex, kBasePoseDim, kBasePoseDim).isZero(1e-12))

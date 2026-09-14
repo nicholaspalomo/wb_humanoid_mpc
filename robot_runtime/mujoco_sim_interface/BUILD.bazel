@@ -1,5 +1,6 @@
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
 # mujoco_sim_interface - MuJoCo simulation interface library
 
 package(default_visibility = ["//visibility:public"])
@@ -7,6 +8,7 @@ package(default_visibility = ["//visibility:public"])
 cc_library(
     name = "mujoco_sim_interface",
     srcs = [
+        "src/MujocoContactUtils.cpp",
         "src/MujocoSimInterface.cpp",
         "src/MujocoRenderer.cpp",
     ],
@@ -41,5 +43,20 @@ cc_binary(
         ":mujoco_sim_interface",
         "@boost",
         "@glfw",
+    ],
+)
+
+cc_test(
+    name = "test_mujoco_contact_utils",
+    size = "small",
+    srcs = ["test/testMujocoContactUtils.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+    ],
+    deps = [
+        ":mujoco_sim_interface",
+        "@googletest//:gtest_main",
     ],
 )

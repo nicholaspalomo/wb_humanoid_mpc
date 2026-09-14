@@ -1,6 +1,12 @@
 # Simulation & Telemetry Configuration
 enableTelemetry: true        # Enable high-rate ROS 2 telemetry publishing for PlotJuggler
 telemetryFrequency: 100      # [Hz] Telemetry publishing frequency (decimated from MRT loop)
+# MuJoCo simulator only (mujoco_sim.launch.py). The viewer's contact timeline ('b' toggles it) shows, per contact point,
+# the contact state the executed MPC policy plans against the simulator's ground truth over a sliding window of time.
+simContactTimelineWindow: 5.0          # [s] width of the sliding window
+simContactForceThreshold: 5.0          # [N] normal force above which a contact point counts as touching (ground truth)
+simReportsGroundTruthContacts: true   # feed the ground-truth contacts to the MPC as its measured contact state instead of
+# "always touching"; required for contact_planning.enablePhaseResetting in simulation
 enableOnlineTuning: true     # Enable runtime parameter and gain tuning in Controller GUI
 
 # Targeted Pinocchio frames for telemetry logging (position, orientation, twist, accel, wrench)

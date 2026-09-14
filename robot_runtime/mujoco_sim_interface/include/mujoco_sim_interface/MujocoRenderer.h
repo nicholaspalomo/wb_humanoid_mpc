@@ -89,6 +89,10 @@ class MujocoRenderer {
    *  - 'k'     : Toggle Camera Tracking Mode
    *                Switches between mjCAMERA_TRACKING (locks camera view to translate with the
    *                robot base/pelvis) and mjCAMERA_FREE (stationary manual free-look camera).
+   *  - 'b'     : Toggle Contact Timeline
+   *                Barcode along the bottom edge: per contact point, the contact state the
+   *                controller plans (top strip) against the simulator's ground truth (bottom
+   *                strip) over a sliding window of time.
    *  - 'p'     : Print Hotkeys Cheatsheet
    *                Prints all supported hotkeys and mouse bindings to the console.
    */
@@ -110,6 +114,9 @@ class MujocoRenderer {
   void renderLoop();
 
   void renderExternalForces();
+
+  /// Contact timeline overlay (see MujocoSimInterface::copyContactTimeline).
+  void renderContactTimeline();
 
   void toggleCameraTracking();
   void setupCamera();
@@ -141,6 +148,8 @@ class MujocoRenderer {
 
   double lastclicktm = 0;
   bool model_transparent = false;
+  bool showContactTimeline_ = true;
+  std::vector<ContactTimelineSample> contactTimelineScratch_;
 
   // Mujoco visualization structures
   mjvCamera mujocoCam_;       // abstract camera

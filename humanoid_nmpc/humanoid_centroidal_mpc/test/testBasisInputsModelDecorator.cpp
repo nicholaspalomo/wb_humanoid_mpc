@@ -220,9 +220,11 @@ TEST_F(BasisInputsModelDecoratorTest, SetGetContactWrenchRoundTrip) {
   const size_t inputDim = decorator_->getInputDim();
   vector_t input = vector_t::Zero(inputDim);
 
-  // Set a known wrench for foot 0
+  // Set a known wrench for foot 0. Its centre of pressure is inside the footprint and its minimum-norm scalings are
+  // non-negative, so the clamp inside setContactWrench is inactive and the round trip is exact. See
+  // SetContactWrenchClampsNegativeScalings for a wrench where it is not.
   vector6_t wrench0;
-  wrench0 << 10.0, 5.0, 100.0, 1.0, -2.0, 0.5;
+  wrench0 << 10.0, 5.0, 100.0, 1.0, -1.0, 0.5;
   decorator_->setContactWrench(input, wrench0, 0);
 
   // Get it back — should recover the wrench via B * B⁺ * W (projection onto column space)
@@ -235,6 +237,36 @@ TEST_F(BasisInputsModelDecoratorTest, SetGetContactWrenchRoundTrip) {
       << "setContactWrench → getContactWrench should round-trip (modulo projection):\n"
       << "  set = " << wrench0.transpose() << "\n  got = " << wrench0_recovered.transpose()
       << "\n  expected (projected) = " << W_projected.transpose();
+}
+
+TEST_F(BasisInputsModelDecoratorTest, SetContactWrenchClampsNegativeScalings) {
+  // setContactWrench takes the minimum-norm scalings and clamps them at zero, so a wrench whose minimum-norm solution
+  // has a negative entry is reproduced only approximately. What must always hold is that the result stays inside the
+  // wrench cone, which is the property the basis-vector formulation relies on.
+  vector6_t wrench;
+  wrench << 10.0, 5.0, 100.0, 1.0, -2.0, 0.5;  // minimum-norm scalings have one slightly negative entry
+  const matrix_t& B = basisMatrices_[0].getBasisMatrix();
+  const matrix_t& B_pinv = basisMatrices_[0].getBasisMatrixPseudoInverse();
+  const vector_t minimumNormLambda = B_pinv * wrench;
+  ASSERT_LT(minimumNormLambda.minCoeff(), 0.0) << "this test needs a wrench whose minimum-norm scalings are not all non-negative";
+
+  vector_t input = vector_t::Zero(decorator_->getInputDim());
+  decorator_->setContactWrench(input, wrench, 0);
+
+  const vector_t lambda = getLambda(input, 0);
+  EXPECT_GE(lambda.minCoeff(), 0.0) << "the scalings written into the input must be non-negative";
+  EXPECT_TRUE(lambda.isApprox(minimumNormLambda.cwiseMax(0.0), 1e-12));
+  EXPECT_TRUE(decorator_->getContactWrench(input, 0).isApprox(B * minimumNormLambda.cwiseMax(0.0), 1e-12));
+
+  // The clamped wrench is inside the cone the constraint would enforce, which the requested one also was.
+  ContactWrenchConeConstraint::Config coneConfig;
+  coneConfig.numBasisVectors = 4;
+  coneConfig.frictionCoefficient = 0.7;
+  coneConfig.torsionalFrictionCoefficient = 0.05;
+  const ContactWrenchConeRows rows = buildLocalWrenchConeRows(
+      coneConfig,
+      ContactRectangle(PolygonBounds(-0.10, 0.10, -0.05, 0.05), ContactCenterPoint("foot_l_contact", "l_leg_akx", vector3_t::Zero())));
+  EXPECT_GE(rows.evaluateCone(vector6_t(decorator_->getContactWrench(input, 0))).minCoeff(), -1e-9);
 }
 
 TEST_F(BasisInputsModelDecoratorTest, SetGetContactForceRoundTrip) {
@@ -265,7 +297,7 @@ TEST_F(BasisInputsModelDecoratorTest, ContactsAreIndependent) {
   vector_t input = vector_t::Zero(inputDim);
 
   vector6_t wrench0;
-  wrench0 << 10.0, 5.0, 100.0, 1.0, -2.0, 0.5;
+  wrench0 << 10.0, 5.0, 100.0, 1.0, -1.0, 0.5;
   decorator_->setContactWrench(input, wrench0, 0);
 
   vector6_t wrench1 = decorator_->getContactWrench(input, 1);
@@ -485,7 +517,7 @@ TEST_F(BasisInputsModelDecoratorTest, YawedBaseRotatesLocalXForceIntoWorldY) {
 
 TEST_F(BasisInputsModelDecoratorTest, SetGetContactWrenchInWorldFrameRoundTrip) {
   vector6_t W_local;
-  W_local << 10.0, 5.0, 100.0, 1.0, -2.0, 0.5;
+  W_local << 10.0, 5.0, 100.0, 1.0, -1.0, 0.5;
 
   for (const scalar_t yaw : {0.0, kYaw90, -0.7}) {
     const vector_t state = makeState(yaw);
@@ -558,7 +590,7 @@ TEST_F(BasisInputsModelDecoratorTest, WrenchSpaceModelWorldFrameAccessorsEqualIn
       EXPECT_TRUE((model.getContactMomentInWorldFrame(state, input, i) - model.getContactMoment(input, i)).isZero(0.0));
 
       vector6_t wrench;
-      wrench << 10.0, 5.0, 100.0, 1.0, -2.0, 0.5;
+      wrench << 10.0, 5.0, 100.0, 1.0, -1.0, 0.5;
       vector_t inputSetWrench = vector_t::Zero(wrenchInputDim_);
       model.setContactWrenchInWorldFrame(state, inputSetWrench, wrench, i);
       EXPECT_TRUE((model.getContactWrench(inputSetWrench, i) - wrench).isZero(0.0));

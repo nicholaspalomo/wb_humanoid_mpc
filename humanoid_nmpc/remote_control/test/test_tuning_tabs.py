@@ -254,7 +254,7 @@ class TestMpcParamsAutoSaveRoundTrip(unittest.TestCase):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_slider_change_triggers_debounced_save(self):
-        """Verify that _on_any_slider_change schedules a debounced save."""
+        """Verify that _on_any_slider_change schedules a debounced publish."""
         import tkinter as tk
         from remote_control.tk_app.mpc_params_tab import MpcParamsTab
 
@@ -265,20 +265,20 @@ class TestMpcParamsAutoSaveRoundTrip(unittest.TestCase):
                 root, task_file=self.tmp_task_file, enable_online_tuning=True
             )
             # Initially no debounce scheduled
-            self.assertIsNone(tab._debounce_save_id)
+            self.assertIsNone(tab._debounce_publish_id)
 
             # Simulate a slider change
             tab._on_any_slider_change("Q.scaling", 5.0)
-            self.assertIsNotNone(tab._debounce_save_id)
+            self.assertIsNotNone(tab._debounce_publish_id)
 
             # Cancel to avoid side-effects
-            root.after_cancel(tab._debounce_save_id)
-            tab._debounce_save_id = None
+            tab.after_cancel(tab._debounce_publish_id)
+            tab._debounce_publish_id = None
         finally:
             root.destroy()
 
     def test_auto_save_writes_to_yaml(self):
-        """Verify that _auto_save writes the current slider values to YAML on disk."""
+        """Verify that save_to_yaml writes the current slider values to YAML on disk."""
         import tkinter as tk
         from remote_control.tk_app.mpc_params_tab import MpcParamsTab
 
@@ -295,8 +295,8 @@ class TestMpcParamsAutoSaveRoundTrip(unittest.TestCase):
                 new_val = original_val * 2.0
                 tab.slider_rows["Q.scaling"].set_value(new_val)
 
-                # Force auto-save (bypass debounce)
-                tab._auto_save()
+                # Force an explicit save
+                tab.save_to_yaml()
 
                 # Read back from YAML
                 updated_data = load_yaml_safe(self.tmp_task_file)
@@ -310,7 +310,7 @@ class TestMpcParamsAutoSaveRoundTrip(unittest.TestCase):
             root.destroy()
 
     def test_auto_save_disabled_when_online_tuning_off(self):
-        """Verify that _auto_save does nothing when online tuning is disabled."""
+        """Verify that save_to_yaml does nothing when online tuning is disabled."""
         import tkinter as tk
         from remote_control.tk_app.mpc_params_tab import MpcParamsTab
 
@@ -325,8 +325,8 @@ class TestMpcParamsAutoSaveRoundTrip(unittest.TestCase):
             with open(self.tmp_task_file, "r") as f:
                 original_content = f.read()
 
-            # Force auto-save — should be a no-op
-            tab._auto_save()
+            # Force an explicit save — should be a no-op
+            tab.save_to_yaml()
 
             # File should be unchanged
             with open(self.tmp_task_file, "r") as f:
@@ -376,8 +376,8 @@ class TestMpcParamsAutoSaveRoundTrip(unittest.TestCase):
                 new_val = 500.0
                 tab.slider_rows[barrier_key].set_value(new_val)
 
-                # Force auto-save
-                tab._auto_save()
+                # Force an explicit save
+                tab.save_to_yaml()
 
                 # Read back
                 updated_data = load_yaml_safe(self.tmp_task_file)
@@ -410,7 +410,7 @@ class TestJointPdAutoSaveRoundTrip(unittest.TestCase):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_slider_change_triggers_debounced_save(self):
-        """Verify that slider changes schedule a debounced save on the joint PD tab."""
+        """Verify that slider changes schedule a debounced publish on the joint PD tab."""
         import tkinter as tk
         from remote_control.tk_app.joint_pd_tab import JointPdGainsTab
 
@@ -420,18 +420,18 @@ class TestJointPdAutoSaveRoundTrip(unittest.TestCase):
             tab = JointPdGainsTab(
                 root, pd_gains_file=self.tmp_pd_file, enable_online_tuning=True
             )
-            self.assertIsNone(tab._debounce_save_id)
+            self.assertIsNone(tab._debounce_publish_id)
 
             tab._on_any_slider_change("some_joint.kp", 42.0)
-            self.assertIsNotNone(tab._debounce_save_id)
+            self.assertIsNotNone(tab._debounce_publish_id)
 
-            root.after_cancel(tab._debounce_save_id)
-            tab._debounce_save_id = None
+            tab.after_cancel(tab._debounce_publish_id)
+            tab._debounce_publish_id = None
         finally:
             root.destroy()
 
     def test_auto_save_writes_gain_changes(self):
-        """Verify that auto-save persists kp/kd changes to the YAML file."""
+        """Verify that save_to_yaml persists kp/kd changes to the YAML file."""
         import tkinter as tk
         from remote_control.tk_app.joint_pd_tab import JointPdGainsTab
 
@@ -452,8 +452,8 @@ class TestJointPdAutoSaveRoundTrip(unittest.TestCase):
                 new_val = original_val * 1.5
                 row.set_value(new_val)
 
-                # Force auto-save
-                tab._auto_save()
+                # Force an explicit save
+                tab.save_to_yaml()
 
                 # Verify the file changed
                 with open(self.tmp_pd_file, "r") as f:

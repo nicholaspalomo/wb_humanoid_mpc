@@ -56,6 +56,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <Eigen/Eigenvalues>
 
+#include <boost/property_tree/ptree.hpp>
+
 #include <ocs2_core/PreComputation.h>
 #include <ocs2_core/cost/QuadraticStateInputCost.h>
 #include <ocs2_core/misc/LoadData.h>
@@ -68,7 +70,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
 #include "humanoid_common_mpc/common/BasisInputsModelDecorator.h"
 #include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/constraint/ContactWrenchConeConstraint.h"
 #include "humanoid_common_mpc/constraint/ZeroWrenchConstraint.h"
+#include "humanoid_common_mpc/contact/ContactRectangle.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 
 namespace ocs2::humanoid {
@@ -583,7 +587,7 @@ TEST_F(BasisInputsFormulationTest, InputCost_IsTransformedWithRegularization) {
 /******************************************************************************************************/
 /* (5) ZeroWrenchConstraint on the effective (basis) model: Jacobian vs finite differences            */
 /******************************************************************************************************/
-TEST_F(BasisInputsFormulationTest, ZeroWrenchConstraint_JacobianMatchesFiniteDifferences) {
+TEST_F(BasisInputsFormulationTest, ZeroWrenchConstraint_ConstrainsTheBasisScalingsDirectly) {
   InterfaceHolder& h = holder(/*useBasisInputs=*/true);
   ASSERT_TRUE(h.interface) << "Failed to construct the basis-mode interface: " << h.error;
   const CentroidalMpcInterface& interface = *h.interface;
@@ -596,35 +600,102 @@ TEST_F(BasisInputsFormulationTest, ZeroWrenchConstraint_JacobianMatchesFiniteDif
   const size_t inputDim = effectiveModel.getInputDim();
   const PreComputation preComp;
 
+  EXPECT_EQ(effectiveModel.getContactInputDim(0), numBasisPerFoot);
+
   for (size_t contactIndex = 0; contactIndex < N_CONTACTS; ++contactIndex) {
     ZeroWrenchConstraint constraint(*interface.getSwitchedModelReferenceManagerPtr(), contactIndex, effectiveModel);
 
     std::mt19937 gen(7 + contactIndex);
     const vector_t x = makeRotatedTestState(interface, gen);
     const vector_t u = makeRandomBasisInput(N_CONTACTS * numBasisPerFoot, jointDim, gen);
+    const size_t lambdaStart = numBasisPerFoot * contactIndex;
 
+    // The constrained quantity is the basis scaling block itself, not the six wrench components it maps to.
     const vector_t value = constraint.getValue(0.0, x, u, preComp);
-    ASSERT_EQ(static_cast<size_t>(value.size()), kWrenchDimPerContact) << "contact " << contactIndex;
-    // The constraint acts on the local-frame wrench B * lambda; W_local = 0 <=> W_world = 0 since the rotation is invertible.
-    EXPECT_LE((value - decorator.getContactWrench(u, contactIndex)).norm(), 1e-12) << "contact " << contactIndex;
+    ASSERT_EQ(static_cast<size_t>(value.size()), numBasisPerFoot) << "contact " << contactIndex;
+    EXPECT_LE((value - u.segment(lambdaStart, numBasisPerFoot)).norm(), 1e-12) << "contact " << contactIndex;
 
     const VectorFunctionLinearApproximation approx = constraint.getLinearApproximation(0.0, x, u, preComp);
-    ASSERT_EQ(static_cast<size_t>(approx.dfdu.rows()), kWrenchDimPerContact) << "contact " << contactIndex;
+    ASSERT_EQ(static_cast<size_t>(approx.dfdu.rows()), numBasisPerFoot) << "contact " << contactIndex;
     ASSERT_EQ(static_cast<size_t>(approx.dfdu.cols()), inputDim) << "contact " << contactIndex;
-    ASSERT_EQ(static_cast<size_t>(approx.dfdx.rows()), kWrenchDimPerContact) << "contact " << contactIndex;
+    ASSERT_EQ(static_cast<size_t>(approx.dfdx.rows()), numBasisPerFoot) << "contact " << contactIndex;
     ASSERT_EQ(static_cast<size_t>(approx.dfdx.cols()), stateDim) << "contact " << contactIndex;
     EXPECT_LE((approx.f - value).norm(), 1e-12) << "contact " << contactIndex;
     EXPECT_DOUBLE_EQ(approx.dfdx.norm(), 0.0) << "contact " << contactIndex;
 
     constexpr scalar_t eps = 1e-6;
     const matrix_t dfduFd = centralDifferenceJacobian(
-        [&](const vector_t& uPerturbed) { return constraint.getValue(0.0, x, uPerturbed, preComp); }, u, kWrenchDimPerContact, eps);
+        [&](const vector_t& uPerturbed) { return constraint.getValue(0.0, x, uPerturbed, preComp); }, u, numBasisPerFoot, eps);
     EXPECT_LE(maxNormalizedError(approx.dfdu, dfduFd), 1e-6) << "contact " << contactIndex;
 
-    // Structure: B at this contact's lambda columns, zero everywhere else.
-    matrix_t expectedDfdu = matrix_t::Zero(kWrenchDimPerContact, inputDim);
-    expectedDfdu.middleCols(numBasisPerFoot * contactIndex, numBasisPerFoot) = decorator.getBasisMatrix(contactIndex);
+    // Structure: the identity on this contact's lambda columns, zero everywhere else.
+    matrix_t expectedDfdu = matrix_t::Zero(numBasisPerFoot, inputDim);
+    expectedDfdu.middleCols(lambdaStart, numBasisPerFoot).setIdentity();
     EXPECT_LE((approx.dfdu - expectedDfdu).cwiseAbs().maxCoeff(), 1e-12) << "contact " << contactIndex;
+
+    // Full row rank, so the equality-constraint projection removes the whole contact block. Constraining the six
+    // wrench components instead would leave the null space of B free during swing, held down by nothing but the small
+    // input regularization: those lambda are physically meaningless but produce exactly zero wrench.
+    EXPECT_EQ(approx.dfdu.fullPivLu().rank(), static_cast<Eigen::Index>(numBasisPerFoot)) << "contact " << contactIndex;
+
+    const matrix_t basisNullSpace = decorator.getBasisMatrix(contactIndex).fullPivLu().kernel();
+    ASSERT_GT(basisNullSpace.cols(), 0) << "the basis has more generators than wrench components";
+    vector_t spuriousInput = vector_t::Zero(inputDim);
+    spuriousInput.segment(lambdaStart, numBasisPerFoot) = basisNullSpace.col(0);
+    EXPECT_LE(decorator.getContactWrench(spuriousInput, contactIndex).norm(), 1e-9) << "contact " << contactIndex;
+    EXPECT_GT(constraint.getValue(0.0, x, spuriousInput, preComp).norm(), 1e-6)
+        << "contact " << contactIndex << ": a lambda in the null space of B has to be rejected during swing";
+
+    // Zero scalings remain the unique solution and give the zero wrench.
+    vector_t zeroContact = u;
+    zeroContact.segment(lambdaStart, numBasisPerFoot).setZero();
+    EXPECT_LE(constraint.getValue(0.0, x, zeroContact, preComp).norm(), 1e-12) << "contact " << contactIndex;
+    EXPECT_LE(decorator.getContactWrench(zeroContact, contactIndex).norm(), 1e-12) << "contact " << contactIndex;
+  }
+}
+
+/******************************************************************************************************/
+/* (5b) Every basis generator lies inside the wrench cone the wrench-space formulation enforces        */
+/******************************************************************************************************/
+TEST_F(BasisInputsFormulationTest, BasisGeneratorsStayInsideTheWrenchCone) {
+  InterfaceHolder& h = holder(/*useBasisInputs=*/true);
+  ASSERT_TRUE(h.interface) << "Failed to construct the basis-mode interface: " << h.error;
+  const CentroidalMpcInterface& interface = *h.interface;
+  const BasisInputsModelDecorator<scalar_t>& decorator = *interface.getBasisDecoratorPtr();
+
+  // Rebuild the cone rows from the same task file the basis was built from. In basis mode the wrench-cone soft
+  // constraint is skipped, so this is the only thing standing between the MPC and an unbounded friction force.
+  ContactWrenchConeConstraint::Config coneConfig;
+  const std::string prefix = "contacts.contactWrenchConeSoftConstraint.";
+  boost::property_tree::ptree pt;
+  loadData::readPropertyTree(h.taskFile, pt);
+  loadData::loadPtreeValue(pt, coneConfig.frictionCoefficient, prefix + "frictionCoefficient", false);
+  loadData::loadPtreeValue(pt, coneConfig.torsionalFrictionCoefficient, prefix + "torsionalFrictionCoefficient", false);
+  loadData::loadPtreeValue(pt, coneConfig.minNormalForce, prefix + "minNormalForce", false);
+  loadData::loadPtreeValue(pt, coneConfig.gripperForce, prefix + "gripperForce", false);
+  loadData::loadPtreeValue(pt, coneConfig.numBasisVectors, prefix + "numBasisVectors", false);
+
+  std::mt19937 gen(11);
+  std::uniform_real_distribution<scalar_t> magnitude(0.0, 200.0);
+  for (size_t contactIndex = 0; contactIndex < N_CONTACTS; ++contactIndex) {
+    const ContactRectangle rectangle =
+        ContactRectangle::loadContactRectangle(h.taskFile, interface.modelSettings(), static_cast<int>(contactIndex), false);
+    const ContactWrenchConeRows rows = buildLocalWrenchConeRows(coneConfig, rectangle);
+    const matrix_t& B = decorator.getBasisMatrix(contactIndex);
+
+    for (Eigen::Index j = 0; j < B.cols(); ++j) {
+      EXPECT_GE(rows.evaluateCone(vector6_t(B.col(j))).minCoeff(), -1e-9)
+          << "contact " << contactIndex << " generator " << j << " lies outside the friction / CoP / torsional limits";
+    }
+    for (int trial = 0; trial < 200; ++trial) {
+      vector_t lambda = vector_t::Zero(B.cols());
+      for (Eigen::Index i = 0; i < lambda.size(); ++i) {
+        lambda(i) = magnitude(gen);
+      }
+      const vector6_t wrench = B * lambda;
+      EXPECT_GE(rows.evaluateCone(wrench).minCoeff(), -1e-9 * std::max(1.0, wrench.norm()))
+          << "contact " << contactIndex << " trial " << trial << ": a non-negative lambda left the cone";
+    }
   }
 }
 
@@ -656,6 +727,28 @@ TEST_F(BasisInputsFormulationTest, WrenchMode_Unchanged) {
 
   EXPECT_NE(wrenchDynamics(interface), nullptr);
   EXPECT_EQ(basisDynamics(interface), nullptr);
+
+  // The contact block of a wrench-space model is the six wrench components, and the zero-wrench constraint pins exactly
+  // that block with an identity Jacobian (the basis-vector model overrides the block size, see the basis-mode test).
+  const MpcRobotModelBase<scalar_t>& wrenchModel = interface.getEffectiveMpcRobotModel();
+  for (size_t contactIndex = 0; contactIndex < N_CONTACTS; ++contactIndex) {
+    EXPECT_EQ(wrenchModel.getContactInputDim(contactIndex), kWrenchDimPerContact);
+    ZeroWrenchConstraint zeroWrench(*interface.getSwitchedModelReferenceManagerPtr(), contactIndex, wrenchModel);
+    EXPECT_EQ(zeroWrench.getNumConstraints(0.0), kWrenchDimPerContact);
+    std::mt19937 gen(3 + contactIndex);
+    std::uniform_real_distribution<scalar_t> dist(-50.0, 50.0);
+    vector_t u(wrenchInputDim);
+    for (Eigen::Index i = 0; i < u.size(); ++i) u(i) = dist(gen);
+    const vector_t x = vector_t::Zero(interface.getEffectiveMpcRobotModel().getStateDim());
+    const PreComputation preComp;
+    const vector_t value = zeroWrench.getValue(0.0, x, u, preComp);
+    EXPECT_LE((value - u.segment(kWrenchDimPerContact * contactIndex, kWrenchDimPerContact)).norm(), 1e-12);
+    const VectorFunctionLinearApproximation approx = zeroWrench.getLinearApproximation(0.0, x, u, preComp);
+    matrix_t expected = matrix_t::Zero(kWrenchDimPerContact, wrenchInputDim);
+    expected.middleCols(kWrenchDimPerContact * contactIndex, kWrenchDimPerContact).setIdentity();
+    EXPECT_LE((approx.dfdu - expected).cwiseAbs().maxCoeff(), 1e-12) << "contact " << contactIndex;
+    EXPECT_DOUBLE_EQ(approx.dfdx.norm(), 0.0);
+  }
 
   // The input cost keeps the raw wrench-space R.
   matrix_t R_wrench = matrix_t::Zero(wrenchInputDim, wrenchInputDim);

@@ -82,6 +82,9 @@ cc_test(
 
 cc_test(
     name = "test_pinocchio_telemetry_publisher",
+    # Private DDS domain: the test subscribes to global topic names, and a simulator or another test on the
+    # default domain 0 would otherwise feed it their messages (and receive the test's).
+    env = {"ROS_DOMAIN_ID": "111"},
     size = "small",
     srcs = ["src/testPinocchioTelemetryPublisher.cpp"],
     copts = _TEST_COPTS,

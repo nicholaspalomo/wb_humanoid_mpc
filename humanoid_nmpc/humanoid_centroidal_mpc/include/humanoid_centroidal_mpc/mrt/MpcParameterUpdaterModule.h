@@ -46,6 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlannerModule.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
 namespace ocs2::humanoid {
@@ -94,6 +95,14 @@ class MpcParameterUpdaterModule : public SolverSynchronizedModule {
    */
   void subscribe(rclcpp::Node::SharedPtr node);
 
+  /**
+   * Registers the contact planner module (may be nullptr) so that the `contact_planning` section of task.yaml is
+   * hot-reloadable as well.
+   */
+  void setContactPlannerModule(std::shared_ptr<ContactPlannerModule> contactPlannerModule) {
+    contactPlannerModulePtr_ = std::move(contactPlannerModule);
+  }
+
   void preSolverRun(scalar_t initTime,
                     scalar_t finalTime,
                     const vector_t& currentState,
@@ -123,6 +132,8 @@ class MpcParameterUpdaterModule : public SolverSynchronizedModule {
   const SwitchedModelReferenceManager* referenceManagerPtr_;
   /// Set only when the OCP uses basis-vector contact inputs; maps the wrench-space R of task.yaml into basis space.
   std::optional<BasisInputsCostTransformConfig> basisCostTransform_;
+  /// Optional contact planner whose configuration is hot-reloaded from the `contact_planning` section.
+  std::shared_ptr<ContactPlannerModule> contactPlannerModulePtr_;
 
   // File-watching state
   std::filesystem::file_time_type taskFileLastWriteTime_;

@@ -120,6 +120,11 @@ int main(int argc, char** argv) {
 
   mpc.getSolverPtr()->setReferenceManager(interface.getReferenceManagerPtr());
   mpc.getSolverPtr()->addSynchronizedModule(ros2ProceduralMpcMotionManager);
+  // Online contact planning (useContactPlanning: true in task.yaml): the planner module feeds mode schedules and footholds
+  // to the reference manager and, like the other synchronized modules, has to run before every solve.
+  if (auto contactPlannerModule = interface.getContactPlannerModulePtr()) {
+    mpc.getSolverPtr()->addSynchronizedModule(contactPlannerModule);
+  }
 
   // Register real-time MPC parameter hot-reloading. The updater is sized to the OCP input and, in basis-vector mode,
   // transforms the wrench-space R of task.yaml exactly as the OCP factory did.
@@ -127,6 +132,7 @@ int main(int argc, char** argv) {
       &mpc, taskFile, urdfFile, referenceFile, interface.getMpcRobotModel().getStateDim(), effectiveMpcRobotModel.getInputDim(),
       interface.modelSettings().contactNames, dynamic_cast<const SwitchedModelReferenceManager*>(interface.getReferenceManagerPtr().get()),
       interface.getBasisInputsCostTransformConfig());
+  mpcParameterUpdater->setContactPlannerModule(interface.getContactPlannerModulePtr());
   mpcParameterUpdater->subscribe(nodeHandle);
   mpc.getSolverPtr()->addSynchronizedModule(mpcParameterUpdater);
 
@@ -139,13 +145,41 @@ int main(int argc, char** argv) {
 
   SimFsmBridge fsmBridge(robotDescription, initState, nodeHandle);
 
+  // Ground-truth contact detection in MuJoCo. It drives the viewer's contact timeline ('b' toggles it) and, with
+  // simReportsGroundTruthContacts, the contact flags the MPC receives as its measured contact state; without it every
+  // contact point is reported as touching.
+  bool simReportsGroundTruthContacts = false;
+  double simContactForceThreshold = 5.0;
+  double simContactTimelineWindow = 5.0;
+  try {
+    YAML::Node taskYaml = YAML::LoadFile(taskFile);
+    if (taskYaml["simReportsGroundTruthContacts"]) simReportsGroundTruthContacts = taskYaml["simReportsGroundTruthContacts"].as<bool>();
+    if (taskYaml["simContactForceThreshold"]) simContactForceThreshold = taskYaml["simContactForceThreshold"].as<double>();
+    if (taskYaml["simContactTimelineWindow"]) simContactTimelineWindow = taskYaml["simContactTimelineWindow"].as<double>();
+  } catch (const std::exception& e) {
+    LOG(WARNING) << "Failed to read the simulator contact settings from " << taskFile << ": " << e.what();
+  }
+
   robot::mujoco_sim_interface::MujocoSimConfig config;
 
   config.scenePath = mjxFile;
   config.verbose = true;
   config.initStatePtr_ = std::make_shared<robot::model::RobotState>(std::move(initState));
+  config.contactFrameNames = interface.modelSettings().contactNames;
+  config.contactParentJointNames = interface.modelSettings().contactParentJointNames;
+  config.contactForceThreshold = simContactForceThreshold;
+  config.contactTimelineWindow = simContactTimelineWindow;
+  config.reportGroundTruthContacts = simReportsGroundTruthContacts;
 
   robot::mujoco_sim_interface::MujocoSimInterface robotInterface(config, urdfFile);
+
+  if (auto plannerModule = interface.getContactPlannerModulePtr();
+      plannerModule && plannerModule->getConfig().enablePhaseResetting && !simReportsGroundTruthContacts) {
+    LOG(WARNING) << "contact_planning.enablePhaseResetting is on but simReportsGroundTruthContacts is off: the simulator reports every "
+                    "contact point as touching, so phase resetting would end every swing at its scuffing window. Set "
+                    "simReportsGroundTruthContacts: true in "
+                 << taskFile << ".";
+  }
 
   std::filesystem::path configDir = std::filesystem::path(taskFile).parent_path().parent_path();
   std::string pdGainsFile = (configDir / "controller" / "joint_pd_gains.yaml").string();
@@ -249,6 +283,13 @@ int main(int argc, char** argv) {
     fsmBridge.applyJointTargetUpdates();
     mpcJointController.setNominalJointPositions(fsmBridge.getNominalJointPositions());
     mpcJointController.computeJointControlAction(0.0, robotInterface.getRobotState(), robotInterface.getRobotJointAction());
+
+    // Contact timeline in the MuJoCo viewer: the contact state the executed policy plans for now, against the physics.
+    if (const auto planned = mpcJointController.getPlannedContactFlags(mpcJointController.getCurrentObservation().time)) {
+      robotInterface.setTargetContactFlags(std::vector<bool>(planned->begin(), planned->end()));
+    } else {
+      robotInterface.setTargetContactFlags({});
+    }
 
     // Apply mode-specific overrides for modes other than JOINT_PD (which is handled by the controller)
     fsmBridge.applyModeAction(currentModeName, robotDescription, robotInterface.getRobotJointAction());

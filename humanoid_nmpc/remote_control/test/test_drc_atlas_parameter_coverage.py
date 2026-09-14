@@ -216,8 +216,8 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
             # Set Q.scaling
             tab.slider_rows["Q.scaling"].set_value(2.5)
 
-            # Force auto-save
-            tab._auto_save()
+            # Force an explicit save
+            tab.save_to_yaml()
 
             # Verify every value in the saved YAML
             data = load_yaml_safe(self.tmp_task_file)
@@ -280,7 +280,7 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
                     test_values[f"({i},{i})"] = new_val
 
             tab.slider_rows["R.scaling"].set_value(0.05)
-            tab._auto_save()
+            tab.save_to_yaml()
 
             data = load_yaml_safe(self.tmp_task_file)
             self.assertAlmostEqual(float(data["R"]["scaling"]), 0.05, places=3)
@@ -359,7 +359,7 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
                 if key in tab.slider_rows:
                     tab.slider_rows[key].set_value(77.0 + i)
 
-            tab._auto_save()
+            tab.save_to_yaml()
 
             data = load_yaml_safe(self.tmp_task_file)
             self.assertAlmostEqual(float(data["terminalCostScaling"]), 8.0, places=1)
@@ -405,7 +405,7 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
                 if key in tab.slider_rows:
                     tab.slider_rows[key].set_value(10.0 + idx)
 
-            tab._auto_save()
+            tab.save_to_yaml()
 
             data = load_yaml_safe(self.tmp_task_file)
             for idx, w in enumerate(self.FOOT_COST_WEIGHTS):
@@ -449,7 +449,7 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
                 if key in tab.slider_rows:
                     tab.slider_rows[key].set_value(20.0 + idx)
 
-            tab._auto_save()
+            tab.save_to_yaml()
 
             data = load_yaml_safe(self.tmp_task_file)
             for idx, w in enumerate(self.TORSO_COST_WEIGHTS):
@@ -498,7 +498,7 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
             key = "icp_cost_weights.icpErrorWeight"
             if key in tab.slider_rows:
                 tab.slider_rows[key].set_value(42.0)
-                tab._auto_save()
+                tab.save_to_yaml()
                 data = load_yaml_safe(self.tmp_task_file)
                 actual = float(
                     data.get("icp_cost_weights", {}).get("icpErrorWeight", -1)
@@ -708,8 +708,8 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
                 if key in tab.slider_rows:
                     tab.slider_rows[key].set_value(1000.0 + idx * 500)
 
-            # Force auto-save
-            tab._auto_save()
+            # Force an explicit save
+            tab.save_to_yaml()
 
             # Verify
             data = load_yaml_safe(self.tmp_task_file)

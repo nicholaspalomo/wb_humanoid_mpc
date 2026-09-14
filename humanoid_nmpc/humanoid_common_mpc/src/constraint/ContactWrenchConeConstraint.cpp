@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/pinocchio_model/PinocchioFrameConversions.h"
 
 #include <cmath>
+#include <stdexcept>
 
 namespace ocs2::humanoid {
 
@@ -97,84 +98,101 @@ bool ContactWrenchConeConstraint::isActive(scalar_t time) const {
   return referenceManagerPtr_->getContactFlags(time)[contactPointIndex_];
 }
 
-void ContactWrenchConeConstraint::initializeLocalConstraintMatrix() {
-  numConstraints_ = config_.numBasisVectors + kExtraConstraintsCount;
-  A_f_local_ = matrix_t::Zero(numConstraints_, kWrenchForceDim);
-  A_tau_local_ = matrix_t::Zero(numConstraints_, kWrenchMomentDim);
-  b_local_ = vector_t::Zero(numConstraints_);
+vector3_t contactPatchReferencePoint(const ContactWrenchConeConstraint::Config& config, const ContactRectangle& contactRectangle) {
+  if (!config.patchOffset.isZero(kPatchOffsetZeroThreshold)) {
+    return config.patchOffset;
+  }
+  const PolygonBounds& bounds = contactRectangle.getBounds();
+  return vector3_t(kHalf * (bounds.x_min + bounds.x_max), kHalf * (bounds.y_min + bounds.y_max), 0.0);
+}
+
+ContactWrenchConeRows buildLocalWrenchConeRows(const ContactWrenchConeConstraint::Config& config,
+                                               const ContactRectangle& contactRectangle) {
+  const size_t numBasisVectors = config.numBasisVectors;
+  if (numBasisVectors < 3) {
+    throw std::invalid_argument("[ContactWrenchCone] numBasisVectors must be at least 3");
+  }
+  const size_t numRows = numBasisVectors + kExtraConstraintsCount;
+
+  ContactWrenchConeRows rows;
+  rows.A_f = matrix_t::Zero(numRows, kWrenchForceDim);
+  rows.A_tau = matrix_t::Zero(numRows, kWrenchMomentDim);
+  rows.b = vector_t::Zero(numRows);
 
   size_t constraintIdx = 0;
-  const scalar_t effectiveGripperNormal = config_.frictionCoefficient * config_.gripperForce;
+  const scalar_t effectiveGripperNormal = config.frictionCoefficient * config.gripperForce;
 
   // 1. Friction cone approximation with numBasisVectors basis vectors:
   // mu * (Fz + F_grip) - (cos(theta_k) * Fx + sin(theta_k) * Fy) >= 0
-  const size_t numBasisVectors = config_.numBasisVectors;
   const scalar_t angleStep = 2.0 * M_PI / static_cast<scalar_t>(numBasisVectors);
   for (size_t k = 0; k < numBasisVectors; ++k) {
     const scalar_t theta_k = k * angleStep;
-    const scalar_t cos_k = std::cos(theta_k);
-    const scalar_t sin_k = std::sin(theta_k);
-    A_f_local_(constraintIdx, kForceXIdx) = -cos_k;
-    A_f_local_(constraintIdx, kForceYIdx) = -sin_k;
-    A_f_local_(constraintIdx, kForceZIdx) = config_.frictionCoefficient;
-    b_local_(constraintIdx) = effectiveGripperNormal;
+    rows.A_f(constraintIdx, kForceXIdx) = -std::cos(theta_k);
+    rows.A_f(constraintIdx, kForceYIdx) = -std::sin(theta_k);
+    rows.A_f(constraintIdx, kForceZIdx) = config.frictionCoefficient;
+    rows.b(constraintIdx) = effectiveGripperNormal;
     constraintIdx++;
   }
 
   // 2. Normal force limit: Fz - minNormalForce >= 0
-  A_f_local_(constraintIdx, kForceZIdx) = 1.0;
-  b_local_(constraintIdx) = -config_.minNormalForce;
+  rows.A_f(constraintIdx, kForceZIdx) = 1.0;
+  rows.b(constraintIdx) = -config.minNormalForce;
   constraintIdx++;
 
   // 3. Center of Pressure (CoP) / Moment constraints (Bounds relative to local foot contact frame)
-  const PolygonBounds& bounds = contactRectangle_.getBounds();
+  const PolygonBounds& bounds = contactRectangle.getBounds();
   // tau_x - y_min * Fz >= 0
-  A_f_local_(constraintIdx, kForceZIdx) = -bounds.y_min;
-  A_tau_local_(constraintIdx, kMomentXIdx) = 1.0;
+  rows.A_f(constraintIdx, kForceZIdx) = -bounds.y_min;
+  rows.A_tau(constraintIdx, kMomentXIdx) = 1.0;
   constraintIdx++;
 
   // -tau_x + y_max * Fz >= 0
-  A_f_local_(constraintIdx, kForceZIdx) = bounds.y_max;
-  A_tau_local_(constraintIdx, kMomentXIdx) = -1.0;
+  rows.A_f(constraintIdx, kForceZIdx) = bounds.y_max;
+  rows.A_tau(constraintIdx, kMomentXIdx) = -1.0;
   constraintIdx++;
 
   // -tau_y - x_min * Fz >= 0
-  A_f_local_(constraintIdx, kForceZIdx) = -bounds.x_min;
-  A_tau_local_(constraintIdx, kMomentYIdx) = -1.0;
+  rows.A_f(constraintIdx, kForceZIdx) = -bounds.x_min;
+  rows.A_tau(constraintIdx, kMomentYIdx) = -1.0;
   constraintIdx++;
 
   // tau_y + x_max * Fz >= 0
-  A_f_local_(constraintIdx, kForceZIdx) = bounds.x_max;
-  A_tau_local_(constraintIdx, kMomentYIdx) = 1.0;
+  rows.A_f(constraintIdx, kForceZIdx) = bounds.x_max;
+  rows.A_tau(constraintIdx, kMomentYIdx) = 1.0;
   constraintIdx++;
 
   // 4. Torsional yaw friction moment about the contact patch center
-  vector3_t offset;
-  if (config_.patchOffset.isZero(kPatchOffsetZeroThreshold)) {
-    offset = vector3_t(kHalf * (bounds.x_min + bounds.x_max), kHalf * (bounds.y_min + bounds.y_max), 0.0);
-  } else {
-    offset = config_.patchOffset;
-  }
-
-  const scalar_t effectiveTorsionalGripper = config_.torsionalFrictionCoefficient * config_.gripperForce;
+  const vector3_t offset = contactPatchReferencePoint(config, contactRectangle);
+  const scalar_t effectiveTorsionalGripper = config.torsionalFrictionCoefficient * config.gripperForce;
 
   // mu_torsion * (Fz + F_grip) + tau_patch_z >= 0
   // tau_patch_z = tau_z - (offset.x * Fy - offset.y * Fx) = offset.y * Fx - offset.x * Fy + tau_z
-  A_f_local_(constraintIdx, kForceXIdx) = offset.y();
-  A_f_local_(constraintIdx, kForceYIdx) = -offset.x();
-  A_f_local_(constraintIdx, kForceZIdx) = config_.torsionalFrictionCoefficient;
-  A_tau_local_(constraintIdx, kMomentZIdx) = 1.0;
-  b_local_(constraintIdx) = effectiveTorsionalGripper;
+  rows.A_f(constraintIdx, kForceXIdx) = offset.y();
+  rows.A_f(constraintIdx, kForceYIdx) = -offset.x();
+  rows.A_f(constraintIdx, kForceZIdx) = config.torsionalFrictionCoefficient;
+  rows.A_tau(constraintIdx, kMomentZIdx) = 1.0;
+  rows.b(constraintIdx) = effectiveTorsionalGripper;
   constraintIdx++;
 
   // mu_torsion * (Fz + F_grip) - tau_patch_z >= 0
   // -tau_patch_z = -offset.y * Fx + offset.x * Fy - tau_z
-  A_f_local_(constraintIdx, kForceXIdx) = -offset.y();
-  A_f_local_(constraintIdx, kForceYIdx) = offset.x();
-  A_f_local_(constraintIdx, kForceZIdx) = config_.torsionalFrictionCoefficient;
-  A_tau_local_(constraintIdx, kMomentZIdx) = -1.0;
-  b_local_(constraintIdx) = effectiveTorsionalGripper;
+  rows.A_f(constraintIdx, kForceXIdx) = -offset.y();
+  rows.A_f(constraintIdx, kForceYIdx) = offset.x();
+  rows.A_f(constraintIdx, kForceZIdx) = config.torsionalFrictionCoefficient;
+  rows.A_tau(constraintIdx, kMomentZIdx) = -1.0;
+  rows.b(constraintIdx) = effectiveTorsionalGripper;
   constraintIdx++;
+
+  assert(constraintIdx == numRows);
+  return rows;
+}
+
+void ContactWrenchConeConstraint::initializeLocalConstraintMatrix() {
+  const ContactWrenchConeRows rows = buildLocalWrenchConeRows(config_, contactRectangle_);
+  numConstraints_ = rows.numRows();
+  A_f_local_ = rows.A_f;
+  A_tau_local_ = rows.A_tau;
+  b_local_ = rows.b;
 }
 
 vector_t ContactWrenchConeConstraint::getValue(scalar_t time,

@@ -1,9 +1,17 @@
 # Simulation & Telemetry Configuration
 enableTelemetry: true        # Enable high-rate ROS 2 telemetry publishing for PlotJuggler
 telemetryFrequency: 100      # [Hz] Telemetry publishing frequency (decimated from MRT loop)
+# MuJoCo simulator only (mujoco_sim.launch.py). The viewer's contact timeline ('b' toggles it) shows, per contact point,
+# the contact state the executed MPC policy plans against the simulator's ground truth over a sliding window of time.
+simContactTimelineWindow: 5.0          # [s] width of the sliding window
+simContactForceThreshold: 5.0          # [N] normal force above which a contact point counts as touching (ground truth)
+simReportsGroundTruthContacts: true   # feed the ground-truth contacts to the MPC as its measured contact state instead of
+# "always touching"; required for contact_planning.enablePhaseResetting in simulation
 enableOnlineTuning: true     # Enable runtime parameter and gain tuning in Controller GUI
 useContactBasisVectorInputs: true  # Set true to use basis-vector scalings λ as MPC contact inputs (instead of direct wrenches)
 useComAndAcomTracking: true      # Set true to regulate CoM + Angular Center of Mass (ACoM) instead of base pose
+useContactPlanning: true        # Set true to plan the contact sequence, timing and footholds online with the mixed-integer contact planner (replaces the gait schedule)
+useDcmTerminalCost: true         # Set true to end the horizon with the DCM (capture point) viability cost; Q_final / terminal_cost are then ignored
 
 # Weights for CoM and ACoM tracking (active when useComAndAcomTracking is true).
 #
@@ -55,7 +63,7 @@ soft_constraints:
 costs:
   - state_quadratic_cost
   - input_quadratic_cost
-  - terminal_cost
+  - terminal_cost  # quadratic Q_final terminal cost, ignored while useDcmTerminalCost is true
   - icp_cost
   - task_space_foot_cost
   - task_space_torso_cost
@@ -83,6 +91,11 @@ model_settings:
     angularAccelerationErrorGain: 0.0
     softConstraintWeight: 250
     constrainOrientation: true
+    # The orientation error to the ground plane only measures the tilt of the foot normal, so with constrainOrientation
+    # the last row of the 6D stance constraint is identically zero and the foot may pivot about the contact normal.
+    # Enabling this fills that row with the yaw rate about the contact normal. It removes one input degree of freedom
+    # per stance foot, so turn it on deliberately and re-check yaw behaviour.
+    constrainYawRateAboutContactNormal: false
   # LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/src/mrt/MpcParameterUpdaterModule.cpp:softConstraintWeight_yaml_path)
 
   phaseTransitionStanceTime: 0
@@ -124,6 +137,74 @@ swing_trajectory_config:
   impactProximityFactorLiftOffVelocity: -0.15
   impactProximityFactorTouchDownVelocity: 0.3
   impactProximityFactorMidPointValue: 0
+
+# Mixed-integer contact planner (active when useContactPlanning: true).
+# A Linear Inverted Pendulum model is planned on a coarse grid of numNodes * dt seconds. Per node and foot a binary decides
+# contact vs. swing, continuous variables place the feet and the ZMP, and a run-length counter turns the min/max phase
+# durations into linear constraints. The problem is solved by branch-and-bound over HPIPM relaxations, warm-started with
+# the previous plan. The result replaces the gait schedule (mode sequence + event times) and provides the swing-foot
+# landing targets tracked by task_space_foot_cost_weights.pos_x / pos_y.
+# LINT.IfChange(contact_planning_config)
+contact_planning:
+  dt: 0.1                     # [s] planner node duration
+  numNodes: 12                # planning horizon = numNodes * dt, should cover mpc.timeHorizon
+  commitTime: 0.3             # [s] the applied schedule is fixed this far ahead; must cover the planner latency (a swing that
+                              #     has started or starts within this window is always executed to its touch-down)
+  comHeight: 0.85             # [m] LIP height, omega = sqrt(gravity / comHeight)
+  gravity: 9.81               # [m/s^2]
+  minSwingDuration: 0.4      # [s]
+  maxSwingDuration: 0.7       # [s]
+  minContactDuration: 0.15    # [s] a foot stays down at least this long before lifting again
+  maxContactDuration: 0.0     # [s] <= 0: no limit (standing allowed)
+  enforceAlternatingFeet: true  # a foot may not swing twice in a row
+  minDoubleSupportDuration: 0.1  # [s] after a touch-down the other foot stays down at least this long
+  zmpHalfWidthX: 0.08         # [m] ZMP box half-width around a supporting foot along the heading
+  zmpHalfWidthY: 0.04         # [m] ZMP box half-width laterally
+  nominalStepWidth: 0.25      # [m] preferred lateral distance between the feet
+  minStepWidth: 0.15          # [m] self-collision margin
+  maxStepWidth: 0.45          # [m]
+  maxStepLength: 1.5          # [m] |x_left - x_right| bound
+  reachX: 1.2                 # [m] foot x offset from the CoM
+  reachYInner: 0.05           # [m] left foot y - CoM y >= reachYInner (mirrored for the right foot)
+  reachYOuter: 0.45           # [m]
+  bigM: 3.0                   # [m] big-M of the contact disjunctions (must exceed maxStepLength)
+  velocityTrackingWeight: 50.0        # ||v_com - v_cmd||^2 per node
+  zmpRegularizationWeight: 0.1        # ||zmp - p_com||^2 per node
+  footholdRegularizationWeight: 0.2   # ||foot displacement||^2 per node
+  stepWidthWeight: 10.0               # (step width - nominalStepWidth)^2 per node
+  contactSwitchCost: 1.0              # per lift-off / touch-down event
+  planConsistencyCost: 0.5            # per node whose contact differs from the previous plan (hysteresis between plans)
+  previousFootholdWeight: 5.0         # ||foot position - previous plan||^2 per node, damps landing-target jitter
+  terminalDcmWeight: 50.0            # ||DCM_N - zmp_(N-1)||^2 (terminal capturability)
+  constraintSlackWeight: 10000.0      # quadratic penalty on the soft ZMP / reachability slacks
+  constraintSlackLinearWeight: 100.0  # linear penalty on the same slacks
+  maxBranchAndBoundNodes: 200         # relaxations per plan
+  maxSolveTime: 0.1                   # [s] anytime limit, the best plan found so far is returned
+  maxQpIterations: 60
+  localSearchIterations: 10           # rounds of event-shift local search on the incumbent (0 disables)
+  localSearchMaxTime: 0.05            # [s]
+  verbose: false
+  runInBackgroundThread: true         # false: plan synchronously in the MPC pre-solve hook
+  planningFrequency: 10.0             # [Hz] upper bound on the background planning rate
+
+  # Adaptive execution between plans (measured contact events, closed-form LIP corrections).
+  # All three are opt-in: with them disabled the reference manager merges plans exactly as it did before they existed,
+  # which is the behaviour the gait is tuned against. Enable one at a time and validate it in MuJoCo before hardware.
+  enablePhaseResetting: false           # early touch-down: switch the foot to contact at once; late: extend the swing
+  earlyTouchdownMinSwingRatio: 0.25     # contact during this initial fraction of the nominal swing is ignored (scuffing)
+  earlyTouchdownMinContactDuration: 0.02  # [s] contact must persist this long before the swing is ended (sensor debounce)
+  maxLateTouchdownExtension: 0.15       # [s] total extension budget of a swing past its planned touch-down
+  lateTouchdownExtensionStep: 0.05      # [s] the touch-down is pushed this far ahead of the current time per cycle
+  lateTouchdownSearchVelocity: 0.05     # [m/s] descent rate of the foot height target while searching for the ground
+  # The DCM step adjustment and the cadence modulation measure the deviation of the measured CoM from the NMPC's own
+  # predicted trajectory, so they act only on real disturbances and are zero while the robot does what the controller
+  # expects. dcmAdjustmentMaxOffset is the safety bound; check in simulation that the offset is not sitting at it.
+  enableDcmStepAdjustment: false        # move the landing target by the DCM error propagated to touch-down
+  dcmAdjustmentGain: 0.5                # 1 = exact LIP compensation of the DCM error at touch-down
+  dcmAdjustmentMaxOffset: 0.05          # [m] bound on the landing target offset (also clipped to reachX / reachY*)
+  enableEnergyCadenceModulation: false  # re-time the touch-down of the swing in flight by the LIP orbital energy error
+  energyCadenceGain: 0.01               # [s/J] touch-down shift = -gain * (E - E_plan)
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/contact_planning/ContactPlanningConfig.cpp:contact_planning_keys)
 
 # multiple_shooting settings
 multiple_shooting:
@@ -235,9 +316,9 @@ Q:
   # ; Joint Positions ;;
   # Reduced for CoM + ACoM tracking: the torso is the main contributor to the
   # learned orientation offset, so it must be free to rotate.
-  "(12,12)": 10.0  # back_bkz (was 10)
-  "(13,13)": 25.0  # back_bky (was 25)
-  "(14,14)": 25.0  # back_bkx (was 25)
+  "(12,12)": 10  # back_bkz (was 10)
+  "(13,13)": 25  # back_bky (was 25)
+  "(14,14)": 25  # back_bkx (was 25)
   "(15,15)": 0.1  # l_arm_shz
   "(16,16)": 0.1  # l_arm_shx
   "(17,17)": 0.1  # l_arm_ely
@@ -247,13 +328,13 @@ Q:
   "(21,21)": 0.1  # r_arm_shx
   "(22,22)": 0.1  # r_arm_ely
   "(23,23)": 0.1  # r_arm_elx
-  "(24,24)": 1  # l_leg_hpz
+  "(24,24)": 10  # l_leg_hpz
   "(25,25)": 250  # l_leg_hpx
   "(26,26)": 10  # l_leg_hpy
   "(27,27)": 10  # l_leg_kny
   "(28,28)": 5  # l_leg_aky
   "(29,29)": 5  # l_leg_akx
-  "(30,30)": 1  # r_leg_hpz
+  "(30,30)": 10  # r_leg_hpz
   "(31,31)": 250  # r_leg_hpx
   "(32,32)": 10  # r_leg_hpy
   "(33,33)": 10  # r_leg_kny
@@ -265,18 +346,18 @@ R:
   scaling: 1
 
   # ; Feet Contact Forces: [LF, RF, LH, RH] ;;
-  "(0,0)": 0.001  # left_force_x
-  "(1,1)": 0.002  # left_force_y
-  "(2,2)": 0.005  # left_force_z
-  "(3,3)": 0.002  # left_moment_x
-  "(4,4)": 0.001  # left_moment_y
-  "(5,5)": 0.02  # left_moment_z
-  "(6,6)": 0.001  # right_force_x
-  "(7,7)": 0.002  # right_force_y
-  "(8,8)": 0.005  # right_force_z
-  "(9,9)": 0.002  # right_moment_x
-  "(10,10)": 0.001  # right_moment_y
-  "(11,11)": 0.02  # right_moment_z
+  "(0,0)": 0.0001  # left_force_x
+  "(1,1)": 0.0002  # left_force_y
+  "(2,2)": 0.0005  # left_force_z
+  "(3,3)": 0.0002  # left_moment_x
+  "(4,4)": 0.0001  # left_moment_y
+  "(5,5)": 0.002  # left_moment_z
+  "(6,6)": 0.0001  # right_force_x
+  "(7,7)": 0.0002  # right_force_y
+  "(8,8)": 0.0005  # right_force_z
+  "(9,9)": 0.0002  # right_moment_x
+  "(10,10)": 0.0001  # right_moment_y
+  "(11,11)": 0.002  # right_moment_z
 
   # ; Joint Velocities ;;
   "(12,12)": 1000  # back_bkz
@@ -305,6 +386,22 @@ R:
   "(35,35)": 50  # r_leg_akx
 
 
+# DCM (capture point) terminal cost, active when useDcmTerminalCost is true (it then replaces terminal_cost / Q_final).
+# At the end of the horizon the DCM  xi = p_com + v_com / omega  (omega = sqrt(g / comHeight)) is pulled towards the centre
+# of the terminal support (feet in contact at the final time) plus velocityOffsetFactor * v_cmd / omega, so that the horizon
+# ends in a capturable state that is consistent with the commanded walking speed. velocityOffsetFactor: 0 is the pure
+# "can come to rest over its feet" condition; 1 keeps a steady walk unbiased. Cost = 0.5 * (weight_x * e_x^2 + weight_y * e_y^2).
+# LINT.IfChange(dcm_terminal_cost_config)
+dcm_terminal_cost:
+  comHeight: 0.85  # [m] nominal CoM height used for omega
+  gravity: 9.81              # [m/s^2]
+  weight_x: 400  # weight on the longitudinal DCM error
+  weight_y: 400  # weight on the lateral DCM error
+  velocityOffsetFactor: 0  # 0..1, scales the v_cmd / omega offset of the DCM reference
+  supportBlendTime: 0.1      # [s] support weights ramp through lift-off / touch-down so the reference never jumps
+# LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/src/cost/DcmTerminalCost.cpp:dcm_terminal_cost_keys)
+
+# Quadratic terminal cost on the full state (terminal_cost). Ignored while useDcmTerminalCost is true.
 terminalCostScaling: 4
 Q_final:
   scaling: 85
@@ -335,9 +432,9 @@ Q_final:
   # ; Joint Positions ;;
   # Reduced for CoM + ACoM tracking: the torso is the main contributor to the
   # learned orientation offset, so it must be free to rotate.
-  "(12,12)": 10.0  # back_bkz (was 10)
-  "(13,13)": 25.0  # back_bky (was 25)
-  "(14,14)": 25.0  # back_bkx (was 25)
+  "(12,12)": 10  # back_bkz (was 10)
+  "(13,13)": 25  # back_bky (was 25)
+  "(14,14)": 25  # back_bkx (was 25)
   "(15,15)": 0.1  # l_arm_shz
   "(16,16)": 0.1  # l_arm_shx
   "(17,17)": 0.1  # l_arm_ely
@@ -347,13 +444,13 @@ Q_final:
   "(21,21)": 0.1  # r_arm_shx
   "(22,22)": 0.1  # r_arm_ely
   "(23,23)": 0.1  # r_arm_elx
-  "(24,24)": 1  # l_leg_hpz
+  "(24,24)": 10  # l_leg_hpz
   "(25,25)": 250  # l_leg_hpx
   "(26,26)": 10  # l_leg_hpy
   "(27,27)": 10  # l_leg_kny
   "(28,28)": 5  # l_leg_aky
   "(29,29)": 5  # l_leg_akx
-  "(30,30)": 1  # r_leg_hpz
+  "(30,30)": 10  # r_leg_hpz
   "(31,31)": 250  # r_leg_hpx
   "(32,32)": 10  # r_leg_hpy
   "(33,33)": 10  # r_leg_kny
@@ -365,6 +462,8 @@ icp_cost_weights:
 
 task_space_foot_cost_weights:
   activeInStance: false
+  # pos_x / pos_y track the planned swing-foot landing spot and are only applied while a contact plan provides one
+  # (useContactPlanning: true); without a plan the xy position error is switched off inside the cost.
   pos_x: 0
   pos_y: 0
   pos_z: 100
@@ -464,11 +563,15 @@ contacts:
     y_min: -0.065
 
   contactWrenchConeSoftConstraint:
+    # With useContactBasisVectorInputs: true these same values build the wrench-cone generators, so the friction, CoP
+    # and torsional limits are enforced structurally and this soft constraint is skipped. minNormalForce and
+    # gripperForce are then NOT enforced: a conic combination is homogeneous and cannot represent an affine offset of
+    # the cone (lambda = 0 always yields the zero wrench). The interface logs a warning when they are non-zero.
     frictionCoefficient: 0.5
     torsionalFrictionCoefficient: 0.05
     minNormalForce: 5.0
     gripperForce: 0.0
-    numBasisVectors: 4
+    numBasisVectors: 4          # friction pyramid facets; the basis spans exactly the same polyhedral friction cone
     # relaxed log barrier parameters
     mu: 0.2
     delta: 5.0

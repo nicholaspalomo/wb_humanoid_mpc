@@ -297,6 +297,13 @@ class App(tk.Tk):
         )
         self.gantry_toggle.pack(side="left", padx=10)
 
+        self.gantry_touch_btn = ttk.Button(
+            control_frame,
+            text="👇 Touch Ground",
+            command=self._on_gantry_touch,
+        )
+        self.gantry_touch_btn.pack(side="left", padx=5)
+
         # Separator
         ttk.Separator(control_frame, orient="vertical").pack(
             side="left", fill="y", padx=5
@@ -420,6 +427,22 @@ class App(tk.Tk):
             # velocity command is applied while the robot is suspended.
             self.joystick_left.set_position()
             self.joystick_right.set_position()
+
+    def _on_gantry_touch(self):
+        """Smoothly lower the gantry height slider to the default pelvis height over 2 seconds."""
+        steps = 50
+        delay_ms = int(2000 / steps)
+        start_val = self.slider.get()
+        target_val = self.slider_default_value
+
+        def step_slider(step=0):
+            if step <= steps:
+                alpha = step / steps
+                current_val = start_val + alpha * (target_val - start_val)
+                self.slider.set(current_val)
+                self.after(delay_ms, lambda: step_slider(step + 1))
+
+        step_slider(0)
 
     def update_fsm_state(self, state_str: str):
         """Update GUI from ROS 2 state message: 'MODE,GANTRY_STATE'."""

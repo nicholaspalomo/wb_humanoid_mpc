@@ -38,27 +38,41 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Builds the wrench-cone basis matrix B ∈ ℝ^{6 × numBasis} in the *local* contact frame.
+ * Builds the wrench-cone basis matrix B in R^{6 x numBasis} in the *local* contact frame.
  *
- * Each column of B is a "generator ray" of the contact wrench cone.  A wrench
- * W_local = B * λ with λ ≥ 0 (element-wise) is guaranteed to lie inside the
- * linearized contact wrench cone defined by the supplied Config and
- * ContactRectangle.
+ * Each column of B is a generator ray of the contact wrench cone. A wrench W_local = B * lambda with lambda >= 0
+ * (element-wise) is guaranteed to lie inside the linearized contact wrench cone defined by the supplied Config and
+ * ContactRectangle, because the cone is convex and every generator lies inside it. The constructor verifies exactly
+ * that against ContactWrenchConeConstraint's own rows (buildLocalWrenchConeRows) and throws if it does not hold:
+ * when basis-vector inputs are active the explicit cone constraint is dropped, so an infeasible generator would
+ * silently remove the friction or torsion limit from the MPC.
  *
- * Generator layout (numBasis = N + 7, where N = config.numBasisVectors):
+ * Every generator is the wrench of a unit normal force applied at a point of the footprint, optionally with a
+ * tangential force inside the friction cone and a torsion inside the torsional friction limit. Writing them that way
+ * keeps the centre of pressure of each generator inside the footprint and the torsion about the patch reference point
+ * within its bound, for any footprint and any patch offset.
  *
- *   Columns 0..N-1  — friction-pyramid edge rays
- *       b_k = [cos(θ_k), sin(θ_k), μ, 0, 0, 0]^T
+ * Generator layout (numBasis = N + 7, where N = config.numBasisVectors, p_c the patch reference point):
  *
- *   Column  N       — pure normal force ray
- *       b   = [0, 0, 1, 0, 0, 0]^T
+ *   Columns 0..N-1   - friction-pyramid edge rays at p_c
+ *       F = (r cos(theta_k), r sin(theta_k), 1),  theta_k = (k + 1/2) * 2 pi / N,  r = mu / cos(pi / N)
+ *       The friction facets bound the tangential force by mu * Fz along N evenly spaced directions, so the feasible
+ *       set is a polyhedral cone whose edges sit half a sector away from those directions at radius mu / cos(pi / N).
+ *       Using exactly those edges makes the conic hull reproduce the friction facets: neither over- nor
+ *       under-approximating the cone the wrench-space formulation enforces.
  *
- *   Columns N+1..N+4 — CoP corner rays  (couple force & moment)
- *       These ensure that any λ ≥ 0 combination produces moments
- *       within the rectangular footprint [x_min,x_max] × [y_min,y_max].
+ *   Column  N        - pure normal force ray at p_c
  *
- *   Columns N+5..N+6 — torsional friction rays
- *       Couple Fz with ±τ_z within ±μ_torsion * Fz.
+ *   Columns N+1..N+4 - CoP corner rays: a unit normal force at each corner of the footprint, which places the centre
+ *       of pressure on that corner; their conic hull spans the whole CoP rectangle.
+ *
+ *   Columns N+5..N+6 - torsional friction rays: a unit normal force at p_c with a torsion of +/- mu_torsion about the
+ *       contact normal.
+ *
+ * Not representable: `minNormalForce` and `gripperForce` are affine offsets of the cone (the `b` vector of
+ * ContactWrenchConeRows), while a conic combination is homogeneous - lambda = 0 always yields the zero wrench. A
+ * basis-vector formulation therefore cannot enforce a positive minimum normal force or a gripper adhesion force;
+ * CentroidalMpcInterface warns when either is configured together with basis-vector inputs.
  */
 class ContactWrenchConeBasisMatrix {
  public:

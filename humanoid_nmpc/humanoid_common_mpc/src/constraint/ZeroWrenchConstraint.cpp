@@ -41,7 +41,12 @@ ZeroWrenchConstraint::ZeroWrenchConstraint(const SwitchedModelReferenceManager& 
     : StateInputConstraint(ConstraintOrder::Linear),
       referenceManagerPtr_(&referenceManager),
       contactPointIndex_(contactPointIndex),
-      mpcRobotModelPtr_(&mpcRobotModel) {}
+      mpcRobotModelPtr_(&mpcRobotModel) {
+  // The contact block holds six wrench components for a wrench-space model and numBasisPerFoot scalings for a
+  // basis-vector model; the model reports its own size rather than it being inferred from the input layout.
+  contactBlockStart_ = mpcRobotModel.getContactWrenchStartIndices(contactPointIndex);
+  numConstraints_ = mpcRobotModel.getContactInputDim(contactPointIndex);
+}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -51,7 +56,12 @@ ZeroWrenchConstraint::ZeroWrenchConstraint(const ZeroWrenchConstraint& rhs)
     : StateInputConstraint(rhs),
       referenceManagerPtr_(rhs.referenceManagerPtr_),
       contactPointIndex_(rhs.contactPointIndex_),
-      mpcRobotModelPtr_(rhs.mpcRobotModelPtr_->clone()) {}
+      // The model is borrowed, exactly as in the primary constructor. Cloning here would leak, since the member is a
+      // raw non-owning pointer; the model outlives every constraint and its accessors are const and thread safe.
+      mpcRobotModelPtr_(rhs.mpcRobotModelPtr_),
+      contactBlockStart_(rhs.contactBlockStart_),
+      numConstraints_(rhs.numConstraints_),
+      isActive_(rhs.isActive_) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -65,7 +75,8 @@ bool ZeroWrenchConstraint::isActive(scalar_t time) const {
 /******************************************************************************************************/
 /******************************************************************************************************/
 vector_t ZeroWrenchConstraint::getValue(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) const {
-  return mpcRobotModelPtr_->getContactWrench(input, contactPointIndex_);
+  // The contact block itself, not the wrench reconstructed from it: see the class documentation.
+  return input.segment(contactBlockStart_, numConstraints_);
 }
 
 /******************************************************************************************************/
@@ -77,36 +88,9 @@ VectorFunctionLinearApproximation ZeroWrenchConstraint::getLinearApproximation(s
                                                                                const PreComputation& preComp) const {
   VectorFunctionLinearApproximation approx;
   approx.f = getValue(time, state, input, preComp);
-  approx.dfdx = matrix_t::Zero(n_constraints, mpcRobotModelPtr_->getStateDim());
-  approx.dfdu = matrix_t::Zero(n_constraints, mpcRobotModelPtr_->getInputDim());
-
-  // Use the model's start index — this correctly handles both wrench-space
-  // models (identity Jacobian at wrench columns) and basis-vector models
-  // (B matrix at λ columns). For basis-vector inputs the value is the LOCAL
-  // contact-frame wrench B·λ; since the rotation into the world frame is
-  // invertible, W_local = 0 ⇔ W_world = 0, so no state-dependent rotation is
-  // needed here.
-  const size_t colStart = mpcRobotModelPtr_->getContactWrenchStartIndices(contactPointIndex_);
-  const size_t nextBlockStart = (contactPointIndex_ + 1 < N_CONTACTS)
-                                    ? mpcRobotModelPtr_->getContactWrenchStartIndices(contactPointIndex_ + 1)
-                                    : mpcRobotModelPtr_->getJointVelocitiesStartindex();
-  const size_t colSpan = nextBlockStart - colStart;
-
-  // For wrench-space: colSpan == 6, and the Jacobian is identity.
-  // For basis-vector: colSpan == numBasisPerFoot, and the Jacobian is B.
-  if (colSpan == static_cast<size_t>(n_constraints)) {
-    // Wrench-space model: d(wrench)/d(wrench_input) = I
-    approx.dfdu.middleCols(colStart, colSpan).setIdentity();
-  } else {
-    // Basis-vector model: d(B * λ)/d(λ) = B. The wrench is linear in λ, so probing each unit
-    // vector through getContactWrench yields the exact column B[:, j] of the Jacobian.
-    for (size_t j = 0; j < colSpan; ++j) {
-      vector_t perturbedInput = vector_t::Zero(mpcRobotModelPtr_->getInputDim());
-      perturbedInput(colStart + j) = 1.0;
-      approx.dfdu.col(colStart + j) = mpcRobotModelPtr_->getContactWrench(perturbedInput, contactPointIndex_);
-    }
-  }
-
+  approx.dfdx = matrix_t::Zero(numConstraints_, mpcRobotModelPtr_->getStateDim());
+  approx.dfdu = matrix_t::Zero(numConstraints_, mpcRobotModelPtr_->getInputDim());
+  approx.dfdu.middleCols(contactBlockStart_, numConstraints_).setIdentity();
   return approx;
 }
 

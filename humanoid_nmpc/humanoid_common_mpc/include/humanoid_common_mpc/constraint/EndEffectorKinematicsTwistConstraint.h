@@ -47,10 +47,15 @@ namespace ocs2::humanoid {
  * - For defining constraint of type g(xee), set Av to matrix_t(0, 0)
  * - For defining constraint of type g(vee), set Ax to matrix_t(0, 0)
  *
- * When orientation rows are active (numConstraints == 6), the angular velocity part of Av is mapped
- * through the quaternion kinematic Jacobian so that the constraint expresses a proper PD law:
+ * When the orientation columns of Av are active, the angular velocity is mapped through the kinematic Jacobian of the
+ * orientation error so that the constraint expresses a proper PD law:
  *   Kp * orientationError + Kd * d(orientationError)/dt = 0
  * rather than mixing quaternion distance with raw angular velocity.
+ *
+ * The orientation error with respect to a plane only measures the tilt of the end-effector normal, so it has two
+ * degrees of freedom and its rate alone leaves the rotation about the contact normal unconstrained. The mapping
+ * therefore also carries the rotation rate about the end-effector normal in the plane-normal direction, which for a
+ * stance foot is what stops it from pivoting on the spot. See getAngularVelocityToOrientationErrorRateMap().
  */
 class EndEffectorKinematicsTwistConstraint final : public StateInputConstraint {
  public:
@@ -90,6 +95,14 @@ class EndEffectorKinematicsTwistConstraint final : public StateInputConstraint {
   /** Gets the underlying end-effector kinematics interface. */
   EndEffectorKinematics<scalar_t>& getEndEffectorKinematics() { return *endEffectorKinematicsPtr_; }
 
+  /**
+   * Adds the rotation rate about the end-effector normal to the plane-normal row of the orientation block. Off by
+   * default: it makes a 6D constraint pin all six degrees of freedom, which is correct but removes one input degree of
+   * freedom per stance foot from a controller tuned without it. See getAngularVelocityToOrientationErrorRateMap().
+   */
+  void setConstrainYawRateAboutNormal(bool constrain) { constrainYawRateAboutNormal_ = constrain; }
+  bool getConstrainYawRateAboutNormal() const { return constrainYawRateAboutNormal_; }
+
   /** Sets the ground contact plane normal (default: {0, 0, 1} for flat ground). */
   void setGroundPlaneNormal(const vector3_t& normal) { ground_plane_normal_ = normal.normalized(); }
 
@@ -107,14 +120,23 @@ class EndEffectorKinematicsTwistConstraint final : public StateInputConstraint {
   EndEffectorKinematicsTwistConstraint(const EndEffectorKinematicsTwistConstraint& rhs);
 
   /**
-   * Compute the 3x3 mapping matrix M such that d(orientationError)/dt = M * omega.
-   * Uses tangent-space perturbation: for each axis i, perturbs omega by eps*e_i,
-   * computes the resulting change in rotationMatrixDistanceToPlane, and forms M by finite differences.
-   * This correctly captures the full chain: R*z -> getQuaternionFromUnitVectors -> quaternionDistance.
+   * The 3x3 matrix M that maps the end-effector angular velocity to the rate of the orientation constraint residual.
+   *
+   * With v the end-effector normal (R * e_z) and n the plane normal, the orientation error of
+   * rotationMatrixDistanceToPlane is e = -(v x n) / sqrt(2 (1 + v.n)), whose analytic derivative is
+   *
+   *   de/d(omega) = [ (v.n) I - v n^T ] / sqrt(2 (1 + v.n)) + (v x n)(v x n)^T / (2 (1 + v.n))^(3/2).
+   *
+   * That matrix has rank two: e is always perpendicular to n, and rotating about v does not change v, so a rotation
+   * about the end-effector normal maps to zero. Used on its own it would leave a stance foot free to pivot about the
+   * contact normal. When setConstrainYawRateAboutNormal() is set, the term 0.5 * n * v^T is added, which puts the
+   * rotation rate about the end-effector normal into the plane-normal row with the same half-angle scaling the tilt
+   * rows have, making the result full rank.
    */
-  matrix3_t getOrientationErrorRateMapping(const vector_t& state) const;
+  matrix3_t getAngularVelocityToOrientationErrorRateMap(const vector_t& state) const;
 
   vector3_t ground_plane_normal_;
+  bool constrainYawRateAboutNormal_{false};
   std::unique_ptr<EndEffectorKinematics<scalar_t>> endEffectorKinematicsPtr_;
   size_t numConstraints_;
   Config config_;

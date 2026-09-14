@@ -123,6 +123,13 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   void setNominalJointPositions(const std::vector<scalar_t>& positions) { nominalJointPositions_ = positions; }
 
   const ocs2::SystemObservation& getCurrentObservation() const { return currentMpcObservation_; }
+
+  /**
+   * Contact flags the MPC policy being executed plans for `time`. Empty until a policy has been activated, and again
+   * after an MPC reset until the next policy arrives. Call from the thread that runs computeJointControlAction(): the
+   * policy is not thread-safe.
+   */
+  std::optional<contact_flag_t> getPlannedContactFlags(scalar_t time) const;
   const vector_t& getLatestPolicyInput() const { return latestPolicyInput_; }
   const CommandData& getCommandData() const { return mcpMrtInterface_.getCommand(); }
 
@@ -150,6 +157,7 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   void updateMpcObservation(ocs2::SystemObservation& mpcObservation, const ::robot::model::RobotState& robotState);
 
   MPC_MRT_Interface mcpMrtInterface_;
+  std::atomic<bool> policyActivated_{false};  // a policy has been swapped in since the last reset
 
   PinocchioInterface pinocchioInterface_;
   ocs2::SystemObservation currentMpcObservation_;
