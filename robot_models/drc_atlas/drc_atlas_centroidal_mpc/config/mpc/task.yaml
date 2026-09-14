@@ -147,7 +147,7 @@ swing_trajectory_config:
   # A zero touch-down velocity makes the descent flatten out asymptotically, so the sole hovers within a few millimetres
   # of the ground for the last ~30 ms of the swing while the foot is still translating forward at ~0.2 m/s. Landing with
   # a real descent rate shortens that window and roughly doubles the clearance at 90% of the swing.
-  touchDownVelocity: -0.10
+  touchDownVelocity: 0.0
   swingHeight: 0.12  # was 0.16; the higher apex made the descent steeper and widened the foot-pitch excursion
   touchDownHeightOffset: -0.001
   swingTimeScale: 0.4
