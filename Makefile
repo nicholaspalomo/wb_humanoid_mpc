@@ -279,7 +279,7 @@ VNC_GL_ENV := export DISPLAY=:99 && \
 	export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
 # Printed right before a -vnc target launches, so the URLs are not buried under the build output.
 vnc_urls := echo "🖥️  noVNC: http://localhost:6080/vnc.html (simulation & RViz)  |  http://localhost:6082/vnc.html (PlotJuggler)"
-# LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_ports, //docker-compose.yaml:vnc_ports, //.devcontainer/devcontainer.json:vnc_ports, //.devcontainer/VISUALIZATION.md:vnc_ports)
+# LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_ports, //docker-compose.yaml:vnc_ports, //.devcontainer/devcontainer.json:vnc_ports, //.devcontainer/README.md:vnc_ports)
 
 launch-g1-dummy-sim-vnc: kill-sims start-vnc
 	@$(vnc_urls)
@@ -338,7 +338,7 @@ launch-r1-sandbox-vnc: kill-sims start-vnc
 	@$(vnc_urls)
 	@echo "🚀 Building targets and launching Unitree R1 URDF Viewer..."
 	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch unitree_r1_description display.launch.py
-# LINT.ThenChange(//setup_env.sh:registered_packages, //.devcontainer/VISUALIZATION.md:launch_targets)
+# LINT.ThenChange(//setup_env.sh:registered_packages, //.devcontainer/README.md:launch_targets)
 
 plotjuggler:
 	@echo "📊 Ensuring ROS2 message dependencies are built..."
@@ -354,4 +354,4 @@ plotjuggler-vnc: start-vnc
 	@echo "👉 Open http://localhost:6082/vnc.html in your browser"
 	@pkill -9 plotjuggler 2>/dev/null || true
 	$(source_env) && DISPLAY=:100 ros2 run plotjuggler plotjuggler --buffer_size 60 --layout tools/plotjuggler/humanoid_telemetry.xml
-# LINT.ThenChange(//.devcontainer/VISUALIZATION.md:plotjuggler_vnc)
+# LINT.ThenChange(//.devcontainer/README.md:plotjuggler_vnc)

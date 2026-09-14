@@ -129,11 +129,14 @@ int main(int argc, char** argv) {
   bool simReportsGroundTruthContacts = false;
   double simContactForceThreshold = 5.0;
   double simContactTimelineWindow = 5.0;
+  // Viewer visualizations by name (VisualizationRegistry.h); absent: the viewer's default set.
+  std::vector<std::string> simVisualizations = robot::mujoco_sim_interface::defaultVisualizationNames();
   try {
     YAML::Node taskYaml = YAML::LoadFile(taskFile);
     if (taskYaml["simReportsGroundTruthContacts"]) simReportsGroundTruthContacts = taskYaml["simReportsGroundTruthContacts"].as<bool>();
     if (taskYaml["simContactForceThreshold"]) simContactForceThreshold = taskYaml["simContactForceThreshold"].as<double>();
     if (taskYaml["simContactTimelineWindow"]) simContactTimelineWindow = taskYaml["simContactTimelineWindow"].as<double>();
+    if (taskYaml["simVisualizations"]) simVisualizations = taskYaml["simVisualizations"].as<std::vector<std::string>>();
   } catch (const std::exception& e) {
     LOG(WARNING) << "Failed to read the simulator contact settings from " << taskFile << ": " << e.what();
   }
@@ -148,6 +151,7 @@ int main(int argc, char** argv) {
   config.contactForceThreshold = simContactForceThreshold;
   config.contactTimelineWindow = simContactTimelineWindow;
   config.reportGroundTruthContacts = simReportsGroundTruthContacts;
+  config.visualizations = simVisualizations;
 
   robot::mujoco_sim_interface::MujocoSimInterface robotInterface(config, urdfFile);
 

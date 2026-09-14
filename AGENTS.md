@@ -12,7 +12,7 @@ Keep the guarded block as small as possible. Prefer several small labeled source
 ```bash
 # LINT.IfChange(registered_packages)
 _setup_package "my_robot_description" "${SCRIPT_DIR}/robot_models/my_robot/my_robot_description"
-# LINT.ThenChange(//Makefile:launch_targets, //.devcontainer/VISUALIZATION.md:launch_targets)
+# LINT.ThenChange(//Makefile:launch_targets, //.devcontainer/README.md:launch_targets)
 ```
 
 </details>

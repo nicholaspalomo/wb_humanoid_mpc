@@ -50,6 +50,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "mujoco_sim_interface/MujocoContactPatch.h"
 #include "mujoco_sim_interface/MujocoRenderer.h"
 #include "mujoco_sim_interface/MujocoUtils.h"
+#include "mujoco_sim_interface/visualization/VisualizationRegistry.h"
 #include "robot_core/FPSTracker.h"
 #include "robot_core/TripleBuffer.h"
 #include "robot_core/Types.h"
@@ -84,7 +85,10 @@ struct MujocoSimConfig {
   // pose the controller reports through setTargetContactPatches (MujocoContactPatch.h). A contact point without an
   // entry, or with an empty one, gets a generic outline.
   std::vector<ContactPatchCorners> contactPatchCorners;
-  bool showTargetContactPatches{true};  // initial state of the viewer's target patch overlay ('g' toggles it)
+
+  // Visualizations of the viewer, by registry name (task file `simVisualizations`, see VisualizationRegistry.h). Each
+  // listed one starts enabled; its hotkey toggles it. Defaults to the historical set of the viewer.
+  std::vector<std::string> visualizations = defaultVisualizationNames();
 };
 
 class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {

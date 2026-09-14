@@ -34,13 +34,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <mujoco/mujoco.h>
 
 #include <atomic>
-#include <condition_variable>
-#include <mutex>
+#include <memory>
 #include <thread>
 #include <vector>
 
-#include "mujoco_sim_interface/MujocoContactPatch.h"
 #include "mujoco_sim_interface/MujocoUtils.h"
+#include "mujoco_sim_interface/visualization/MujocoVisualization.h"
 #include "robot_core/FPSTracker.h"
 
 namespace robot::mujoco_sim_interface {
@@ -49,6 +48,11 @@ class MujocoSimInterface;
 
 class MjState;
 
+/**
+ * Interactive MuJoCo viewer of the simulator. Everything drawn on top of the model is a MujocoVisualization
+ * (visualization/): the set is built at start-up from the names in MujocoSimConfig::visualizations (task file
+ * `simVisualizations`, see VisualizationRegistry.h for the names) and every frame runs their hooks in order.
+ */
 class MujocoRenderer {
  public:
   MujocoRenderer(const MujocoSimInterface* simInterface);
@@ -61,6 +65,9 @@ class MujocoRenderer {
 
   void waitForInit() const;
 
+  /** The visualizations of this viewer, in drawing order (render thread only, for tests and the cheatsheet). */
+  const std::vector<std::unique_ptr<MujocoVisualization>>& visualizations() const { return visualizations_; }
+
  private:
   /// These callbacks are required to be static by glfw3 and are hence not part of the visualizer class. They have access to the visualizer
   /// through the window user pointer.
@@ -68,39 +75,21 @@ class MujocoRenderer {
   /**
    * @brief GLFW keyboard callback for interactive MuJoCo 3D viewer viewport controls.
    *
-   * Supported toggle keys and their effects:
+   * Keys of the viewer itself:
    *  - '0'-'5' : Toggle geometry groups in mujocoOptions_.geomgroup:
    *                '0' -> Floor / ground plane geometries
    *                '1' -> Visual meshes (high-resolution STL/OBJ surface meshes)
    *                '2' -> Collision primitives (capsules, boxes, cylinders, spheres)
    *                '3'-'5' -> Auxiliary/sensor geometry groups
-   *  - 'c'     : Toggle Contact Points (mjVIS_CONTACTPOINT)
-   *                Renders small spheres at active physical collision contacts.
-   *  - 'f'     : Toggle Contact Forces (mjVIS_CONTACTFORCE)
-   *                Renders 3D vector arrows depicting normal and friction forces at contacts.
-   *  - 'm'     : Toggle Center of Mass (mjVIS_COM)
-   *                Displays CoM indicator spheres for kinematic bodies/links.
-   *  - 't'     : Toggle Model Transparency
-   *                Toggles between 30% alpha (x-ray mode for internal joint/geom inspection)
-   *                and 100% opaque.
-   *  - 'i'     : Toggle Inertia Ellipsoids (mjVIS_INERTIA)
-   *                Visualizes equivalent inertia ellipsoids depicting principal moments of inertia.
-   *  - 'h'     : Toggle Convex Hulls (mjVIS_CONVEXHULL)
-   *                Renders computed convex hulls enclosing the link meshes.
    *  - 'k'     : Toggle Camera Tracking Mode
    *                Switches between mjCAMERA_TRACKING (locks camera view to translate with the
    *                robot base/pelvis) and mjCAMERA_FREE (stationary manual free-look camera).
-   *  - 'b'     : Toggle Contact Timeline
-   *                Barcode along the bottom edge: per contact point, the contact state the
-   *                controller plans (top strip) against the simulator's ground truth (bottom
-   *                strip) over a sliding window of time.
-   *  - 'g'     : Toggle Target Contact Patches
-   *                Draws the contact patch of every foot (contact_rectangle of the task file) at the
-   *                pose the controller wants it on the ground: the landing pose of the swing in flight
-   *                (bright), of the foot's next swing (translucent), or the foot's placement (outline);
-   *                the arrow is the patch's x axis, i.e. its yaw. On by default.
    *  - 'p'     : Print Hotkeys Cheatsheet
-   *                Prints all supported hotkeys and mouse bindings to the console.
+   *                Prints all supported hotkeys and mouse bindings to the console, including the
+   *                hotkey and state of every visualization.
+   * Every other letter toggles the visualization that declares it as its hotkey (MujocoVisualization::hotkey), e.g.
+   * 'b' for the contact timeline, 'g' for the target contact patches, 'c' / 'f' / 'm' / 'i' / 'h' / 't' for MuJoCo's own
+   * contact points, contact forces, centres of mass, inertia ellipsoids, convex hulls and the model transparency.
    */
   static void keyboard(GLFWwindow* window, int key, int scancode, int act, int mods);
 
@@ -115,19 +104,9 @@ class MujocoRenderer {
 
   ///
 
-  void setTransparency(float transparency) const;
-
   void renderLoop();
 
-  void renderExternalForces();
-  void renderVelocities();
-
-  /// Contact timeline overlay (see MujocoSimInterface::copyContactTimeline).
-  void renderContactTimeline();
-
-  /// Target contact patches of the feet (see MujocoSimInterface::copyTargetContactPatches). Adds scene geoms, so it
-  /// runs before mjr_render.
-  void renderTargetContactPatches();
+  void printHotkeys() const;
 
   void toggleCameraTracking();
   void setupCamera();
@@ -140,6 +119,8 @@ class MujocoRenderer {
 
   const MujocoSimInterface* simInterface_;
   MjState simState_;
+
+  std::vector<std::unique_ptr<MujocoVisualization>> visualizations_;
 
   std::thread render_thread_;
 
@@ -158,11 +139,6 @@ class MujocoRenderer {
   double lasty = 0;
 
   double lastclicktm = 0;
-  bool model_transparent = false;
-  bool showContactTimeline_ = true;
-  std::vector<ContactTimelineSample> contactTimelineScratch_;
-  bool showTargetContactPatches_ = true;
-  std::vector<TargetContactPatch> targetPatchScratch_;
 
   // Mujoco visualization structures
   mjvCamera mujocoCam_;       // abstract camera

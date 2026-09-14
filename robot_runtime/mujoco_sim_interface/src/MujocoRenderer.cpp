@@ -32,120 +32,44 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <GLFW/glfw3.h>  // for creating the OpenGL context
 #include <mujoco/mujoco.h>
 
-#include <algorithm>
-#include <array>
-#include <cmath>
-#include <condition_variable>
-#include <csignal>
-#include <cstdio>
-#include <filesystem>
-#include <fstream>
-#include <iomanip>
+#include <cctype>
+#include <chrono>
 #include <iostream>
-#include <mutex>
-#include <regex>
 #include <string>
 #include <thread>
 
 #include "mujoco_sim_interface/MujocoSimInterface.h"
+#include "mujoco_sim_interface/visualization/VisualizationRegistry.h"
 
 namespace robot::mujoco_sim_interface {
 
 /// GLFW callbacks
 
 // keyboard callback
-void MujocoRenderer::keyboard(GLFWwindow* window, int key, int, int act, int mods) {
+void MujocoRenderer::keyboard(GLFWwindow* window, int key, int, int act, int) {
   auto* renderer = static_cast<MujocoRenderer*>(glfwGetWindowUserPointer(window));
-
-  // 'c' key: toggle contact point visualization
-  // Effect: Renders small colored spheres at active physical collision contact points
-  if (act == GLFW_PRESS && key == GLFW_KEY_C) {
-    renderer->mujocoOptions_.flags[mjVIS_CONTACTPOINT] = !renderer->mujocoOptions_.flags[mjVIS_CONTACTPOINT];
-  }
-
-  // 'f' key: toggle contact force visualization
-  // Effect: Renders 3D arrows depicting normal and friction forces at contacts
-  if (act == GLFW_PRESS && key == GLFW_KEY_F) {
-    renderer->mujocoOptions_.flags[mjVIS_CONTACTFORCE] = !renderer->mujocoOptions_.flags[mjVIS_CONTACTFORCE];
-  }
-
-  // 'm' key: toggle center of mass (CoM) visualization
-  // Effect: Renders CoM indicator spheres for kinematic bodies/links
-  if (act == GLFW_PRESS && key == GLFW_KEY_M) {
-    renderer->mujocoOptions_.flags[mjVIS_COM] = !renderer->mujocoOptions_.flags[mjVIS_COM];
-  }
-
-  // 't' key: toggle model transparency
-  // Effect: Switches between 30% alpha (x-ray mode for internal joint/geom inspection) and 100% opaque
-  if (act == GLFW_PRESS && key == GLFW_KEY_T) {
-    renderer->model_transparent = !renderer->model_transparent;
-    if (renderer->model_transparent) {
-      renderer->setTransparency(0.3f);
-    } else {
-      renderer->setTransparency(1.0f);
-    }
-  }
-
-  // 'i' key: toggle inertia visualization
-  // Effect: Renders equivalent inertia ellipsoids depicting principal moments of inertia
-  if (act == GLFW_PRESS && key == GLFW_KEY_I) {
-    renderer->mujocoOptions_.flags[mjVIS_INERTIA] = !renderer->mujocoOptions_.flags[mjVIS_INERTIA];
-  }
-
-  // 'h' key: toggle convex hull visualization
-  // Effect: Renders computed convex hulls enclosing the link meshes
-  if (act == GLFW_PRESS && key == GLFW_KEY_H) {
-    renderer->mujocoOptions_.flags[mjVIS_CONVEXHULL] = !renderer->mujocoOptions_.flags[mjVIS_CONVEXHULL];
-  }
+  if (act != GLFW_PRESS) return;
 
   // Number keys '0'-'5': toggle geom groups
   // Effect: Group 0 = Floor/ground plane, Group 1 = Visual meshes, Group 2 = Collision primitives, Groups 3-5 = Aux
-  if (act == GLFW_PRESS && key >= GLFW_KEY_0 && key <= GLFW_KEY_5) {
-    int group = key - GLFW_KEY_0;
+  if (key >= GLFW_KEY_0 && key <= GLFW_KEY_5) {
+    const int group = key - GLFW_KEY_0;
     renderer->mujocoOptions_.geomgroup[group] = !renderer->mujocoOptions_.geomgroup[group];
   }
 
   // 'k' key: toggle camera tracking mode (tracking robot vs free camera)
-  // Effect: Switches between mjCAMERA_TRACKING (locks camera to follow robot base/pelvis) and mjCAMERA_FREE
-  if (act == GLFW_PRESS && key == GLFW_KEY_K) {
-    renderer->toggleCameraTracking();
-  }
-
-  // 'b' key: toggle the contact timeline overlay
-  // Effect: Shows/hides the barcode of planned vs ground-truth contact state per contact point
-  if (act == GLFW_PRESS && key == GLFW_KEY_B) {
-    renderer->showContactTimeline_ = !renderer->showContactTimeline_;
-  }
-
-  // 'g' key: toggle the target contact patches
-  // Effect: Shows/hides the contact patch of every foot at the pose the controller wants it on the ground
-  if (act == GLFW_PRESS && key == GLFW_KEY_G) {
-    renderer->showTargetContactPatches_ = !renderer->showTargetContactPatches_;
-  }
+  if (key == GLFW_KEY_K) renderer->toggleCameraTracking();
 
   // 'p' key: print hotkeys cheatsheet
-  // Effect: Prints all interactive viewer hotkeys, toggle states, and mouse gestures to console
-  if (act == GLFW_PRESS && key == GLFW_KEY_P) {
-    std::cerr << "\n\n==========================================================="
-              << "\nMuJoCo 3D Viewer Hotkeys & Controls\n===========================================================\n"
-              << "  0-5 => toggle geom groups (0: Floor, 1: Visual Mesh, 2: Collision, 3-5: Aux)\n"
-              << "  c   => toggle contact point visualization (spheres at collision contacts)\n"
-              << "  f   => toggle contact force vectors (3D normal & friction force arrows)\n"
-              << "  m   => toggle center of mass (CoM) indicators\n"
-              << "  t   => toggle model transparency (30% x-ray mode vs 100% opaque)\n"
-              << "  i   => toggle link inertia ellipsoids (principal moments of inertia)\n"
-              << "  h   => toggle convex hull visualization\n"
-              << "  k   => toggle camera tracking mode (mjCAMERA_TRACKING vs mjCAMERA_FREE)\n"
-              << "  b   => toggle contact timeline (planned vs ground-truth contact per contact point)\n"
-              << "  g   => toggle target contact patches (planned foot position and yaw per foot)\n"
-              << "  p   => print this hotkey cheatsheet\n"
-              << "-----------------------------------------------------------\n"
-              << "Mouse Controls:\n"
-              << "  Left Drag        => rotate / orbit camera around focal point\n"
-              << "  Right Drag       => pan / translate camera horizontally & vertically\n"
-              << "  Scroll / MidDrag => zoom camera in / out\n"
-              << "  Shift + Drag     => constrain orbit / pan motion to horizontal plane\n"
-              << "===========================================================\n\n";
+  if (key == GLFW_KEY_P) renderer->printHotkeys();
+
+  // Every other letter belongs to the visualization that declares it (GLFW letter keys equal the upper-case ASCII code).
+  for (const std::unique_ptr<MujocoVisualization>& visualization : renderer->visualizations_) {
+    const char hotkey = visualization->hotkey();
+    if (hotkey != 0 && key == std::toupper(static_cast<unsigned char>(hotkey))) {
+      visualization->toggle();
+      std::cerr << "[MujocoRenderer] " << visualization->name() << (visualization->enabled() ? " on" : " off") << std::endl;
+    }
   }
 }
 
@@ -205,15 +129,19 @@ void MujocoRenderer::scroll(GLFWwindow* window, double, double yoffset) {
 MujocoRenderer::MujocoRenderer(const MujocoSimInterface* simInterface)
     : simInterface_(simInterface),
       simState_(simInterface_->getModel()),
-      showTargetContactPatches_(simInterface_->getConfig().showTargetContactPatches),
       timeStepMicro_(1e6 / simInterface_->getConfig().renderFrequencyHz) {
   mujocoScene_.flags[mjRND_SHADOW] = 1;
   mujocoScene_.flags[mjRND_REFLECTION] = 1;
+
+  std::vector<std::string> errors;
+  visualizations_ = createVisualizations(simInterface_->getConfig().visualizations, &errors);
+  for (const std::string& error : errors) {
+    std::cerr << "[MujocoRenderer] simVisualizations: " << error << std::endl;
+  }
 }
 
 MujocoRenderer::~MujocoRenderer() {
   std::cerr << "Cleaning up renderer ..." << std::endl;
-  ;
   if (render_thread_.joinable()) {
     glfwSetWindowShouldClose(window_, GLFW_TRUE);
     render_thread_.join();
@@ -234,493 +162,33 @@ void MujocoRenderer::waitForInit() const {
   }
 }
 
-void MujocoRenderer::setTransparency(float transparency) const {
-  for (int i = 0; i < simInterface_->getModel()->ngeom; i++) {
-    simInterface_->getModel()->geom_rgba[4 * i + 3] = transparency;
+void MujocoRenderer::printHotkeys() const {
+  std::cerr << "\n\n==========================================================="
+            << "\nMuJoCo 3D Viewer Hotkeys & Controls\n===========================================================\n"
+            << "  0-5 => toggle geom groups (0: Floor, 1: Visual Mesh, 2: Collision, 3-5: Aux)\n"
+            << "  k   => toggle camera tracking mode (mjCAMERA_TRACKING vs mjCAMERA_FREE)\n"
+            << "  p   => print this hotkey cheatsheet\n"
+            << "-----------------------------------------------------------\n"
+            << "Visualizations (task file simVisualizations; [x] on, [ ] off):\n";
+  for (const std::unique_ptr<MujocoVisualization>& visualization : visualizations_) {
+    const char hotkey = visualization->hotkey();
+    std::cerr << "  " << (hotkey != 0 ? hotkey : ' ') << "   " << (visualization->enabled() ? "[x] " : "[ ] ") << visualization->name()
+              << ": " << visualization->description() << "\n";
   }
-}
-
-namespace {
-void renderMetrics(const mjrContext* con, const mjrRect& viewport, const MjState& state, double fpsRender, double elapsed_time) {
-  std::ostringstream metrics;
-
-  // FPS (Simulation & Renderer)
-  metrics << "Render FPS: " << static_cast<int>(fpsRender) << "\n";
-  metrics << "Sim FPS: " << static_cast<int>(state.metrics.fpsSim) << "\n";
-
-  // The actual amount of time elapsed in simulation.
-  metrics << "Real Time[s]: " << std::fixed << std::setprecision(3) << elapsed_time << "\n";
-  metrics << "Sim  Time[s]: " << std::fixed << std::setprecision(3) << state.data->time << "\n\n";
-
-  // Real-time tracking
-  metrics << "RTF: " << std::fixed << std::setprecision(3) << state.metrics.rtfSmoothed << "\n";
-  metrics << "Drift[ms]: " << std::fixed << std::setprecision(3) << state.metrics.driftTick * 1e3 << "\n";
-  metrics << "Cummulative Drift[ms]: " << std::fixed << std::setprecision(3) << state.metrics.driftCumulative * 1e3;
-
-  mjr_overlay(mjFONT_NORMAL, mjGRID_TOPLEFT, viewport, metrics.str().c_str(), nullptr, con);
-}
-}  // namespace
-
-void MujocoRenderer::renderExternalForces() {
-  auto* model = simInterface_->getModel();
-  auto* data = simState_.data;
-
-  // Safety check
-  if (!model || !data) {
-    return;
+  std::cerr << "  (not listed in the task file:";
+  for (const VisualizationInfo& info : availableVisualizations()) {
+    bool listed = false;
+    for (const std::unique_ptr<MujocoVisualization>& visualization : visualizations_) listed = listed || visualization->name() == info.name;
+    if (!listed) std::cerr << " " << info.name;
   }
-
-  for (int body_id = 0; body_id < model->nbody; ++body_id) {
-    const double* force = &data->xfrc_applied[6 * body_id];
-    double fx = force[0];
-    double fy = force[1];
-    double fz = force[2];
-
-    double magnitude = std::sqrt(fx * fx + fy * fy + fz * fz);
-    if (magnitude < 1e-6) {
-      continue;
-    }
-
-    const double* xpos = &data->xpos[3 * body_id];
-
-    // Create arrow geom
-    mjvGeom* arrow = nullptr;
-    if (mujocoScene_.ngeom < mujocoScene_.maxgeom) {
-      arrow = &mujocoScene_.geoms[mujocoScene_.ngeom];
-      mujocoScene_.ngeom++;
-    } else {
-      continue;  // Skip if we're out of geom space
-    }
-
-    // Clear the geom
-    std::memset(arrow, 0, sizeof(mjvGeom));
-
-    // Scale factor that grows with force magnitude
-    // Adjust these constants to tune the visualization
-    const double base_scale = 0.1;    // Minimum arrow length
-    const double force_scale = 0.05;  // How much to scale with force
-    const double scale = base_scale + force_scale * magnitude;
-
-    // Calculate arrow end point using normalized force direction and scale
-    double end_x = xpos[0] + scale * (fx / magnitude);
-    double end_y = xpos[1] + scale * (fy / magnitude);
-    double end_z = xpos[2] + scale * (fz / magnitude);
-
-    mjtNum from[3] = {xpos[0], xpos[1], xpos[2]};
-    mjtNum to[3] = {end_x, end_y, end_z};
-
-    mjv_connector(arrow,         // geom to write to
-                  mjGEOM_ARROW,  // type (arrow)
-                  0.005,         // width (thin arrows)
-                  from,          // from position
-                  to             // to position
-    );
-
-    // Set color
-    arrow->rgba[0] = 0.5f;
-    arrow->rgba[1] = 1.0f;
-    arrow->rgba[2] = 0.0f;
-    arrow->rgba[3] = 1.0f;
-
-    // Set additional properties
-    arrow->category = mjCAT_DECOR;
-    arrow->emission = 1.0f;  // Makes it glow/bright
-  }
-
-  // Render contact forces
-  for (int i = 0; i < data->ncon; ++i) {
-    mjContact* contact = &data->contact[i];
-
-    // Only process active contacts
-    if (contact->exclude != 0 || contact->efc_address < 0) continue;
-
-    mjtNum force[6];
-    mj_contactForce(model, data, i, force);
-
-    // Calculate force in global frame
-    double fx = force[0] * contact->frame[0] + force[1] * contact->frame[3] + force[2] * contact->frame[6];
-    double fy = force[0] * contact->frame[1] + force[1] * contact->frame[4] + force[2] * contact->frame[7];
-    double fz = force[0] * contact->frame[2] + force[1] * contact->frame[5] + force[2] * contact->frame[8];
-
-    // Determine direction (force ON the robot).
-    // mj_contactForce returns force ON geom[0] BY geom[1].
-    int body1 = model->geom_bodyid[contact->geom[0]];
-
-    // If geom[0] is the world, the force on the robot is the negative of the computed force.
-    if (body1 == 0) {
-      fx = -fx;
-      fy = -fy;
-      fz = -fz;
-    }
-
-    // Negate the visualized force vector
-    fx = -fx;
-    fy = -fy;
-    fz = -fz;
-
-    double magnitude = std::sqrt(fx * fx + fy * fy + fz * fz);
-    if (magnitude < 1.0) {  // Only draw significant forces
-      continue;
-    }
-
-    // Create arrow geom
-    mjvGeom* arrow = nullptr;
-    if (mujocoScene_.ngeom < mujocoScene_.maxgeom) {
-      arrow = &mujocoScene_.geoms[mujocoScene_.ngeom];
-      mujocoScene_.ngeom++;
-    } else {
-      break;
-    }
-
-    std::memset(arrow, 0, sizeof(mjvGeom));
-
-    // Scale factor that grows with force magnitude
-    const double base_scale = 0.02;
-    const double force_scale = 0.002;  // 500N -> 1m
-    const double scale = base_scale + force_scale * magnitude;
-
-    double end_x = contact->pos[0] + scale * (fx / magnitude);
-    double end_y = contact->pos[1] + scale * (fy / magnitude);
-    double end_z = contact->pos[2] + scale * (fz / magnitude);
-
-    mjtNum from[3] = {contact->pos[0], contact->pos[1], contact->pos[2]};
-    mjtNum to[3] = {end_x, end_y, end_z};
-
-    mjv_connector(arrow,         // geom to write to
-                  mjGEOM_ARROW,  // type (arrow)
-                  0.015,         // width
-                  from,          // from position
-                  to             // to position
-    );
-
-    // Set color (Red)
-    arrow->rgba[0] = 1.0f;
-    arrow->rgba[1] = 0.0f;
-    arrow->rgba[2] = 0.0f;
-    arrow->rgba[3] = 0.8f;
-
-    arrow->category = mjCAT_DECOR;
-    arrow->emission = 0.8f;
-  }
-}
-
-void MujocoRenderer::renderVelocities() {
-  auto* model = simInterface_->getModel();
-  auto* data = simState_.data;
-  if (!model || !data) return;
-
-  // Center of mass position
-  mjtNum* com = &data->subtree_com[0];
-
-  // Base orientation (quaternion to rotation matrix)
-  // Assuming base is body 1 and its joint is a free joint starting at qpos[0]
-  mjtNum* quat = &data->qpos[3];
-  mjtNum mat[9];
-  mju_quat2Mat(mat, quat);
-
-  // Target velocity (base frame)
-  double target_vx = simInterface_->getTargetVelocityX();
-  double target_vy = simInterface_->getTargetVelocityY();
-  double target_yaw = simInterface_->getTargetYawRate();
-
-  // Current velocity (base frame)
-  // qvel has linear (world) then angular (local) for the free joint.
-  // Wait, cvel[1] has the spatial velocity of body 1 in the local frame.
-  // cvel[6] is [angular(3), linear(3)] in local frame.
-  mjtNum* cvel_base = &data->cvel[6 * 1];
-  double current_vx = cvel_base[3];
-  double current_vy = cvel_base[4];
-  double current_yaw = cvel_base[2];  // Z angular velocity in local frame
-
-  // Rotate target and current linear velocities to world frame for rendering
-  // v_world = R * v_base
-  mjtNum v_cur_base[3] = {current_vx, current_vy, 0.0};
-  mjtNum v_cur_world[3];
-  mju_mulMatVec(v_cur_world, mat, v_cur_base, 3, 3);
-
-  mjtNum v_tgt_base[3] = {target_vx, target_vy, 0.0};
-  mjtNum v_tgt_world[3];
-  mju_mulMatVec(v_tgt_world, mat, v_tgt_base, 3, 3);
-
-  // Draw arrow helper
-  auto draw_arrow = [&](mjtNum* dir_world, const float rgba[4], double scale_factor) {
-    if (mujocoScene_.ngeom >= mujocoScene_.maxgeom) return;
-    double mag = std::sqrt(dir_world[0] * dir_world[0] + dir_world[1] * dir_world[1]);
-    if (mag < 1e-3) return;
-
-    mjvGeom* arrow = &mujocoScene_.geoms[mujocoScene_.ngeom++];
-    std::memset(arrow, 0, sizeof(mjvGeom));
-
-    // Scaling as requested
-    double length = mag * scale_factor;
-
-    mjtNum from[3] = {com[0], com[1], com[2]};
-    mjtNum to[3] = {com[0] + length * (dir_world[0] / mag), com[1] + length * (dir_world[1] / mag), com[2] + length * (dir_world[2] / mag)};
-
-    mjv_connector(arrow, mjGEOM_ARROW, 0.02, from, to);
-    arrow->rgba[0] = rgba[0];
-    arrow->rgba[1] = rgba[1];
-    arrow->rgba[2] = rgba[2];
-    arrow->rgba[3] = rgba[3];
-    arrow->category = mjCAT_DECOR;
-    arrow->emission = 1.0f;
-  };
-
-  // Draw current CoM velocity (red)
-  const float red[4] = {1.0f, 0.0f, 0.0f, 1.0f};
-  draw_arrow(v_cur_world, red, 1.0);  // Scale by its own magnitude
-
-  // Draw target CoM velocity (green)
-  const float green[4] = {0.0f, 1.0f, 0.0f, 1.0f};
-  draw_arrow(v_tgt_world, green, 1.0);
-
-  // For yaw rate, we can draw arrows in the local X or Y direction, or just curving?
-  // The user said "emanating from the center of mass of the robot".
-  // Let's draw yaw rate as a vector pointing up (Z axis) scaled by the yaw rate?
-  // Wait, if it represents a rotation, angular velocity is a vector along Z.
-  // Let's use the local Z axis rotated to world.
-  mjtNum yaw_axis_base[3] = {0.0, 0.0, 1.0};
-  mjtNum yaw_axis_world[3];
-  mju_mulMatVec(yaw_axis_world, mat, yaw_axis_base, 3, 3);
-
-  auto draw_yaw_arrow = [&](double yaw_rate, const float rgba[4], double offset) {
-    if (mujocoScene_.ngeom >= mujocoScene_.maxgeom || std::abs(yaw_rate) < 1e-3) return;
-    mjvGeom* arrow = &mujocoScene_.geoms[mujocoScene_.ngeom++];
-    std::memset(arrow, 0, sizeof(mjvGeom));
-
-    // Scale yaw rate visual length
-    double length = std::abs(yaw_rate) * 0.2;
-    double sign = (yaw_rate > 0) ? 1.0 : -1.0;
-
-    // Offset slightly so they don't overlap if they are the same
-    mjtNum from[3] = {com[0] + offset, com[1] + offset, com[2]};
-    mjtNum to[3] = {from[0] + sign * length * yaw_axis_world[0], from[1] + sign * length * yaw_axis_world[1],
-                    from[2] + sign * length * yaw_axis_world[2]};
-
-    mjv_connector(arrow, mjGEOM_ARROW, 0.02, from, to);
-    arrow->rgba[0] = rgba[0];
-    arrow->rgba[1] = rgba[1];
-    arrow->rgba[2] = rgba[2];
-    arrow->rgba[3] = rgba[3];
-    arrow->category = mjCAT_DECOR;
-    arrow->emission = 1.0f;
-  };
-
-  // Current yaw rate (blue)
-  const float blue[4] = {0.0f, 0.0f, 1.0f, 1.0f};
-  draw_yaw_arrow(current_yaw, blue, 0.05);
-
-  // Target yaw rate (yellow)
-  const float yellow[4] = {1.0f, 1.0f, 0.0f, 1.0f};
-  draw_yaw_arrow(target_yaw, yellow, -0.05);
-}
-
-namespace {
-struct Rgba {
-  float r, g, b, a;
-};
-constexpr Rgba kPanelBackground{0.0f, 0.0f, 0.0f, 0.55f};
-constexpr Rgba kPlanContact{0.35f, 0.70f, 1.0f, 1.0f};  // the plan has the point in contact
-constexpr Rgba kSwing{0.16f, 0.16f, 0.20f, 1.0f};       // in the air (plan or physics, in agreement)
-constexpr Rgba kUnknown{0.40f, 0.40f, 0.40f, 1.0f};     // no plan yet, or no MuJoCo body for the contact point
-constexpr Rgba kSimContact{0.35f, 0.85f, 0.35f, 1.0f};  // physics agrees: touching
-constexpr Rgba kSimEarly{0.95f, 0.25f, 0.25f, 1.0f};    // touching while the plan says swing (early touch-down, scuff)
-constexpr Rgba kSimLate{1.0f, 0.62f, 0.10f, 1.0f};      // in the air while the plan says contact (late touch-down, slip)
-constexpr Rgba kTick{1.0f, 1.0f, 1.0f, 0.25f};
-constexpr Rgba kText{0.92f, 0.92f, 0.92f, 1.0f};
-
-void fillRect(int left, int bottom, int width, int height, const Rgba& color) {
-  if (width <= 0 || height <= 0) return;
-  mjr_rectangle(mjrRect{left, bottom, width, height}, color.r, color.g, color.b, color.a);
-}
-
-/// Width in pixels of `text` in the normal font of `con`. A label box narrower or shorter than its text leaves the
-/// string's raster position outside the box, and OpenGL then drops the whole string, so boxes are sized from this.
-int textWidth(const char* text, const mjrContext* con) {
-  int width = 0;
-  for (; *text != '\0'; ++text) width += con->charWidth[static_cast<unsigned char>(*text) & 127];
-  return width;
-}
-
-void drawLabel(int left, int bottom, int width, int height, const char* text, const mjrContext* con) {
-  if (width <= 0 || height <= 0) return;
-  mjr_label(mjrRect{left, bottom, width, height}, mjFONT_NORMAL, text, 0.0f, 0.0f, 0.0f, 0.0f, kText.r, kText.g, kText.b, con);
-}
-
-/// Combined state of one contact point in one sample: bit 0 physics touching, bit 1 plan contact, bit 2 plan known.
-int contactStateCode(const ContactTimelineSample& sample, int contact) {
-  return static_cast<int>((sample.actual >> contact) & 1u) | (static_cast<int>((sample.target >> contact) & 1u) << 1) |
-         (sample.targetKnown ? 4 : 0);
-}
-}  // namespace
-
-void MujocoRenderer::renderContactTimeline() {
-  if (!showContactTimeline_ || !simInterface_->hasContactDetection()) return;
-  simInterface_->copyContactTimeline(contactTimelineScratch_);
-  const std::vector<ContactTimelineSample>& samples = contactTimelineScratch_;
-  if (samples.empty()) return;
-
-  const std::vector<std::string>& names = simInterface_->getContactNames();
-  const int numContacts = static_cast<int>(names.size());
-  const double window = simInterface_->getContactTimelineWindow();
-  const double now = samples.back().time;
-  const double start = now - window;
-  const uint32_t unresolved = simInterface_->getUnresolvedContactMask();
-
-  // Layout in framebuffer pixels (origin bottom-left): a translucent panel along the bottom edge, the label columns on
-  // the left, the time axis running left (oldest) to right (now). Every box that holds text is sized from the font.
-  const mjrContext* con = &mujocoContext_;
-  const int fontH = std::max(12, con->charHeight);
-  constexpr int margin = 12, pad = 8, stripGap = 2, groupGap = 8;
-  const int stripH = fontH + 4;  // tall enough for its "plan" / "sim" tag
-  const int headerH = fontH + 6;
-  const int axisH = fontH + 6;
-  const int tagW = std::max(textWidth("plan", con), textWidth("sim", con)) + 12;
-  int nameTextW = 0;
-  for (const std::string& name : names) nameTextW = std::max(nameTextW, textWidth(name.c_str(), con));
-  const int nameW = std::clamp(nameTextW + 12, 60, 400);
-  const int groupH = 2 * stripH + stripGap;
-  const int panelH = 2 * pad + headerH + numContacts * (groupH + groupGap) + axisH;
-  const int panelW = viewport_.width - 2 * margin;
-  const int panelL = margin;
-  const int panelB = margin;
-  const int x0 = panelL + pad + nameW + tagW;
-  const int x1 = panelL + panelW - pad;
-  const int stripW = x1 - x0;
-  if (stripW < 120 || panelH > viewport_.height / 2) return;
-  fillRect(panelL, panelB, panelW, panelH, kPanelBackground);
-
-  const auto xOf = [&](double time) {
-    const double fraction = std::clamp((time - start) / window, 0.0, 1.0);
-    return x0 + static_cast<int>(std::lround(fraction * stripW));
-  };
-
-  // Header: title and legend.
-  const int headerB = panelB + panelH - pad - headerH;
-  const char* title = "contact timeline [b]";
-  drawLabel(panelL + pad, headerB, std::max(nameW + tagW, textWidth(title, con) + 8), headerH, title, con);
-  {
-    int lx = x0;
-    const auto legend = [&](const Rgba& color, const char* text) {
-      const int textW = textWidth(text, con) + 8;
-      if (lx + 18 + textW > x1) return;  // no room: the rest of the legend is dropped
-      fillRect(lx, headerB + 4, fontH - 4, headerH - 8, color);
-      lx += fontH;
-      drawLabel(lx, headerB, textW, headerH, text, con);
-      lx += textW + 14;
-    };
-    legend(kPlanContact, "plan: contact");
-    legend(kSimContact, "sim: contact");
-    legend(kSimEarly, "sim touching, plan swing");
-    legend(kSimLate, "sim in air, plan contact");
-  }
-
-  // One group of two strips per contact point: the plan on top, the physics below.
-  const int stripsTop = headerB - groupGap;
-  int groupTop = stripsTop;
-  for (int contact = 0; contact < numContacts; ++contact) {
-    const int targetB = groupTop - stripH;
-    const int actualB = targetB - stripGap - stripH;
-    drawLabel(panelL + pad, actualB, nameW, groupH, names[contact].c_str(), con);
-    drawLabel(panelL + pad + nameW, targetB, tagW, stripH, "plan", con);
-    drawLabel(panelL + pad + nameW, actualB, tagW, stripH, "sim", con);
-
-    if (((unresolved >> contact) & 1u) != 0u) {
-      fillRect(x0, actualB, stripW, groupH, kUnknown);
-      drawLabel(x0, actualB, stripW, groupH, "no MuJoCo body resolved for this contact frame", con);
-      groupTop = actualB - groupGap;
-      continue;
-    }
-
-    // Runs of equal state are drawn as single bars.
-    size_t runStart = 0;
-    for (size_t k = 1; k <= samples.size(); ++k) {
-      const int code = contactStateCode(samples[runStart], contact);
-      if (k < samples.size() && contactStateCode(samples[k], contact) == code) continue;
-      const double runEnd = (k < samples.size()) ? samples[k].time : now;
-      if (runEnd >= start) {
-        const int xa = xOf(samples[runStart].time);
-        const int xb = std::max(xOf(runEnd), xa + 1);
-        const bool touching = (code & 1) != 0;
-        const bool planContact = (code & 2) != 0;
-        const bool planKnown = (code & 4) != 0;
-        fillRect(xa, targetB, xb - xa, stripH, !planKnown ? kUnknown : (planContact ? kPlanContact : kSwing));
-        const Rgba& simColor = !planKnown ? (touching ? kSimContact : kSwing)
-                               : touching ? (planContact ? kSimContact : kSimEarly)
-                                          : (planContact ? kSimLate : kSwing);
-        fillRect(xa, actualB, xb - xa, stripH, simColor);
-      }
-      runStart = k;
-    }
-    groupTop = actualB - groupGap;
-  }
-
-  // Time axis: one tick per second, relative to now, at fixed positions.
-  const int axisB = panelB + pad;
-  const int ticksH = stripsTop - (axisB + axisH);
-  for (int secondsAgo = 0; secondsAgo <= static_cast<int>(window); ++secondsAgo) {
-    const int x = xOf(now - secondsAgo);
-    fillRect(x, axisB + axisH, 1, ticksH, kTick);
-    char text[16];
-    if (secondsAgo == 0) {
-      std::snprintf(text, sizeof(text), "now");
-    } else {
-      std::snprintf(text, sizeof(text), "-%d s", secondsAgo);
-    }
-    const int labelW = textWidth(text, con) + 8;
-    drawLabel(std::clamp(x - labelW / 2, panelL, x1 - labelW), axisB, labelW, axisH, text, con);
-  }
-}
-
-namespace {
-/// Colours of the target patches: one hue per contact point (cycled), the kind sets the intensity and what is drawn.
-constexpr std::array<std::array<float, 3>, 4> kPatchHues = {{
-    {0.25f, 0.85f, 1.00f},  // contact point 0 (left foot): cyan
-    {1.00f, 0.55f, 0.15f},  // contact point 1 (right foot): orange
-    {0.75f, 0.35f, 1.00f},  // further contact points: violet, green
-    {0.45f, 1.00f, 0.45f},
-}};
-
-ContactPatchStyle targetPatchStyle(size_t contact, const TargetContactPatch& patch) {
-  const std::array<float, 3>& hue = kPatchHues[contact % kPatchHues.size()];
-  ContactPatchStyle style;
-  switch (patch.kind) {
-    case TargetContactPatch::Kind::SWING_IN_FLIGHT:  // the step being executed: bright and filled
-      style.rgba = {hue[0], hue[1], hue[2], 0.85f};
-      style.fill = true;
-      style.arrow = true;
-      style.emission = 0.8f;
-      break;
-    case TargetContactPatch::Kind::NEXT_SWING:  // the step after: translucent
-      style.rgba = {hue[0], hue[1], hue[2], 0.45f};
-      style.fill = true;
-      style.arrow = true;
-      style.emission = 0.4f;
-      break;
-    case TargetContactPatch::Kind::STANCE:  // where the foot is held: a faint outline
-    default:
-      style.rgba = {hue[0], hue[1], hue[2], 0.35f};
-      style.fill = false;
-      style.arrow = false;
-      style.emission = 0.2f;
-      break;
-  }
-  return style;
-}
-}  // namespace
-
-void MujocoRenderer::renderTargetContactPatches() {
-  if (!showTargetContactPatches_) return;
-  simInterface_->copyTargetContactPatches(targetPatchScratch_);
-  const std::vector<ContactPatchCorners>& configured = simInterface_->getConfig().contactPatchCorners;
-  const ContactPatchCorners fallback = defaultContactPatchCorners();
-  for (size_t contact = 0; contact < targetPatchScratch_.size(); ++contact) {
-    const TargetContactPatch& patch = targetPatchScratch_[contact];
-    if (!patch.valid) continue;
-    const bool hasCorners = contact < configured.size() && configured[contact].size() >= 3;
-    const ContactPatchCorners& corners = hasCorners ? configured[contact] : fallback;
-    addContactPatchGeoms(&mujocoScene_, patch, corners, targetPatchStyle(contact, patch));
-  }
+  std::cerr << ")\n"
+            << "-----------------------------------------------------------\n"
+            << "Mouse Controls:\n"
+            << "  Left Drag        => rotate / orbit camera around focal point\n"
+            << "  Right Drag       => pan / translate camera horizontally & vertically\n"
+            << "  Scroll / MidDrag => zoom camera in / out\n"
+            << "  Shift + Drag     => constrain orbit / pan motion to horizontal plane\n"
+            << "===========================================================\n\n";
 }
 
 void MujocoRenderer::renderLoop() {
@@ -738,21 +206,34 @@ void MujocoRenderer::renderLoop() {
     simInterface_->readLatestMjState(simState_);
     mj_forward(simInterface_->getModel(), simState_.data);
 
+    VisualizationFrame frame;
+    frame.sim = simInterface_;
+    frame.state = &simState_;
+    frame.options = &mujocoOptions_;
+    frame.scene = &mujocoScene_;
+    frame.context = &mujocoContext_;
+    frame.viewport = viewport_;
+    frame.renderFps = rendererFps_.fps();
+    frame.elapsedRealTime = std::chrono::duration<double>(std::chrono::steady_clock::now() - start_time).count();
+
+    // Options and model tweaks, for every visualization so that a disabled one can undo its effect.
+    for (const std::unique_ptr<MujocoVisualization>& visualization : visualizations_) visualization->beforeSceneUpdate(frame);
+
     mjv_updateScene(simInterface_->getModel(), simState_.data, &mujocoOptions_, nullptr, &mujocoCam_, mjCAT_ALL, &mujocoScene_);
 
-    renderExternalForces();
-    renderVelocities();
-    renderTargetContactPatches();
+    // Decor geoms of the enabled visualizations, added to the scene before it is rendered.
+    for (const std::unique_ptr<MujocoVisualization>& visualization : visualizations_) {
+      if (visualization->enabled()) visualization->addSceneGeoms(frame);
+    }
 
     // render to glfw window
     mjv_updateCamera(simInterface_->getModel(), simState_.data, &mujocoCam_, &mujocoScene_);
     mjr_render(viewport_, &mujocoScene_, &mujocoContext_);
 
-    // render text overlay
-    const auto current_time = std::chrono::steady_clock::now();
-    const auto elapsed_time = std::chrono::duration<double>(current_time - start_time).count();
-    renderMetrics(&mujocoContext_, viewport_, simState_, rendererFps_.fps(), elapsed_time);
-    renderContactTimeline();
+    // 2D overlays and text of the enabled visualizations, on top of the rendered scene.
+    for (const std::unique_ptr<MujocoVisualization>& visualization : visualizations_) {
+      if (visualization->enabled()) visualization->renderOverlay(frame);
+    }
 
     // swap OpenGL buffers (blocking call due to v-sync)
     glfwSwapBuffers(window_);
@@ -838,7 +319,7 @@ void MujocoRenderer::initialize() {
   mjv_makeScene(simInterface_->getModel(), &mujocoScene_, 2000);                 // space for 2000 objects
   mjr_makeContext(simInterface_->getModel(), &mujocoContext_, mjFONTSCALE_150);  // model-specific context
 
-  // Set mujoco option
+  // MuJoCo's own markers start off; the mj_* visualizations of the task file switch them on (MujocoOptionFlagVisualization).
   mujocoOptions_.flags[mjVIS_CONTACTPOINT] = 0;
   mujocoOptions_.flags[mjVIS_CONTACTFORCE] = 0;
   mujocoOptions_.flags[mjVIS_COM] = 0;
@@ -868,6 +349,8 @@ void MujocoRenderer::initialize() {
   glfwSwapBuffers(window_);
   // process pending GUI events, call GLFW callbacks
   glfwPollEvents();
+
+  printHotkeys();
 }
 
 void MujocoRenderer::cleanup() {

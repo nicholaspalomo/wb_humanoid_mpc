@@ -154,13 +154,14 @@ int main(int argc, char** argv) {
   bool simReportsGroundTruthContacts = false;
   double simContactForceThreshold = 5.0;
   double simContactTimelineWindow = 5.0;
-  bool simShowTargetContactPatches = true;
+  // Viewer visualizations by name (VisualizationRegistry.h); absent: the viewer's default set.
+  std::vector<std::string> simVisualizations = robot::mujoco_sim_interface::defaultVisualizationNames();
   try {
     YAML::Node taskYaml = YAML::LoadFile(taskFile);
     if (taskYaml["simReportsGroundTruthContacts"]) simReportsGroundTruthContacts = taskYaml["simReportsGroundTruthContacts"].as<bool>();
     if (taskYaml["simContactForceThreshold"]) simContactForceThreshold = taskYaml["simContactForceThreshold"].as<double>();
     if (taskYaml["simContactTimelineWindow"]) simContactTimelineWindow = taskYaml["simContactTimelineWindow"].as<double>();
-    if (taskYaml["simShowTargetContactPatches"]) simShowTargetContactPatches = taskYaml["simShowTargetContactPatches"].as<bool>();
+    if (taskYaml["simVisualizations"]) simVisualizations = taskYaml["simVisualizations"].as<std::vector<std::string>>();
   } catch (const std::exception& e) {
     LOG(WARNING) << "Failed to read the simulator contact settings from " << taskFile << ": " << e.what();
   }
@@ -175,7 +176,7 @@ int main(int argc, char** argv) {
   config.contactForceThreshold = simContactForceThreshold;
   config.contactTimelineWindow = simContactTimelineWindow;
   config.reportGroundTruthContacts = simReportsGroundTruthContacts;
-  config.showTargetContactPatches = simShowTargetContactPatches;
+  config.visualizations = simVisualizations;
   // Target contact patches in the viewer ('g' toggles them): the contact rectangle of every foot, drawn at the pose the
   // contact planner wants the foot on the ground. Without a contact planner there is no target and nothing is drawn.
   const auto planningReferenceManager = std::dynamic_pointer_cast<ContactPlanningReferenceManager>(interface.getReferenceManagerPtr());

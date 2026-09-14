@@ -66,7 +66,7 @@ The reference layer decides *when* and *where* the feet touch the ground, the NM
 | `useDcmTerminalCost` | Ends the horizon with a Divergent Component of Motion (capture point) viability cost instead of the quadratic `Q_final` terminal cost, which is then ignored. Keeps the horizon end capturable for any gait cadence. |
 | `useContactPlanning` | Replaces the periodic gait schedule with an online mixed-integer contact planner (LIP model, branch-and-bound over HPIPM relaxations) that chooses the contact sequence, the switching times and the footholds from the current state and the velocity command. Optional, off by default: the executed schedule can adapt to measured early / late touch-downs and the landing targets can follow the capture point (`contact_planning.enablePhaseResetting`, `enableDcmStepAdjustment`). |
 
-The formulation and the math of both features are described in [humanoid_nmpc/docs/contact_planning_and_dcm_terminal_cost.md](humanoid_nmpc/docs/contact_planning_and_dcm_terminal_cost.md).
+The formulation and the math of both features are described in [humanoid_nmpc/docs/README.md](humanoid_nmpc/docs/README.md).
 
 ---
 
@@ -171,7 +171,7 @@ make clean-all    # Deep clean including external caches
 
 ### Visualization Options
 - **Local Linux:** GUI windows (MuJoCo / RViz / Controller GUI) render via X11 forwarding.
-- **macOS / Remote SSH:** Use the `-vnc` targets to stream the desktop directly to your browser. Navigate to **`http://localhost:6080/vnc.html`** and click **Connect**. See the [Visualization Guide](.devcontainer/VISUALIZATION.md) for full details.
+- **macOS / Remote SSH:** Use the `-vnc` targets to stream the desktop directly to your browser. Navigate to **`http://localhost:6080/vnc.html`** and click **Connect**. See the [Visualization Guide](.devcontainer/README.md) for full details.
 
 ### Launch Targets
 

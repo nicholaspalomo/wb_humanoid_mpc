@@ -330,11 +330,12 @@ In the MuJoCo simulation those flags are `true` for every contact point unless `
 set in the task file: the simulator then reports a contact point as touching when it carries more than
 `simContactForceThreshold` newtons of normal force against anything outside the robot. With the default, every swing
 reads as an early touch-down at its scuffing window, so phase resetting must not be enabled in simulation without it
-(the simulator logs a warning). The viewer's contact timeline (`b`) shows the contact state the executed policy plans
-against that ground truth, which is the quickest way to see early or late touch-downs and foot scuffing.
+(the simulator logs a warning). The viewer's contact timeline (`b`, `contact_timeline` in `simVisualizations`) shows
+the contact state the executed policy plans against that ground truth, which is the quickest way to see early or late
+touch-downs and foot scuffing.
 
-The viewer also draws the **target contact patches** (`g` toggles them, `simShowTargetContactPatches` sets the initial
-state, on by default): the `contacts.contact_rectangle` of every foot placed at the pose the contact planner wants the
+The viewer also draws the **target contact patches** (`g` toggles them; like every viewer marker they are enabled by
+listing them in `simVisualizations`, on in the shipped task files): the `contacts.contact_rectangle` of every foot placed at the pose the contact planner wants the
 foot on the ground, so the planned position and yaw of every step can be checked against the robot. A bright filled
 patch is the landing pose of the swing in flight (the plan's foothold at its touch-down plus any DCM step adjustment),
 a translucent one is the landing pose of the foot's next swing, and a faint outline marks a foot with no upcoming swing

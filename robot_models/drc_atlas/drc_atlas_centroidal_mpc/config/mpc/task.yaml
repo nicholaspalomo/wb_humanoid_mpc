@@ -7,9 +7,24 @@ simContactTimelineWindow: 5.0          # [s] width of the sliding window
 simContactForceThreshold: 5.0          # [N] normal force above which a contact point counts as touching (ground truth)
 simReportsGroundTruthContacts: true   # feed the ground-truth contacts to the MPC as its measured contact state instead of
 # "always touching"; required for contact_planning.enablePhaseResetting in simulation
-# The viewer's target contact patches ('g' toggles them) draw the contact_rectangle of every foot at the pose the contact
-# planner wants the foot on the ground next (position and yaw), so the planned steps can be seen against the robot.
-simShowTargetContactPatches: true
+# Viewer visualizations (each listed one starts on; the key in brackets toggles it, 'p' prints the cheatsheet). Every
+# marker is a class in robot_runtime/mujoco_sim_interface/.../visualization; the names are those of VisualizationRegistry.
+# LINT.IfChange(sim_visualizations)
+simVisualizations:
+  - metrics                 # render/sim FPS, real-time factor and drift (top-left text)
+  - external_forces         # arrows of the external forces applied to the bodies (pushes)
+  - contact_forces          # arrows of the physical contact forces on the robot
+  - base_velocity           # measured (red) vs commanded (green) base velocity and yaw rate at the CoM
+  - contact_timeline        # [b] barcode of planned vs ground-truth contact per contact point
+  - target_contact_patches  # [g] contact patch of every foot at the planner's target position and yaw
+  # MuJoCo's own markers, off unless listed:
+  # - mj_contact_points     # [c] markers at the physical contact points
+  # - mj_contact_forces     # [f] MuJoCo's normal and friction force arrows at the contacts
+  # - mj_com                # [m] centre of mass markers of the bodies
+  # - mj_inertia            # [i] equivalent inertia ellipsoids
+  # - mj_convex_hull        # [h] convex hulls of the meshes
+  # - mj_transparent        # [t] model transparency (x-ray view)
+# LINT.ThenChange(//robot_runtime/mujoco_sim_interface/src/visualization/VisualizationRegistry.cpp:visualization_names)
 enableOnlineTuning: true     # Enable runtime parameter and gain tuning in Controller GUI
 useContactBasisVectorInputs: true  # Set true to use basis-vector scalings λ as MPC contact inputs (instead of direct wrenches)
 useComAndAcomTracking: true      # Set true to regulate CoM + Angular Center of Mass (ACoM) instead of base pose

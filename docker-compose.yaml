@@ -75,7 +75,7 @@ services:
       # Dedicated VNC and noVNC ports for PlotJuggler (Display :100)
       - "5903:5903"
       - "6082:6082"
-      # LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_ports, //.devcontainer/devcontainer.json:vnc_ports, //.devcontainer/VISUALIZATION.md:vnc_ports, //Makefile:vnc_ports)
+      # LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_ports, //.devcontainer/devcontainer.json:vnc_ports, //.devcontainer/README.md:vnc_ports, //Makefile:vnc_ports)
       # Jupyter Notebook Dashboard port
       - "8888:8888"
 
