@@ -9,6 +9,7 @@ cc_library(
     name = "mujoco_sim_interface",
     srcs = [
         "src/MujocoContactUtils.cpp",
+        "src/MujocoContactPatch.cpp",
         "src/MujocoSimInterface.cpp",
         "src/MujocoRenderer.cpp",
     ],
@@ -50,6 +51,21 @@ cc_test(
     name = "test_mujoco_contact_utils",
     size = "small",
     srcs = ["test/testMujocoContactUtils.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+    ],
+    deps = [
+        ":mujoco_sim_interface",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "test_mujoco_contact_patch",
+    size = "small",
+    srcs = ["test/testMujocoContactPatch.cpp"],
     copts = [
         "-std=c++20",
         "-Wall",

@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <thread>
 #include <vector>
 
+#include "mujoco_sim_interface/MujocoContactPatch.h"
 #include "mujoco_sim_interface/MujocoUtils.h"
 #include "robot_core/FPSTracker.h"
 
@@ -93,6 +94,11 @@ class MujocoRenderer {
    *                Barcode along the bottom edge: per contact point, the contact state the
    *                controller plans (top strip) against the simulator's ground truth (bottom
    *                strip) over a sliding window of time.
+   *  - 'g'     : Toggle Target Contact Patches
+   *                Draws the contact patch of every foot (contact_rectangle of the task file) at the
+   *                pose the controller wants it on the ground: the landing pose of the swing in flight
+   *                (bright), of the foot's next swing (translucent), or the foot's placement (outline);
+   *                the arrow is the patch's x axis, i.e. its yaw. On by default.
    *  - 'p'     : Print Hotkeys Cheatsheet
    *                Prints all supported hotkeys and mouse bindings to the console.
    */
@@ -118,6 +124,10 @@ class MujocoRenderer {
 
   /// Contact timeline overlay (see MujocoSimInterface::copyContactTimeline).
   void renderContactTimeline();
+
+  /// Target contact patches of the feet (see MujocoSimInterface::copyTargetContactPatches). Adds scene geoms, so it
+  /// runs before mjr_render.
+  void renderTargetContactPatches();
 
   void toggleCameraTracking();
   void setupCamera();
@@ -151,6 +161,8 @@ class MujocoRenderer {
   bool model_transparent = false;
   bool showContactTimeline_ = true;
   std::vector<ContactTimelineSample> contactTimelineScratch_;
+  bool showTargetContactPatches_ = true;
+  std::vector<TargetContactPatch> targetPatchScratch_;
 
   // Mujoco visualization structures
   mjvCamera mujocoCam_;       // abstract camera

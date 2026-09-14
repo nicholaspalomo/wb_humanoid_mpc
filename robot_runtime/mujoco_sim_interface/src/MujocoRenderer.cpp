@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <mujoco/mujoco.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <condition_variable>
 #include <csignal>
@@ -116,6 +117,12 @@ void MujocoRenderer::keyboard(GLFWwindow* window, int key, int, int act, int mod
     renderer->showContactTimeline_ = !renderer->showContactTimeline_;
   }
 
+  // 'g' key: toggle the target contact patches
+  // Effect: Shows/hides the contact patch of every foot at the pose the controller wants it on the ground
+  if (act == GLFW_PRESS && key == GLFW_KEY_G) {
+    renderer->showTargetContactPatches_ = !renderer->showTargetContactPatches_;
+  }
+
   // 'p' key: print hotkeys cheatsheet
   // Effect: Prints all interactive viewer hotkeys, toggle states, and mouse gestures to console
   if (act == GLFW_PRESS && key == GLFW_KEY_P) {
@@ -130,6 +137,7 @@ void MujocoRenderer::keyboard(GLFWwindow* window, int key, int, int act, int mod
               << "  h   => toggle convex hull visualization\n"
               << "  k   => toggle camera tracking mode (mjCAMERA_TRACKING vs mjCAMERA_FREE)\n"
               << "  b   => toggle contact timeline (planned vs ground-truth contact per contact point)\n"
+              << "  g   => toggle target contact patches (planned foot position and yaw per foot)\n"
               << "  p   => print this hotkey cheatsheet\n"
               << "-----------------------------------------------------------\n"
               << "Mouse Controls:\n"
@@ -197,6 +205,7 @@ void MujocoRenderer::scroll(GLFWwindow* window, double, double yoffset) {
 MujocoRenderer::MujocoRenderer(const MujocoSimInterface* simInterface)
     : simInterface_(simInterface),
       simState_(simInterface_->getModel()),
+      showTargetContactPatches_(simInterface_->getConfig().showTargetContactPatches),
       timeStepMicro_(1e6 / simInterface_->getConfig().renderFrequencyHz) {
   mujocoScene_.flags[mjRND_SHADOW] = 1;
   mujocoScene_.flags[mjRND_REFLECTION] = 1;
@@ -663,6 +672,57 @@ void MujocoRenderer::renderContactTimeline() {
   }
 }
 
+namespace {
+/// Colours of the target patches: one hue per contact point (cycled), the kind sets the intensity and what is drawn.
+constexpr std::array<std::array<float, 3>, 4> kPatchHues = {{
+    {0.25f, 0.85f, 1.00f},  // contact point 0 (left foot): cyan
+    {1.00f, 0.55f, 0.15f},  // contact point 1 (right foot): orange
+    {0.75f, 0.35f, 1.00f},  // further contact points: violet, green
+    {0.45f, 1.00f, 0.45f},
+}};
+
+ContactPatchStyle targetPatchStyle(size_t contact, const TargetContactPatch& patch) {
+  const std::array<float, 3>& hue = kPatchHues[contact % kPatchHues.size()];
+  ContactPatchStyle style;
+  switch (patch.kind) {
+    case TargetContactPatch::Kind::SWING_IN_FLIGHT:  // the step being executed: bright and filled
+      style.rgba = {hue[0], hue[1], hue[2], 0.85f};
+      style.fill = true;
+      style.arrow = true;
+      style.emission = 0.8f;
+      break;
+    case TargetContactPatch::Kind::NEXT_SWING:  // the step after: translucent
+      style.rgba = {hue[0], hue[1], hue[2], 0.45f};
+      style.fill = true;
+      style.arrow = true;
+      style.emission = 0.4f;
+      break;
+    case TargetContactPatch::Kind::STANCE:  // where the foot is held: a faint outline
+    default:
+      style.rgba = {hue[0], hue[1], hue[2], 0.35f};
+      style.fill = false;
+      style.arrow = false;
+      style.emission = 0.2f;
+      break;
+  }
+  return style;
+}
+}  // namespace
+
+void MujocoRenderer::renderTargetContactPatches() {
+  if (!showTargetContactPatches_) return;
+  simInterface_->copyTargetContactPatches(targetPatchScratch_);
+  const std::vector<ContactPatchCorners>& configured = simInterface_->getConfig().contactPatchCorners;
+  const ContactPatchCorners fallback = defaultContactPatchCorners();
+  for (size_t contact = 0; contact < targetPatchScratch_.size(); ++contact) {
+    const TargetContactPatch& patch = targetPatchScratch_[contact];
+    if (!patch.valid) continue;
+    const bool hasCorners = contact < configured.size() && configured[contact].size() >= 3;
+    const ContactPatchCorners& corners = hasCorners ? configured[contact] : fallback;
+    addContactPatchGeoms(&mujocoScene_, patch, corners, targetPatchStyle(contact, patch));
+  }
+}
+
 void MujocoRenderer::renderLoop() {
   initialize();
   init_complete_.store(true);
@@ -682,6 +742,7 @@ void MujocoRenderer::renderLoop() {
 
     renderExternalForces();
     renderVelocities();
+    renderTargetContactPatches();
 
     // render to glfw window
     mjv_updateCamera(simInterface_->getModel(), simState_.data, &mujocoCam_, &mujocoScene_);

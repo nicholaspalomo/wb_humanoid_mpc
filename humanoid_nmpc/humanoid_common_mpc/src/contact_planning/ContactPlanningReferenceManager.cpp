@@ -359,6 +359,27 @@ void ContactPlanningReferenceManager::modifyReferences(scalar_t initTime,
   lastSolveTime_ = initTime;
   updateFootBookkeeping(initTime, initState);
   updateDcmStepAdjustment(initTime, config);
+  updateTargetContactPoses(initTime, terrainHeight);
+}
+
+void ContactPlanningReferenceManager::updateTargetContactPoses(scalar_t initTime, scalar_t terrainHeight) {
+  feet_array_t<TargetContactPose> poses = makeFeetArray(TargetContactPose{});
+  if (hasActivePlan() && footBookkeepingInitialized_) {
+    TargetContactPoseInputs inputs;
+    inputs.time = initTime;
+    inputs.footPositions = footPositions_;
+    inputs.footYaws = footYaws_;
+    inputs.dcmStepAdjustment = dcmStepAdjustment_;
+    inputs.terrainHeight = terrainHeight;
+    poses = computeTargetContactPoses(*activePlan_, appliedSchedule_, inputs);
+  }
+  std::lock_guard<std::mutex> lock(targetPoseMutex_);
+  targetContactPoses_ = poses;
+}
+
+feet_array_t<TargetContactPose> ContactPlanningReferenceManager::getTargetContactPoses() const {
+  std::lock_guard<std::mutex> lock(targetPoseMutex_);
+  return targetContactPoses_;
 }
 
 void ContactPlanningReferenceManager::updateSwingTrajectories(const ModeSchedule& schedule,

@@ -165,6 +165,32 @@ TEST_F(ContactPlanningIntegrationTest, PlansStandingAndWalkingSchedules) {
   // The committed window right after the current time keeps the previous (double support) schedule.
   EXPECT_TRUE(referenceManager->isInStancePhase(t + 0.01));
 
+  // The target contact poses (drawn by the MuJoCo viewer) are the landing poses of the upcoming swings: for a foot with
+  // a swing in the schedule the pose is where the swing-foot reference ends up at its touch-down.
+  {
+    const feet_array_t<TargetContactPose> targets = referenceManager->getTargetContactPoses();
+    bool foundLandingTarget = false;
+    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+      const TargetContactPose& target = targets[foot];
+      ASSERT_TRUE(target.valid) << "foot " << foot;
+      EXPECT_TRUE(target.position.allFinite());
+      EXPECT_TRUE(std::isfinite(target.yaw));
+      if (target.kind == TargetContactPose::Kind::STANCE) continue;
+      foundLandingTarget = true;
+      EXPECT_GT(target.touchDownTime, t);
+      EXPECT_NEAR(target.height, 0.0, 0.05) << "flat ground";
+      const auto reference = referenceManager->getSwingFootReference(foot, target.touchDownTime - 1e-4);
+      ASSERT_TRUE(reference.has_value()) << "foot " << foot << " has no swing reference just before its touch-down";
+      EXPECT_NEAR(target.position(0), reference->position(0), 1e-3);
+      EXPECT_NEAR(target.position(1), reference->position(1), 1e-3);
+      if (reference->yaw.has_value()) {
+        EXPECT_TRUE(target.yawPlanned);
+        EXPECT_NEAR(std::remainder(target.yaw - *reference->yaw, 2.0 * M_PI), 0.0, 1e-3);
+      }
+    }
+    EXPECT_TRUE(foundLandingTarget) << "a walking plan must give at least one foot a landing target";
+  }
+
   // 4. A swing that has started must survive a later plan: advance into the first swing, command standing (which on
   //    its own would plan no steps) and check that the swing keeps its touch-down time.
   scalar_t firstLiftOff = -1.0, firstTouchDown = -1.0;

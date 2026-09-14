@@ -68,6 +68,7 @@ cc_library(
         "src/contact_planning/ContactPlanningReferenceManager.cpp",
         "src/contact_planning/ContactScheduleAdaptation.cpp",
         "src/contact_planning/ContactPlannerModule.cpp",
+        "src/contact_planning/TargetContactPose.cpp",
     ],
     hdrs = glob(["include/**"], allow_empty = True),
     includes = ["include"],
@@ -235,6 +236,17 @@ cc_test(
     name = "testContactPlan",
     size = "small",
     srcs = ["test/testContactPlan.cpp"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "testTargetContactPose",
+    size = "small",
+    srcs = ["test/testTargetContactPose.cpp"],
     copts = _COMMON_COPTS,
     deps = [
         ":humanoid_common_mpc",

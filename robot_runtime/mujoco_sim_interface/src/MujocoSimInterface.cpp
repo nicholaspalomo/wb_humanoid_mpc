@@ -704,6 +704,16 @@ void MujocoSimInterface::copyContactTimeline(std::vector<ContactTimelineSample>&
   out.assign(contactTimeline_.samples().begin(), contactTimeline_.samples().end());
 }
 
+void MujocoSimInterface::setTargetContactPatches(const std::vector<TargetContactPatch>& patches) {
+  std::lock_guard<std::mutex> lock(targetPatchMutex_);
+  targetContactPatches_ = patches;
+}
+
+void MujocoSimInterface::copyTargetContactPatches(std::vector<TargetContactPatch>& out) const {
+  std::lock_guard<std::mutex> lock(targetPatchMutex_);
+  out = targetContactPatches_;
+}
+
 vector3_t MujocoSimInterface::getLeftFootMeasuredForce() const {
   if (left_foot_sensor_addr_ != static_cast<size_t>(-1) && mujocoData_ != nullptr) {
     return vector3_t(mujocoData_->sensordata[left_foot_sensor_addr_], mujocoData_->sensordata[left_foot_sensor_addr_ + 1],

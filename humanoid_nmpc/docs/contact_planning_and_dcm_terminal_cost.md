@@ -333,6 +333,16 @@ reads as an early touch-down at its scuffing window, so phase resetting must not
 (the simulator logs a warning). The viewer's contact timeline (`b`) shows the contact state the executed policy plans
 against that ground truth, which is the quickest way to see early or late touch-downs and foot scuffing.
 
+The viewer also draws the **target contact patches** (`g` toggles them, `simShowTargetContactPatches` sets the initial
+state, on by default): the `contacts.contact_rectangle` of every foot placed at the pose the contact planner wants the
+foot on the ground, so the planned position and yaw of every step can be checked against the robot. A bright filled
+patch is the landing pose of the swing in flight (the plan's foothold at its touch-down plus any DCM step adjustment),
+a translucent one is the landing pose of the foot's next swing, and a faint outline marks a foot with no upcoming swing
+at its current placement. The arrow is the patch's x axis, i.e. its yaw: the planned landing yaw with the heading model
+(`useAcomDynamics`) and the measured foot yaw without it. The poses are the ones the reference manager computed at its
+last solve (`ContactPlanningReferenceManager::getTargetContactPoses`), so they move whenever a new plan or a contact
+event re-times the schedule.
+
 **Early touch-down.** A foot that is scheduled to swing but is measured in contact after the first
 `earlyTouchdownMinSwingRatio` of the *nominal* swing duration (scuffing right after lift-off is ignored), and whose
 contact persists for `earlyTouchdownMinContactDuration` (a debounce against a single chattering sensor sample), is

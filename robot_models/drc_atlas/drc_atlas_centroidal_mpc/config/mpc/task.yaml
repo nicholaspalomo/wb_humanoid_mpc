@@ -7,6 +7,9 @@ simContactTimelineWindow: 5.0          # [s] width of the sliding window
 simContactForceThreshold: 5.0          # [N] normal force above which a contact point counts as touching (ground truth)
 simReportsGroundTruthContacts: true   # feed the ground-truth contacts to the MPC as its measured contact state instead of
 # "always touching"; required for contact_planning.enablePhaseResetting in simulation
+# The viewer's target contact patches ('g' toggles them) draw the contact_rectangle of every foot at the pose the contact
+# planner wants the foot on the ground next (position and yaw), so the planned steps can be seen against the robot.
+simShowTargetContactPatches: true
 enableOnlineTuning: true     # Enable runtime parameter and gain tuning in Controller GUI
 useContactBasisVectorInputs: true  # Set true to use basis-vector scalings λ as MPC contact inputs (instead of direct wrenches)
 useComAndAcomTracking: true      # Set true to regulate CoM + Angular Center of Mass (ACoM) instead of base pose

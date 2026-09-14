@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
+#include "humanoid_common_mpc/contact_planning/TargetContactPose.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
 namespace ocs2::humanoid {
@@ -122,6 +123,13 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
   /** True once after a contact event re-timed the schedule (thread-safe); the planner module then plans immediately. */
   bool consumeReplanRequest() { return replanRequested_.exchange(false); }
 
+  /**
+   * Target contact pose of every foot as of the last solver run (thread-safe; for the MuJoCo viewer, see
+   * TargetContactPose.h): the landing pose of the foot's swing in flight or of its next swing, or its placement. Every
+   * pose is invalid while no plan is active.
+   */
+  feet_array_t<TargetContactPose> getTargetContactPoses() const;
+
   // Introspection of the adaptive execution (solver thread only; for tests and telemetry).
   const feet_array_t<ContactEventReport>& getLastContactEvents() const { return lastContactEvents_; }
   const feet_array_t<SwingTimingLatch>& getSwingTimingLatches() const { return swingLatches_; }
@@ -177,6 +185,9 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
   /** DCM step adjustment of every swing foot from the DCM error with respect to the plan (zero unless enabled). */
   void updateDcmStepAdjustment(scalar_t initTime, const ContactPlanningConfig& config);
 
+  /** Snapshot of the target contact poses for getTargetContactPoses(), from the state of the current solver run. */
+  void updateTargetContactPoses(scalar_t initTime, scalar_t terrainHeight);
+
   mutable std::mutex configMutex_;
   ContactPlanningConfig config_;
 
@@ -213,6 +224,9 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
   vector2_t predictedComState_[2] = {vector2_t::Zero(), vector2_t::Zero()};  // predicted CoM at the current solver run
   std::deque<std::pair<scalar_t, scalar_t>> scheduleShiftLog_;               // (time, shift) of every re-timing of later events
   std::atomic<bool> replanRequested_{false};
+
+  mutable std::mutex targetPoseMutex_;
+  feet_array_t<TargetContactPose> targetContactPoses_ = makeFeetArray(TargetContactPose{});  // read by the control thread
 };
 
 }  // namespace ocs2::humanoid
