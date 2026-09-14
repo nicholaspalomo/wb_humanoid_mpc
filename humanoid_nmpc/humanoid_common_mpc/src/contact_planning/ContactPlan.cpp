@@ -48,6 +48,34 @@ void ContactPlan::shiftInTime(scalar_t shift) {
   committedUntil += shift;
 }
 
+namespace {
+std::optional<scalar_t> interpolateNodes(const std::vector<scalar_t>& values, scalar_t startTime, scalar_t dt, scalar_t time) {
+  if (values.empty()) return std::nullopt;
+  const scalar_t s = std::clamp((time - startTime) / dt, 0.0, static_cast<scalar_t>(values.size() - 1));
+  const int k = static_cast<int>(std::floor(s));
+  const int k1 = std::min(k + 1, static_cast<int>(values.size()) - 1);
+  const scalar_t a = s - static_cast<scalar_t>(k);
+  return (1.0 - a) * values[k] + a * values[k1];
+}
+}  // namespace
+
+std::optional<scalar_t> ContactPlan::headingAtTime(scalar_t time) const {
+  if (!hasHeading()) return std::nullopt;
+  return interpolateNodes(heading, startTime, dt, time);
+}
+
+std::optional<scalar_t> ContactPlan::headingRateAtTime(scalar_t time) const {
+  if (!hasHeading() || headingRate.empty()) return std::nullopt;
+  return interpolateNodes(headingRate, startTime, dt, time);
+}
+
+std::optional<scalar_t> ContactPlan::footYawAtTime(size_t contactIndex, scalar_t time) const {
+  if (!hasHeading() || footYaws.empty()) return std::nullopt;
+  const int node = static_cast<int>(std::lround((time - startTime) / dt));
+  const int clamped = std::clamp(node, 0, static_cast<int>(footYaws.size()) - 1);
+  return footYaws[clamped][contactIndex];
+}
+
 std::optional<vector2_t> ContactPlan::footholdAtTime(size_t contactIndex, scalar_t time) const {
   if (!valid || footholds.empty()) return std::nullopt;
   const int node = static_cast<int>(std::lround((time - startTime) / dt));

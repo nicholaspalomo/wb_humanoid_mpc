@@ -47,6 +47,7 @@ namespace ocs2::humanoid {
 struct SwingFootReference {
   vector3_t position = vector3_t::Zero();
   vector3_t linearVelocity = vector3_t::Zero();
+  std::optional<scalar_t> yaw;  // [rad] planned foot yaw, present with the contact planner's heading model
 };
 
 /**
@@ -95,6 +96,14 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    * commanded CoM velocity as a heuristic to prevent the swing foot from dragging behind the robot during locomotion.
    */
   virtual std::optional<vector2_t> getSwingFootVelocityReference(size_t contactIndex, scalar_t time) const;
+
+  /**
+   * World-frame normal of the plane the foot orientation cost is tracked against. Flat ground (0, 0, 1) for a foot in
+   * contact and whenever swing_trajectory_config.swingPitchAngle is zero, which is the default; otherwise the ground
+   * normal tilted back along the heading by the swing pitch, so that tracking it pitches the swing foot toe-up. The
+   * heading is the planned foot yaw where a contact planner provides one, and the commanded base yaw otherwise.
+   */
+  vector3_t getSwingFootPlaneNormal(size_t contactIndex, scalar_t time) const;
 
   vector_t getDesiredState(const TargetTrajectories& targetTrajectories, const vector_t& state, scalar_t time) const;
 

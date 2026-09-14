@@ -1315,6 +1315,10 @@ class MpcParamsTab(ttk.Frame):
         "enablePhaseResetting",
         "enableDcmStepAdjustment",
         "enableEnergyCadenceModulation",
+        # Heading model: the layout of the planner and the ACoM evaluator are fixed at construction.
+        "useAcomDynamics",
+        "planHeadingOverridesTarget",
+        "headingLinearizationPasses",
     }
 
     def _render_contact_planning(self):
@@ -1397,6 +1401,16 @@ class MpcParamsTab(ttk.Frame):
                     "dcmAdjustmentGain",
                     "dcmAdjustmentMaxOffset",
                     "energyCadenceGain",
+                ],
+            ),
+            (
+                "Heading model (ACoM dynamics)",
+                [
+                    "headingRateTrackingWeight",
+                    "headingTrackingWeight",
+                    "yawTorqueWeight",
+                    "footYawTrackingWeight",
+                    "footYawRegularizationWeight",
                 ],
             ),
             # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/contact_planning/ContactPlanningConfig.cpp:contact_planning_keys)

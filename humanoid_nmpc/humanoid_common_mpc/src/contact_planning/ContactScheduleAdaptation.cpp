@@ -109,32 +109,78 @@ scalar_t commitBoundaryForSchedule(const ModeSchedule& schedule, scalar_t time, 
   const auto& eventTimes = schedule.eventTimes;
   const auto& modeSequence = schedule.modeSequence;
   if (modeSequence.empty()) return boundary;
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-    // Walk the phases that overlap [time, boundary]; a swing phase among them extends the boundary to its touch-down.
-    for (size_t i = modeIndexAtTime(schedule, time); i < modeSequence.size(); ++i) {
-      const scalar_t phaseStart = (i == 0) ? -std::numeric_limits<scalar_t>::infinity() : eventTimes[i - 1];
-      if (phaseStart >= boundary) break;
-      const bool inContact = modeNumber2StanceLeg(modeSequence[i])[foot];
-      if (!inContact && i < eventTimes.size()) {
-        boundary = std::max(boundary, eventTimes[i]);  // touch-down of this swing
-      }
+  // Walk the phases that overlap [time, boundary] in time order, all feet at once; a swing phase among them extends the
+  // boundary to its touch-down, and the walk then covers the phases that overlap the extended boundary as well. (One
+  // walk per foot missed a swing of an earlier foot that started on the boundary a later foot had just extended.)
+  for (size_t i = modeIndexAtTime(schedule, time); i < modeSequence.size(); ++i) {
+    const scalar_t phaseStart = (i == 0) ? -std::numeric_limits<scalar_t>::infinity() : eventTimes[i - 1];
+    // Closed at the far end: a swing that starts exactly on the boundary is executed too. Leaving it out let a plan
+    // re-decide a lift-off that the previous plan had aligned onto this very boundary, and with the planning period
+    // equal to the plan's age the lift-off receded by one period per plan and the robot never stepped.
+    if (phaseStart > boundary + 1e-9) break;
+    if (i >= eventTimes.size()) break;  // the last phase has no touch-down to extend to
+    const contact_flag_t contacts = modeNumber2StanceLeg(modeSequence[i]);
+    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+      if (!contacts[foot]) boundary = std::max(boundary, eventTimes[i]);  // touch-down of this swing
     }
   }
   return boundary;
 }
 
-std::vector<contact_flag_t> committedContactsForPlanner(
-    const ModeSchedule& schedule, scalar_t startTime, scalar_t dt, int maxNodes, scalar_t committedUntil) {
-  std::vector<contact_flag_t> committed;
+bool planAgreesWithSwingsInFlight(const ModeSchedule& applied, const ContactPlan& plan, scalar_t time) {
+  if (!plan.valid || plan.contacts.empty()) return true;
+  const contact_flag_t planned = plan.contactsAtTime(time + kMinTimeShift);
+  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    const auto phase = swingPhaseAtTime(applied, foot, time);
+    // Not swinging, or a lift-off at `time` itself: nothing is in flight that the plan could contradict.
+    if (!phase.has_value() || phase->first >= time - kMinTimeShift) continue;
+    if (planned[foot]) return false;
+  }
+  return true;
+}
+
+std::vector<scalar_t> committedSampleTimes(scalar_t startTime, scalar_t dt, int maxNodes, scalar_t committedUntil) {
+  std::vector<scalar_t> sampleTimes;
   for (int k = 0; k < maxNodes; ++k) {
     const scalar_t nodeStart = startTime + static_cast<scalar_t>(k) * dt;
     if (nodeStart >= committedUntil - kMinTimeShift) break;
     const scalar_t nodeEnd = nodeStart + dt;
     const bool inside = nodeEnd <= committedUntil + kMinTimeShift;
-    const scalar_t sampleTime = inside ? nodeStart + 0.5 * dt : committedUntil;
+    sampleTimes.push_back(inside ? nodeStart + 0.5 * dt : committedUntil);
+  }
+  return sampleTimes;
+}
+
+std::vector<contact_flag_t> committedContactsForPlanner(
+    const ModeSchedule& schedule, scalar_t startTime, scalar_t dt, int maxNodes, scalar_t committedUntil) {
+  std::vector<contact_flag_t> committed;
+  for (const scalar_t sampleTime : committedSampleTimes(startTime, dt, maxNodes, committedUntil)) {
     committed.push_back(contactFlagsAtTime(schedule, sampleTime));
   }
   return committed;
+}
+
+feet_array_t<scalar_t> contactPhaseStartTimes(const ModeSchedule& schedule, scalar_t time) {
+  feet_array_t<scalar_t> starts = makeFeetArray(-std::numeric_limits<scalar_t>::infinity());
+  if (schedule.modeSequence.empty()) return starts;
+  const size_t modeIndex = modeIndexAtTime(schedule, time);
+  const contact_flag_t contacts = modeNumber2StanceLeg(schedule.modeSequence[modeIndex]);
+  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    // Walk back through the events while the foot keeps the same contact state.
+    size_t index = modeIndex;
+    while (index > 0 && footInContact(schedule, index - 1, foot) == contacts[foot]) --index;
+    if (index > 0) starts[foot] = schedule.eventTimes[index - 1];
+  }
+  return starts;
+}
+
+std::vector<feet_array_t<scalar_t>> committedPhaseStartsForPlanner(
+    const ModeSchedule& schedule, scalar_t startTime, scalar_t dt, int maxNodes, scalar_t committedUntil) {
+  std::vector<feet_array_t<scalar_t>> starts;
+  for (const scalar_t sampleTime : committedSampleTimes(startTime, dt, maxNodes, committedUntil)) {
+    starts.push_back(contactPhaseStartTimes(schedule, sampleTime));
+  }
+  return starts;
 }
 
 scalar_t applyScheduleShiftsToPlan(ContactPlan& plan, const std::deque<std::pair<scalar_t, scalar_t>>& shiftLog) {

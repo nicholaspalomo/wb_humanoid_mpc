@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_oc/synchronized_module/SolverSynchronizedModule.h>
 
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningModelParameters.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h"
 #include "humanoid_common_mpc/contact_planning/LipContactPlanner.h"
 
@@ -78,6 +79,12 @@ class ContactPlannerModule final : public SolverSynchronizedModule {
 
   /** Updates the planner and reference manager configuration (thread-safe, applied before the next plan). */
   void setConfig(const ContactPlanningConfig& config);
+  /**
+   * Parameters derived from the robot model (torque limits, foot yaw bounds, and comHeight / ZMP box where the task
+   * file leaves them at 0). Applied to the current configuration and to every configuration set later, including the
+   * hot reloads from the task file, which do not carry them.
+   */
+  void setModelParameters(const ContactPlanningModelParameters& parameters);
   ContactPlanningConfig getConfig() const;
 
   Statistics getStatistics() const;
@@ -92,6 +99,7 @@ class ContactPlannerModule final : public SolverSynchronizedModule {
 
   mutable std::mutex configMutex_;
   ContactPlanningConfig config_;
+  std::optional<ContactPlanningModelParameters> modelParameters_;
   bool configChanged_ = false;
 
   LipContactPlanner planner_;  // used by the worker thread, or by the solver thread in synchronous mode

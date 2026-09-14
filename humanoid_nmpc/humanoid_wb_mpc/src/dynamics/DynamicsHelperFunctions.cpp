@@ -75,8 +75,10 @@ VECTOR6_T<SCALAR_T> computeBaseAcceleration(const VECTOR_T<SCALAR_T>& state,
   MATRIX6_T<SCALAR_T> J_foot_l_b = J_foot_l.block(0, 0, 6, 6);
   MATRIX6_T<SCALAR_T> J_foot_r_b = J_foot_r.block(0, 0, 6, 6);
 
-  VECTOR6_T<SCALAR_T> baseExternalForces =
-      J_foot_l_b.transpose() * mpcRobotModel.getContactWrench(input, 0) + J_foot_r_b.transpose() * mpcRobotModel.getContactWrench(input, 1);
+  // LOCAL_WORLD_ALIGNED Jacobians take world-frame wrenches. The state-aware accessor is frame-correct for every input
+  // parameterization; for the wrench-space WB model it is the input wrench itself.
+  VECTOR6_T<SCALAR_T> baseExternalForces = J_foot_l_b.transpose() * mpcRobotModel.getContactWrenchInWorldFrame(state, input, 0) +
+                                           J_foot_r_b.transpose() * mpcRobotModel.getContactWrenchInWorldFrame(state, input, 1);
 
   return computeBaseAcceleration<SCALAR_T>(data.M, data.nle, qdd_joints, baseExternalForces);
 }
@@ -204,7 +206,9 @@ VECTOR_T<SCALAR_T> computeJointTorques(const VECTOR_T<SCALAR_T>& state,
   const VECTOR_T<SCALAR_T> qd = mpcRobotModel.getGeneralizedVelocities(state, input);
   const VECTOR_T<SCALAR_T> qdd_joints = mpcRobotModel.getJointAccelerations(input);
 
-  const std::array<VECTOR6_T<SCALAR_T>, 2> footWrenches{mpcRobotModel.getContactWrench(input, 0), mpcRobotModel.getContactWrench(input, 1)};
+  // World-frame wrenches for the LOCAL_WORLD_ALIGNED Jacobians of computeJointTorques (see computeBaseAcceleration).
+  const std::array<VECTOR6_T<SCALAR_T>, 2> footWrenches{mpcRobotModel.getContactWrenchInWorldFrame(state, input, 0),
+                                                        mpcRobotModel.getContactWrenchInWorldFrame(state, input, 1)};
 
   return computeJointTorques<SCALAR_T>(q, qd, qdd_joints, footWrenches, pinInterface);
 }

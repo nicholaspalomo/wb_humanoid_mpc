@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 #include "robot_model/RobotDescription.h"
 
+#include <algorithm>
 #include <atomic>
 #include <mutex>
 #include <rclcpp/rclcpp.hpp>
@@ -103,6 +104,13 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
           (newMode == "WB_MPC" || newMode == "MPC_ACTIVE")) {
         requestMpcReset();
         transitionCounter_ = 0;  // Reset for transition diagnostics
+        if (mpcEntryBlendTime_ > 0.0) {
+          // Hold the action of the mode we come from until a policy solved after the reset is active, then ramp into
+          // the MPC action. A passive mode without a posture hold (ZERO_TORQUE) is held like JOINT_PD.
+          entryHoldGravityComp_.store(controlMode_ == "GRAVITY_COMP");
+          entryBlendStartTime_.store(-1.0);
+          awaitingPostResetPolicy_.store(true);
+        }
       }
       controlMode_ = newMode;
     }
@@ -139,6 +147,19 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   void setUseGravityCompFeedforward(bool enable) { useGravityCompFeedforward_ = enable; }
   bool getUseGravityCompFeedforward() const { return useGravityCompFeedforward_; }
 
+  /**
+   * Duration [s] of the hand-over into WB_MPC (task.yaml `mpcEntryBlendTime`, 0 disables and keeps the immediate switch).
+   * When enabled, entering WB_MPC from a passive mode keeps sending that mode's action until the first policy solved after
+   * the entry reset has been activated (the MRT keeps the pre-reset policy until then), and then blends targets, gains
+   * and feedforward torques linearly from the held action to the MPC action over this duration. Without it the
+   * feedforward jumps in one cycle from the gravity term of the passive mode to the inverse dynamics of a policy that
+   * was solved against the pre-reset reference.
+   */
+  void setMpcEntryBlendTime(scalar_t seconds) { mpcEntryBlendTime_ = std::max(0.0, seconds); }
+  scalar_t getMpcEntryBlendTime() const { return mpcEntryBlendTime_; }
+  /** True while the entry into WB_MPC is being held or blended (for tests and diagnostics). */
+  bool isEnteringMpc() const { return awaitingPostResetPolicy_.load() || entryBlendStartTime_.load() >= 0.0; }
+
  private:
   /**
    * Handles the MPC solver thread.
@@ -156,8 +177,20 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   void updateMpcState(vector_t& mpcState, const ::robot::model::RobotState& robotState);
   void updateMpcObservation(ocs2::SystemObservation& mpcObservation, const ::robot::model::RobotState& robotState);
 
+  /** JOINT_PD action: PD to the nominal posture with gravity compensation feedforward on the MPC joints. */
+  void fillJointPdAction(const ::robot::model::RobotState& robotState, ::robot::model::RobotJointAction& robotJointAction);
+  /** GRAVITY_COMP action: gravity compensation with light damping, joints move compliantly. */
+  void fillGravityCompAction(const ::robot::model::RobotState& robotState, ::robot::model::RobotJointAction& robotJointAction);
+  /** The action held while entering WB_MPC: that of the mode the controller came from. */
+  void fillEntryHoldAction(const ::robot::model::RobotState& robotState, ::robot::model::RobotJointAction& robotJointAction);
+  /** Blends the MPC action in `robotJointAction` with the held action according to the entry ramp, if one is running. */
+  void applyEntryBlend(const ::robot::model::RobotState& robotState, ::robot::model::RobotJointAction& robotJointAction);
+
   MPC_MRT_Interface mcpMrtInterface_;
-  std::atomic<bool> policyActivated_{false};  // a policy has been swapped in since the last reset
+  std::atomic<bool> policyActivated_{false};  // a policy solved after the last reset has been swapped in
+  // Solves completed by the solver thread since its last reset. resetMpcNode() does not clear the MRT policy buffers, so a
+  // policy swapped in right after a reset may still be the pre-reset one; only a swap after a post-reset solve activates.
+  std::atomic<int> solvesSinceReset_{0};
 
   PinocchioInterface pinocchioInterface_;
   ocs2::SystemObservation currentMpcObservation_;
@@ -198,6 +231,12 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   size_t fileCheckCounter_{0};
 
   bool useGravityCompFeedforward_{false};  ///< When true, use gravity comp instead of full ID torques in WB_MPC mode
+
+  // Hand-over into WB_MPC (setMpcEntryBlendTime). Written from the mode-switch caller, read in the control loop.
+  scalar_t mpcEntryBlendTime_{0.0};                   ///< [s] 0: immediate switch (default)
+  std::atomic<bool> awaitingPostResetPolicy_{false};  ///< holding the previous mode's action until a post-reset policy is active
+  std::atomic<bool> entryHoldGravityComp_{false};     ///< the held action is GRAVITY_COMP (else JOINT_PD)
+  std::atomic<scalar_t> entryBlendStartTime_{-1.0};   ///< observation time the ramp started at, < 0: no ramp running
 
   // ROS topic state for real-time PD gains updates
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr pdGainsSubscription_;

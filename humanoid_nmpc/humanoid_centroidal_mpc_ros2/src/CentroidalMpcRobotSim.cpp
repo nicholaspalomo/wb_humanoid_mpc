@@ -199,6 +199,11 @@ int main(int argc, char** argv) {
       mpcJointController.setUseGravityCompFeedforward(true);
       LOG(INFO) << "Using gravity-comp feedforward in WB_MPC mode (useGravityCompFeedforward=true).";
     }
+    // Hand-over into WB_MPC: hold the previous mode until a post-reset policy is active, then ramp over this duration.
+    if (taskYaml["mpcEntryBlendTime"]) {
+      mpcJointController.setMpcEntryBlendTime(taskYaml["mpcEntryBlendTime"].as<double>());
+      LOG(INFO) << "WB_MPC entry blend time: " << mpcJointController.getMpcEntryBlendTime() << " s (mpcEntryBlendTime).";
+    }
   } catch (...) {
   }
 
@@ -290,6 +295,9 @@ int main(int argc, char** argv) {
     } else {
       robotInterface.setTargetContactFlags({});
     }
+
+    WalkingVelocityCommand targetCmd = ros2ProceduralMpcMotionManager->getScaledWalkingVelocityCommand();
+    robotInterface.setTargetVelocities(targetCmd.linear_velocity_x, targetCmd.linear_velocity_y, targetCmd.angular_velocity_z);
 
     // Apply mode-specific overrides for modes other than JOINT_PD (which is handled by the controller)
     fsmBridge.applyModeAction(currentModeName, robotDescription, robotInterface.getRobotJointAction());

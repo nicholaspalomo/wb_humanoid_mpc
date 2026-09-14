@@ -33,6 +33,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <limits>
 
 #include <pinocchio/algorithm/center-of-mass.hpp>
+#include <pinocchio/algorithm/centroidal.hpp>
+#include <pinocchio/algorithm/frames.hpp>
+#include <pinocchio/algorithm/kinematics.hpp>
+
+#include <ocs2_robotic_tools/common/RotationTransforms.h>
 
 #include <ocs2_core/misc/LinearInterpolation.h>
 
@@ -56,6 +61,63 @@ ContactPlanningReferenceManager::ContactPlanningReferenceManager(std::shared_ptr
     : SwitchedModelReferenceManager(std::move(gaitSchedulePtr), std::move(swingTrajectoryPtr), pinocchioInterface, mpcRobotModel),
       config_(std::move(config)) {
   config_.validate();
+  totalMass_ = pinocchio::computeTotalMass(pinocchioInterface_.getModel());
+}
+
+scalar_t ContactPlanningReferenceManager::computeHeading(const vector_t& state) const {
+  if (acom_) {
+    return acom_->computeAcomOrientation(mpcRobotModelPtr_->getGeneralizedCoordinates(state))(0);
+  }
+  return mpcRobotModelPtr_->getBaseOrientationEulerZYX(state)(0);
+}
+
+scalar_t ContactPlanningReferenceManager::commandedYawRate(scalar_t time) const {
+  const TargetTrajectories& target = this->getTargetTrajectories();
+  if (target.timeTrajectory.size() < 2) return 0.0;
+  constexpr scalar_t kWindow = 0.2;  // [s] the target integrates the commanded yaw rate; differentiate it over this window
+  // The interpolation holds the terminal state past the end of the target, which read as a decaying yaw rate over the
+  // last window of a constant turn; the window is kept inside the target instead (moved back when `time` is near its end).
+  const scalar_t t1 = std::min(time + kWindow, target.timeTrajectory.back());
+  const scalar_t t0 = std::max(std::min(time, t1 - kWindow), target.timeTrajectory.front());
+  if (t1 - t0 <= 1e-6) return 0.0;
+  const scalar_t yaw0 = mpcRobotModelPtr_->getBaseOrientationEulerZYX(target.getDesiredState(t0))(0);
+  const scalar_t yaw1 = mpcRobotModelPtr_->getBaseOrientationEulerZYX(target.getDesiredState(t1))(0);
+  return (moduloAngleWithReference(yaw1, yaw0) - yaw0) / (t1 - t0);
+}
+
+feet_array_t<scalar_t> ContactPlanningReferenceManager::readFootYaws() const {
+  feet_array_t<scalar_t> yaws = makeFeetArray(0.0);
+  const auto& data = pinocchioInterface_.getData();
+  for (size_t i = 0; i < N_CONTACTS; ++i) {
+    const matrix3_t rotation = data.oMf[getContactFrameIndex(pinocchioInterface_, *mpcRobotModelPtr_, i)].rotation();
+    yaws[i] = std::atan2(rotation(1, 0), rotation(0, 0));
+  }
+  return yaws;
+}
+
+scalar_t ContactPlanningReferenceManager::computeYawInertia(const vector_t& state) {
+  const auto& model = pinocchioInterface_.getModel();
+  auto& data = pinocchioInterface_.getData();
+  const vector_t q = mpcRobotModelPtr_->getGeneralizedCoordinates(state);
+  pinocchio::ccrba(model, data, q, vector_t::Zero(model.nv));  // the composite inertia about the CoM in the world frame
+  return data.Ig.inertia().matrix()(2, 2);
+}
+
+void ContactPlanningReferenceManager::applyPlannedHeading(TargetTrajectories& targetTrajectories) const {
+  if (!hasActivePlan() || !activePlan_->hasHeading()) return;
+  for (size_t i = 0; i < targetTrajectories.timeTrajectory.size(); ++i) {
+    const std::optional<scalar_t> heading = activePlan_->headingAtTime(targetTrajectories.timeTrajectory[i]);
+    if (!heading.has_value()) continue;
+    vector_t& stateRef = targetTrajectories.stateTrajectory[i];
+    // The ACoM cost compares the ACoM of the state with the ACoM of the reference state, which is the reference base
+    // yaw plus the joint offset of the reference joints; the base yaw reference is set so that the reference ACoM
+    // heading equals the planned heading.
+    scalar_t offset = 0.0;
+    if (acom_) offset = acomXyzToZyx(acom_->computeJointOrientationOffset(mpcRobotModelPtr_->getJointAngles(stateRef)))(0);
+    vector3_t euler = mpcRobotModelPtr_->getBaseOrientationEulerZYX(stateRef);
+    euler(0) = moduloAngleWithReference(*heading - offset, euler(0));
+    mpcRobotModelPtr_->setBaseOrientationEulerZYX(stateRef, euler);
+  }
 }
 
 void ContactPlanningReferenceManager::setContactPlan(const ContactPlan& plan) {
@@ -96,29 +158,53 @@ std::pair<vector2_t, vector2_t> ContactPlanningReferenceManager::computeComState
 
 void ContactPlanningReferenceManager::updateFootBookkeeping(scalar_t initTime, const vector_t& initState) {
   footPositions_ = computeFootPositions(initState);
+  footYaws_ = readFootYaws();
   const contact_flag_t contacts = contactFlagsAtTime(appliedSchedule_, initTime);
   for (size_t i = 0; i < N_CONTACTS; ++i) {
     if (contacts[i] || !footBookkeepingInitialized_) {
       liftOffPositions_[i] = footPositions_[i];
+      liftOffYaws_[i] = footYaws_[i];
     }
   }
   footBookkeepingInitialized_ = true;
 }
 
 void ContactPlanningReferenceManager::activatePendingPlan(scalar_t initTime) {
-  bool activated = false;
+  std::optional<ContactPlan> candidate;
   {
     std::lock_guard<std::mutex> lock(planMutex_);
     if (pendingPlan_.has_value()) {
-      activePlan_ = std::move(*pendingPlan_);
+      candidate = std::move(*pendingPlan_);
       pendingPlan_.reset();
-      activated = true;
     }
   }
-  // The planner snapshot is taken after this manager ran in the same cycle, so the plan has seen every shift logged at or
-  // before its start time; shifts logged later re-timed the schedule it was built on and are applied to the plan too.
-  if (activated && activePlan_->valid) {
-    applyScheduleShiftsToPlan(*activePlan_, scheduleShiftLog_);
+  if (candidate.has_value() && candidate->valid) {
+    // The planner snapshot is taken after this manager ran in the same cycle, so the plan has seen every shift logged at
+    // or before its start time; shifts logged later re-timed the schedule it was built on and are applied to the plan too.
+    applyScheduleShiftsToPlan(*candidate, scheduleShiftLog_);
+    const ContactPlanningConfig config = getConfig();
+    // The plan may only change the schedule after its own commit boundary. A boundary that has already passed means the
+    // plan's first decisions lie in the past (the planner latency exceeded commitTime, or a touch-down the boundary was
+    // extended to happened while the plan was being computed): the plan is dropped and the executed schedule keeps
+    // running until a fresh plan arrives. Shifting such a plan forward onto the current boundary instead delayed it by up
+    // to a whole swing and re-lifted the foot that had just landed. Likewise a plan that has a foot down where the
+    // executed schedule already has it in flight at the merge point was built before that swing was activated and would
+    // land the foot there and lift it again.
+    const scalar_t mergeTime = std::max(initTime, candidate->committedUntil);
+    if (candidate->committedUntil < initTime - 1e-6) {
+      if (++stalePlanCount_ % 50 == 1) {
+        std::cerr << "[ContactPlanningReferenceManager] the contact plan is stale by " << (initTime - candidate->committedUntil)
+                  << " s (commitTime " << config.commitTime << " s does not cover the planner latency); keeping the executed schedule."
+                  << std::endl;
+      }
+    } else if (hasAppliedSchedule_ && !planAgreesWithSwingsInFlight(appliedSchedule_, *candidate, mergeTime)) {
+      if (++inconsistentPlanCount_ % 50 == 1) {
+        std::cerr << "[ContactPlanningReferenceManager] the contact plan was made before a swing that is in flight at its merge point ("
+                  << mergeTime << " s) was committed; keeping the executed schedule." << std::endl;
+      }
+    } else {
+      activePlan_ = std::move(candidate);
+    }
   }
   while (!scheduleShiftLog_.empty() && scheduleShiftLog_.front().first < initTime - kShiftLogAge) {
     scheduleShiftLog_.pop_front();
@@ -236,21 +322,15 @@ void ContactPlanningReferenceManager::modifyReferences(scalar_t initTime,
 
   // The plan honoured the applied schedule up to its own commit boundary, and that boundary already covers every swing
   // that was in flight or about to start when the plan was made (commitBoundary extends it to their touch-downs). So
-  // the merge happens exactly there. Merging any later, e.g. from the boundary computed now, cut the plan's first
+  // the merge happens exactly there. Merging any later, e.g. at the boundary computed now, cut the plan's first
   // lift-off short by the plan's age: the merged swing began at the later merge time but kept the plan's touch-down,
-  // and reached the controller shorter than minSwingDuration. A plan whose commit window has already passed is stale
-  // (its first decisions lie in the past, so any lift-off among them would be sliced the same way): the applied
-  // schedule keeps running until a fresh plan arrives.
+  // and reached the controller shorter than minSwingDuration. Once the active plan's boundary has passed (no fresh plan
+  // for longer than commitTime) the applied schedule keeps running; activatePendingPlan() never lets such a plan in.
   scalar_t commitTime = initTime;
   bool planFresh = false;
   if (hasActivePlan()) {
     planFresh = activePlan_->committedUntil >= initTime - 1e-6;
     commitTime = std::max(initTime, activePlan_->committedUntil);
-    if (!planFresh && ++stalePlanCount_ % 50 == 1) {
-      std::cerr << "[ContactPlanningReferenceManager] the contact plan is stale by " << (initTime - activePlan_->committedUntil)
-                << " s (commitTime " << config.commitTime << " s does not cover the planner latency); keeping the executed schedule."
-                << std::endl;
-    }
   }
   const bool planUsable =
       hasActivePlan() && planFresh && activePlan_->endTime() > commitTime + config.dt && activePlan_->startTime <= commitTime;
@@ -268,6 +348,7 @@ void ContactPlanningReferenceManager::modifyReferences(scalar_t initTime,
     schedule = gaitSchedulePtr_->getModeSchedule(lowerBoundTime, upperBoundTime);
   }
 
+  if (config.useAcomDynamics && config.planHeadingOverridesTarget) applyPlannedHeading(targetTrajectories);
   const scalar_t terrainHeight = adaptToCurrentGroundHeight(targetTrajectories, initState, initMode);
   updateSwingTrajectories(schedule, initTime, terrainHeight, config);
 
@@ -385,6 +466,19 @@ std::optional<SwingFootReference> ContactPlanningReferenceManager::getSwingFootR
   reference.position(2) = swingTrajectoryPtr_->getZpositionConstraint(contactIndex, time);
   reference.linearVelocity.head<2>() = blendRate * delta;
   reference.linearVelocity(2) = swingTrajectoryPtr_->getZvelocityConstraint(contactIndex, time);
+  // Heading model: the foot yaw turns from its lift-off yaw to the planned landing yaw with the same profile.
+  if (activePlan_->hasHeading()) {
+    const std::optional<scalar_t> landingYaw = activePlan_->footYawAtTime(contactIndex, touchDownTime);
+    if (landingYaw.has_value()) {
+      scalar_t startYaw = liftOffYaws_[contactIndex];
+      if (!endsCurrentContactPhase) {
+        const std::optional<scalar_t> plannedYaw =
+            activePlan_->footYawAtTime(contactIndex, liftOffTime - 0.5 * activePlan_->dt + kSameSwingTolerance);
+        if (plannedYaw.has_value()) startYaw = *plannedYaw;
+      }
+      reference.yaw = startYaw + blend * (moduloAngleWithReference(*landingYaw, startYaw) - startYaw);
+    }
+  }
   return reference;
 }
 
@@ -403,23 +497,31 @@ ContactPlannerInput ContactPlanningReferenceManager::makePlannerInput(scalar_t i
     input.footPositions[i] = feet[i].head<2>();
   }
 
+  const ContactPlanningConfig config = getConfig();
+  if (config.useAcomDynamics) {
+    // Heading model: the whole-body heading, its rate from the angular momentum about the vertical, the commanded yaw
+    // rate, and the foot yaws unwrapped near the heading. The planning frame is the heading.
+    const feet_array_t<scalar_t> yaws = readFootYaws();
+    input.heading = computeHeading(initState);
+    input.yaw = input.heading;
+    input.yawInertia = computeYawInertia(initState);
+    const scalar_t angularMomentumZ = totalMass_ * mpcRobotModelPtr_->getBaseComVelocity(initState)(5);
+    input.headingRate = input.yawInertia > 0.0 ? angularMomentumZ / input.yawInertia : 0.0;
+    input.headingRateCommand = commandedYawRate(initTime);
+    for (size_t i = 0; i < N_CONTACTS; ++i) {
+      input.footYaws[i] = moduloAngleWithReference(yaws[i], input.heading);
+    }
+  }
+
   // Events at exactly `initTime` count as passed (a touch-down placed at the current time by the phase resetting is a
   // contact for the planner), consistently with every other schedule query of this manager.
   const ModeSchedule& schedule = hasAppliedSchedule_ ? appliedSchedule_ : this->getModeSchedule();
   input.contacts = contactFlagsAtTime(schedule, initTime);
-  const auto& eventTimes = schedule.eventTimes;
   const auto& modeSequence = schedule.modeSequence;
   const size_t modeIndex = modeIndexAtTime(schedule, initTime);
+  const feet_array_t<scalar_t> phaseStarts = contactPhaseStartTimes(schedule, initTime);
   for (size_t i = 0; i < N_CONTACTS; ++i) {
-    // Walk back through the events while the foot keeps the same contact state.
-    scalar_t phaseStart = initTime - kLongAgo;
-    size_t index = modeIndex;
-    while (index > 0 && modeNumber2StanceLeg(modeSequence[index - 1])[i] == input.contacts[i]) {
-      --index;
-    }
-    if (index > 0) {
-      phaseStart = eventTimes[index - 1];
-    }
+    const scalar_t phaseStart = std::isfinite(phaseStarts[i]) ? phaseStarts[i] : initTime - kLongAgo;
     input.phaseElapsedTime[i] = std::max(0.0, initTime - phaseStart);
   }
 
@@ -433,11 +535,13 @@ ContactPlannerInput ContactPlanningReferenceManager::makePlannerInput(scalar_t i
     }
   }
 
-  const ContactPlanningConfig config = getConfig();
   input.committedUntil = hasAppliedSchedule_ ? commitBoundary(initTime) : initTime + config.commitTime;
   // Nodes that start before the boundary are fixed to the executed schedule; at least one node stays free.
   const int maxCommitted = std::max(0, config.numNodes - 1);
   input.committedContacts = committedContactsForPlanner(schedule, initTime, config.dt, maxCommitted, input.committedUntil);
+  // A phase that begins inside a committed node (a touch-down between two nodes) is counted from the executed event, so
+  // that the minimum durations that follow it are measured in real time, not from the node start.
+  input.committedPhaseStartTimes = committedPhaseStartsForPlanner(schedule, initTime, config.dt, maxCommitted, input.committedUntil);
   return input;
 }
 

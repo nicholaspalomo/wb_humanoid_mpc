@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <iostream>
 #include <set>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -124,8 +125,30 @@ OcpQpHpipmSolver::Settings relaxationQpSettings(const ContactPlanningConfig& con
 
 }  // namespace
 
+LipContactPlanner::Layout LipContactPlanner::makeLayout(const ContactPlanningConfig& config) {
+  Layout layout;
+  if (!config.useAcomDynamics) return layout;
+  layout.hasHeading = true;
+  layout.heading = STATE_DIM;
+  layout.headingRate = STATE_DIM + 1;
+  layout.footYaw0 = STATE_DIM + 2;
+  layout.nx = STATE_DIM + 2 + static_cast<int>(N_CONTACTS);
+  layout.yawTorque0 = INPUT_DIM;
+  layout.footYawDelta0 = INPUT_DIM + static_cast<int>(N_CONTACTS);
+  layout.nu = INPUT_DIM + 2 * static_cast<int>(N_CONTACTS);
+  return layout;
+}
+
+scalar_t LipContactPlanner::yawInertia(const ContactPlannerInput& input) const {
+  if (input.yawInertia <= 0.0) {
+    throw std::invalid_argument("[LipContactPlanner] the heading model needs a positive yaw inertia in the input (from the robot model)");
+  }
+  return input.yawInertia;
+}
+
 LipContactPlanner::LipContactPlanner(ContactPlanningConfig config) : config_(std::move(config)) {
   config_.validate();
+  layout_ = makeLayout(config_);
   rebuildSolver();
 }
 
@@ -140,6 +163,7 @@ void LipContactPlanner::rebuildSolver() {
 void LipContactPlanner::setConfig(const ContactPlanningConfig& config) {
   config.validate();
   config_ = config;
+  layout_ = makeLayout(config_);
   rebuildSolver();
   reset();
 }
@@ -239,6 +263,44 @@ bool LipContactPlanner::propagate(const ContactPlannerInput& input, MiqpAssignme
   // cannot, because the other foot is in the air or has just landed, lifts at the first node where it can instead of
   // making the horizon infeasible. Without this, a standing start with maxContactDuration set (both feet overdue) had no
   // feasible assignment at all, since both feet were forced to lift at the same node.
+  // A phase that switches at node k begins at the node start, except along the committed prefix, where the executed
+  // schedule knows the real event time (input.committedPhaseStartTimes): a touch-down at 0.97 s inside the node
+  // [0.9, 1.0) has lasted 0.03 s when the node ends, not a whole node. Counting it from the node start let every
+  // minimum-duration rule after it (double support, contact, swing) be satisfied up to a node too early, and the merged
+  // schedule contained double supports of a few hundredths of a second against a 0.1 s minimum.
+  const auto switchTime = [&](int k, size_t foot) -> scalar_t {
+    const scalar_t nodeStart = input.time + static_cast<scalar_t>(k) * config_.dt;
+    if (k < static_cast<int>(input.committedPhaseStartTimes.size())) {
+      const scalar_t start = input.committedPhaseStartTimes[k][foot];
+      // The switch is detected between two samples; an event outside that window is not the switch we are looking at.
+      if (std::isfinite(start) && start > nodeStart - config_.dt && start <= nodeStart + config_.dt) return start;
+    }
+    return nodeStart;
+  };
+  // Switch time of node k in node units from the grid start (k itself for a switch at the node start).
+  const auto switchNode = [&](int k, size_t foot) { return (switchTime(k, foot) - input.time) / config_.dt; };
+  // Nodes spent in the phase that switched at node k, at the start of node k + 1: rounded down against a minimum,
+  // up against a maximum, like the elapsed time of the phase active at planning time (initialPhaseNodes).
+  const auto switchedPhaseNodes = [&](int k, size_t foot, bool roundUp) -> int {
+    const scalar_t nodes = static_cast<scalar_t>(k + 1) - switchNode(k, foot);
+    const int rounded = static_cast<int>(roundUp ? std::ceil(nodes - 1e-9) : std::floor(nodes + 1e-9));
+    return std::max(roundUp ? 1 : 0, rounded);
+  };
+
+  // Minimum double support, in (fractional) nodes: after a touch-down at node time t_td the other foot may not lift at a
+  // node that starts before t_td + minDoubleSupportDuration.
+  const scalar_t minDoubleSupportNodes = config_.minDoubleSupportDuration / config_.dt;
+  const auto heldAfterTouchDown = [&](int k, scalar_t latestTouchDownNode) {
+    return static_cast<scalar_t>(k) < latestTouchDownNode + minDoubleSupportNodes - 1e-9;
+  };
+  // A double support already in progress at planning time counts from its touch-down, the start of the shorter contact.
+  scalar_t initialTouchDownNode = -1000.0;
+  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    if (input.contacts[foot] && input.contacts[1 - foot]) {
+      initialTouchDownNode = std::max(initialTouchDownNode, -std::max(0.0, input.phaseElapsedTime[foot]) / config_.dt);
+    }
+  }
+
   const int nDoubleSupportHold = config_.minDoubleSupportNodes();
   std::array<std::vector<bool>, N_CONTACTS> heldByDoubleSupport;
   for (auto& hold : heldByDoubleSupport) hold.assign(N, false);
@@ -247,25 +309,22 @@ bool LipContactPlanner::propagate(const ContactPlannerInput& input, MiqpAssignme
     if (nDoubleSupportHold <= 0) return;
     std::array<std::int8_t, N_CONTACTS> kappa;
     for (size_t foot = 0; foot < N_CONTACTS; ++foot) kappa[foot] = input.contacts[foot] ? 1 : 0;
-    int lastTouchDown = -1000;
-    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-      if (input.contacts[foot] && input.contacts[1 - foot]) lastTouchDown = std::max(lastTouchDown, -initialPhaseNodes(input, foot));
-    }
+    scalar_t lastTouchDown = initialTouchDownNode;
     for (int k = 0; k < N; ++k) {
-      int latestTouchDown = lastTouchDown;
+      scalar_t latestTouchDown = lastTouchDown;
       bool allFixed = true;
       for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
         const std::int8_t value = a[contactBinaryIndex(k, foot)];
         allFixed = allFixed && value != kMiqpFree;
-        if (kappa[foot] == 0 && value == 1) latestTouchDown = k;
+        if (kappa[foot] == 0 && value == 1) latestTouchDown = std::max(latestTouchDown, switchNode(k, foot));
       }
       for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-        heldByDoubleSupport[foot][k] = kappa[foot] == 1 && k < latestTouchDown + nDoubleSupportHold;
+        heldByDoubleSupport[foot][k] = kappa[foot] == 1 && heldAfterTouchDown(k, latestTouchDown);
       }
       if (!allFixed) break;
       for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
         const std::int8_t value = a[contactBinaryIndex(k, foot)];
-        if (kappa[foot] == 0 && value == 1) lastTouchDown = k;
+        if (kappa[foot] == 0 && value == 1) lastTouchDown = std::max(lastTouchDown, switchNode(k, foot));
         kappa[foot] = value;
       }
     }
@@ -290,7 +349,7 @@ bool LipContactPlanner::propagate(const ContactPlannerInput& input, MiqpAssignme
       if (value == kappa) {
         ++tau;
       } else {
-        tau = 1;
+        tau = switchedPhaseNodes(k, foot, true);
         kappa = value;
       }
     }
@@ -364,7 +423,8 @@ bool LipContactPlanner::propagate(const ContactPlannerInput& input, MiqpAssignme
           ++tauMin;
           ++tauMax;
         } else {
-          tauMin = tauMax = 1;
+          tauMin = switchedPhaseNodes(k, foot, false);
+          tauMax = switchedPhaseNodes(k, foot, true);
           kappa = a[index];
         }
       }
@@ -379,29 +439,22 @@ bool LipContactPlanner::propagate(const ContactPlannerInput& input, MiqpAssignme
     }
 
     // Minimum double support: after a touch-down at node k the other foot may not lift off before node k + n_ds.
-    const int nDoubleSupport = config_.minDoubleSupportNodes();
-    if (nDoubleSupport > 0 && ok) {
+    if (nDoubleSupportHold > 0 && ok) {
       std::array<std::int8_t, N_CONTACTS> kappa{input.contacts[0] ? std::int8_t(1) : std::int8_t(0),
                                                 input.contacts[1] ? std::int8_t(1) : std::int8_t(0)};
-      int lastTouchDown = -1000;
-      for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-        // A double support already in progress counts from the elapsed time of the shorter contact phase.
-        if (input.contacts[foot] && input.contacts[1 - foot]) {
-          lastTouchDown = std::max(lastTouchDown, -initialPhaseNodes(input, foot));
-        }
-      }
+      scalar_t lastTouchDown = initialTouchDownNode;
       for (int k = 0; k < N && ok; ++k) {
         // A touch-down decided at this very node already binds the other foot at this node: lifting it here would turn
         // single support on one foot into single support on the other with no double support at all, which is the
         // weight transfer the rule forbids. Counting it only after the node let that instantaneous switch through.
-        int latestTouchDown = lastTouchDown;
+        scalar_t latestTouchDown = lastTouchDown;
         for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-          if (kappa[foot] == 0 && a[contactBinaryIndex(k, foot)] == 1) latestTouchDown = k;
+          if (kappa[foot] == 0 && a[contactBinaryIndex(k, foot)] == 1) latestTouchDown = std::max(latestTouchDown, switchNode(k, foot));
         }
         bool allFixed = true;
         for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
           const int index = contactBinaryIndex(k, foot);
-          if (kappa[foot] == 1 && k < latestTouchDown + nDoubleSupport && k >= numCommitted) {
+          if (kappa[foot] == 1 && heldAfterTouchDown(k, latestTouchDown) && k >= numCommitted) {
             if (a[index] == 0) return false;
             changed |= fix(index, 1);
           }
@@ -410,7 +463,7 @@ bool LipContactPlanner::propagate(const ContactPlannerInput& input, MiqpAssignme
         if (!allFixed || !ok) break;
         for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
           const std::int8_t value = a[contactBinaryIndex(k, foot)];
-          if (kappa[foot] == 0 && value == 1) lastTouchDown = k;
+          if (kappa[foot] == 0 && value == 1) lastTouchDown = std::max(lastTouchDown, switchNode(k, foot));
           kappa[foot] = value;
         }
       }
@@ -449,8 +502,70 @@ bool LipContactPlanner::propagate(const ContactPlannerInput& input, MiqpAssignme
   return ok;
 }
 
+LipContactPlanner::HeadingNominal LipContactPlanner::defaultNominal(const ContactPlannerInput& input) const {
+  const int N = config_.numNodes;
+  HeadingNominal nominal;
+  nominal.heading.resize(N + 1);
+  nominal.com.resize(N + 1);
+  nominal.feet.resize(N + 1);
+  const int shift = previousPlanShift(input);
+  const bool fromPrevious =
+      shift >= 0 && previousPlan_ && previousPlan_->hasHeading() && previousPlan_->heading.size() == static_cast<size_t>(N + 1) &&
+      previousPlan_->comPosition.size() == static_cast<size_t>(N + 1) && previousPlan_->footholds.size() == static_cast<size_t>(N + 1);
+  for (int k = 0; k <= N; ++k) {
+    if (fromPrevious) {
+      const int source = std::min(k + shift, N);
+      nominal.heading[k] = previousPlan_->heading[source];
+      nominal.com[k] = previousPlan_->comPosition[source];
+      nominal.feet[k] = previousPlan_->footholds[source];
+    } else {
+      const scalar_t t = static_cast<scalar_t>(k) * config_.dt;
+      nominal.heading[k] = input.heading + input.headingRateCommand * t;
+      nominal.com[k] = input.comPosition + input.comVelocity * t;
+      nominal.feet[k] = input.footPositions;
+    }
+  }
+  return nominal;
+}
+
+LipContactPlanner::HeadingNominal LipContactPlanner::nominalFromSolution(const Layout& layout, const OcpQpSolution& solution) {
+  HeadingNominal nominal;
+  const size_t n = solution.x.size();
+  nominal.heading.resize(n);
+  nominal.com.resize(n);
+  nominal.feet.resize(n);
+  for (size_t k = 0; k < n; ++k) {
+    const vector_t& x = solution.x[k];
+    nominal.heading[k] = layout.hasHeading ? x(layout.heading) : 0.0;
+    nominal.com[k] = x.segment<2>(CX);
+    nominal.feet[k][0] = x.segment<2>(PLX);
+    nominal.feet[k][1] = x.segment<2>(PRX);
+  }
+  return nominal;
+}
+
 OcpQpProblem LipContactPlanner::buildProblem(const ContactPlannerInput& input) const {
+  return buildProblem(input, defaultNominal(input));
+}
+
+OcpQpProblem LipContactPlanner::buildProblem(const ContactPlannerInput& input, const HeadingNominal& nominal) const {
   const ContactPlanningConfig& cfg = config_;
+  const Layout& L = layout_;
+  const bool hasHeading = L.hasHeading;
+  if (hasHeading &&
+      (nominal.heading.size() < static_cast<size_t>(cfg.numNodes + 1) || nominal.feet.size() < static_cast<size_t>(cfg.numNodes + 1) ||
+       nominal.com.size() < static_cast<size_t>(cfg.numNodes + 1))) {
+    throw std::invalid_argument("[LipContactPlanner] the nominal heading trajectory must cover every node");
+  }
+  if (hasHeading && !cfg.hasModelParameters()) {
+    throw std::invalid_argument(
+        "[LipContactPlanner] the heading model needs the model-derived parameters (torque limits, foot yaw bounds); apply "
+        "ContactPlanningModelParameters to the configuration first");
+  }
+  const scalar_t inertia = hasHeading ? yawInertia(input) : 1.0;
+  const scalar_t torsion = cfg.torsionalFrictionTorque;
+  const scalar_t couple = cfg.doubleSupportYawCouple;
+  constexpr scalar_t kYawBigM = 2.0 * M_PI;
   const int N = cfg.numNodes;
   const scalar_t dt = cfg.dt;
   const scalar_t omega = cfg.omega();
@@ -458,10 +573,23 @@ OcpQpProblem LipContactPlanner::buildProblem(const ContactPlannerInput& input) c
   const scalar_t sh = std::sinh(omega * dt);
   const scalar_t M = cfg.bigM;
 
-  // Yaw-aligned constraint frame: components of the world-frame unit vectors of the local x and y axes.
-  const vector2_t ex(std::cos(input.yaw), std::sin(input.yaw));
-  const vector2_t ey(-std::sin(input.yaw), std::cos(input.yaw));
-  const std::array<vector2_t, 2> axes{ex, ey};
+  // Yaw-aligned constraint frame: components of the world-frame unit vectors of the local x and y axes. With the heading
+  // model the frame of node k is the nominal heading of node k, and every projection e_a(theta) . d gets its first-order
+  // heading term d e_a / d theta (theta_n) . d_n (theta - theta_n), so that the heading and the footholds are decided
+  // together; d e_x / d theta = e_y and d e_y / d theta = -e_x.
+  const auto axesAt = [&](int k) -> std::array<vector2_t, 2> {
+    const scalar_t theta = hasHeading ? nominal.heading[k] : input.yaw;
+    return {vector2_t(std::cos(theta), std::sin(theta)), vector2_t(-std::sin(theta), std::cos(theta))};
+  };
+  // Coefficient on the heading state and the constant offset of the first-order term of e_axis(theta) . d around
+  // (theta_n, d_n): g (theta - theta_n) = g theta - g theta_n.
+  const auto frameTerm = [&](int axis, int k, const vector2_t& dn) -> std::pair<scalar_t, scalar_t> {
+    if (!hasHeading) return {0.0, 0.0};
+    const std::array<vector2_t, 2> ax = axesAt(k);
+    const vector2_t de = (axis == 0) ? ax[1] : vector2_t(-ax[0]);
+    const scalar_t g = de.dot(dn);
+    return {g, -g * nominal.heading[k]};
+  };
   const std::array<scalar_t, 2> zmpHalfWidth{cfg.zmpHalfWidthX, cfg.zmpHalfWidthY};
   const std::array<int, 2> pIndex{PLX, PRX};  // x index of each foot's position; y follows
   const std::array<int, 2> dIndex{DLX, DRX};
@@ -469,18 +597,25 @@ OcpQpProblem LipContactPlanner::buildProblem(const ContactPlannerInput& input) c
   const int previousShift = previousPlanShift(input);
 
   OcpQpProblem problem;
-  problem.x0 = vector_t::Zero(STATE_DIM);
+  problem.x0 = vector_t::Zero(L.nx);
   problem.x0.segment<2>(CX) = input.comPosition;
   problem.x0.segment<2>(VX) = input.comVelocity;
   problem.x0.segment<2>(PLX) = input.footPositions[0];
   problem.x0.segment<2>(PRX) = input.footPositions[1];
+  if (hasHeading) {
+    problem.x0(L.heading) = input.heading;
+    problem.x0(L.headingRate) = input.headingRate;
+    for (size_t foot = 0; foot < N_CONTACTS; ++foot) problem.x0(L.footYaw(foot)) = input.footYaws[foot];
+  }
 
   problem.stages.resize(N + 1);
   for (int k = 0; k <= N; ++k) {
     const bool terminal = (k == N);
     OcpQpStage& s = problem.stages[k];
-    s = OcpQpStage::Zero(STATE_DIM, terminal ? 0 : INPUT_DIM, !terminal);
+    s = OcpQpStage::Zero(L.nx, terminal ? 0 : L.nu, !terminal);
     s.Q.diagonal().array() += kStateRegularization;
+    const std::array<vector2_t, 2> axes = axesAt(k);
+    const vector2_t& ey = axes[1];
 
     // Foothold consistency: pull the feet towards the previous plan, shifted to the current time (only matters while a
     // foot moves, the contact constraints pin it otherwise).
@@ -503,12 +638,29 @@ OcpQpProblem LipContactPlanner::buildProblem(const ContactPlannerInput& input) c
         xc.push_back({PLX + axis, ey(axis)});
         xc.push_back({PRX + axis, -ey(axis)});
       }
-      addQuadraticResidual(s, xc, {}, -cfg.nominalStepWidth, cfg.stepWidthWeight);
+      const auto [g, offset] = frameTerm(1, k, hasHeading ? vector2_t(nominal.feet[k][0] - nominal.feet[k][1]) : vector2_t::Zero());
+      if (hasHeading) xc.push_back({L.heading, g});
+      addQuadraticResidual(s, xc, {}, -cfg.nominalStepWidth + offset, cfg.stepWidthWeight);
+    }
+    if (hasHeading) {
+      // Heading rate towards the commanded yaw rate, heading towards the commanded heading, foot yaws towards the heading.
+      addQuadraticResidual(s, {{L.headingRate, 1.0}}, {}, -input.headingRateCommand, cfg.headingRateTrackingWeight);
+      const scalar_t commandedHeading = input.heading + input.headingRateCommand * static_cast<scalar_t>(k) * dt;
+      addQuadraticResidual(s, {{L.heading, 1.0}}, {}, -commandedHeading, cfg.headingTrackingWeight);
+      for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+        addQuadraticResidual(s, {{L.footYaw(foot), 1.0}, {L.heading, -1.0}}, {}, 0.0, cfg.footYawTrackingWeight);
+      }
     }
     if (terminal) {
       continue;
     }
     s.R.diagonal().array() += kInputRegularization;
+    if (hasHeading) {
+      for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+        addQuadraticResidual(s, {}, {{L.yawTorque(foot), 1.0}}, 0.0, cfg.yawTorqueWeight);
+        addQuadraticResidual(s, {}, {{L.footYawDelta(foot), 1.0}}, 0.0, cfg.footYawRegularizationWeight);
+      }
+    }
 
     // ---------------- dynamics ----------------
     s.A.setIdentity();
@@ -522,11 +674,37 @@ OcpQpProblem LipContactPlanner::buildProblem(const ContactPlannerInput& input) c
       s.B(PLX + axis, DLX + axis) = 1.0;
       s.B(PRX + axis, DRX + axis) = 1.0;
     }
+    if (hasHeading) {
+      s.A(L.heading, L.headingRate) = dt;
+      for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+        s.B(L.heading, L.yawTorque(foot)) = 0.5 * dt * dt / inertia;
+        s.B(L.headingRate, L.yawTorque(foot)) = dt / inertia;
+        s.B(L.footYaw(foot), L.footYawDelta(foot)) = 1.0;
+      }
+    }
 
     // ---------------- input boxes ----------------
     s.idxbu = {DLX, DLY, DRX, DRY, CL, CR};
     s.lbu = (vector_t(6) << -M, -M, -M, -M, 0.0, 0.0).finished();
     s.ubu = (vector_t(6) << M, M, M, M, 1.0, 1.0).finished();
+    if (hasHeading) {
+      const scalar_t torqueBound = torsion + couple;
+      for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+        s.idxbu.push_back(L.yawTorque(foot));
+        s.idxbu.push_back(L.footYawDelta(foot));
+      }
+      vector_t lbu(s.idxbu.size()), ubu(s.idxbu.size());
+      lbu.head(6) = s.lbu;
+      ubu.head(6) = s.ubu;
+      for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+        lbu(6 + 2 * foot) = -torqueBound;
+        ubu(6 + 2 * foot) = torqueBound;
+        lbu(7 + 2 * foot) = -kYawBigM;
+        ubu(7 + 2 * foot) = kYawBigM;
+      }
+      s.lbu = lbu;
+      s.ubu = ubu;
+    }
 
     // ---------------- running cost ----------------
     for (int axis = 0; axis < 2; ++axis) {
@@ -544,9 +722,26 @@ OcpQpProblem LipContactPlanner::buildProblem(const ContactPlannerInput& input) c
     }
 
     // ---------------- general constraints ----------------
-    RowBuilder rows(STATE_DIM, INPUT_DIM);
+    RowBuilder rows(L.nx, L.nu);
     // No flight phase.
     rows.add({}, {{CL, 1.0}, {CR, 1.0}}, 1.0, 2.0, false);
+    if (hasHeading) {
+      for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+        // Yaw torque of a foot: torsional friction while it stands, half the friction couple on top in double support:
+        // +-tau_i - T_t c_i - T_c (c_L + c_R) / 2 <= -T_c / 2.
+        for (const scalar_t sign : {1.0, -1.0}) {
+          rows.add({}, {{L.yawTorque(foot), sign}, {cIndex[foot], -torsion}, {CL, -0.5 * couple}, {CR, -0.5 * couple}}, -kLooseBound,
+                   -0.5 * couple, false);
+        }
+        // A foot's yaw only changes while the foot is in the air: +-dpsi_i + 2 pi c_i <= 2 pi.
+        for (const scalar_t sign : {1.0, -1.0}) {
+          rows.add({}, {{L.footYawDelta(foot), sign}, {cIndex[foot], kYawBigM}}, -kLooseBound, kYawBigM, false);
+        }
+        // Hip range: the foot yaw stays within the hip yaw limits of the heading (soft).
+        const auto [yawLower, yawUpper] = cfg.footYawOffsetBounds(foot);
+        rows.add({{L.footYaw(foot), 1.0}, {L.heading, -1.0}}, {}, yawLower, yawUpper, true);
+      }
+    }
 
     // ZMP support region (soft). Single support: the box of the supporting foot. Double support: laterally the exact hull
     // of both boxes (the feet never cross laterally), along the heading a box around the midpoint of the feet, which is a
@@ -603,7 +798,7 @@ OcpQpProblem LipContactPlanner::buildProblem(const ContactPlannerInput& input) c
         }
       }
     }
-    // Reachability of the feet with respect to the CoM (soft), yaw frame.
+    // Reachability of the feet with respect to the CoM (soft), yaw frame (with its first-order heading term).
     for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
       for (int axis = 0; axis < 2; ++axis) {
         Coefficients xc;
@@ -622,7 +817,9 @@ OcpQpProblem LipContactPlanner::buildProblem(const ContactPlannerInput& input) c
           lower = -cfg.reachYOuter;
           upper = -cfg.reachYInner;
         }
-        rows.add(xc, {}, lower, upper, true);
+        const auto [g, offset] = frameTerm(axis, k, hasHeading ? vector2_t(nominal.feet[k][foot] - nominal.com[k]) : vector2_t::Zero());
+        if (hasHeading) xc.push_back({L.heading, g});
+        rows.add(xc, {}, lower - offset, upper - offset, true);
       }
     }
     // Foot separation (soft): step length and width bounds.
@@ -632,10 +829,12 @@ OcpQpProblem LipContactPlanner::buildProblem(const ContactPlannerInput& input) c
         xc.push_back({PLX + w, axes[axis](w)});
         xc.push_back({PRX + w, -axes[axis](w)});
       }
+      const auto [g, offset] = frameTerm(axis, k, hasHeading ? vector2_t(nominal.feet[k][0] - nominal.feet[k][1]) : vector2_t::Zero());
+      if (hasHeading) xc.push_back({L.heading, g});
       if (axis == 0) {
-        rows.add(xc, {}, -cfg.maxStepLength, cfg.maxStepLength, true);
+        rows.add(xc, {}, -cfg.maxStepLength - offset, cfg.maxStepLength - offset, true);
       } else {
-        rows.add(xc, {}, cfg.minStepWidth, cfg.maxStepWidth, true);
+        rows.add(xc, {}, cfg.minStepWidth - offset, cfg.maxStepWidth - offset, true);
       }
     }
     rows.writeTo(s, cfg.constraintSlackWeight, cfg.constraintSlackLinearWeight);
@@ -733,12 +932,22 @@ ContactPlan LipContactPlanner::decode(const ContactPlannerInput& input, const Mi
   plan.footholds.resize(N + 1);
   plan.comPosition.resize(N + 1);
   plan.comVelocity.resize(N + 1);
+  if (layout_.hasHeading) {
+    plan.heading.resize(N + 1);
+    plan.headingRate.resize(N + 1);
+    plan.footYaws.resize(N + 1);
+  }
   for (int k = 0; k <= N; ++k) {
     const vector_t& x = result.solution.x[k];
     plan.comPosition[k] = x.segment<2>(CX);
     plan.comVelocity[k] = x.segment<2>(VX);
     plan.footholds[k][0] = x.segment<2>(PLX);
     plan.footholds[k][1] = x.segment<2>(PRX);
+    if (layout_.hasHeading) {
+      plan.heading[k] = x(layout_.heading);
+      plan.headingRate[k] = x(layout_.headingRate);
+      for (size_t foot = 0; foot < N_CONTACTS; ++foot) plan.footYaws[k][foot] = x(layout_.footYaw(foot));
+    }
     if (k < N) {
       const vector_t& u = result.solution.u[k];
       plan.zmp[k] = u.segment<2>(ZX);
@@ -751,7 +960,13 @@ ContactPlan LipContactPlanner::decode(const ContactPlannerInput& input, const Mi
 ContactPlan LipContactPlanner::plan(const ContactPlannerInput& input) {
   const auto start = Clock::now();
   statistics_ = Statistics();
-  problem_ = buildProblem(input);
+  try {
+    problem_ = buildProblem(input);
+  } catch (const std::exception& e) {
+    std::cerr << "[LipContactPlanner] cannot build the problem: " << e.what() << std::endl;
+    lastResult_ = MiqpResult();
+    return decode(input, lastResult_);
+  }
   const std::vector<MiqpBinaryVariable> binaries = binaryVariables();
   const MiqpAssignment initial = initialAssignment(input);
   const std::optional<MiqpAssignment> warm = warmStartAssignment(input);
@@ -772,6 +987,30 @@ ContactPlan LipContactPlanner::plan(const ContactPlannerInput& input) {
     localSearch(input, initial, config_.localSearchMaxTime);
   } catch (const std::exception& e) {
     std::cerr << "[LipContactPlanner] local search failure: " << e.what() << std::endl;
+  }
+
+  // Heading model: the foothold frame was linearised around a nominal heading trajectory. Re-linearise around the
+  // incumbent's own heading and footholds and re-solve the QP with the contacts fixed (successive linearisation), so
+  // that the frame the constraints were written in is the frame the plan actually turns through.
+  if (layout_.hasHeading && lastResult_.hasIncumbent && config_.headingLinearizationPasses > 0) {
+    const scalar_t timeBudget = config_.maxSolveTime + config_.localSearchMaxTime;
+    for (int pass = 0; pass < config_.headingLinearizationPasses; ++pass) {
+      if (elapsedSeconds(start) > timeBudget) break;
+      try {
+        OcpQpProblem relinearised = buildProblem(input, nominalFromSolution(layout_, lastResult_.solution));
+        OcpQpSolution solution;
+        scalar_t objective = 0.0;
+        ++statistics_.numHeadingRelinearizations;
+        if (!miqp_->solveFixed(relinearised, binaries, lastResult_.assignment, propagateFn, costFn, solution, objective)) break;
+        statistics_.totalQpIterations += solution.iterations;
+        problem_ = std::move(relinearised);
+        lastResult_.solution = std::move(solution);
+        lastResult_.incumbentObjective = objective;
+      } catch (const std::exception& e) {
+        std::cerr << "[LipContactPlanner] heading re-linearisation failure: " << e.what() << std::endl;
+        break;
+      }
+    }
   }
 
   ContactPlan plan = decode(input, lastResult_);

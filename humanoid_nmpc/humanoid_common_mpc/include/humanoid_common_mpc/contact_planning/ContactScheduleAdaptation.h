@@ -96,6 +96,16 @@ std::optional<scalar_t> currentOrNextLiftOffTime(const ModeSchedule& schedule, s
 scalar_t commitBoundaryForSchedule(const ModeSchedule& schedule, scalar_t time, scalar_t commitTime);
 
 /**
+ * True if `plan` can be merged into the executed schedule `applied` at `time` without contradicting a swing that is
+ * already in flight there: every foot that `applied` has in the air at `time` (lift-off strictly before `time`) is in
+ * the air in the plan as well. A plan is made from a snapshot of the applied schedule and takes over the swings that
+ * are committed up to its boundary; a swing activated between that snapshot and the plan's own activation is unknown to
+ * the plan, and merging the plan over it would land the foot at the merge point and lift it again (a phantom micro
+ * swing). A lift-off exactly at `time` is not executing yet and may be overruled by the plan.
+ */
+bool planAgreesWithSwingsInFlight(const ModeSchedule& applied, const ContactPlan& plan, scalar_t time);
+
+/**
  * Contacts the planner has to keep fixed on its first nodes, taken from the executed schedule: every node that starts
  * before `committedUntil`, at most `maxNodes` of them. A node that lies entirely inside the window is sampled at its
  * midpoint; the node that straddles the boundary is sampled just after the boundary, i.e. with the contact state the
@@ -103,6 +113,27 @@ scalar_t commitBoundaryForSchedule(const ModeSchedule& schedule, scalar_t time, 
  * executed schedule inside it, which the merge then turned into a delayed touch-down or a phantom re-lift.
  */
 std::vector<contact_flag_t> committedContactsForPlanner(
+    const ModeSchedule& schedule, scalar_t startTime, scalar_t dt, int maxNodes, scalar_t committedUntil);
+
+/** Times at which committedContactsForPlanner() samples the executed schedule, one per committed node. */
+std::vector<scalar_t> committedSampleTimes(scalar_t startTime, scalar_t dt, int maxNodes, scalar_t committedUntil);
+
+/**
+ * Start time of the contact phase every foot is in at `time`: the last event at or before `time` that changed the
+ * foot's contact state, or -infinity when the schedule has no such event (the phase started before the schedule).
+ */
+feet_array_t<scalar_t> contactPhaseStartTimes(const ModeSchedule& schedule, scalar_t time);
+
+/**
+ * For every committed node (same sampling as committedContactsForPlanner) and foot, the time at which the foot entered
+ * the contact state the node reports, taken from the executed schedule. The planner's grid is not aligned with the
+ * executed events, so a phase that begins inside a committed node has lasted less than a whole node when the node ends
+ * (a touch-down at 0.97 s inside the node [0.9, 1.0) has lasted 0.03 s at 1.0 s, not 0.1 s). Counting such a phase
+ * from the node start credited it with up to a node it never had, and every minimum-duration rule that followed
+ * (minimum double support, minimum contact and swing durations) was satisfied up to a node too early: the merged
+ * schedule contained double supports and contact phases a small fraction of the configured minimum long.
+ */
+std::vector<feet_array_t<scalar_t>> committedPhaseStartsForPlanner(
     const ModeSchedule& schedule, scalar_t startTime, scalar_t dt, int maxNodes, scalar_t committedUntil);
 
 /**

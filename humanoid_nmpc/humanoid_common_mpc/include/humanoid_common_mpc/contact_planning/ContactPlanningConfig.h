@@ -28,8 +28,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <cmath>
 #include <string>
+#include <utility>
 
 #include <ocs2_core/Types.h>
+
+#include "humanoid_common_mpc/common/Types.h"
 
 namespace ocs2::humanoid {
 
@@ -55,8 +58,11 @@ struct ContactPlanningConfig {
   scalar_t minDoubleSupportDuration = 0.1;  // [s] after a touch-down the other foot stays down at least this long (0 disables)
 
   // Support geometry [m], yaw frame
-  scalar_t zmpHalfWidthX = 0.08;     // ZMP box half-width around the anchor foot (along x)
-  scalar_t zmpHalfWidthY = 0.04;     // ZMP box half-width around the anchor foot (along y)
+  // ZMP support region half-widths. Single support: a box of these half-widths around the stance foot. Double support:
+  // along the heading a box of half-width zmpHalfWidthX around the midpoint of the feet, laterally the strip between the
+  // right foot minus and the left foot plus zmpHalfWidthY (LipContactPlanner, ZMP rows).
+  scalar_t zmpHalfWidthX = 0.08;     // [m] along the heading
+  scalar_t zmpHalfWidthY = 0.04;     // [m] lateral
   scalar_t nominalStepWidth = 0.25;  // lateral distance left foot - right foot the planner is drawn to
   scalar_t minStepWidth = 0.15;      // self-collision margin
   scalar_t maxStepWidth = 0.45;
@@ -116,6 +122,50 @@ struct ContactPlanningConfig {
   bool enableEnergyCadenceModulation = false;  // move the touch-down of the swing in flight by the LIP orbital energy error
   scalar_t energyCadenceGain = 0.01;           // [s/J] touch-down shift = -gain * (E - E_plan), E = m (v^2 - w^2 x^2) / 2
 
+  // Heading model. Off: the point-mass LIP, whose foothold frame is the base yaw at planning time and cannot express a
+  // turn. On: the LIP for the centre of mass plus the whole-body heading (the angular centre of mass, ACoM, when the
+  // robot has one, the base yaw otherwise) and its angular momentum about the vertical, driven by the yaw torques the
+  // stance feet can carry: torsional friction on every stance foot and, in double support, the friction couple of the
+  // two feet. Every foot gets a yaw that is pinned while the foot is in contact and must stay within hip range of the
+  // heading. The foothold frame becomes the planned heading per node: the constraints are linearised around the
+  // previous plan and re-solved at the incumbent (successive linearisation), which keeps the relaxations convex.
+  // Turning in place becomes a stepping decision of the planner, bounded by the ground torques. Changes the closed-loop
+  // behaviour: opt-in.
+  bool useAcomDynamics = false;
+  // Properties of the robot and the ground, not task-file keys: derived from the model and the wrench cone by
+  // deriveContactPlanningModelParameters() and applied to every configuration (ContactPlanningModelParameters::applyTo).
+  // The heading model refuses to plan until they are set. The yaw inertia is taken from the model at every plan.
+  scalar_t torsionalFrictionTorque = 0.0;                          // [N m] |yaw torque| one stance foot carries
+  scalar_t doubleSupportYawCouple = 0.0;                           // [N m] additional |yaw torque| from the couple of two stance feet
+  feet_array_t<scalar_t> footYawOffsetLower = makeFeetArray(0.0);  // [rad] bounds on foot yaw - heading (hip yaw limits)
+  feet_array_t<scalar_t> footYawOffsetUpper = makeFeetArray(0.0);
+  static constexpr scalar_t kDefaultFootYawOffset = 0.5;  // [rad] symmetric fallback when no hip yaw joint can be identified
+  scalar_t headingRateTrackingWeight = 20.0;              // (heading rate - commanded yaw rate)^2 per node
+  scalar_t headingTrackingWeight = 5.0;                   // (heading - commanded heading)^2 per node
+  scalar_t yawTorqueWeight = 1.0e-3;                      // yaw torque^2 per node
+  scalar_t footYawTrackingWeight = 5.0;                   // (foot yaw - heading)^2 per node
+  scalar_t footYawRegularizationWeight = 1.0;             // (foot yaw displacement)^2 per node
+  int headingLinearizationPasses = 1;                     // re-linearisations of the heading frame at the incumbent (0 disables)
+  bool planHeadingOverridesTarget = true;                 // the plan's heading replaces the commanded yaw in the MPC target trajectory
+
+  /** Bounds on (foot yaw - heading) of a foot. */
+  std::pair<scalar_t, scalar_t> footYawOffsetBounds(size_t foot) const { return {footYawOffsetLower[foot], footYawOffsetUpper[foot]}; }
+  /** Symmetric foot yaw bounds, for tests and for robots without a model-derived value. */
+  void setSymmetricFootYawOffset(scalar_t offset) {
+    footYawOffsetLower = makeFeetArray(-offset);
+    footYawOffsetUpper = makeFeetArray(offset);
+  }
+  /** True once the model-derived parameters of the heading model have been applied. */
+  bool hasModelParameters() const {
+    // The foot yaw bounds are the marker: derived bounds always straddle zero, and a zero torque limit is a legitimate
+    // derived value (a frictionless sole), not a missing one.
+    if (torsionalFrictionTorque < 0.0 || doubleSupportYawCouple < 0.0) return false;
+    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+      if (!(footYawOffsetLower[foot] < 0.0 && footYawOffsetUpper[foot] > 0.0)) return false;
+    }
+    return true;
+  }
+
   scalar_t omega() const { return std::sqrt(gravity / comHeight); }
   scalar_t horizon() const { return dt * static_cast<scalar_t>(numNodes); }
 
@@ -137,9 +187,13 @@ struct ContactPlanningConfig {
   void validate() const;
 };
 
-/** Loads the configuration from a task file. Missing keys keep their defaults. */
+/**
+ * Loads the configuration from a task file. Missing keys keep their defaults. With `validate` false the values that may
+ * be 0 for "derive from the model" are accepted as they are; call validate() after ContactPlanningModelParameters::applyTo().
+ */
 ContactPlanningConfig loadContactPlanningConfig(const std::string& taskFile,
                                                 const std::string& prefix = "contact_planning.",
-                                                bool verbose = false);
+                                                bool verbose = false,
+                                                bool validate = true);
 
 }  // namespace ocs2::humanoid

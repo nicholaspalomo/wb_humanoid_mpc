@@ -62,6 +62,7 @@ cc_library(
         "src/contact_planning/OcpQpHpipm.cpp",
         "src/contact_planning/MixedIntegerOcpQp.cpp",
         "src/contact_planning/ContactPlanningConfig.cpp",
+        "src/contact_planning/ContactPlanningModelParameters.cpp",
         "src/contact_planning/ContactPlan.cpp",
         "src/contact_planning/LipContactPlanner.cpp",
         "src/contact_planning/ContactPlanningReferenceManager.cpp",
@@ -209,9 +210,31 @@ cc_test(
 )
 
 cc_test(
+    name = "testSwingPitchReference",
+    size = "small",
+    srcs = ["test/testSwingPitchReference.cpp"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
     name = "testContactPhaseResetting",
     size = "small",
     srcs = ["test/testContactPhaseResetting.cpp"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "testContactPlan",
+    size = "small",
+    srcs = ["test/testContactPlan.cpp"],
     copts = _COMMON_COPTS,
     deps = [
         ":humanoid_common_mpc",

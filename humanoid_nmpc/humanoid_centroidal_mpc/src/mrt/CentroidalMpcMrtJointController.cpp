@@ -302,76 +302,37 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
   // JOINT_PD mode: PD tracking to nominal positions + Pinocchio gravity compensation.
   // This code path is shared between sim and real hardware.
   if (controlMode_ == "JOINT_PD") {
-    vector_t gravTorques = computeGravityCompensation(robotState);
-
-    for (size_t i = 0; i < mpcJointIndices_.size(); i++) {
-      size_t index = mpcJointIndices_[i];
-      robot::model::JointAction& action = robotJointAction.at(index).value();
-      action.q_des = nominalJointPositions_.empty() ? 0.0 : nominalJointPositions_[index];
-      action.qd_des = 0.0;
-      action.kp = mpcJointKp_[i];
-      action.kd = mpcJointKd_[i];
-      action.feed_forward_effort = gravTorques[i];
-    }
-
-    for (size_t i = 0; i < otherJointIndices_.size(); i++) {
-      size_t index = otherJointIndices_[i];
-      robot::model::JointAction& action = robotJointAction.at(index).value();
-      action.q_des = nominalJointPositions_.empty() ? 0.0 : nominalJointPositions_[index];
-      action.qd_des = 0.0;
-      action.kp = otherJointKp_[i];
-      action.kd = otherJointKd_[i];
-      action.feed_forward_effort = 0.0;  // Non-MPC joints don't get gravity comp
-    }
-
-    // Debug: print gravity comp torques and position errors (throttled)
-    static size_t debugCount = 0;
-    if (++debugCount % 500 == 1) {
-      std::cerr << "[JOINT_PD] gravTorques: " << gravTorques.transpose() << std::endl;
-      for (size_t i = 0; i < mpcJointIndices_.size(); i++) {
-        size_t index = mpcJointIndices_[i];
-        double q_cur = robotState.getJointPosition(index);
-        double q_des = nominalJointPositions_.empty() ? 0.0 : nominalJointPositions_[index];
-        if (std::abs(q_des - q_cur) > 0.05) {
-          std::cerr << "  joint[" << index << "] err=" << (q_des - q_cur) << " q_cur=" << q_cur << " q_des=" << q_des
-                    << " kp=" << mpcJointKp_[i] << " gravFF=" << gravTorques[i] << std::endl;
-        }
-      }
-    }
-
+    fillJointPdAction(robotState, robotJointAction);
+    // Keep the observation time current so that the policy lookahead is one control cycle when WB_MPC resumes, not the
+    // clamp maximum after a long stay in this mode.
+    previousObservationTime_ = currentMpcObservation_.time;
     return;
   }
 
   // GRAVITY_COMP mode: Zero-G compliant mode using pure gravity compensation torques + light damping.
   // Limbs can be moved compliantly by hand or external forces.
   if (controlMode_ == "GRAVITY_COMP") {
-    vector_t gravTorques = computeGravityCompensation(robotState);
-
-    for (size_t i = 0; i < mpcJointIndices_.size(); i++) {
-      size_t index = mpcJointIndices_[i];
-      robot::model::JointAction& action = robotJointAction.at(index).value();
-      action.q_des = robotState.getJointPosition(index);
-      action.qd_des = 0.0;
-      action.kp = 0.0;
-      action.kd = mpcJointKd_[i] * 0.2;  // Soft damping to prevent free-fall oscillation
-      action.feed_forward_effort = std::clamp(gravTorques[i], -mpcJointTorqueLimit_[i], mpcJointTorqueLimit_[i]);
-    }
-
-    for (size_t i = 0; i < otherJointIndices_.size(); i++) {
-      size_t index = otherJointIndices_[i];
-      robot::model::JointAction& action = robotJointAction.at(index).value();
-      action.q_des = nominalJointPositions_.empty() ? 0.0 : nominalJointPositions_[index];
-      action.qd_des = 0.0;
-      action.kp = otherJointKp_[i] * 0.5;
-      action.kd = otherJointKd_[i];
-      action.feed_forward_effort = 0.0;
-    }
-
+    fillGravityCompAction(robotState, robotJointAction);
+    previousObservationTime_ = currentMpcObservation_.time;
     return;
   }
 
+  // Hand-over into WB_MPC (mpcEntryBlendTime > 0): the entry requested an MPC reset, but the MRT keeps handing out the
+  // policy solved before it (against the previous reference) until the first post-reset solve has been swapped in. Hold
+  // the previous mode's action until then, and start the ramp on the first cycle that runs on the new policy.
+  if (awaitingPostResetPolicy_.load()) {
+    if (mcpMrtInterface_.updatePolicy() && solvesSinceReset_.load() > 0) policyActivated_.store(true);
+    if (!policyActivated_.load()) {
+      fillEntryHoldAction(robotState, robotJointAction);
+      previousObservationTime_ = currentMpcObservation_.time;
+      return;
+    }
+    awaitingPostResetPolicy_.store(false);
+    entryBlendStartTime_.store(currentMpcObservation_.time);
+  }
+
   // Active MPC control path
-  if (mcpMrtInterface_.updatePolicy()) policyActivated_.store(true);
+  if (mcpMrtInterface_.updatePolicy() && solvesSinceReset_.load() > 0) policyActivated_.store(true);
 
   vector_t mpcPolicyState;
   vector_t mpcPolicyInput;
@@ -558,8 +519,115 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
     action.feed_forward_effort = 0.0;
   };
 
+  applyEntryBlend(robotState, robotJointAction);
+
   // Track observation time for next call's dt computation
   previousObservationTime_ = currentMpcObservation_.time;
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+void CentroidalMpcMrtJointController::fillJointPdAction(const ::robot::model::RobotState& robotState,
+                                                        ::robot::model::RobotJointAction& robotJointAction) {
+  vector_t gravTorques = computeGravityCompensation(robotState);
+
+  for (size_t i = 0; i < mpcJointIndices_.size(); i++) {
+    size_t index = mpcJointIndices_[i];
+    robot::model::JointAction& action = robotJointAction.at(index).value();
+    action.q_des = nominalJointPositions_.empty() ? 0.0 : nominalJointPositions_[index];
+    action.qd_des = 0.0;
+    action.kp = mpcJointKp_[i];
+    action.kd = mpcJointKd_[i];
+    action.feed_forward_effort = gravTorques[i];
+  }
+
+  for (size_t i = 0; i < otherJointIndices_.size(); i++) {
+    size_t index = otherJointIndices_[i];
+    robot::model::JointAction& action = robotJointAction.at(index).value();
+    action.q_des = nominalJointPositions_.empty() ? 0.0 : nominalJointPositions_[index];
+    action.qd_des = 0.0;
+    action.kp = otherJointKp_[i];
+    action.kd = otherJointKd_[i];
+    action.feed_forward_effort = 0.0;  // Non-MPC joints don't get gravity comp
+  }
+
+  // Debug: print gravity comp torques and position errors (throttled)
+  static size_t debugCount = 0;
+  if (++debugCount % 500 == 1) {
+    std::cerr << "[JOINT_PD] gravTorques: " << gravTorques.transpose() << std::endl;
+    for (size_t i = 0; i < mpcJointIndices_.size(); i++) {
+      size_t index = mpcJointIndices_[i];
+      double q_cur = robotState.getJointPosition(index);
+      double q_des = nominalJointPositions_.empty() ? 0.0 : nominalJointPositions_[index];
+      if (std::abs(q_des - q_cur) > 0.05) {
+        std::cerr << "  joint[" << index << "] err=" << (q_des - q_cur) << " q_cur=" << q_cur << " q_des=" << q_des
+                  << " kp=" << mpcJointKp_[i] << " gravFF=" << gravTorques[i] << std::endl;
+      }
+    }
+  }
+}
+
+void CentroidalMpcMrtJointController::fillGravityCompAction(const ::robot::model::RobotState& robotState,
+                                                            ::robot::model::RobotJointAction& robotJointAction) {
+  vector_t gravTorques = computeGravityCompensation(robotState);
+
+  for (size_t i = 0; i < mpcJointIndices_.size(); i++) {
+    size_t index = mpcJointIndices_[i];
+    robot::model::JointAction& action = robotJointAction.at(index).value();
+    action.q_des = robotState.getJointPosition(index);
+    action.qd_des = 0.0;
+    action.kp = 0.0;
+    action.kd = mpcJointKd_[i] * 0.2;  // Soft damping to prevent free-fall oscillation
+    action.feed_forward_effort = std::clamp(gravTorques[i], -mpcJointTorqueLimit_[i], mpcJointTorqueLimit_[i]);
+  }
+
+  for (size_t i = 0; i < otherJointIndices_.size(); i++) {
+    size_t index = otherJointIndices_[i];
+    robot::model::JointAction& action = robotJointAction.at(index).value();
+    action.q_des = nominalJointPositions_.empty() ? 0.0 : nominalJointPositions_[index];
+    action.qd_des = 0.0;
+    action.kp = otherJointKp_[i] * 0.5;
+    action.kd = otherJointKd_[i];
+    action.feed_forward_effort = 0.0;
+  }
+}
+
+void CentroidalMpcMrtJointController::fillEntryHoldAction(const ::robot::model::RobotState& robotState,
+                                                          ::robot::model::RobotJointAction& robotJointAction) {
+  if (entryHoldGravityComp_.load()) {
+    fillGravityCompAction(robotState, robotJointAction);
+  } else {
+    fillJointPdAction(robotState, robotJointAction);
+  }
+}
+
+void CentroidalMpcMrtJointController::applyEntryBlend(const ::robot::model::RobotState& robotState,
+                                                      ::robot::model::RobotJointAction& robotJointAction) {
+  const scalar_t startTime = entryBlendStartTime_.load();
+  if (startTime < 0.0) return;
+  const scalar_t alpha = mpcEntryBlendTime_ > 0.0 ? (currentMpcObservation_.time - startTime) / mpcEntryBlendTime_ : 1.0;
+  if (alpha >= 1.0) {
+    entryBlendStartTime_.store(-1.0);
+    return;
+  }
+  // Every field of the action is blended, so the total torque kp (q_des - q) + kd (qd_des - qd) + ff moves linearly
+  // from the held action to the MPC action; blending the feedforward alone would leave the PD term to jump.
+  ::robot::model::RobotJointAction holdAction = robotJointAction;
+  fillEntryHoldAction(robotState, holdAction);
+  const scalar_t a = std::max(alpha, 0.0);
+  const auto blend = [&](size_t index) {
+    robot::model::JointAction& action = robotJointAction.at(index).value();
+    const robot::model::JointAction& hold = holdAction.at(index).value();
+    action.q_des = (1.0 - a) * hold.q_des + a * action.q_des;
+    action.qd_des = (1.0 - a) * hold.qd_des + a * action.qd_des;
+    action.kp = (1.0 - a) * hold.kp + a * action.kp;
+    action.kd = (1.0 - a) * hold.kd + a * action.kd;
+    action.feed_forward_effort = (1.0 - a) * hold.feed_forward_effort + a * action.feed_forward_effort;
+  };
+  for (size_t index : mpcJointIndices_) blend(index);
+  for (size_t index : otherJointIndices_) blend(index);
 }
 
 /******************************************************************************************************/
@@ -571,6 +639,7 @@ void CentroidalMpcMrtJointController::solverWorker() {
 
   mcpMrtInterface_.resetMpcNode(currentObservationToResetTrajectory(mcpMrtInterface_.getCurrentObservation()));
   policyActivated_.store(false);
+  solvesSinceReset_.store(0);
   std::cerr << "MPC is reset. NMPC solver started!" << std::endl;
 
   size_t slowWarningCount = 0;
@@ -581,6 +650,7 @@ void CentroidalMpcMrtJointController::solverWorker() {
     if (resetMpcRequested_.exchange(false)) {
       mcpMrtInterface_.resetMpcNode(currentObservationToResetTrajectory(mcpMrtInterface_.getCurrentObservation()));
       policyActivated_.store(false);
+      solvesSinceReset_.store(0);
       std::cerr << "MPC reset to current observation (external request)." << std::endl;
     }
 
@@ -589,6 +659,9 @@ void CentroidalMpcMrtJointController::solverWorker() {
       // MPC solver failed — log, request reset, and continue with previous solution.
       LOG(ERROR) << "MPC solver error: " << mpcStatus.message() << " — requesting reset and retrying.";
       resetMpcRequested_.store(true);
+    } else {
+      // The solution is in the MRT buffer before this increment, so a swap that sees the count is a post-reset policy.
+      solvesSinceReset_.fetch_add(1);
     }
 
     if (!realtime_) {

@@ -317,6 +317,193 @@ void MujocoRenderer::renderExternalForces() {
     arrow->category = mjCAT_DECOR;
     arrow->emission = 1.0f;  // Makes it glow/bright
   }
+
+  // Render contact forces
+  for (int i = 0; i < data->ncon; ++i) {
+    mjContact* contact = &data->contact[i];
+
+    // Only process active contacts
+    if (contact->exclude != 0 || contact->efc_address < 0) continue;
+
+    mjtNum force[6];
+    mj_contactForce(model, data, i, force);
+
+    // Calculate force in global frame
+    double fx = force[0] * contact->frame[0] + force[1] * contact->frame[3] + force[2] * contact->frame[6];
+    double fy = force[0] * contact->frame[1] + force[1] * contact->frame[4] + force[2] * contact->frame[7];
+    double fz = force[0] * contact->frame[2] + force[1] * contact->frame[5] + force[2] * contact->frame[8];
+
+    // Determine direction (force ON the robot).
+    // mj_contactForce returns force ON geom[0] BY geom[1].
+    int body1 = model->geom_bodyid[contact->geom[0]];
+
+    // If geom[0] is the world, the force on the robot is the negative of the computed force.
+    if (body1 == 0) {
+      fx = -fx;
+      fy = -fy;
+      fz = -fz;
+    }
+
+    // Negate the visualized force vector
+    fx = -fx;
+    fy = -fy;
+    fz = -fz;
+
+    double magnitude = std::sqrt(fx * fx + fy * fy + fz * fz);
+    if (magnitude < 1.0) {  // Only draw significant forces
+      continue;
+    }
+
+    // Create arrow geom
+    mjvGeom* arrow = nullptr;
+    if (mujocoScene_.ngeom < mujocoScene_.maxgeom) {
+      arrow = &mujocoScene_.geoms[mujocoScene_.ngeom];
+      mujocoScene_.ngeom++;
+    } else {
+      break;
+    }
+
+    std::memset(arrow, 0, sizeof(mjvGeom));
+
+    // Scale factor that grows with force magnitude
+    const double base_scale = 0.02;
+    const double force_scale = 0.002;  // 500N -> 1m
+    const double scale = base_scale + force_scale * magnitude;
+
+    double end_x = contact->pos[0] + scale * (fx / magnitude);
+    double end_y = contact->pos[1] + scale * (fy / magnitude);
+    double end_z = contact->pos[2] + scale * (fz / magnitude);
+
+    mjtNum from[3] = {contact->pos[0], contact->pos[1], contact->pos[2]};
+    mjtNum to[3] = {end_x, end_y, end_z};
+
+    mjv_connector(arrow,         // geom to write to
+                  mjGEOM_ARROW,  // type (arrow)
+                  0.015,         // width
+                  from,          // from position
+                  to             // to position
+    );
+
+    // Set color (Red)
+    arrow->rgba[0] = 1.0f;
+    arrow->rgba[1] = 0.0f;
+    arrow->rgba[2] = 0.0f;
+    arrow->rgba[3] = 0.8f;
+
+    arrow->category = mjCAT_DECOR;
+    arrow->emission = 0.8f;
+  }
+}
+
+void MujocoRenderer::renderVelocities() {
+  auto* model = simInterface_->getModel();
+  auto* data = simState_.data;
+  if (!model || !data) return;
+
+  // Center of mass position
+  mjtNum* com = &data->subtree_com[0];
+
+  // Base orientation (quaternion to rotation matrix)
+  // Assuming base is body 1 and its joint is a free joint starting at qpos[0]
+  mjtNum* quat = &data->qpos[3];
+  mjtNum mat[9];
+  mju_quat2Mat(mat, quat);
+
+  // Target velocity (base frame)
+  double target_vx = simInterface_->getTargetVelocityX();
+  double target_vy = simInterface_->getTargetVelocityY();
+  double target_yaw = simInterface_->getTargetYawRate();
+
+  // Current velocity (base frame)
+  // qvel has linear (world) then angular (local) for the free joint.
+  // Wait, cvel[1] has the spatial velocity of body 1 in the local frame.
+  // cvel[6] is [angular(3), linear(3)] in local frame.
+  mjtNum* cvel_base = &data->cvel[6 * 1];
+  double current_vx = cvel_base[3];
+  double current_vy = cvel_base[4];
+  double current_yaw = cvel_base[2];  // Z angular velocity in local frame
+
+  // Rotate target and current linear velocities to world frame for rendering
+  // v_world = R * v_base
+  mjtNum v_cur_base[3] = {current_vx, current_vy, 0.0};
+  mjtNum v_cur_world[3];
+  mju_mulMatVec(v_cur_world, mat, v_cur_base, 3, 3);
+
+  mjtNum v_tgt_base[3] = {target_vx, target_vy, 0.0};
+  mjtNum v_tgt_world[3];
+  mju_mulMatVec(v_tgt_world, mat, v_tgt_base, 3, 3);
+
+  // Draw arrow helper
+  auto draw_arrow = [&](mjtNum* dir_world, const float rgba[4], double scale_factor) {
+    if (mujocoScene_.ngeom >= mujocoScene_.maxgeom) return;
+    double mag = std::sqrt(dir_world[0] * dir_world[0] + dir_world[1] * dir_world[1]);
+    if (mag < 1e-3) return;
+
+    mjvGeom* arrow = &mujocoScene_.geoms[mujocoScene_.ngeom++];
+    std::memset(arrow, 0, sizeof(mjvGeom));
+
+    // Scaling as requested
+    double length = mag * scale_factor;
+
+    mjtNum from[3] = {com[0], com[1], com[2]};
+    mjtNum to[3] = {com[0] + length * (dir_world[0] / mag), com[1] + length * (dir_world[1] / mag), com[2] + length * (dir_world[2] / mag)};
+
+    mjv_connector(arrow, mjGEOM_ARROW, 0.02, from, to);
+    arrow->rgba[0] = rgba[0];
+    arrow->rgba[1] = rgba[1];
+    arrow->rgba[2] = rgba[2];
+    arrow->rgba[3] = rgba[3];
+    arrow->category = mjCAT_DECOR;
+    arrow->emission = 1.0f;
+  };
+
+  // Draw current CoM velocity (red)
+  const float red[4] = {1.0f, 0.0f, 0.0f, 1.0f};
+  draw_arrow(v_cur_world, red, 1.0);  // Scale by its own magnitude
+
+  // Draw target CoM velocity (green)
+  const float green[4] = {0.0f, 1.0f, 0.0f, 1.0f};
+  draw_arrow(v_tgt_world, green, 1.0);
+
+  // For yaw rate, we can draw arrows in the local X or Y direction, or just curving?
+  // The user said "emanating from the center of mass of the robot".
+  // Let's draw yaw rate as a vector pointing up (Z axis) scaled by the yaw rate?
+  // Wait, if it represents a rotation, angular velocity is a vector along Z.
+  // Let's use the local Z axis rotated to world.
+  mjtNum yaw_axis_base[3] = {0.0, 0.0, 1.0};
+  mjtNum yaw_axis_world[3];
+  mju_mulMatVec(yaw_axis_world, mat, yaw_axis_base, 3, 3);
+
+  auto draw_yaw_arrow = [&](double yaw_rate, const float rgba[4], double offset) {
+    if (mujocoScene_.ngeom >= mujocoScene_.maxgeom || std::abs(yaw_rate) < 1e-3) return;
+    mjvGeom* arrow = &mujocoScene_.geoms[mujocoScene_.ngeom++];
+    std::memset(arrow, 0, sizeof(mjvGeom));
+
+    // Scale yaw rate visual length
+    double length = std::abs(yaw_rate) * 0.2;
+    double sign = (yaw_rate > 0) ? 1.0 : -1.0;
+
+    // Offset slightly so they don't overlap if they are the same
+    mjtNum from[3] = {com[0] + offset, com[1] + offset, com[2]};
+    mjtNum to[3] = {from[0] + sign * length * yaw_axis_world[0], from[1] + sign * length * yaw_axis_world[1],
+                    from[2] + sign * length * yaw_axis_world[2]};
+
+    mjv_connector(arrow, mjGEOM_ARROW, 0.02, from, to);
+    arrow->rgba[0] = rgba[0];
+    arrow->rgba[1] = rgba[1];
+    arrow->rgba[2] = rgba[2];
+    arrow->rgba[3] = rgba[3];
+    arrow->category = mjCAT_DECOR;
+    arrow->emission = 1.0f;
+  };
+
+  // Current yaw rate (blue)
+  const float blue[4] = {0.0f, 0.0f, 1.0f, 1.0f};
+  draw_yaw_arrow(current_yaw, blue, 0.05);
+
+  // Target yaw rate (yellow)
+  const float yellow[4] = {1.0f, 1.0f, 0.0f, 1.0f};
+  draw_yaw_arrow(target_yaw, yellow, -0.05);
 }
 
 namespace {
@@ -494,6 +681,7 @@ void MujocoRenderer::renderLoop() {
     mjv_updateScene(simInterface_->getModel(), simState_.data, &mujocoOptions_, nullptr, &mujocoCam_, mjCAT_ALL, &mujocoScene_);
 
     renderExternalForces();
+    renderVelocities();
 
     // render to glfw window
     mjv_updateCamera(simInterface_->getModel(), simState_.data, &mujocoCam_, &mujocoScene_);

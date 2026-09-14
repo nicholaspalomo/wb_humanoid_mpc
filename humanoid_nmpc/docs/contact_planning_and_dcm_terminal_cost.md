@@ -185,12 +185,19 @@ candidate incumbent:
 * the committed window: contacts up to the *commit boundary* are fixed to the schedule the NMPC is already executing.
   The boundary is `commitTime` ahead of the planning instant, extended to the touch-down of any swing that has started or
   starts within that window. A swing in flight is therefore never re-timed or cut short by a later plan, and `commitTime`
-  must cover the planner latency: a plan is merged into the executed schedule exactly at its own boundary, which is `commitTime` after the snapshot it was planned from. Merging it any later (for instance at the boundary of the solve that activates it) cut the plan's first lift-off short by the plan's age, and the controller executed swings shorter than `minSwingDuration`. A plan whose boundary already lies in the past is stale and is not merged; the executed schedule keeps running and a rate-limited warning names the latency. The planner's
+  must cover the planner latency. A plan is merged into the executed schedule exactly at its own boundary, `commitTime` after the snapshot it was planned from; merging it any later (for instance at the boundary of the solve that activates it) cut its first lift-off short by the plan's age and the controller executed swings shorter than `minSwingDuration`. A plan whose boundary has already passed when it is activated is stale and dropped with a rate-limited warning (the planner latency exceeded `commitTime`, or a touch-down the boundary was extended to happened while the plan was computed); so is a plan that has a foot down where the executed schedule already has it in flight at the merge point, which means a swing was activated between the plan's snapshot and its activation. In both cases the executed schedule keeps running until a fresh plan arrives. Shifting a late plan forward onto the current boundary instead, whole, was tried and is wrong: a plan made just before a touch-down and activated just after it was delayed by a whole swing, and the foot that had just landed was lifted again at once, which threw the robot. The planner's
   node grid is not aligned with the executed events, so every node that *starts* before the boundary is committed: a
   node entirely inside the window takes the executed contacts at its midpoint, the node straddling the boundary takes
   the contacts the executed schedule hands over at the boundary itself. Sampling the straddling node at its midpoint let
   the plan contradict the executed schedule inside that node, and the merge then delayed an in-flight touch-down by up
-  to half a node or re-lifted a foot that had just landed;
+  to half a node or re-lifted a foot that had just landed. A phase that begins inside a committed node (a touch-down
+  between two node boundaries) is counted from the executed event, not from the node start: the reference manager hands
+  the planner the phase start times of the committed nodes, and the propagation counts the nodes spent in such a phase
+  rounded down against a minimum and up against a maximum, exactly like the elapsed time of the phase active at the
+  planning instant. Counting from the node start credited a touch-down at 0.97 s inside the node [0.9, 1.0) with a full
+  node of contact at 1.0 s, so the minimum double support, counted in whole nodes, let the other foot lift at 1.0 s and
+  the merged schedule contained a double support of 0.03 s against a 0.1 s minimum (and contacts of 0.13 s against
+  0.15 s). The merge itself is exact; those spurious short phases were the planner's grid accounting, not the stitching;
 * plan consistency (`planConsistencyCost`): every node whose contact differs from the previous plan, shifted to the
   current time, is charged, which gives the anytime search hysteresis between cycles; the continuous footholds are
   likewise pulled towards the previous plan (`previousFootholdWeight`) so that the landing target tracked by the foot cost
@@ -430,3 +437,62 @@ Implementation: `humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.
 functions), `ContactPlanningReferenceManager` (event handling, plan shifting, DCM adjustment, swing height search),
 `ContactPlannerModule` (immediate re-plan on a contact event). Note that the mixed-integer planner itself
 (`LipContactPlanner`) is formulated for two feet; the execution layer described here is not.
+
+### 2.9 Heading model: ACoM dynamics in the planner (`useAcomDynamics`)
+
+The point-mass LIP has no notion of heading. Its foothold frame is the base yaw at planning time, held fixed over the
+horizon, and the planner only receives the commanded linear velocity, so a pure yaw command produces no step at all
+and the robot cannot turn. The heading model adds the missing coordinate as a reduced dynamics of its own, expressed
+in the angular centre of mass (ACoM): the whole-body heading `theta` (the ACoM yaw when the robot has an ACoM network,
+the base yaw otherwise) and its rate `omega = L_z / I_zz`, the angular momentum about the vertical through the centre
+of mass over the whole-body yaw inertia (taken from the model at every plan, `yawInertia` overrides it).
+
+Per node, appended to the LIP block so that the contact binaries keep their place:
+
+```
+omega_{k+1} = omega_k + dt (tau_L + tau_R) / I_zz
+theta_{k+1} = theta_k + dt omega_k + dt^2 (tau_L + tau_R) / (2 I_zz)     exact zero-order hold of the double integrator
+psi_{i,k+1} = psi_{i,k} + dpsi_{i,k}                    foot yaw, one per foot
+|tau_i| <= T_t c_i + T_c (c_L + c_R - 1) / 2            torsional friction per stance foot, the friction couple in double support
+|dpsi_i| <= 2 pi (1 - c_i)                              a foot's yaw is pinned while it is in contact
+|psi_i - theta| <= maxFootYawOffset                     hip range (soft)
+```
+
+The heading is driven only by the ground: a point mass's horizontal contact force acts through the ZMP and produces no
+yaw moment about the centre of mass, so what remains is the torsional friction every stance foot carries
+(`torsionalFrictionTorque`) and, in double support, the friction couple of the two feet (`doubleSupportYawCouple`). A
+turn therefore has to be stepped: the planner rotates the foothold frame with the heading, the feet must follow it
+within hip range, and the yaw torques bound how fast the heading can go. The costs track the commanded yaw rate
+(differentiated from the target trajectory) and the commanded heading, keep the foot yaws at the heading, and
+regularise the torques and the foot yaw displacements.
+
+The constraint frame of node k is the planned heading of node k. That makes the step-width, reach and foot-separation
+rows bilinear in the heading and the footholds, which the mixed-integer solver cannot take. They are linearised to
+first order around a nominal heading trajectory, the previous plan shifted to the current time or, without one, the
+commanded yaw integrated from the current heading, so that the relaxations stay convex and the branch-and-bound is
+unchanged. After the search the frame is re-linearised at the incumbent's own heading and footholds and the QP is
+re-solved with the contacts fixed (`headingLinearizationPasses`, successive linearisation), so that the frame the
+constraints were written in is the frame the plan actually turns through.
+
+Downstream, the plan carries the heading and the foot yaws per node. The swing-foot reference turns each foot from
+its lift-off yaw to the planned landing yaw with the same profile as the position, and the foot cost tracks that yaw
+through `task_space_foot_cost_weights.orientation_z` (0 by default: not tracked). With `planHeadingOverridesTarget`
+the plan's heading replaces the commanded yaw in the MPC's target trajectory, so that the whole-body controller is
+asked for the turn the ground can support rather than the raw command; with ACoM tracking the reference base yaw is
+set so that the reference ACoM heading equals the planned heading.
+
+The model stays a reduced one: the angular momentum exchange with the swing leg and the arms, which is how a humanoid
+actually turns between steps, is the whole-body controller's business over its own horizon. The planner decides where
+and when the feet go and how fast the heading may change for the ground to carry it.
+
+**Parameters from the model.** The quantities that are properties of the robot and of the ground rather than tuning
+are not task-file keys: the yaw inertia (composite inertia about the vertical through the centre of mass, at every
+plan), `torsionalFrictionTorque` (the torsional friction coefficient of the wrench cone times the weight),
+`doubleSupportYawCouple` (the friction coefficient times half the weight times `nominalStepWidth`) and the foot yaw
+bounds (the hip yaw joint limits of every leg, found by walking the kinematic tree up from the joint that carries the
+contact frame to the first revolute joint about the vertical; per foot and asymmetric, which matters because a hip yaw
+range is typically much wider outward than inward). They are derived once by the interface and applied to every
+planner configuration, including the hot reloads from the task file, and logged at start-up. `comHeight` and the ZMP
+box stay tunable, with 0 meaning "from the model": the centre of mass height above the feet at `initialState`, and the
+sole's footprint from the wrench cone. The friction and footprint come from `contactWrenchConeSoftConstraint`, so the
+planner cannot assume more yaw torque than the whole-body constraint would ever allow.

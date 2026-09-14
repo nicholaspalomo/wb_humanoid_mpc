@@ -31,6 +31,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
 #include <humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h>
+#include <ocs2_core/misc/Numerics.h>
+
+#include <cmath>
 
 namespace ocs2::humanoid {
 
@@ -75,6 +78,35 @@ scalar_t SwitchedModelReferenceManager::getPhaseVariable(scalar_t time) const {
       return 0;
     }
   }
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+vector3_t SwitchedModelReferenceManager::getSwingFootPlaneNormal(size_t contactIndex, scalar_t time) const {
+  const vector3_t flat(0.0, 0.0, 1.0);
+  if (isInContact(time, contactIndex)) return flat;
+
+  const scalar_t pitch = swingTrajectoryPtr_->getSwingPitchAngle(contactIndex, time);
+  if (numerics::almost_eq(pitch, 0.0)) return flat;
+
+  // Heading of the foot: the planned foot yaw when the contact planner's heading model provides one, otherwise the
+  // commanded base yaw, so that the tilt stays about the foot's lateral axis and does not leak into roll.
+  scalar_t yaw = 0.0;
+  const std::optional<SwingFootReference> swingReference = getSwingFootReference(contactIndex, time);
+  if (swingReference.has_value() && swingReference->yaw.has_value()) {
+    yaw = *swingReference->yaw;
+  } else {
+    const vector_t desiredState = getTargetTrajectories().getDesiredState(time);
+    if (desiredState.size() == mpcRobotModelPtr_->getStateDim()) {
+      yaw = mpcRobotModelPtr_->getBaseOrientationEulerZYX(desiredState)(0);
+    }
+  }
+
+  // Toe-up by `pitch` is a rotation of -pitch about the foot's lateral (+y) axis, which tilts the sole normal backwards
+  // along the heading. The result is a unit vector, as rotationMatrixDistanceToPlane expects.
+  const scalar_t sp = std::sin(pitch);
+  return vector3_t(-sp * std::cos(yaw), -sp * std::sin(yaw), std::cos(pitch));
 }
 
 /******************************************************************************************************/

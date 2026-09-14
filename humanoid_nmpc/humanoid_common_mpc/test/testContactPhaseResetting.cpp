@@ -767,6 +767,51 @@ TEST(CommittedContacts, BoundaryInsideAContactPhaseAndNodeLimit) {
   EXPECT_TRUE(committedContactsForPlanner(schedule, 1.0, 0.1, 11, 0.9).empty());
 }
 
+TEST(CommitBoundary, CoversSwingsOfEveryFootThatStartOnAnExtendedBoundary) {
+  if (N_CONTACTS < 2) GTEST_SKIP() << "needs a second foot";
+  // Right swings 1.0 -> 1.4; the left lifts at the very touch-down of the right (no double support) and lands at 1.8.
+  // The window from 0.9 (commit time 0.25 -> 1.15) overlaps the right swing, which extends the boundary to 1.4; the
+  // left swing starts exactly there and is in the window too, so the boundary is its touch-down. Walking the schedule
+  // once per foot in foot order saw the left foot before the right one had extended the boundary and stopped at 1.4.
+  const ModeSchedule schedule({1.0, 1.4, 1.8}, {kAllInContact, modeWithSwinging({1}), modeWithSwinging({0}), kAllInContact});
+  EXPECT_NEAR(commitBoundaryForSchedule(schedule, 0.9, 0.25), 1.8, kTol);
+  // The mirrored schedule (left first) gave the right answer already; both orders agree now.
+  const ModeSchedule mirrored({1.0, 1.4, 1.8}, {kAllInContact, modeWithSwinging({0}), modeWithSwinging({1}), kAllInContact});
+  EXPECT_NEAR(commitBoundaryForSchedule(mirrored, 0.9, 0.25), 1.8, kTol);
+  // A swing that starts after the (extended) boundary is not covered; a window with no swing is not extended.
+  const ModeSchedule later({1.0, 1.4, 1.5, 1.9},
+                           {kAllInContact, modeWithSwinging({1}), kAllInContact, modeWithSwinging({0}), kAllInContact});
+  EXPECT_NEAR(commitBoundaryForSchedule(later, 0.9, 0.25), 1.4, kTol);
+  EXPECT_NEAR(commitBoundaryForSchedule(later, 0.2, 0.25), 0.45, kTol);
+  EXPECT_NEAR(commitBoundaryForSchedule(ModeSchedule({}, {kAllInContact}), 0.2, 0.25), 0.45, kTol);
+}
+
+TEST(CommittedContacts, PhaseStartsAreTheExecutedEventTimes) {
+  if (N_CONTACTS < 2) GTEST_SKIP() << "needs a second foot";
+  // Right foot swings 0.57 -> 0.97. Planner grid from 0.7 with dt 0.1, boundary at the touch-down 0.97.
+  const ModeSchedule schedule({0.57, 0.97}, {kAllInContact, modeWithSwinging({1}), kAllInContact});
+  const feet_array_t<scalar_t> before = contactPhaseStartTimes(schedule, 0.7);
+  EXPECT_TRUE(std::isinf(before[0]) && before[0] < 0.0) << "the left foot's contact began before the schedule";
+  EXPECT_NEAR(before[1], 0.57, kTol);
+  EXPECT_NEAR(contactPhaseStartTimes(schedule, 0.969)[1], 0.57, kTol);
+  EXPECT_NEAR(contactPhaseStartTimes(schedule, 0.97)[1], 0.97, kTol) << "the touch-down at the query time counts as passed";
+  EXPECT_NEAR(contactPhaseStartTimes(schedule, 1.5)[1], 0.97, kTol);
+
+  const std::vector<scalar_t> samples = committedSampleTimes(0.7, 0.1, 11, 0.97);
+  ASSERT_EQ(samples.size(), 3u) << "nodes starting at 0.7, 0.8, 0.9 start before the boundary";
+  EXPECT_NEAR(samples[0], 0.75, kTol);
+  EXPECT_NEAR(samples[1], 0.85, kTol);
+  EXPECT_NEAR(samples[2], 0.97, kTol) << "the straddling node is sampled at the boundary";
+
+  const std::vector<feet_array_t<scalar_t>> starts = committedPhaseStartsForPlanner(schedule, 0.7, 0.1, 11, 0.97);
+  ASSERT_EQ(starts.size(), 3u);
+  for (size_t k = 0; k < 2; ++k) EXPECT_NEAR(starts[k][1], 0.57, kTol) << "node " << k << " is in the swing that began at 0.57";
+  // The straddling node reports the landed state; the landing happened at 0.97, 0.07 s after the node start.
+  EXPECT_NEAR(starts[2][1], 0.97, kTol);
+  for (const auto& nodeStarts : starts) EXPECT_TRUE(std::isinf(nodeStarts[0]));
+  EXPECT_TRUE(committedPhaseStartsForPlanner(schedule, 0.7, 0.1, 11, 0.7).empty());
+}
+
 TEST(PlanShiftLog, ShiftsYoungerThanTheSnapshotAreSummedAgainstTheOriginalStartTime) {
   ContactPlan plan = makePlan(1.005, 0.1, 5, vector2_t::Zero(), vector2_t::Zero(), vector2_t::Zero());
   plan.committedUntil = 1.3;
@@ -782,6 +827,54 @@ TEST(PlanShiftLog, ShiftsYoungerThanTheSnapshotAreSummedAgainstTheOriginalStartT
   EXPECT_NEAR(plan.startTime, 1.055, kTol);
   EXPECT_NEAR(plan.committedUntil, 1.35, kTol);
   EXPECT_NEAR(applyScheduleShiftsToPlan(plan, {}), 0.0, kTol);
+}
+
+TEST(PlanShiftLog, PlanMadeBeforeASwingWasCommittedDisagreesWithItInFlight) {
+  // Executed schedule: foot 0 swings [1.2, 1.7).
+  contact_flag_t foot0InAir = makeFeetArray(true);
+  foot0InAir[0] = false;
+  const ModeSchedule applied({1.2, 1.7}, {ModeNumber::STANCE, stanceLeg2ModeNumber(foot0InAir), ModeNumber::STANCE});
+
+  // A plan that keeps both feet down was made from a snapshot without that swing: merging it while the swing is in
+  // flight would land the foot at the merge point and lift it again.
+  ContactPlan plan = makePlan(1.0, 0.1, 10, vector2_t::Zero(), vector2_t::Zero(), vector2_t::Zero());
+  EXPECT_TRUE(planAgreesWithSwingsInFlight(applied, plan, 1.1)) << "before the swing";
+  EXPECT_TRUE(planAgreesWithSwingsInFlight(applied, plan, 1.2)) << "a lift-off at the merge point itself is not executing yet";
+  EXPECT_FALSE(planAgreesWithSwingsInFlight(applied, plan, 1.3)) << "in flight";
+  EXPECT_FALSE(planAgreesWithSwingsInFlight(applied, plan, 1.65)) << "still in flight";
+  EXPECT_TRUE(planAgreesWithSwingsInFlight(applied, plan, 1.7)) << "landed (the touch-down counts as passed)";
+
+  // A plan that has the foot in the air there agrees, whatever it does afterwards.
+  for (int k = 2; k < 7; ++k) plan.contacts[k][0] = false;  // nodes [1.2, 1.7)
+  EXPECT_TRUE(planAgreesWithSwingsInFlight(applied, plan, 1.3));
+  EXPECT_TRUE(planAgreesWithSwingsInFlight(applied, plan, 1.65));
+  // The other foot is free to be lifted by the plan at any time.
+  for (int k = 0; k < 10; ++k) plan.contacts[k][1] = false;
+  EXPECT_TRUE(planAgreesWithSwingsInFlight(applied, plan, 1.3));
+
+  // Nothing to disagree with.
+  plan.valid = false;
+  EXPECT_TRUE(planAgreesWithSwingsInFlight(applied, plan, 1.3));
+}
+
+TEST(PlanHeading, InterpolatesHeadingAndLooksUpFootYaw) {
+  ContactPlan plan = makePlan(1.0, 0.1, 4, vector2_t::Zero(), vector2_t::Zero(), vector2_t::Zero());
+  EXPECT_FALSE(plan.hasHeading());
+  EXPECT_FALSE(plan.headingAtTime(1.0).has_value());
+  EXPECT_FALSE(plan.footYawAtTime(0, 1.0).has_value());
+  plan.heading = {0.0, 0.1, 0.2, 0.3, 0.4};
+  plan.headingRate = {1.0, 1.0, 1.0, 1.0, 1.0};
+  plan.footYaws = {makeFeetArray(0.0), makeFeetArray(0.0), makeFeetArray(0.2), makeFeetArray(0.2), makeFeetArray(0.4)};
+  ASSERT_TRUE(plan.hasHeading());
+  EXPECT_NEAR(*plan.headingAtTime(1.0), 0.0, kTol);
+  EXPECT_NEAR(*plan.headingAtTime(1.15), 0.15, kTol) << "linear between nodes";
+  EXPECT_NEAR(*plan.headingAtTime(0.5), 0.0, kTol) << "clamped before the plan";
+  EXPECT_NEAR(*plan.headingAtTime(9.0), 0.4, kTol) << "clamped after the plan";
+  EXPECT_NEAR(*plan.headingRateAtTime(1.23), 1.0, kTol);
+  EXPECT_NEAR(*plan.footYawAtTime(0, 1.24), 0.2, kTol) << "nearest node";
+  EXPECT_NEAR(*plan.footYawAtTime(0, 1.36), 0.4, kTol);
+  plan.shiftInTime(0.5);
+  EXPECT_NEAR(*plan.headingAtTime(1.65), 0.15, kTol) << "the heading moves with the plan";
 }
 
 TEST(SwingQueries, CurrentOrNextLiftOff) {
