@@ -124,6 +124,7 @@ When focused in the MuJoCo simulation viewport on `:99`, the following keys and 
 | **`m`** | Toggle **Center of Mass (CoM)** | Displays CoM indicator spheres for kinematic bodies / links |
 | **`i`** | Toggle **Inertia Ellipsoids** | Renders equivalent inertia ellipsoids depicting principal moments of inertia |
 | **`h`** | Toggle **Convex Hulls** | Displays computed convex hulls enclosing the link meshes |
+| **`b`** | Toggle **Contact Timeline** | Barcode along the bottom edge: per contact point, the contact state the MPC policy plans (top strip, blue = contact) against the simulator's ground truth (bottom strip, green = touching) over a sliding window; red = touching while the plan says swing (early touch-down, scuff), orange = in the air while the plan says contact (late touch-down, slip). Window and force threshold: `simContactTimelineWindow`, `simContactForceThreshold` in `task.yaml` |
 | **`p`** | **Print Cheatsheet** | Prints the hotkey and mouse control guide to the terminal |
 | **Left Click + Drag** | **Orbit Camera** | Rotates camera viewpoint around the robot or focal point |
 | **Right Click + Drag** | **Pan Camera** | Translates camera position horizontally and vertically |
@@ -139,6 +140,8 @@ When focused in the MuJoCo simulation viewport on `:99`, the following keys and 
 | Black/blank screen in browser | The WM may not have started. Run `make stop-vnc && make start-vnc` |
 | RViz: `Unable to create glx context` | Ensure `LIBGL_ALWAYS_INDIRECT=0` is set (the `-vnc` targets do this). See Manual Workflow above |
 | RViz renders but is slow | Expected with software rendering — use lower resolution: `make start-vnc RESOLUTION=1280x720` |
+| "Failed to connect" but the page loads | You are on a port whose container has no VNC server. Each dev container publishes its own 6080; check `docker ps` and use the one for the container your IDE is attached to |
+| Growing zombie process count | Each `start-vnc` restarts Xvfb/x11vnc/websockify and orphans the old ones. `init: true` in `docker-compose.yaml` makes tini PID 1 so they are reaped; run `make check-zombies` to see the holder. Zombies cannot be killed, so rebuild the container to clear an existing backlog |
 
 ## Notes
 

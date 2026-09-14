@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "mujoco_sim_interface/MujocoSimInterface.h"
 
+#include <cmath>
+
 #include <cerrno>
 #include <cstring>
 #include <stdexcept>
@@ -157,6 +159,8 @@ MujocoSimInterface::MujocoSimInterface(const MujocoSimConfig& config, const std:
       left_foot_sensor_addr_ = mujocoModel_->sensor_adr[i];
     }
   }
+
+  setupContactDetection();
 
   qpos_init_ = new mjtNum[mujocoModel_->nq];
   qvel_init_ = new mjtNum[mujocoModel_->nv];
@@ -421,11 +425,12 @@ void MujocoSimInterface::updateThreadSafeRobotState() {
   quaternion_t quat_l_to_w = quaternion_t(mujocoData_->qpos[3], mujocoData_->qpos[4], mujocoData_->qpos[5], mujocoData_->qpos[6]);
   vector3_t pelvisAngularVelLocal = vector3_t(mujocoData_->qvel[3], mujocoData_->qvel[4], mujocoData_->qvel[5]);
 
-  // Fix later
-  // bool leftFootContact = (mujocoData_->sensordata[left_foot_touch_sensor_addr_] > 0.1);
-  // bool rightFootContact = (mujocoData_->sensordata[right_foot_touch_sensor_addr_] > 0.1);
-  bool leftFootContact = true;
-  bool rightFootContact = true;
+  // Contact flags handed to the controller. By default every contact point is reported as touching (the historical
+  // behaviour: the controller then treats its own schedule as the measured contact state). With
+  // reportGroundTruthContacts the physics decides, see updateGroundTruthContacts(); a contact point whose MuJoCo body
+  // could not be resolved keeps the default.
+  const bool useGroundTruth = config_.reportGroundTruthContacts && hasContactDetection();
+  const uint32_t touching = groundTruthContactMask_.load() | unresolvedContactMask_;
 
   robotStateInternal_.setRootPositionInWorldFrame(vector3_t(mujocoData_->qpos[0], mujocoData_->qpos[1], mujocoData_->qpos[2]));
   robotStateInternal_.setRootRotationLocalToWorldFrame(quat_l_to_w);
@@ -433,8 +438,11 @@ void MujocoSimInterface::updateThreadSafeRobotState() {
   robotStateInternal_.setRootLinearVelocityInLocalFrame(quat_l_to_w.inverse() *
                                                         vector3_t(mujocoData_->qvel[0], mujocoData_->qvel[1], mujocoData_->qvel[2]));
   robotStateInternal_.setRootAngularVelocityInLocalFrame(pelvisAngularVelLocal);
-  robotStateInternal_.setContactFlag(0, leftFootContact);
-  robotStateInternal_.setContactFlag(1, rightFootContact);
+  const size_t numFlags = robotStateInternal_.getContactFlags().size();
+  for (size_t i = 0; i < numFlags; ++i) {
+    const bool flag = !useGroundTruth || i >= contactBodyIds_.size() || ((touching >> i) & 1u) != 0u;
+    robotStateInternal_.setContactFlag(i, flag);
+  }
 
   robotStateInternal_.setTime(mujocoData_->time);  // Todo Manu: should mujoco be the source of time?
 
@@ -523,6 +531,7 @@ void MujocoSimInterface::simulationStep() {
   }
 
   mj_step(mujocoModel_, mujocoData_);
+  updateGroundTruthContacts();
   updateThreadSafeRobotState();
   updateMetrics();
 
@@ -621,6 +630,78 @@ void MujocoSimInterface::startSim() {
   if (!simInit_) initSim();
   // Simulate in simulate_thread thread while rendering in this thread
   simulate_thread_ = std::thread(&MujocoSimInterface::simulationLoop, this);
+}
+
+void MujocoSimInterface::setupContactDetection() {
+  contactBodyIds_.clear();
+  unresolvedContactMask_ = 0;
+  if (config_.contactFrameNames.empty()) return;
+  if (config_.contactFrameNames.size() > 32) {
+    std::cerr << "[MujocoSimInterface] contact detection supports at most 32 contact points, got " << config_.contactFrameNames.size()
+              << "; the detection stays off." << std::endl;
+    return;
+  }
+  std::vector<std::string> errors;
+  contactBodyIds_ = resolveContactBodies(mujocoModel_, getRobotDescription().getURDFPath(), config_.contactFrameNames,
+                                         config_.contactParentJointNames, &errors);
+  for (const std::string& error : errors) {
+    std::cerr << "[MujocoSimInterface] contact detection: " << error << std::endl;
+  }
+  for (size_t i = 0; i < contactBodyIds_.size(); ++i) {
+    if (contactBodyIds_[i] < 0) {
+      unresolvedContactMask_ |= (1u << i);
+    } else if (verbose_) {
+      std::cerr << "[MujocoSimInterface] contact point '" << config_.contactFrameNames[i] << "' -> MuJoCo body '"
+                << mj_id2name(mujocoModel_, mjOBJ_BODY, contactBodyIds_[i]) << "'" << std::endl;
+    }
+  }
+  // The timeline is sampled at a fixed rate; the physics step is finer.
+  constexpr double kTimelineSampleRateHz = 500.0;
+  const double timestep = mujocoModel_->opt.timestep > 0.0 ? mujocoModel_->opt.timestep : config_.dt;
+  contactTimelineSampleInterval_ = std::max<size_t>(1, static_cast<size_t>(std::lround(1.0 / (kTimelineSampleRateHz * timestep))));
+  contactTimeline_ = ContactTimeline(config_.contactTimelineWindow);
+  if (config_.reportGroundTruthContacts) {
+    std::cerr << "[MujocoSimInterface] reporting ground-truth contacts to the controller (normal force > " << config_.contactForceThreshold
+              << " N)." << std::endl;
+  }
+}
+
+void MujocoSimInterface::updateGroundTruthContacts() {
+  if (contactBodyIds_.empty()) return;
+  const uint32_t actual = groundTruthContactMask(mujocoModel_, mujocoData_, contactBodyIds_, config_.contactForceThreshold);
+  groundTruthContactMask_.store(actual);
+  if (++contactTimelineSampleCounter_ < contactTimelineSampleInterval_) return;
+  contactTimelineSampleCounter_ = 0;
+  ContactTimelineSample sample;
+  sample.time = mujocoData_->time;
+  sample.actual = actual;
+  sample.target = targetContactMask_.load();
+  sample.targetKnown = targetContactKnown_.load();
+  std::lock_guard<std::mutex> lock(contactTimelineMutex_);
+  contactTimeline_.append(sample);
+}
+
+void MujocoSimInterface::setTargetContactFlags(const std::vector<bool>& flags) {
+  uint32_t mask = 0;
+  for (size_t i = 0; i < flags.size() && i < 32; ++i) {
+    if (flags[i]) mask |= (1u << i);
+  }
+  targetContactMask_.store(mask);
+  targetContactKnown_.store(!flags.empty());
+}
+
+std::vector<bool> MujocoSimInterface::getGroundTruthContactFlags() const {
+  const uint32_t mask = groundTruthContactMask_.load();
+  std::vector<bool> flags(contactBodyIds_.size(), false);
+  for (size_t i = 0; i < flags.size(); ++i) {
+    flags[i] = ((mask >> i) & 1u) != 0u;
+  }
+  return flags;
+}
+
+void MujocoSimInterface::copyContactTimeline(std::vector<ContactTimelineSample>& out) const {
+  std::lock_guard<std::mutex> lock(contactTimelineMutex_);
+  out.assign(contactTimeline_.samples().begin(), contactTimeline_.samples().end());
 }
 
 vector3_t MujocoSimInterface::getLeftFootMeasuredForce() const {

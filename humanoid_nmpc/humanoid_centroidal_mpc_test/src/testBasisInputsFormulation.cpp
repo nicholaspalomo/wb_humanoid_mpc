@@ -728,6 +728,28 @@ TEST_F(BasisInputsFormulationTest, WrenchMode_Unchanged) {
   EXPECT_NE(wrenchDynamics(interface), nullptr);
   EXPECT_EQ(basisDynamics(interface), nullptr);
 
+  // The contact block of a wrench-space model is the six wrench components, and the zero-wrench constraint pins exactly
+  // that block with an identity Jacobian (the basis-vector model overrides the block size, see the basis-mode test).
+  const MpcRobotModelBase<scalar_t>& wrenchModel = interface.getEffectiveMpcRobotModel();
+  for (size_t contactIndex = 0; contactIndex < N_CONTACTS; ++contactIndex) {
+    EXPECT_EQ(wrenchModel.getContactInputDim(contactIndex), kWrenchDimPerContact);
+    ZeroWrenchConstraint zeroWrench(*interface.getSwitchedModelReferenceManagerPtr(), contactIndex, wrenchModel);
+    EXPECT_EQ(zeroWrench.getNumConstraints(0.0), kWrenchDimPerContact);
+    std::mt19937 gen(3 + contactIndex);
+    std::uniform_real_distribution<scalar_t> dist(-50.0, 50.0);
+    vector_t u(wrenchInputDim);
+    for (Eigen::Index i = 0; i < u.size(); ++i) u(i) = dist(gen);
+    const vector_t x = vector_t::Zero(interface.getEffectiveMpcRobotModel().getStateDim());
+    const PreComputation preComp;
+    const vector_t value = zeroWrench.getValue(0.0, x, u, preComp);
+    EXPECT_LE((value - u.segment(kWrenchDimPerContact * contactIndex, kWrenchDimPerContact)).norm(), 1e-12);
+    const VectorFunctionLinearApproximation approx = zeroWrench.getLinearApproximation(0.0, x, u, preComp);
+    matrix_t expected = matrix_t::Zero(kWrenchDimPerContact, wrenchInputDim);
+    expected.middleCols(kWrenchDimPerContact * contactIndex, kWrenchDimPerContact).setIdentity();
+    EXPECT_LE((approx.dfdu - expected).cwiseAbs().maxCoeff(), 1e-12) << "contact " << contactIndex;
+    EXPECT_DOUBLE_EQ(approx.dfdx.norm(), 0.0);
+  }
+
   // The input cost keeps the raw wrench-space R.
   matrix_t R_wrench = matrix_t::Zero(wrenchInputDim, wrenchInputDim);
   loadData::loadEigenMatrix(h.taskFile, "R", R_wrench);

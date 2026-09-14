@@ -26,6 +26,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <deque>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -587,13 +588,60 @@ TEST_F(ContactEventTest, CadenceShiftMovesTouchDownRelativeToNominalWithinLimits
     adaptScheduleToContactEvents(schedule, 1.16, measured(foot, false), cadence, config, latches);
     EXPECT_NEAR(schedule.eventTimes[1], 1.6, kTol);
 
-    // Never re-timed into the past: at 1.59 the earliest admissible touch-down is 1.61 > minimum swing.
+    // A request earlier than what is still feasible never pushes an imminent touch-down out: at 1.59 the touch-down at
+    // 1.6 stands (flooring it at now + margin every cycle would drag it along with the clock, see the dedicated test).
     cadence[foot] = -0.5;
     reports = adaptScheduleToContactEvents(schedule, 1.59, measured(foot, false), cadence, config, latches);
-    EXPECT_EQ(reports[foot].type, ContactEventReport::Type::CADENCE_SHIFT);
-    EXPECT_NEAR(schedule.eventTimes[1], 1.61, kTol);
+    EXPECT_EQ(reports[foot].type, ContactEventReport::Type::NONE);
+    EXPECT_NEAR(schedule.eventTimes[1], 1.6, kTol);
     EXPECT_TRUE(consistentSchedule(schedule));
     EXPECT_FALSE(hasFlightPhase(schedule));
+  }
+}
+
+TEST_F(ContactEventTest, CadenceRequestEarlierThanFeasibleLetsTheFootLand) {
+  // A constant request for an earlier touch-down than the remaining swing allows must not keep the touch-down "now +
+  // margin" ahead of the clock: the foot would then never land. Swing [1.1, 1.5], request -0.10 -> wanted 1.40.
+  // Phase resetting is off: with no measured contact it would (correctly) start the late touch-down search once the
+  // re-timed touch-down has passed, which is a different mechanism from the one under test.
+  config.enableEnergyCadenceModulation = true;
+  config.enablePhaseResetting = false;
+  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    latches.fill(SwingTimingLatch{});
+    ModeSchedule schedule = ModeSchedule(
+        {1.1, 1.5, 1.6, 2.0}, {kAllInContact, modeWithSwinging({foot}), kAllInContact, modeWithSwinging({otherFoot(foot)}), kAllInContact});
+    feet_array_t<scalar_t> cadence = makeFeetArray(0.0);
+    cadence[foot] = -0.10;
+    auto reports = adaptScheduleToContactEvents(schedule, 1.30, measured(foot, false), cadence, config, latches);
+    EXPECT_EQ(reports[foot].type, ContactEventReport::Type::CADENCE_SHIFT);
+    EXPECT_NEAR(schedule.eventTimes[1], 1.40, kTol);
+    // 10 ms cycles up to and past the re-timed touch-down: it must stay at 1.40 and the foot must land there.
+    for (int i = 1; i <= 12; ++i) {
+      const scalar_t time = 1.30 + 0.01 * i;
+      reports = adaptScheduleToContactEvents(schedule, time, measured(foot, false), cadence, config, latches);
+      EXPECT_NEAR(schedule.eventTimes[1], 1.40, kTol) << "touch-down dragged at t=" << time;
+    }
+    EXPECT_TRUE(contactFlagsAtTime(schedule, 1.41)[foot]) << "the foot must be scheduled in contact after 1.40";
+    EXPECT_TRUE(consistentSchedule(schedule));
+    EXPECT_NEAR(schedule.eventTimes[3] - schedule.eventTimes[2], 0.4, kTol) << "later phases keep their duration";
+  }
+}
+
+TEST_F(ContactEventTest, CadenceRequestIsClippedToWhatRemainsFeasible) {
+  // An early request at a time where the wanted touch-down is already in the past but the current one is not yet
+  // imminent brings the touch-down forward to now + margin, not to the current touch-down and not into the past.
+  config.enableEnergyCadenceModulation = true;
+  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    latches.fill(SwingTimingLatch{});
+    ModeSchedule schedule = singleSwingSchedule(foot, 1.1, 1.5);
+    feet_array_t<scalar_t> cadence = makeFeetArray(0.0);
+    cadence[foot] = -0.10;  // wanted 1.40
+    const auto reports = adaptScheduleToContactEvents(schedule, 1.42, measured(foot, false), cadence, config, latches);
+    EXPECT_EQ(reports[foot].type, ContactEventReport::Type::CADENCE_SHIFT);
+    EXPECT_NEAR(schedule.eventTimes[1], 1.44, kTol);
+    const auto again = adaptScheduleToContactEvents(schedule, 1.43, measured(foot, false), cadence, config, latches);
+    EXPECT_EQ(again[foot].type, ContactEventReport::Type::NONE) << "once imminent the touch-down stands";
+    EXPECT_NEAR(schedule.eventTimes[1], 1.44, kTol);
   }
 }
 
@@ -670,6 +718,84 @@ TEST_F(ContactEventTest, AlternatingGaitSimulationStaysConsistent) {
   }
   EXPECT_GT(early, 0);
   EXPECT_GT(late, 0);
+}
+
+/*====================================== committed contacts and plan shifts ================================*/
+
+TEST(CommittedContacts, StraddlingNodeTakesTheStateHandedOverAtTheBoundary) {
+  if (N_CONTACTS < 2) GTEST_SKIP() << "needs a second foot";
+  // Right foot swings 0.07 -> 0.47. Planner grid from 0.0 with dt 0.1, boundary at the touch-down 0.47.
+  const ModeSchedule schedule({0.07, 0.47}, {kAllInContact, modeWithSwinging({1}), kAllInContact});
+  const std::vector<contact_flag_t> committed = committedContactsForPlanner(schedule, 0.0, 0.1, 11, 0.47);
+  ASSERT_EQ(committed.size(), 5u) << "nodes starting at 0.0 .. 0.4 start before the boundary";
+  EXPECT_TRUE(committed[0][1]) << "node 0 (midpoint 0.05) is before the lift-off";
+  for (size_t k = 1; k < 4; ++k) EXPECT_FALSE(committed[k][1]) << "node " << k << " is in the swing";
+  // Node 4 straddles the touch-down at 0.47: sampled at its midpoint 0.45 it would read "swinging" and let the plan keep
+  // the foot in the air until 0.5; sampled at the boundary it reads the landed state the schedule hands over.
+  EXPECT_TRUE(committed[4][1]);
+  for (const contact_flag_t& c : committed) EXPECT_TRUE(c[0]);
+
+  // The merge of such a plan with the executed schedule keeps the touch-down where it is.
+  std::vector<contact_flag_t> planContacts = committed;
+  while (planContacts.size() < 12) planContacts.push_back(makeFeetArray(true));
+  ContactPlan plan;
+  plan.valid = true;
+  plan.startTime = 0.0;
+  plan.dt = 0.1;
+  plan.committedUntil = 0.47;
+  plan.contacts = planContacts;
+  const ModeSchedule merged = mergeModeSchedules(schedule, plan.toModeSchedule(), 0.47, -1.2, 2.4);
+  EXPECT_FALSE(contactFlagsAtTime(merged, 0.469)[1]);
+  EXPECT_TRUE(contactFlagsAtTime(merged, 0.471)[1]) << "the in-flight touch-down must not be delayed by the merge";
+  for (scalar_t t = 0.47; t < 2.0; t += 0.01) EXPECT_TRUE(contactFlagsAtTime(merged, t)[1]) << "phantom re-lift at " << t;
+}
+
+TEST(CommittedContacts, BoundaryInsideAContactPhaseAndNodeLimit) {
+  if (N_CONTACTS < 2) GTEST_SKIP() << "needs a second foot";
+  // Left swings 0.83 -> 1.23; boundary 1.25 (commit window), grid from 1.0.
+  const ModeSchedule schedule({0.83, 1.23, 1.33, 1.73},
+                              {kAllInContact, modeWithSwinging({0}), kAllInContact, modeWithSwinging({1}), kAllInContact});
+  const std::vector<contact_flag_t> committed = committedContactsForPlanner(schedule, 1.0, 0.1, 11, 1.25);
+  ASSERT_EQ(committed.size(), 3u) << "nodes starting at 1.0, 1.1, 1.2";
+  EXPECT_FALSE(committed[0][0]);
+  EXPECT_FALSE(committed[1][0]);
+  EXPECT_TRUE(committed[2][0]) << "the straddling node reads the landed state at the boundary, not the swing at its midpoint";
+  EXPECT_TRUE(committed[2][1]) << "the right foot's later lift-off at 1.33 is outside the window";
+  // At most maxNodes nodes, and a boundary at or before the grid start commits nothing.
+  EXPECT_EQ(committedContactsForPlanner(schedule, 1.0, 0.1, 2, 1.25).size(), 2u);
+  EXPECT_TRUE(committedContactsForPlanner(schedule, 1.0, 0.1, 11, 1.0).empty());
+  EXPECT_TRUE(committedContactsForPlanner(schedule, 1.0, 0.1, 11, 0.9).empty());
+}
+
+TEST(PlanShiftLog, ShiftsYoungerThanTheSnapshotAreSummedAgainstTheOriginalStartTime) {
+  ContactPlan plan = makePlan(1.005, 0.1, 5, vector2_t::Zero(), vector2_t::Zero(), vector2_t::Zero());
+  plan.committedUntil = 1.3;
+  // A cadence advance undone one cycle later: net zero. Comparing against the already-shifted start time would apply
+  // the first (+0.10 -> start 1.105) and then skip the second (1.020 < 1.105).
+  std::deque<std::pair<scalar_t, scalar_t>> log = {{1.010, +0.10}, {1.020, -0.10}};
+  EXPECT_NEAR(applyScheduleShiftsToPlan(plan, log), 0.0, kTol);
+  EXPECT_NEAR(plan.startTime, 1.005, kTol);
+  EXPECT_NEAR(plan.committedUntil, 1.3, kTol);
+  // Shifts at or before the snapshot were already seen by it; later ones apply.
+  log = {{1.005, +0.5}, {1.0, +0.3}, {1.1, +0.07}, {1.2, -0.02}};
+  EXPECT_NEAR(applyScheduleShiftsToPlan(plan, log), 0.05, kTol);
+  EXPECT_NEAR(plan.startTime, 1.055, kTol);
+  EXPECT_NEAR(plan.committedUntil, 1.35, kTol);
+  EXPECT_NEAR(applyScheduleShiftsToPlan(plan, {}), 0.0, kTol);
+}
+
+TEST(SwingQueries, CurrentOrNextLiftOff) {
+  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    const ModeSchedule schedule = twoStepSchedule(foot, foot);  // the same foot swings [1.0, 1.4] and [1.5, 1.9]
+    ASSERT_TRUE(currentOrNextLiftOffTime(schedule, foot, 0.5).has_value());
+    EXPECT_NEAR(*currentOrNextLiftOffTime(schedule, foot, 0.5), 1.0, kTol) << "next swing while standing";
+    EXPECT_NEAR(*currentOrNextLiftOffTime(schedule, foot, 1.2), 1.0, kTol) << "the swing in flight";
+    EXPECT_NEAR(*currentOrNextLiftOffTime(schedule, foot, 1.45), 1.5, kTol) << "the next swing during double support";
+    EXPECT_NEAR(*currentOrNextLiftOffTime(schedule, foot, 1.7), 1.5, kTol);
+    EXPECT_FALSE(currentOrNextLiftOffTime(schedule, foot, 1.95).has_value()) << "no further swing";
+    const ModeSchedule noLiftOff({1.4}, {modeWithSwinging({foot}), kAllInContact});
+    EXPECT_FALSE(currentOrNextLiftOffTime(noLiftOff, foot, 1.0).has_value());
+  }
 }
 
 /*============================================ LIP helpers =================================================*/

@@ -27,6 +27,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <atomic>
 #include <deque>
+#include <limits>
 #include <mutex>
 #include <optional>
 #include <utility>
@@ -165,6 +166,8 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
 
   ModeSchedule appliedSchedule_;
   bool hasAppliedSchedule_ = false;
+  scalar_t lastSolveTime_ = std::numeric_limits<scalar_t>::lowest();  // initTime of the last modifyReferences()
+  size_t stalePlanCount_ = 0;                                         // solves that found the active plan stale (rate-limits the warning)
 
   feet_array_t<vector3_t> footPositions_ = makeFeetArray(vector3_t(vector3_t::Zero()));
   feet_array_t<vector3_t> liftOffPositions_ = makeFeetArray(vector3_t(vector3_t::Zero()));

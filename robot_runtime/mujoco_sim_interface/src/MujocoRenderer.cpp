@@ -32,8 +32,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <GLFW/glfw3.h>  // for creating the OpenGL context
 #include <mujoco/mujoco.h>
 
+#include <algorithm>
+#include <cmath>
 #include <condition_variable>
 #include <csignal>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -107,6 +110,12 @@ void MujocoRenderer::keyboard(GLFWwindow* window, int key, int, int act, int mod
     renderer->toggleCameraTracking();
   }
 
+  // 'b' key: toggle the contact timeline overlay
+  // Effect: Shows/hides the barcode of planned vs ground-truth contact state per contact point
+  if (act == GLFW_PRESS && key == GLFW_KEY_B) {
+    renderer->showContactTimeline_ = !renderer->showContactTimeline_;
+  }
+
   // 'p' key: print hotkeys cheatsheet
   // Effect: Prints all interactive viewer hotkeys, toggle states, and mouse gestures to console
   if (act == GLFW_PRESS && key == GLFW_KEY_P) {
@@ -120,6 +129,7 @@ void MujocoRenderer::keyboard(GLFWwindow* window, int key, int, int act, int mod
               << "  i   => toggle link inertia ellipsoids (principal moments of inertia)\n"
               << "  h   => toggle convex hull visualization\n"
               << "  k   => toggle camera tracking mode (mjCAMERA_TRACKING vs mjCAMERA_FREE)\n"
+              << "  b   => toggle contact timeline (planned vs ground-truth contact per contact point)\n"
               << "  p   => print this hotkey cheatsheet\n"
               << "-----------------------------------------------------------\n"
               << "Mouse Controls:\n"
@@ -309,6 +319,141 @@ void MujocoRenderer::renderExternalForces() {
   }
 }
 
+namespace {
+struct Rgba {
+  float r, g, b, a;
+};
+constexpr Rgba kPanelBackground{0.0f, 0.0f, 0.0f, 0.55f};
+constexpr Rgba kPlanContact{0.35f, 0.70f, 1.0f, 1.0f};  // the plan has the point in contact
+constexpr Rgba kSwing{0.16f, 0.16f, 0.20f, 1.0f};       // in the air (plan or physics, in agreement)
+constexpr Rgba kUnknown{0.40f, 0.40f, 0.40f, 1.0f};     // no plan yet, or no MuJoCo body for the contact point
+constexpr Rgba kSimContact{0.35f, 0.85f, 0.35f, 1.0f};  // physics agrees: touching
+constexpr Rgba kSimEarly{0.95f, 0.25f, 0.25f, 1.0f};    // touching while the plan says swing (early touch-down, scuff)
+constexpr Rgba kSimLate{1.0f, 0.62f, 0.10f, 1.0f};      // in the air while the plan says contact (late touch-down, slip)
+constexpr Rgba kTick{1.0f, 1.0f, 1.0f, 0.25f};
+constexpr Rgba kText{0.92f, 0.92f, 0.92f, 1.0f};
+
+void fillRect(int left, int bottom, int width, int height, const Rgba& color) {
+  if (width <= 0 || height <= 0) return;
+  mjr_rectangle(mjrRect{left, bottom, width, height}, color.r, color.g, color.b, color.a);
+}
+
+void drawLabel(int left, int bottom, int width, int height, const char* text, const mjrContext* con) {
+  if (width <= 0 || height <= 0) return;
+  mjr_label(mjrRect{left, bottom, width, height}, mjFONT_NORMAL, text, 0.0f, 0.0f, 0.0f, 0.0f, kText.r, kText.g, kText.b, con);
+}
+
+/// Combined state of one contact point in one sample: bit 0 physics touching, bit 1 plan contact, bit 2 plan known.
+int contactStateCode(const ContactTimelineSample& sample, int contact) {
+  return static_cast<int>((sample.actual >> contact) & 1u) | (static_cast<int>((sample.target >> contact) & 1u) << 1) |
+         (sample.targetKnown ? 4 : 0);
+}
+}  // namespace
+
+void MujocoRenderer::renderContactTimeline() {
+  if (!showContactTimeline_ || !simInterface_->hasContactDetection()) return;
+  simInterface_->copyContactTimeline(contactTimelineScratch_);
+  const std::vector<ContactTimelineSample>& samples = contactTimelineScratch_;
+  if (samples.empty()) return;
+
+  const std::vector<std::string>& names = simInterface_->getContactNames();
+  const int numContacts = static_cast<int>(names.size());
+  const double window = simInterface_->getContactTimelineWindow();
+  const double now = samples.back().time;
+  const double start = now - window;
+  const uint32_t unresolved = simInterface_->getUnresolvedContactMask();
+
+  // Layout in framebuffer pixels (origin bottom-left): a translucent panel along the bottom edge, the label columns on
+  // the left, the time axis running left (oldest) to right (now).
+  constexpr int margin = 12, pad = 8, stripH = 12, stripGap = 2, groupGap = 8, headerH = 20, axisH = 18, tagW = 44;
+  size_t longestName = 0;
+  for (const std::string& name : names) longestName = std::max(longestName, name.size());
+  const int nameW = std::clamp(static_cast<int>(longestName) * 9 + 16, 80, 320);
+  const int groupH = 2 * stripH + stripGap;
+  const int panelH = 2 * pad + headerH + numContacts * (groupH + groupGap) + axisH;
+  const int panelW = viewport_.width - 2 * margin;
+  const int panelL = margin;
+  const int panelB = margin;
+  const int x0 = panelL + pad + nameW + tagW;
+  const int x1 = panelL + panelW - pad;
+  const int stripW = x1 - x0;
+  if (stripW < 120 || panelH > viewport_.height / 2) return;
+  fillRect(panelL, panelB, panelW, panelH, kPanelBackground);
+
+  const auto xOf = [&](double time) {
+    const double fraction = std::clamp((time - start) / window, 0.0, 1.0);
+    return x0 + static_cast<int>(std::lround(fraction * stripW));
+  };
+
+  // Header: title and legend.
+  const int headerB = panelB + panelH - pad - headerH;
+  drawLabel(panelL + pad, headerB, nameW + tagW, headerH, "contact timeline [b]", &mujocoContext_);
+  if (stripW >= 720) {
+    int lx = x0;
+    const auto legend = [&](const Rgba& color, const char* text, int textW) {
+      fillRect(lx, headerB + 4, 14, headerH - 8, color);
+      lx += 18;
+      drawLabel(lx, headerB, textW, headerH, text, &mujocoContext_);
+      lx += textW + 14;
+    };
+    legend(kPlanContact, "plan: contact", 104);
+    legend(kSimContact, "sim: contact", 96);
+    legend(kSimEarly, "sim touching, plan swing", 186);
+    legend(kSimLate, "sim in air, plan contact", 186);
+  }
+
+  // One group of two strips per contact point: the plan on top, the physics below.
+  const int stripsTop = headerB - groupGap;
+  int groupTop = stripsTop;
+  for (int contact = 0; contact < numContacts; ++contact) {
+    const int targetB = groupTop - stripH;
+    const int actualB = targetB - stripGap - stripH;
+    drawLabel(panelL + pad, actualB, nameW, groupH, names[contact].c_str(), &mujocoContext_);
+    drawLabel(panelL + pad + nameW, targetB, tagW, stripH, "plan", &mujocoContext_);
+    drawLabel(panelL + pad + nameW, actualB, tagW, stripH, "sim", &mujocoContext_);
+
+    if (((unresolved >> contact) & 1u) != 0u) {
+      fillRect(x0, actualB, stripW, groupH, kUnknown);
+      drawLabel(x0, actualB, stripW, groupH, "no MuJoCo body resolved for this contact frame", &mujocoContext_);
+      groupTop = actualB - groupGap;
+      continue;
+    }
+
+    // Runs of equal state are drawn as single bars.
+    size_t runStart = 0;
+    for (size_t k = 1; k <= samples.size(); ++k) {
+      const int code = contactStateCode(samples[runStart], contact);
+      if (k < samples.size() && contactStateCode(samples[k], contact) == code) continue;
+      const double runEnd = (k < samples.size()) ? samples[k].time : now;
+      if (runEnd >= start) {
+        const int xa = xOf(samples[runStart].time);
+        const int xb = std::max(xOf(runEnd), xa + 1);
+        const bool touching = (code & 1) != 0;
+        const bool planContact = (code & 2) != 0;
+        const bool planKnown = (code & 4) != 0;
+        fillRect(xa, targetB, xb - xa, stripH, !planKnown ? kUnknown : (planContact ? kPlanContact : kSwing));
+        const Rgba& simColor = !planKnown ? (touching ? kSimContact : kSwing)
+                               : touching ? (planContact ? kSimContact : kSimEarly)
+                                          : (planContact ? kSimLate : kSwing);
+        fillRect(xa, actualB, xb - xa, stripH, simColor);
+      }
+      runStart = k;
+    }
+    groupTop = actualB - groupGap;
+  }
+
+  // Time axis: one tick per second, relative to now, at fixed positions.
+  const int axisB = panelB + pad;
+  const int ticksH = stripsTop - (axisB + axisH);
+  for (int secondsAgo = 0; secondsAgo <= static_cast<int>(window); ++secondsAgo) {
+    const int x = xOf(now - secondsAgo);
+    fillRect(x, axisB + axisH, 1, ticksH, kTick);
+    char text[16];
+    std::snprintf(text, sizeof(text), secondsAgo == 0 ? "now" : "-%d s", secondsAgo);
+    drawLabel(x - 24, axisB, 48, axisH, text, &mujocoContext_);
+  }
+}
+
 void MujocoRenderer::renderLoop() {
   initialize();
   init_complete_.store(true);
@@ -336,6 +481,7 @@ void MujocoRenderer::renderLoop() {
     const auto current_time = std::chrono::steady_clock::now();
     const auto elapsed_time = std::chrono::duration<double>(current_time - start_time).count();
     renderMetrics(&mujocoContext_, viewport_, simState_, rendererFps_.fps(), elapsed_time);
+    renderContactTimeline();
 
     // swap OpenGL buffers (blocking call due to v-sync)
     glfwSwapBuffers(window_);

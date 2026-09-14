@@ -27,14 +27,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <cmath>
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <regex>
 #include <string>
+#include <thread>
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
+
+#include <ocs2_oc/oc_data/PrimalSolution.h>
 
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerModule.h"
@@ -392,6 +397,33 @@ TEST_F(ContactPlanningIntegrationTest, AdaptsScheduleToContactEventsAndDcmError)
   solveAt(midSwing, shoved, inFlightMode);
   EXPECT_FALSE(referenceManager->hasPredictedComState());
   EXPECT_TRUE(referenceManager->getDcmStepAdjustment()[foot].isZero());
+
+  // A diverged solve hands over a non-finite trajectory: it must be ignored rather than poison the foot reference.
+  vector_t poisoned = state;
+  poisoned(0) = std::numeric_limits<scalar_t>::quiet_NaN();
+  referenceManager->setPredictedTrajectory({0.0, midSwing + 10.0}, {poisoned, poisoned});
+  solveAt(midSwing, shoved, inFlightMode);
+  EXPECT_FALSE(referenceManager->hasPredictedComState());
+  EXPECT_TRUE(referenceManager->getDcmStepAdjustment()[foot].isZero());
+  EXPECT_TRUE(referenceManager->getSwingFootReference(foot, swing->touchDown - 1e-3)->position.allFinite());
+
+  // The module hands the primal solution over after every solve, but only while a correction that needs it is enabled.
+  PrimalSolution primal;
+  primal.timeTrajectory_ = {0.0, midSwing + 10.0};
+  primal.stateTrajectory_ = {state, state};
+  module->postSolverRun(primal);
+  solveAt(midSwing, shoved, inFlightMode);
+  EXPECT_TRUE(referenceManager->hasPredictedComState()) << "the prediction must reach the reference manager through the module";
+  EXPECT_GT(referenceManager->getDcmStepAdjustment()[foot].norm(), 0.0);
+  referenceManager->setPredictedTrajectory({}, {});
+  ContactPlanningConfig nothingEnabled = config;
+  nothingEnabled.enableDcmStepAdjustment = false;
+  nothingEnabled.enableEnergyCadenceModulation = false;
+  module->setConfig(nothingEnabled);
+  module->postSolverRun(primal);  // skipped: no consumer
+  module->setConfig(config);
+  solveAt(midSwing, shoved, inFlightMode);
+  EXPECT_FALSE(referenceManager->hasPredictedComState()) << "no hand-over while every consumer is disabled";
   referenceManager->setPredictedTrajectory({0.0, midSwing + 10.0}, {state, state});
 
   ContactPlanningConfig noDcm = config;
@@ -507,10 +539,16 @@ TEST_F(ContactPlanningIntegrationTest, AdaptsScheduleToContactEventsAndDcmError)
   const scalar_t early3 = third->liftOff + 0.05;
   referenceManager->setPredictedTrajectory({0.0, early3 + 10.0}, {state, state});
 
-  // Prediction equal to the measurement: the planned timing stands.
+  // Prediction equal to the measurement: the planned timing stands. (A shift reported here with a zero request means
+  // the executed swing violated the duration limits and the clamp repaired it, i.e. the merge cut the swing.)
   solveAt(early3, state, modeWithSwingFoot(third->foot));
   EXPECT_NEAR(referenceManager->getCadenceTouchDownShift()[third->foot], 0.0, 1e-12);
-  EXPECT_EQ(referenceManager->getLastContactEvents()[third->foot].type, ContactEventReport::Type::NONE);
+  {
+    const ContactEventReport report = referenceManager->getLastContactEvents()[third->foot];
+    EXPECT_EQ(report.type, ContactEventReport::Type::NONE)
+        << "swing [" << third->liftOff << ", " << third->touchDown << ") of duration " << third->touchDown - third->liftOff
+        << " s was re-timed to " << report.touchDownTime << " (shift " << report.timeShift << ")";
+  }
 
   // Extra forward energy relative to the prediction shortens the swing, within the duration limits. With the same
   // position in both, only the velocity term of the orbital energy differs, so the sign is unambiguous.
@@ -529,6 +567,153 @@ TEST_F(ContactPlanningIntegrationTest, AdaptsScheduleToContactEventsAndDcmError)
     EXPECT_EQ(cadenceReport.type, ContactEventReport::Type::NONE) << "a swing at its minimum duration cannot be shortened";
   }
   module->setConfig(config);
+}
+
+/**
+ * The xy swing reference of a later swing of the same foot inside the horizon starts from where that foot will stand
+ * after its earlier step, not from the position latched while it stands now. With a plan long enough to hold two swings
+ * of one foot the two differ by a step length.
+ */
+TEST_F(ContactPlanningIntegrationTest, LaterSwingOfTheSameFootStartsFromItsPlannedStance) {
+  auto module = interface_->getContactPlannerModulePtr();
+  ASSERT_NE(module, nullptr);
+  auto referenceManager = std::dynamic_pointer_cast<ContactPlanningReferenceManager>(interface_->getSwitchedModelReferenceManagerPtr());
+  ASSERT_NE(referenceManager, nullptr);
+
+  ContactPlanningConfig config = module->getConfig();
+  config.numNodes = 24;             // 2.4 s plan
+  config.maxContactDuration = 0.6;  // keep stepping, so that the plan holds two swings of one foot
+  module->setConfig(config);
+
+  const vector_t state = interface_->getInitialState();
+  const scalar_t horizon = interface_->mpcSettings().timeHorizon_;
+  const size_t inputDim = interface_->getEffectiveMpcRobotModel().getInputDim();
+  vector_t walkingTarget = vector_t::Zero(state.size());
+  walkingTarget.segment(6, 6) = state.segment(6, 6);
+  walkingTarget(0) = 0.4;
+  scalar_t t = 0.0;
+  referenceManager->setTargetTrajectories(TargetTrajectories({t}, {walkingTarget}, {vector_t::Zero(inputDim)}));
+  // The schedule has to cover the long plan: the reference manager keeps the merged schedule over [t - H, t + 2H].
+  referenceManager->preSolverRun(t, t + horizon, state, ModeNumber::STANCE);
+  module->preSolverRun(t, t + horizon, state, *referenceManager);
+  ASSERT_TRUE(module->getStatistics().lastPlanValid);
+  t += 0.02;
+  referenceManager->preSolverRun(t, t + 1.4, state, ModeNumber::STANCE);  // a 1.4 s horizon keeps [t - 1.4, t + 2.8]
+  ASSERT_TRUE(referenceManager->hasActivePlan());
+  const ModeSchedule& schedule = referenceManager->getModeSchedule();
+
+  // Two swings of the same foot.
+  std::optional<Swing> first, second;
+  for (size_t i = 0; i + 1 < schedule.modeSequence.size(); ++i) {
+    const contact_flag_t before = modeNumber2StanceLeg(schedule.modeSequence[i]);
+    const contact_flag_t after = modeNumber2StanceLeg(schedule.modeSequence[i + 1]);
+    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+      if (!(before[foot] && !after[foot]) || schedule.eventTimes[i] <= t) continue;
+      Swing swing;
+      swing.foot = foot;
+      swing.liftOff = schedule.eventTimes[i];
+      for (size_t j = i + 1; j < schedule.eventTimes.size(); ++j) {
+        if (modeNumber2StanceLeg(schedule.modeSequence[j + 1])[foot]) {
+          swing.touchDown = schedule.eventTimes[j];
+          break;
+        }
+      }
+      if (swing.touchDown < 0.0) continue;
+      if (!first.has_value()) {
+        first = swing;
+      } else if (!second.has_value() && swing.foot == first->foot) {
+        second = swing;
+      }
+    }
+  }
+  ASSERT_TRUE(first.has_value());
+  ASSERT_TRUE(second.has_value()) << "the 2.4 s plan should contain two swings of the same foot";
+  const size_t foot = first->foot;
+  const auto& plan = *referenceManager->getActiveContactPlan();
+
+  // The first swing ends the foot's current contact phase: it starts from the latched (measured) position, which is also
+  // where the plan has the foot standing.
+  const auto firstReference = referenceManager->getSwingFootReference(foot, first->liftOff + 1e-4);
+  ASSERT_TRUE(firstReference.has_value());
+  const vector2_t measuredStance = *plan.footholdAtTime(foot, t);
+  EXPECT_LT((firstReference->position.head<2>() - measuredStance).norm(), 2e-3);
+
+  // The second swing starts from the planned landing spot of the first, not from where the foot stands now.
+  const auto secondReference = referenceManager->getSwingFootReference(foot, second->liftOff + 1e-4);
+  ASSERT_TRUE(secondReference.has_value());
+  const vector2_t plannedStanceBeforeSecond = *plan.footholdAtTime(foot, second->liftOff - 0.5 * plan.dt + 1e-9);
+  const vector2_t landingOfFirst = *plan.footholdAtTime(foot, first->touchDown);
+  EXPECT_LT((plannedStanceBeforeSecond - landingOfFirst).norm(), 1e-9) << "the foot does not move between its steps";
+  EXPECT_LT((secondReference->position.head<2>() - plannedStanceBeforeSecond).norm(), 2e-3)
+      << "reference " << secondReference->position.head<2>().transpose() << " vs planned stance " << plannedStanceBeforeSecond.transpose();
+  EXPECT_GT((plannedStanceBeforeSecond - measuredStance).norm(), 0.05)
+      << "the two starts must differ by a step for this test to mean anything";
+
+  module->setConfig(config);
+}
+
+/**
+ * The background planner thread can be switched on and off at runtime (the parameter updater applies task-file edits
+ * on the solver thread). Each transition has to leave the module planning: switching on must start a worker that
+ * consumes the very next snapshot, switching off must join it promptly (no lost wake-up) and drop any snapshot it had
+ * not consumed, and synchronous planning must work right after.
+ */
+TEST_F(ContactPlanningIntegrationTest, BackgroundPlannerThreadCanBeToggledAtRuntime) {
+  auto module = interface_->getContactPlannerModulePtr();
+  ASSERT_NE(module, nullptr);
+  auto referenceManager = std::dynamic_pointer_cast<ContactPlanningReferenceManager>(interface_->getSwitchedModelReferenceManagerPtr());
+  ASSERT_NE(referenceManager, nullptr);
+
+  ContactPlanningConfig quick = module->getConfig();
+  quick.maxSolveTime = 0.2;  // keep every plan of this test short; its result is irrelevant here
+  quick.maxBranchAndBoundNodes = 200;
+  quick.localSearchMaxTime = 0.02;
+
+  const vector_t state = interface_->getInitialState();
+  const scalar_t horizon = interface_->mpcSettings().timeHorizon_;
+  const size_t inputDim = interface_->getEffectiveMpcRobotModel().getInputDim();
+  vector_t walkingTarget = vector_t::Zero(state.size());
+  walkingTarget.segment(6, 6) = state.segment(6, 6);
+  walkingTarget(0) = 0.4;
+  scalar_t t = 0.0;
+  referenceManager->setTargetTrajectories(TargetTrajectories({t}, {walkingTarget}, {vector_t::Zero(inputDim)}));
+  referenceManager->preSolverRun(t, t + horizon, state, ModeNumber::STANCE);
+
+  const auto plansSoFar = [&]() { return module->getStatistics().numPlans; };
+  const auto waitForPlan = [&](size_t before) {
+    for (int i = 0; i < 1000 && plansSoFar() == before; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    return plansSoFar() > before;
+  };
+
+  for (int cycle = 0; cycle < 3; ++cycle) {
+    // On: the first snapshot after (re)starting must reach the worker, whatever the throttle state of the previous run.
+    ContactPlanningConfig background = quick;
+    background.runInBackgroundThread = true;
+    module->setConfig(background);
+    const size_t beforeBackground = plansSoFar();
+    t += 0.02;
+    module->preSolverRun(t, t + horizon, state, *referenceManager);
+    EXPECT_TRUE(waitForPlan(beforeBackground)) << "cycle " << cycle << ": the worker did not consume the posted snapshot";
+
+    // Off: setConfig joins the worker and must return promptly.
+    const auto stopStart = std::chrono::steady_clock::now();
+    ContactPlanningConfig synchronous = quick;
+    synchronous.runInBackgroundThread = false;
+    module->setConfig(synchronous);
+    const scalar_t stopSeconds = std::chrono::duration<scalar_t>(std::chrono::steady_clock::now() - stopStart).count();
+    EXPECT_LT(stopSeconds, 5.0) << "cycle " << cycle << ": stopping the worker hung";
+
+    // Synchronous planning works right away, once per pre-solve hook.
+    const size_t beforeSynchronous = plansSoFar();
+    t += 0.02;
+    module->preSolverRun(t, t + horizon, state, *referenceManager);
+    EXPECT_EQ(plansSoFar(), beforeSynchronous + 1) << "cycle " << cycle << ": no synchronous plan";
+    t += 0.5;  // past the rate limiter's period, so the next background post is not throttled by this cycle's post
+  }
+  // Leave the module as the fixture configured it.
+  ContactPlanningConfig restore = module->getConfig();
+  restore.runInBackgroundThread = false;
+  module->setConfig(restore);
 }
 
 }  // namespace ocs2::humanoid

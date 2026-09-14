@@ -101,6 +101,7 @@ class ContactPlannerModule final : public SolverSynchronizedModule {
   std::mutex inputMutex_;
   std::condition_variable inputCondition_;
   std::optional<ContactPlannerInput> pendingInput_;
+  bool pendingInputUrgent_ = false;  // the pending snapshot follows a contact event and must not be dropped
   std::chrono::steady_clock::time_point lastPostTime_;
   bool hasPosted_ = false;
 

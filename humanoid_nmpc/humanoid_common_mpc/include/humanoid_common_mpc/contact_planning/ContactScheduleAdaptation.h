@@ -25,8 +25,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <deque>
 #include <optional>
 #include <utility>
+#include <vector>
 
 #include <ocs2_core/reference/ModeSchedule.h>
 
@@ -79,6 +81,36 @@ std::optional<std::pair<scalar_t, scalar_t>> swingPhaseAtTime(const ModeSchedule
 
 /** Index into eventTimes of the touch-down event of the swing of `foot` around `time`, empty if there is none. */
 std::optional<size_t> touchDownEventIndex(const ModeSchedule& schedule, size_t foot, scalar_t time);
+
+/**
+ * Lift-off time of the swing of `foot` that is in flight at `time`, or of its next swing if the foot is in contact at
+ * `time`. Empty if the schedule has no such lift-off event.
+ */
+std::optional<scalar_t> currentOrNextLiftOffTime(const ModeSchedule& schedule, size_t foot, scalar_t time);
+
+/**
+ * End of the window in which the executed `schedule` stays fixed: `time + commitTime`, extended to the touch-down of
+ * every swing that overlaps the window, so that a swing in flight, or one that starts inside the window, is executed
+ * to its end and never re-timed by a later plan.
+ */
+scalar_t commitBoundaryForSchedule(const ModeSchedule& schedule, scalar_t time, scalar_t commitTime);
+
+/**
+ * Contacts the planner has to keep fixed on its first nodes, taken from the executed schedule: every node that starts
+ * before `committedUntil`, at most `maxNodes` of them. A node that lies entirely inside the window is sampled at its
+ * midpoint; the node that straddles the boundary is sampled just after the boundary, i.e. with the contact state the
+ * executed schedule hands over to the plan there. Sampling that node at its midpoint let the planner contradict the
+ * executed schedule inside it, which the merge then turned into a delayed touch-down or a phantom re-lift.
+ */
+std::vector<contact_flag_t> committedContactsForPlanner(
+    const ModeSchedule& schedule, scalar_t startTime, scalar_t dt, int maxNodes, scalar_t committedUntil);
+
+/**
+ * Applies to `plan` the re-timings of the executed schedule that happened after the plan's snapshot was taken. The log
+ * holds (time of the shift, shift) pairs; every entry younger than the snapshot is summed and applied once, so that
+ * shifts of opposite sign cancel instead of the first one moving the comparison key for the second. Returns the total.
+ */
+scalar_t applyScheduleShiftsToPlan(ContactPlan& plan, const std::deque<std::pair<scalar_t, scalar_t>>& shiftLog);
 
 /*============================================ schedule edits ==============================================*/
 

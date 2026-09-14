@@ -253,7 +253,7 @@ void WBMpcMrtJointController::computeJointControlAction(scalar_t time,
   // Set observation to MPC
   updateMpcObservation(currentMpcObservation_, robotState);
   mcpMrtInterface_.setCurrentObservation(currentMpcObservation_);
-  mcpMrtInterface_.updatePolicy();
+  if (mcpMrtInterface_.updatePolicy()) policyActivated_.store(true);
 
   vector_t mpcPolicyState;
   vector_t mpcPolicyInput;
@@ -339,6 +339,7 @@ void WBMpcMrtJointController::solverWorker() {
   ocs2::humanoid::setThreadCpuAffinity(coreAlloc.mpcCores, pthread_self(), "WB MPC Solver Thread");
 
   mcpMrtInterface_.resetMpcNode(currentObservationToResetTrajectory(mcpMrtInterface_.getCurrentObservation()));
+  policyActivated_.store(false);
   std::cerr << "MPC is reset. NMPC solver started!" << std::endl;
 
   size_t slowWarningCount = 0;
@@ -384,6 +385,15 @@ TargetTrajectories WBMpcMrtJointController::currentObservationToResetTrajectory(
 
   std::cerr << "Resetting MPC to current state: \n" << targetState << std::endl;
   return resetTargetTrajectories;
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+std::optional<contact_flag_t> WBMpcMrtJointController::getPlannedContactFlags(scalar_t time) const {
+  if (!policyActivated_.load()) return std::nullopt;
+  return modeNumber2StanceLeg(mcpMrtInterface_.getPolicy().modeSchedule_.modeAtTime(time));
 }
 
 }  // namespace ocs2::humanoid

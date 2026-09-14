@@ -164,14 +164,33 @@ candidate incumbent:
 
 * no flight phase: $c_{L,k} + c_{R,k} \ge 1$ (also present in the QP);
 * minimum and maximum swing duration, minimum (and optionally maximum) contact duration, counted in nodes from the
-  start of the phase, including the time already spent in the current phase before the planning instant;
+  start of the phase, including the time already spent in the current phase before the planning instant. That elapsed
+  time is a non-integer number of nodes; it is rounded down when checked against a minimum and up against a maximum, so
+  that the grid never violates either limit (rounding to the nearest node allowed a 0.16 s old swing to end after one
+  more node, 0.26 s against a 0.3 s minimum). If the two limits are less than a node apart the nearest node decides.
+  A foot may also not lift off in the last `minSwingNodes - 1` nodes of the horizon, where a minimum-length swing does
+  not fit. Without that rule the plan ended mid-swing and `toModeSchedule()` closed it with a touch-down at `endTime()`,
+  so the controller received a swing far shorter than `minSwingDuration` (0.1 s against a 0.3 s minimum, measured over a
+  receding-horizon walk), and the swing trajectory planner scaled its height down in proportion to that duration. The
+  step is simply deferred to the next plan.
+  The maximum contact duration yields to the rules that can make lifting impossible: a foot that is overdue lifts at
+  the first node where the other foot is known to support it and no minimum double support holds it, and when both
+  feet are overdue at once (a standing start with `maxContactDuration` set) the one that has stood longer, or that did
+  not swing last, goes first. Forcing both to lift at the same node used to contradict the no-flight rule and left the
+  planner without a single feasible assignment;
 * foot alternation (`enforceAlternatingFeet`): a foot may not swing twice without the other foot swinging in between;
 * minimum double support (`minDoubleSupportDuration`): after a touch-down the other foot stays down for at least that
-  long, so weight transfer is never asked to happen in a single node;
+  long, so weight transfer is never asked to happen in a single node. This includes the node of the touch-down itself:
+  a lift-off at the very node the other foot lands would be an instantaneous switch with no double support at all;
 * the committed window: contacts up to the *commit boundary* are fixed to the schedule the NMPC is already executing.
   The boundary is `commitTime` ahead of the planning instant, extended to the touch-down of any swing that has started or
   starts within that window. A swing in flight is therefore never re-timed or cut short by a later plan, and `commitTime`
-  must cover the planner latency (plans are merged from their own boundary, never from an earlier time);
+  must cover the planner latency: a plan is merged into the executed schedule exactly at its own boundary, which is `commitTime` after the snapshot it was planned from. Merging it any later (for instance at the boundary of the solve that activates it) cut the plan's first lift-off short by the plan's age, and the controller executed swings shorter than `minSwingDuration`. A plan whose boundary already lies in the past is stale and is not merged; the executed schedule keeps running and a rate-limited warning names the latency. The planner's
+  node grid is not aligned with the executed events, so every node that *starts* before the boundary is committed: a
+  node entirely inside the window takes the executed contacts at its midpoint, the node straddling the boundary takes
+  the contacts the executed schedule hands over at the boundary itself. Sampling the straddling node at its midpoint let
+  the plan contradict the executed schedule inside that node, and the merge then delayed an in-flight touch-down by up
+  to half a node or re-lifted a foot that had just landed;
 * plan consistency (`planConsistencyCost`): every node whose contact differs from the previous plan, shifted to the
   current time, is charged, which gives the anytime search hysteresis between cycles; the continuous footholds are
   likewise pulled towards the previous plan (`previousFootholdWeight`) so that the landing target tracked by the foot cost
@@ -221,12 +240,19 @@ under 0.1 s. With the default budget of 200 relaxations / 0.1 s the receding-hor
   applied schedule, the committed window and the commanded velocity from the target trajectories. With
   `runInBackgroundThread: true` the snapshot is posted to a worker thread (latest wins, rate-limited by
   `planningFrequency`); otherwise the plan is computed inside the pre-solve hook. After a plan is published the pending
-  snapshot is discarded, so the next plan always starts from a schedule that already contains the previous plan.
+  snapshot is discarded, so the next plan always starts from a schedule that already contains the previous plan, unless
+  that snapshot follows a contact event (section 2.8): the event has already re-timed the schedule the finished plan was
+  built on, so the post-event snapshot is kept and planned next. Switching `runInBackgroundThread` at runtime starts or
+  joins the worker; the stop flag is published under the worker's mutex so a toggle or a shutdown can never lose the
+  wake-up and hang the solver thread, and a snapshot or throttle state left over from the previous worker is cleared.
 * `ContactPlanningReferenceManager` merges every new plan into the schedule the NMPC is executing (applied schedule up to
   the plan's commit boundary, plan afterwards, never cutting a swing that is in flight or imminent, always starting and ending in double support so that the swing trajectory planner
   finds a lift-off and a touch-down for every swing), updates the foot-height swing planner and exposes the planned
   landing spot of every swing foot as a task-space reference: the xy position interpolates from the lift-off position to
-  the landing spot with a smooth-step profile, the height follows the swing trajectory planner.
+  the landing spot with a smooth-step profile, the height follows the swing trajectory planner. The lift-off position is
+  the latched measured foot position for the swing that ends the foot's current contact phase; a later swing of the same
+  foot inside the horizon starts from the planned foot position at its own lift-off, i.e. from where the earlier step
+  lands, since the latched position would be a step behind.
 * `CentroidalMpcEndEffectorFootCost` tracks that reference through `task_space_foot_cost_weights.pos_x / pos_y`. Without a
   plan the xy position error is switched off inside the cost, so the weights are harmless when planning is disabled.
 * Until the first valid plan arrives (or if the planner stalls) the gait schedule / the last applied schedule is used.
@@ -292,6 +318,13 @@ The measured contact flags reach the MPC as the observation mode (`RobotState::g
 MuJoCo contact sensors in simulation) and are compared with the schedule at the start of every solve. Per foot the
 manager keeps a small latch of the swing currently in flight (its lift-off, its nominal touch-down, and any re-timing
 applied so far).
+
+In the MuJoCo simulation those flags are `true` for every contact point unless `simReportsGroundTruthContacts: true` is
+set in the task file: the simulator then reports a contact point as touching when it carries more than
+`simContactForceThreshold` newtons of normal force against anything outside the robot. With the default, every swing
+reads as an early touch-down at its scuffing window, so phase resetting must not be enabled in simulation without it
+(the simulator logs a warning). The viewer's contact timeline (`b`) shows the contact state the executed policy plans
+against that ground truth, which is the quickest way to see early or late touch-downs and foot scuffing.
 
 **Early touch-down.** A foot that is scheduled to swing but is measured in contact after the first
 `earlyTouchdownMinSwingRatio` of the *nominal* swing duration (scuffing right after lift-off is ignored), and whose
@@ -368,8 +401,12 @@ $$E = \tfrac{1}{2} m \big(\dot{x}^2 - \omega^2 x^2\big), \qquad x = \mathbf{e}_x
 is conserved between contact switches. A CoM that carries more energy than the plan passes over the support earlier and
 should step earlier; less energy should delay the step. The touch-down of the swing in flight is moved by
 $\Delta t_{\mathrm{TD}} = -K_E\,(E - E^{\mathrm{ref}})$ relative to its *nominal* touch-down (not cumulatively), clipped to
-`[minSwingDuration, maxSwingDuration]` after lift-off and never closer than 20 ms to the current time; every later event
-moves with it and the plan is shifted alongside, exactly as for a late touch-down. It is not applied while a foot is
+`[minSwingDuration, maxSwingDuration]` after lift-off. A request earlier than what is still feasible brings the
+touch-down forward to 20 ms from now at the earliest, and never pushes a touch-down that is already imminent further out
+(flooring at "now + margin" on every cycle would drag the touch-down along with the clock and the foot would never
+land); every later event moves with it and the plan is shifted alongside, exactly as for a late touch-down. Shifts
+logged while a plan was being computed are applied to that plan when it arrives, summed against the plan's original
+snapshot time so that shifts of opposite sign cancel. It is not applied while a foot is
 searching for the ground. `energyCadenceGain` is in seconds per joule of the full robot mass; the default 0.01 s/J moves
 the touch-down by about 0.1 s for a 0.15 m/s forward velocity error of a 150 kg robot walking at 0.4 m/s. The feature is
 a heuristic that overlaps with the DCM step adjustment and the planner's own re-timing; it is disabled by default and

@@ -40,7 +40,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <atomic>
 #include <chrono>
 #include <ctime>
+#include <mutex>
 #include <thread>
+#include <vector>
 
 #include <Eigen/Dense>
 
@@ -64,6 +66,18 @@ struct MujocoSimConfig {
   bool enableGantry{true};
   bool isGantryLocked{true};
   double gantryHeight{0.0};
+
+  // Contact points of the controller, in its order (URDF frame or link names). They drive the ground-truth contact
+  // detection behind the viewer's contact timeline and, with reportGroundTruthContacts, the contact flags of the
+  // RobotState handed to the controller.
+  std::vector<std::string> contactFrameNames;
+  // Joint carrying each contact frame (same order, may be shorter or hold empty strings). A contact frame that the
+  // controller adds to its own kinematic model does not exist in the URDF or the MuJoCo scene; the MuJoCo body driven
+  // by that joint is the contact body then.
+  std::vector<std::string> contactParentJointNames;
+  double contactForceThreshold{5.0};      // [N] normal force above which a contact point counts as touching
+  double contactTimelineWindow{5.0};      // [s] sliding window of the contact timeline overlay
+  bool reportGroundTruthContacts{false};  // false: every contact point is reported as touching (historical behaviour)
 };
 
 class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
@@ -113,7 +127,23 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   vector3_t getLeftFootMeasuredForce() const;
   vector3_t getRightFootMeasuredForce() const;
 
+  /// Ground-truth contact detection and the contact timeline (see MujocoUtils.h).
+  bool hasContactDetection() const { return !contactBodyIds_.empty(); }
+  const std::vector<std::string>& getContactNames() const { return config_.contactFrameNames; }
+  /// Bit i set: no MuJoCo body could be resolved for contact point i (it is reported as touching, and drawn as unknown).
+  uint32_t getUnresolvedContactMask() const { return unresolvedContactMask_; }
+  double getContactTimelineWindow() const { return contactTimeline_.window(); }
+  /// Planned contact state from the control thread; an empty vector means "unknown" (no policy yet).
+  void setTargetContactFlags(const std::vector<bool>& flags);
+  /// Ground truth of the last simulation step, one flag per contact point (false where unresolved).
+  std::vector<bool> getGroundTruthContactFlags() const;
+  /// Snapshot of the timeline for the render thread, oldest sample first.
+  void copyContactTimeline(std::vector<ContactTimelineSample>& out) const;
+
  private:
+  void setupContactDetection();
+  void updateGroundTruthContacts();
+
   void setupJointIndexMaps();
 
   void setSimState(const model::RobotState& robotState);
@@ -162,11 +192,15 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   double simTimeAtLoopStart_{0.0};
   Metrics metrics_{};
 
-  size_t right_foot_sensor_addr_;
-  size_t left_foot_sensor_addr_;
+  // Sensor addresses, set only when the scene defines the sensor; the getters check for the "absent" value. They used
+  // to be left uninitialized, which read sensordata at a garbage index (a segfault on scenes without sensors, such as
+  // the DRC Atlas one) whenever the object's layout happened to leave a large value there.
+  static constexpr size_t kNoSensor = static_cast<size_t>(-1);
+  size_t right_foot_sensor_addr_{kNoSensor};
+  size_t left_foot_sensor_addr_{kNoSensor};
 
-  size_t right_foot_touch_sensor_addr_;
-  size_t left_foot_touch_sensor_addr_;
+  size_t right_foot_touch_sensor_addr_{kNoSensor};
+  size_t left_foot_touch_sensor_addr_{kNoSensor};
 
   std::atomic<bool> isGantryLocked_{true};
   std::atomic<double> gantryHeight_{0.0};
@@ -180,6 +214,17 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   /// Throttle: only publish to the triple buffer every N sim steps (matches render Hz).
   size_t renderPublishInterval_{1};
   size_t renderPublishCounter_{0};
+
+  /// Ground-truth contact detection (simulation thread) and the timeline read by the renderer.
+  std::vector<int> contactBodyIds_;  // MuJoCo body per contact point, -1 if unresolved
+  uint32_t unresolvedContactMask_{0};
+  std::atomic<uint32_t> targetContactMask_{0};
+  std::atomic<bool> targetContactKnown_{false};
+  std::atomic<uint32_t> groundTruthContactMask_{0};
+  mutable std::mutex contactTimelineMutex_;
+  ContactTimeline contactTimeline_;
+  size_t contactTimelineSampleInterval_{1};
+  size_t contactTimelineSampleCounter_{0};
 };
 
 }  // namespace robot::mujoco_sim_interface

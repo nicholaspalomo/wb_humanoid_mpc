@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <iostream>
 #include <set>
 #include <utility>
+#include <vector>
 
 namespace ocs2::humanoid {
 
@@ -148,9 +149,12 @@ void LipContactPlanner::reset() {
   previousAssignment_.clear();
 }
 
-int LipContactPlanner::initialPhaseNodes(const ContactPlannerInput& input, size_t foot) const {
+int LipContactPlanner::initialPhaseNodes(const ContactPlannerInput& input, size_t foot, bool roundUp) const {
   const int cap = 2 * config_.numNodes;
-  const int elapsed = static_cast<int>(std::lround(std::max(0.0, input.phaseElapsedTime[foot]) / config_.dt));
+  const scalar_t nodes = std::max(0.0, input.phaseElapsedTime[foot]) / config_.dt;
+  // Rounding to the nearest node let both limits be violated by up to half a node: a swing 0.16 s old counted as two
+  // nodes and could end one node later at 0.26 s against a 0.3 s minimum.
+  const int elapsed = static_cast<int>(roundUp ? std::ceil(nodes - 1e-9) : std::floor(nodes + 1e-9));
   return std::clamp(elapsed, 0, cap);
 }
 
@@ -202,7 +206,6 @@ scalar_t LipContactPlanner::assignmentCost(const ContactPlannerInput& input, con
     for (int k = 0; k < config_.numNodes; ++k) {
       const std::int8_t value = assignment[contactBinaryIndex(k, foot)];
       if (value == kMiqpFree) {
-        previous = -1;  // transitions involving undecided nodes are not counted (lower bound)
         continue;
       }
       if (previous >= 0 && value != previous) ++numSwitches;
@@ -231,28 +234,137 @@ bool LipContactPlanner::propagate(const ContactPlannerInput& input, MiqpAssignme
     return false;
   };
 
+  // Nodes at which a foot is held in contact by the minimum double support after the other foot's touch-down, along the
+  // fixed prefix. The maximum-contact rule yields to it (and to the no-flight rule): a foot that is overdue to lift but
+  // cannot, because the other foot is in the air or has just landed, lifts at the first node where it can instead of
+  // making the horizon infeasible. Without this, a standing start with maxContactDuration set (both feet overdue) had no
+  // feasible assignment at all, since both feet were forced to lift at the same node.
+  const int nDoubleSupportHold = config_.minDoubleSupportNodes();
+  std::array<std::vector<bool>, N_CONTACTS> heldByDoubleSupport;
+  for (auto& hold : heldByDoubleSupport) hold.assign(N, false);
+  const auto computeDoubleSupportHold = [&]() {
+    for (auto& hold : heldByDoubleSupport) std::fill(hold.begin(), hold.end(), false);
+    if (nDoubleSupportHold <= 0) return;
+    std::array<std::int8_t, N_CONTACTS> kappa;
+    for (size_t foot = 0; foot < N_CONTACTS; ++foot) kappa[foot] = input.contacts[foot] ? 1 : 0;
+    int lastTouchDown = -1000;
+    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+      if (input.contacts[foot] && input.contacts[1 - foot]) lastTouchDown = std::max(lastTouchDown, -initialPhaseNodes(input, foot));
+    }
+    for (int k = 0; k < N; ++k) {
+      int latestTouchDown = lastTouchDown;
+      bool allFixed = true;
+      for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+        const std::int8_t value = a[contactBinaryIndex(k, foot)];
+        allFixed = allFixed && value != kMiqpFree;
+        if (kappa[foot] == 0 && value == 1) latestTouchDown = k;
+      }
+      for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+        heldByDoubleSupport[foot][k] = kappa[foot] == 1 && k < latestTouchDown + nDoubleSupportHold;
+      }
+      if (!allFixed) break;
+      for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+        const std::int8_t value = a[contactBinaryIndex(k, foot)];
+        if (kappa[foot] == 0 && value == 1) lastTouchDown = k;
+        kappa[foot] = value;
+      }
+    }
+  };
+  // Contact state of a foot just before `node` along the fixed prefix: 1 in contact, 0 in the air, -1 unknown.
+  const auto stateBefore = [&](size_t foot, int node) {
+    std::int8_t kappa = input.contacts[foot] ? 1 : 0;
+    for (int k = 0; k < node; ++k) {
+      const std::int8_t value = a[contactBinaryIndex(k, foot)];
+      if (value == kMiqpFree) return -1;
+      kappa = value;
+    }
+    return static_cast<int>(kappa);
+  };
+  // Elapsed contact nodes (rounded up) of every foot along the fixed prefix, to decide which of two overdue feet lifts.
+  const auto contactAge = [&](size_t foot, int node) {
+    std::int8_t kappa = input.contacts[foot] ? 1 : 0;
+    int tau = initialPhaseNodes(input, foot, true);
+    for (int k = 0; k < node; ++k) {
+      const std::int8_t value = a[contactBinaryIndex(k, foot)];
+      if (value == kMiqpFree) return -1;
+      if (value == kappa) {
+        ++tau;
+      } else {
+        tau = 1;
+        kappa = value;
+      }
+    }
+    return kappa == 1 ? tau : 0;
+  };
+
   for (int iteration = 0; iteration < 4 * N && ok; ++iteration) {
     bool changed = false;
+    computeDoubleSupportHold();
 
     // Per-foot forward pass along the fixed prefix: minimum and maximum phase durations.
     for (size_t foot = 0; foot < N_CONTACTS && ok; ++foot) {
       std::int8_t kappa = input.contacts[foot] ? 1 : 0;
-      int tau = initialPhaseNodes(input, foot);
+      // The phase active at planning time has lasted a non-integer number of nodes: count it rounded down against the
+      // minimum duration and rounded up against the maximum, so that neither limit is violated by the grid. Once the
+      // phase switched inside the horizon both counts are exact and coincide.
+      int tauMin = initialPhaseNodes(input, foot, false);
+      int tauMax = initialPhaseNodes(input, foot, true);
       for (int k = 0; k < N; ++k) {
         const int index = contactBinaryIndex(k, foot);
         if (k >= numCommitted) {
-          const bool mustStay = (kappa == 1 && tau < nContactMin) || (kappa == 0 && tau < nSwingMin);
-          const bool mustSwitch = (kappa == 0 && tau >= nSwingMax) || (kappa == 1 && nContactMax > 0 && tau >= nContactMax);
-          if (mustStay && mustSwitch) return false;
+          bool mustStay = (kappa == 1 && tauMin < nContactMin) || (kappa == 0 && tauMin < nSwingMin);
+          bool mustSwitch = (kappa == 0 && tauMax >= nSwingMax) || (kappa == 1 && nContactMax > 0 && tauMax >= nContactMax);
+          // A swing that starts this late cannot reach its minimum duration before the horizon ends. Letting it start
+          // leaves the plan ending mid-swing, and ContactPlan::toModeSchedule() then closes the schedule with a
+          // touch-down at endTime(), handing the controller a swing far shorter than minSwingDuration (measured: 0.1 s
+          // against a 0.3 s minimum), whose swing height is scaled down in turn. Keep the foot down instead and let the
+          // next plan start the step; the maximum contact duration yields to this, as it does to the no-flight rule.
+          if (kappa == 1 && k + nSwingMin > N) {
+            mustStay = true;
+            mustSwitch = false;
+          }
+          if (mustStay && mustSwitch) {
+            // The grid cannot honour both limits for this phase (they are less than a node apart); decide by the nearest
+            // node, as before, instead of declaring the whole horizon infeasible.
+            const int tauNearest = static_cast<int>(std::lround(std::max(0.0, input.phaseElapsedTime[foot]) / config_.dt)) +
+                                   (tauMin - initialPhaseNodes(input, foot, false));
+            mustStay = (kappa == 1 && tauNearest < nContactMin) || (kappa == 0 && tauNearest < nSwingMin);
+            mustSwitch = (kappa == 0 && tauNearest >= nSwingMax) || (kappa == 1 && nContactMax > 0 && tauNearest >= nContactMax);
+            if (mustStay && mustSwitch) return false;
+          }
+          if (mustSwitch && kappa == 1) {
+            // Overdue to lift. Yield to the rules that can make lifting impossible right now, and when both feet are
+            // overdue at once let the one that has stood longer (or that did not swing last) go first.
+            const size_t other = 1 - foot;
+            const std::int8_t otherValue = a[contactBinaryIndex(k, other)];
+            // The other foot has to be known to support: in contact at this node, or in contact before it with its
+            // value here still free (it can then only stay, since this foot lifting forbids it to lift too). If it is
+            // in the air and free it might land right here, and lifting now would violate the double support.
+            const bool otherSupports = otherValue == 1 || (otherValue == kMiqpFree && stateBefore(other, k) == 1);
+            const bool held = heldByDoubleSupport[foot][k];
+            const int otherAge = contactAge(other, k);
+            const bool otherOverdue = otherValue != 0 && nContactMax > 0 && otherAge >= nContactMax;
+            bool thisGoesFirst = true;
+            if (otherOverdue) {
+              if (input.lastSwungFoot >= 0) {
+                thisGoesFirst = static_cast<size_t>(input.lastSwungFoot) != foot;
+              } else {
+                const int thisAge = contactAge(foot, k);
+                thisGoesFirst = thisAge > otherAge || (thisAge == otherAge && foot < other);
+              }
+            }
+            if (!otherSupports || held || !thisGoesFirst) mustSwitch = false;
+          }
           if (mustStay) changed |= fix(index, kappa);
           if (mustSwitch) changed |= fix(index, static_cast<std::int8_t>(1 - kappa));
           if (!ok) return false;
         }
         if (a[index] == kMiqpFree) break;
         if (a[index] == kappa) {
-          ++tau;
+          ++tauMin;
+          ++tauMax;
         } else {
-          tau = 1;
+          tauMin = tauMax = 1;
           kappa = a[index];
         }
       }
@@ -279,10 +391,17 @@ bool LipContactPlanner::propagate(const ContactPlannerInput& input, MiqpAssignme
         }
       }
       for (int k = 0; k < N && ok; ++k) {
+        // A touch-down decided at this very node already binds the other foot at this node: lifting it here would turn
+        // single support on one foot into single support on the other with no double support at all, which is the
+        // weight transfer the rule forbids. Counting it only after the node let that instantaneous switch through.
+        int latestTouchDown = lastTouchDown;
+        for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+          if (kappa[foot] == 0 && a[contactBinaryIndex(k, foot)] == 1) latestTouchDown = k;
+        }
         bool allFixed = true;
         for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
           const int index = contactBinaryIndex(k, foot);
-          if (kappa[foot] == 1 && k < lastTouchDown + nDoubleSupport && k >= numCommitted) {
+          if (kappa[foot] == 1 && k < latestTouchDown + nDoubleSupport && k >= numCommitted) {
             if (a[index] == 0) return false;
             changed |= fix(index, 1);
           }

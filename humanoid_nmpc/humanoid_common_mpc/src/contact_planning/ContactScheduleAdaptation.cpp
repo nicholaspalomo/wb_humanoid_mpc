@@ -90,6 +90,63 @@ std::optional<size_t> touchDownEventIndex(const ModeSchedule& schedule, size_t f
   return range->second;
 }
 
+std::optional<scalar_t> currentOrNextLiftOffTime(const ModeSchedule& schedule, size_t foot, scalar_t time) {
+  if (schedule.modeSequence.empty()) return std::nullopt;
+  size_t index = modeIndexAtTime(schedule, time);
+  if (!footInContact(schedule, index, foot)) {
+    const size_t first = firstSwingPhase(schedule, foot, index);
+    if (first == 0) return std::nullopt;
+    return schedule.eventTimes[first - 1];
+  }
+  for (size_t p = index + 1; p < schedule.modeSequence.size(); ++p) {
+    if (!footInContact(schedule, p, foot)) return schedule.eventTimes[p - 1];
+  }
+  return std::nullopt;
+}
+
+scalar_t commitBoundaryForSchedule(const ModeSchedule& schedule, scalar_t time, scalar_t commitTime) {
+  scalar_t boundary = time + commitTime;
+  const auto& eventTimes = schedule.eventTimes;
+  const auto& modeSequence = schedule.modeSequence;
+  if (modeSequence.empty()) return boundary;
+  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    // Walk the phases that overlap [time, boundary]; a swing phase among them extends the boundary to its touch-down.
+    for (size_t i = modeIndexAtTime(schedule, time); i < modeSequence.size(); ++i) {
+      const scalar_t phaseStart = (i == 0) ? -std::numeric_limits<scalar_t>::infinity() : eventTimes[i - 1];
+      if (phaseStart >= boundary) break;
+      const bool inContact = modeNumber2StanceLeg(modeSequence[i])[foot];
+      if (!inContact && i < eventTimes.size()) {
+        boundary = std::max(boundary, eventTimes[i]);  // touch-down of this swing
+      }
+    }
+  }
+  return boundary;
+}
+
+std::vector<contact_flag_t> committedContactsForPlanner(
+    const ModeSchedule& schedule, scalar_t startTime, scalar_t dt, int maxNodes, scalar_t committedUntil) {
+  std::vector<contact_flag_t> committed;
+  for (int k = 0; k < maxNodes; ++k) {
+    const scalar_t nodeStart = startTime + static_cast<scalar_t>(k) * dt;
+    if (nodeStart >= committedUntil - kMinTimeShift) break;
+    const scalar_t nodeEnd = nodeStart + dt;
+    const bool inside = nodeEnd <= committedUntil + kMinTimeShift;
+    const scalar_t sampleTime = inside ? nodeStart + 0.5 * dt : committedUntil;
+    committed.push_back(contactFlagsAtTime(schedule, sampleTime));
+  }
+  return committed;
+}
+
+scalar_t applyScheduleShiftsToPlan(ContactPlan& plan, const std::deque<std::pair<scalar_t, scalar_t>>& shiftLog) {
+  const scalar_t snapshotTime = plan.startTime;  // the snapshot's identity, read before any shift moves it
+  scalar_t total = 0.0;
+  for (const auto& [time, shift] : shiftLog) {
+    if (time > snapshotTime) total += shift;
+  }
+  if (total != 0.0) plan.shiftInTime(total);
+  return total;
+}
+
 /*============================================ schedule edits ==============================================*/
 
 void removeRedundantEvents(ModeSchedule& schedule) {
@@ -197,7 +254,11 @@ feet_array_t<ContactEventReport> adaptScheduleToContactEvents(ModeSchedule& sche
           scalar_t target = latch.nominalTouchDownTime + cadenceTouchDownShift[foot];
           target = std::clamp(target, liftOff + config.minSwingDuration, liftOff + config.maxSwingDuration);
           const scalar_t previousEvent = (*tdIndex > 0) ? schedule.eventTimes[*tdIndex - 1] : time;
-          target = std::max(target, std::max(time, previousEvent) + kMinRemainingSwing);
+          const scalar_t earliest = std::max(time, previousEvent) + kMinRemainingSwing;
+          // A request earlier than what is still feasible brings the touch-down forward as far as allowed, but never
+          // pushes a touch-down that is already imminent further out: flooring at "now + margin" on every cycle would
+          // drag the touch-down along with the clock and the foot would never land.
+          if (target < earliest) target = std::min(earliest, touchDown);
           const scalar_t shift = target - touchDown;
           if (std::abs(shift) > kMinTimeShift && shiftEventsFrom(schedule, *tdIndex, shift)) {
             latch.cadenceShift = target - latch.nominalTouchDownTime;

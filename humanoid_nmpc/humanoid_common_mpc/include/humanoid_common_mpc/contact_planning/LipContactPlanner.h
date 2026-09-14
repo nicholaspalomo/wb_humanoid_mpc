@@ -103,7 +103,11 @@ class LipContactPlanner {
   int previousPlanShift(const ContactPlannerInput& input) const;
   void localSearch(const ContactPlannerInput& input, const MiqpAssignment& initial, scalar_t timeBudget);
   ContactPlan decode(const ContactPlannerInput& input, const MiqpResult& result) const;
-  int initialPhaseNodes(const ContactPlannerInput& input, size_t foot) const;
+  /**
+   * Nodes already spent in the phase active at planning time. Rounded down by default, which is conservative for a
+   * minimum-duration rule; `roundUp` rounds up, which is conservative for a maximum-duration rule.
+   */
+  int initialPhaseNodes(const ContactPlannerInput& input, size_t foot, bool roundUp = false) const;
   void rebuildSolver();
 
   ContactPlanningConfig config_;

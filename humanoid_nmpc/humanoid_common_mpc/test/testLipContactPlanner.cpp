@@ -26,9 +26,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <deque>
 #include <iostream>
 
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
+#include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
 #include "humanoid_common_mpc/contact_planning/LipContactPlanner.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 
@@ -332,6 +334,270 @@ TEST(LipContactPlannerTest, MinimumDoubleSupportAndConsistencyCost) {
   const int node = config.numNodes - 1;
   flipped[LipContactPlanner::contactBinaryIndex(node, 0)] = 1 - flipped[LipContactPlanner::contactBinaryIndex(node, 0)];
   EXPECT_GT(planner.assignmentCost(input, flipped), planner.assignmentCost(input, same) + 0.9 * config.planConsistencyCost);
+}
+
+TEST(LipContactPlannerTest, MinimumDoubleSupportForbidsASimultaneousSwitch) {
+  // Left swings over nodes 1..3 and lands at node 4. If the right foot lifts at that same node there is no double
+  // support at all: single support on the right turns into single support on the left in one node, which is exactly
+  // the weight transfer minDoubleSupportDuration is meant to forbid. The propagation has to reject it just as it rejects
+  // a lift-off one node after the landing.
+  ContactPlanningConfig config = makeConfig();
+  config.minDoubleSupportDuration = 0.2;  // 2 nodes
+  LipContactPlanner planner(config);
+  ContactPlannerInput input = makeStandingInput();  // both feet down for a long time
+
+  const auto assignmentWithRightLiftOffAt = [&](int liftOffNode) {
+    MiqpAssignment a = planner.initialAssignment(input);
+    for (int k = 0; k < config.numNodes; ++k) {
+      a[LipContactPlanner::contactBinaryIndex(k, 0)] = (k >= 1 && k < 4) ? 0 : 1;                          // left swing 1..3
+      a[LipContactPlanner::contactBinaryIndex(k, 1)] = (k >= liftOffNode && k < liftOffNode + 3) ? 0 : 1;  // right swing
+    }
+    return a;
+  };
+
+  MiqpAssignment simultaneous = assignmentWithRightLiftOffAt(4);
+  EXPECT_FALSE(planner.propagate(input, simultaneous)) << "the right foot lifted at the node the left foot landed";
+  MiqpAssignment oneNode = assignmentWithRightLiftOffAt(5);
+  EXPECT_FALSE(planner.propagate(input, oneNode)) << "one node of double support is less than the two required";
+  MiqpAssignment twoNodes = assignmentWithRightLiftOffAt(6);
+  EXPECT_TRUE(planner.propagate(input, twoNodes));
+
+  // With the right foot still free at the landing node, propagation has to pin it to contact there and for the
+  // following node, not only for the nodes after the landing.
+  MiqpAssignment partial = assignmentWithRightLiftOffAt(6);
+  for (int k = 4; k < config.numNodes; ++k) partial[LipContactPlanner::contactBinaryIndex(k, 1)] = kMiqpFree;
+  ASSERT_TRUE(planner.propagate(input, partial));
+  EXPECT_EQ(partial[LipContactPlanner::contactBinaryIndex(4, 1)], 1) << "right foot must stay down at the landing node";
+  EXPECT_EQ(partial[LipContactPlanner::contactBinaryIndex(5, 1)], 1) << "and for the second double-support node";
+}
+
+TEST(LipContactPlannerTest, ElapsedPhaseTimeIsRoundedConservativelyForBothLimits) {
+  // dt 0.1, swing limits [0.3, 0.5]. A swing 0.16 s old used to count as 2 nodes (nearest), so ending it after one more
+  // node (0.26 s in total) passed the 0.3 s minimum; a swing 0.44 s old counted as 4 nodes and could go on one more
+  // node (0.54 s) against the 0.5 s maximum.
+  ContactPlanningConfig config = makeConfig();
+  config.minDoubleSupportDuration = 0.0;
+  LipContactPlanner planner(config);
+
+  ContactPlannerInput input = makeStandingInput();
+  input.contacts = {true, false};  // right foot swinging
+  input.phaseElapsedTime = {1.0, 0.16};
+  const auto rightLandsAt = [&](int node) {
+    MiqpAssignment a = planner.initialAssignment(input);
+    for (int k = 0; k < config.numNodes; ++k) {
+      a[LipContactPlanner::contactBinaryIndex(k, 0)] = 1;
+      a[LipContactPlanner::contactBinaryIndex(k, 1)] = (k < node) ? 0 : 1;
+    }
+    return a;
+  };
+  MiqpAssignment tooShort = rightLandsAt(1);  // 0.16 + 0.1 = 0.26 s
+  EXPECT_FALSE(planner.propagate(input, tooShort)) << "a 0.26 s swing violates the 0.3 s minimum";
+  MiqpAssignment longEnough = rightLandsAt(2);  // 0.16 + 0.2 = 0.36 s
+  EXPECT_TRUE(planner.propagate(input, longEnough));
+
+  input.phaseElapsedTime = {1.0, 0.44};
+  MiqpAssignment tooLong = rightLandsAt(1);  // 0.44 + 0.1 = 0.54 s
+  EXPECT_FALSE(planner.propagate(input, tooLong)) << "a 0.54 s swing violates the 0.5 s maximum";
+  MiqpAssignment landsNow = rightLandsAt(0);  // 0.44 s
+  EXPECT_TRUE(planner.propagate(input, landsNow));
+
+  // Limits less than a node apart cannot both be honoured on the grid for a mid-node elapsed time; the nearest node
+  // decides instead of the horizon becoming infeasible.
+  ContactPlanningConfig tight = makeConfig();
+  tight.minSwingDuration = 0.3;
+  tight.maxSwingDuration = 0.3;
+  tight.minDoubleSupportDuration = 0.0;
+  LipContactPlanner tightPlanner(tight);
+  input.phaseElapsedTime = {1.0, 0.25};
+  MiqpAssignment free = tightPlanner.initialAssignment(input);
+  EXPECT_TRUE(tightPlanner.propagate(input, free));
+}
+
+TEST(LipContactPlannerTest, PlanCarriesThePlanningFrameYaw) {
+  // The reference manager clips corrected footholds in the plan's yaw frame, so the plan has to remember the heading
+  // the geometry was planned in.
+  const ContactPlanningConfig config = makeConfig();
+  LipContactPlanner planner(config);
+  ContactPlannerInput input = makeStandingInput();
+  input.yaw = 0.7;
+  const ContactPlan plan = planner.plan(input);
+  ASSERT_TRUE(plan.valid);
+  EXPECT_DOUBLE_EQ(plan.yaw, 0.7);
+  EXPECT_DOUBLE_EQ(plan.startTime, input.time);
+  EXPECT_DOUBLE_EQ(plan.committedUntil, input.committedUntil);
+}
+
+TEST(LipContactPlannerTest, MaximumContactDurationYieldsToNoFlightAndDoubleSupport) {
+  // Both feet have stood far longer than maxContactDuration. Forcing both to lift at the same node contradicts the
+  // no-flight rule and made every assignment infeasible: the planner returned no plan at all on a standing start.
+  ContactPlanningConfig config = makeConfig();
+  config.maxContactDuration = 0.6;        // 6 nodes
+  config.minDoubleSupportDuration = 0.1;  // 1 node
+  LipContactPlanner planner(config);
+  ContactPlannerInput input = makeStandingInput();  // both feet down for 5 s, no velocity command
+
+  MiqpAssignment bothStayDown = planner.initialAssignment(input);
+  std::fill(bothStayDown.begin(), bothStayDown.end(), 1);
+  EXPECT_FALSE(planner.propagate(input, bothStayDown)) << "the limit still forces a step";
+  MiqpAssignment bothLift = planner.initialAssignment(input);
+  std::fill(bothLift.begin(), bothLift.end(), 1);
+  bothLift[LipContactPlanner::contactBinaryIndex(0, 0)] = 0;
+  bothLift[LipContactPlanner::contactBinaryIndex(0, 1)] = 0;
+  EXPECT_FALSE(planner.propagate(input, bothLift)) << "no flight";
+
+  // Foot 0 lifts now (swing 0..2, lands at 3, stands 3..7 which is the 0.6 s limit, lifts again at 8). Foot 1 yields
+  // while it cannot lift (foot 0 in the air, then the one-node double support at 3) and lifts at the first node where
+  // it can, node 4.
+  const auto sequence = [&](int secondLiftOff) {
+    MiqpAssignment a = planner.initialAssignment(input);
+    for (int k = 0; k < config.numNodes; ++k) {
+      a[LipContactPlanner::contactBinaryIndex(k, 0)] = (k < 3 || (k >= 8 && k < 11)) ? 0 : 1;
+      a[LipContactPlanner::contactBinaryIndex(k, 1)] = (k >= secondLiftOff && k < secondLiftOff + 3) ? 0 : 1;
+    }
+    return a;
+  };
+  MiqpAssignment liftsWhenAllowed = sequence(4);
+  EXPECT_TRUE(planner.propagate(input, liftsWhenAllowed));
+  MiqpAssignment liftsInsideDoubleSupport = sequence(3);
+  EXPECT_FALSE(planner.propagate(input, liftsInsideDoubleSupport)) << "the double support after the landing holds it";
+  MiqpAssignment staysTooLong = sequence(5);
+  EXPECT_FALSE(planner.propagate(input, staysTooLong)) << "overdue and able to lift at node 4, so it must";
+
+  // Propagation on a free assignment lifts exactly one foot at the first free node and leaves the other down.
+  MiqpAssignment free = planner.initialAssignment(input);
+  ASSERT_TRUE(planner.propagate(input, free));
+  const std::int8_t first = free[LipContactPlanner::contactBinaryIndex(0, 0)];
+  const std::int8_t second = free[LipContactPlanner::contactBinaryIndex(0, 1)];
+  EXPECT_EQ(static_cast<int>(first) + static_cast<int>(second), 1) << "one foot lifts, the other supports";
+
+  // And the planner produces a valid stepping plan from that state.
+  const ContactPlan plan = planner.plan(input);
+  ASSERT_TRUE(plan.valid);
+  EXPECT_FALSE(analyse(plan).flight);
+  EXPECT_GT(analyse(plan).numSwings[0] + analyse(plan).numSwings[1], 0) << "the limit forces stepping";
+}
+
+namespace {
+/** Calls `visit(foot, liftOff, touchDown)` for every swing of `schedule` with a lift-off event. */
+template <typename Visitor>
+void forEachSwing(const ModeSchedule& schedule, Visitor&& visit) {
+  for (size_t f = 0; f < N_CONTACTS; ++f) {
+    for (size_t i = 0; i + 1 < schedule.modeSequence.size(); ++i) {
+      const bool liftOff = modeNumber2StanceLeg(schedule.modeSequence[i])[f] && !modeNumber2StanceLeg(schedule.modeSequence[i + 1])[f];
+      if (!liftOff) continue;
+      for (size_t j = i + 1; j < schedule.eventTimes.size(); ++j) {
+        if (modeNumber2StanceLeg(schedule.modeSequence[j + 1])[f]) {
+          visit(f, schedule.eventTimes[i], schedule.eventTimes[j]);
+          break;
+        }
+      }
+    }
+  }
+}
+}  // namespace
+
+namespace {
+/**
+ * Drives the planner the way ContactPlanningReferenceManager does (same commit boundary, same committed-node sampling,
+ * same merge policy) for 3 s of walking at 0.4 m/s. A plan computed at tick i is merged `latencyTicks` ticks later,
+ * at max(now, plan.committedUntil), like a plan that the background planner hands over one solve later. Returns the
+ * executed schedule with its full history.
+ */
+ModeSchedule walkRecedingHorizon(const ContactPlanningConfig& c, int latencyTicks, scalar_t tick, int steps) {
+  LipContactPlanner planner(c);
+  ContactPlannerInput in = makeStandingInput();
+  in.velocityCommand = vector2_t(0.4, 0.0);
+  ModeSchedule applied({-1.0, 20.0}, {ModeNumber::STANCE, ModeNumber::STANCE, ModeNumber::STANCE});
+  std::deque<std::pair<int, ContactPlan>> pending;  // (tick at which the plan is applied, plan)
+
+  const auto checkFutureSwings = [&](const ModeSchedule& schedule, scalar_t from, const char* label, scalar_t t) {
+    forEachSwing(schedule, [&](size_t f, scalar_t liftOff, scalar_t touchDown) {
+      if (liftOff < from - 1e-9) return;
+      EXPECT_GE(touchDown - liftOff, c.minSwingDuration - 1e-9)
+          << label << " at t=" << t << ": foot " << f << " swing [" << liftOff << ", " << touchDown << ")";
+    });
+  };
+
+  for (int step = 0; step < steps; ++step) {
+    const scalar_t t = tick * step;
+
+    // Activate the plan that is due: the reference manager's merge policy.
+    while (!pending.empty() && pending.front().first <= step) {
+      const ContactPlan& plan = pending.front().second;
+      const scalar_t commitTime = std::max(t, plan.committedUntil);
+      const ModeSchedule planSchedule = plan.toModeSchedule();
+      applied = mergeModeSchedules(applied, planSchedule, commitTime, -10.0, t + 2.4);
+      checkFutureSwings(planSchedule, commitTime, "plan", t);
+      checkFutureSwings(applied, t, "merged", t);
+      pending.pop_front();
+    }
+    for (size_t m : applied.modeSequence) {
+      const contact_flag_t flags = modeNumber2StanceLeg(m);
+      bool anyContact = false;
+      for (size_t i = 0; i < N_CONTACTS; ++i) anyContact = anyContact || flags[i];
+      EXPECT_TRUE(anyContact) << "flight phase at step " << step;
+    }
+
+    // Plan from the executed schedule as it is now.
+    in.time = t;
+    in.contacts = contactFlagsAtTime(applied, t);
+    in.committedUntil = commitBoundaryForSchedule(applied, t, c.commitTime);
+    in.committedContacts = committedContactsForPlanner(applied, t, c.dt, c.numNodes - 1, in.committedUntil);
+    for (size_t f = 0; f < N_CONTACTS; ++f) {
+      size_t idx = modeIndexAtTime(applied, t);
+      scalar_t phaseStart = t - 10.0;
+      while (idx > 0 && modeNumber2StanceLeg(applied.modeSequence[idx - 1])[f] == in.contacts[f]) --idx;
+      if (idx > 0) phaseStart = applied.eventTimes[idx - 1];
+      in.phaseElapsedTime[f] = std::max(0.0, t - phaseStart);
+    }
+    ContactPlan plan = planner.plan(in);
+    EXPECT_TRUE(plan.valid) << "step " << step;
+    if (plan.valid) pending.emplace_back(step + latencyTicks, std::move(plan));
+  }
+  return applied;
+}
+
+void expectExecutedSwingsRespectTheMinimum(const ModeSchedule& applied, const ContactPlanningConfig& c, scalar_t walkEnd) {
+  int executedSwings = 0;
+  forEachSwing(applied, [&](size_t f, scalar_t liftOff, scalar_t touchDown) {
+    if (liftOff < 0.0 || liftOff > walkEnd) return;
+    ++executedSwings;
+    EXPECT_GE(touchDown - liftOff, c.minSwingDuration - 1e-9)
+        << "executed swing of foot " << f << " [" << liftOff << ", " << touchDown << ")";
+  });
+  EXPECT_GE(executedSwings, 4) << "the walk command must produce steps";
+}
+
+ContactPlanningConfig recedingHorizonConfig() {
+  ContactPlanningConfig c = makeConfig();
+  c.commitTime = 0.3;
+  c.minSwingDuration = 0.3;
+  c.maxSwingDuration = 0.6;
+  c.minContactDuration = 0.15;
+  c.minDoubleSupportDuration = 0.1;
+  c.validate();
+  return c;
+}
+}  // namespace
+
+TEST(LipContactPlannerTest, RecedingHorizonNeverExecutesASwingShorterThanTheMinimum) {
+  // Plans applied as soon as they are computed. The planner used to lift a foot in the last nodes of its horizon where
+  // a minimum-length swing does not fit; toModeSchedule() then closed the plan with a touch-down at endTime() and the
+  // plan carried a 0.1 s swing at its tail.
+  const ContactPlanningConfig c = recedingHorizonConfig();
+  const ModeSchedule applied = walkRecedingHorizon(c, 0, 0.05, 60);
+  expectExecutedSwingsRespectTheMinimum(applied, c, 0.05 * 60);
+}
+
+TEST(LipContactPlannerTest, RecedingHorizonWithPlannerLatencyNeverExecutesASwingShorterThanTheMinimum) {
+  // Plans applied one or two solves after they were computed, as with the background planner. The reference manager
+  // used to merge such a plan at the boundary of the activating solve instead of the plan's own boundary, which cut a
+  // lift-off placed between the two short by the plan's age: 0.28 s swings against a 0.3 s minimum.
+  const ContactPlanningConfig c = recedingHorizonConfig();
+  for (int latency : {1, 2}) {
+    const ModeSchedule applied = walkRecedingHorizon(c, latency, 0.05, 60);
+    expectExecutedSwingsRespectTheMinimum(applied, c, 0.05 * 60);
+  }
 }
 
 TEST(LipContactPlannerTest, RecedingHorizonWarmStartKeepsPlanConsistent) {

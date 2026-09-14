@@ -371,7 +371,7 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
   }
 
   // Active MPC control path
-  mcpMrtInterface_.updatePolicy();
+  if (mcpMrtInterface_.updatePolicy()) policyActivated_.store(true);
 
   vector_t mpcPolicyState;
   vector_t mpcPolicyInput;
@@ -570,6 +570,7 @@ void CentroidalMpcMrtJointController::solverWorker() {
   ocs2::humanoid::setThreadCpuAffinity(coreAlloc.mpcCores, pthread_self(), "Centroidal MPC Solver Thread");
 
   mcpMrtInterface_.resetMpcNode(currentObservationToResetTrajectory(mcpMrtInterface_.getCurrentObservation()));
+  policyActivated_.store(false);
   std::cerr << "MPC is reset. NMPC solver started!" << std::endl;
 
   size_t slowWarningCount = 0;
@@ -579,6 +580,7 @@ void CentroidalMpcMrtJointController::solverWorker() {
     // Handle externally-requested MPC reset (e.g. gantry lock/unlock)
     if (resetMpcRequested_.exchange(false)) {
       mcpMrtInterface_.resetMpcNode(currentObservationToResetTrajectory(mcpMrtInterface_.getCurrentObservation()));
+      policyActivated_.store(false);
       std::cerr << "MPC reset to current observation (external request)." << std::endl;
     }
 
@@ -662,6 +664,15 @@ vector_t CentroidalMpcMrtJointController::computeGravityCompensation(const ::rob
   // data.nle now contains gravity torques for all generalized coordinates.
   // Return only the joint portion (skip the 6 floating-base DOFs).
   return data.nle.tail(effectiveModelPtr_->getJointDim());
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+std::optional<contact_flag_t> CentroidalMpcMrtJointController::getPlannedContactFlags(scalar_t time) const {
+  if (!policyActivated_.load()) return std::nullopt;
+  return modeNumber2StanceLeg(mcpMrtInterface_.getPolicy().modeSchedule_.modeAtTime(time));
 }
 
 }  // namespace ocs2::humanoid

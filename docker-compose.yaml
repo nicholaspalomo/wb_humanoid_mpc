@@ -20,6 +20,12 @@ services:
 
     user: "${CONTAINER_USER:-ubuntu}"
     privileged: true
+
+    # Run tini as PID 1 so that orphaned processes are reaped. Without it PID 1 is the `sleep infinity` below, which
+    # never calls wait(), so every process orphaned into it (the Xvfb / x11vnc / websockify trio that `make start-vnc`
+    # restarts, ros2 nodes, bazel workers) stays in the process table as a zombie for the life of the container. A
+    # zombie cannot be killed, so no `make kill-*` target can clear them; only reaping or a container restart does.
+    init: true
     stdin_open: true
     tty: true
     working_dir: /wb_humanoid_mpc_ws/workspace/wb_humanoid_mpc

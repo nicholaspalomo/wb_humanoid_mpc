@@ -118,9 +118,7 @@ void ContactPlanningReferenceManager::activatePendingPlan(scalar_t initTime) {
   // The planner snapshot is taken after this manager ran in the same cycle, so the plan has seen every shift logged at or
   // before its start time; shifts logged later re-timed the schedule it was built on and are applied to the plan too.
   if (activated && activePlan_->valid) {
-    for (const auto& [time, shift] : scheduleShiftLog_) {
-      if (time > activePlan_->startTime) activePlan_->shiftInTime(shift);
-    }
+    applyScheduleShiftsToPlan(*activePlan_, scheduleShiftLog_);
   }
   while (!scheduleShiftLog_.empty() && scheduleShiftLog_.front().first < initTime - kShiftLogAge) {
     scheduleShiftLog_.pop_front();
@@ -236,15 +234,26 @@ void ContactPlanningReferenceManager::modifyReferences(scalar_t initTime,
   // Adapt the schedule executed so far to the measured contact state before it is merged with the plan.
   handleContactEvents(initTime, initMode, config);
 
-  // The plan honoured the applied schedule up to its own commit boundary. Merge from there (it is in the future when
-  // the plan is fresh), never earlier than the boundary that protects swings in flight or imminent in the schedule
-  // executed right now, and never in the past.
-  const scalar_t boundaryNow = hasAppliedSchedule_ ? commitBoundary(initTime) : initTime + config.commitTime;
-  scalar_t commitTime = boundaryNow;
+  // The plan honoured the applied schedule up to its own commit boundary, and that boundary already covers every swing
+  // that was in flight or about to start when the plan was made (commitBoundary extends it to their touch-downs). So
+  // the merge happens exactly there. Merging any later, e.g. from the boundary computed now, cut the plan's first
+  // lift-off short by the plan's age: the merged swing began at the later merge time but kept the plan's touch-down,
+  // and reached the controller shorter than minSwingDuration. A plan whose commit window has already passed is stale
+  // (its first decisions lie in the past, so any lift-off among them would be sliced the same way): the applied
+  // schedule keeps running until a fresh plan arrives.
+  scalar_t commitTime = initTime;
+  bool planFresh = false;
   if (hasActivePlan()) {
-    commitTime = std::max({initTime, activePlan_->committedUntil, boundaryNow});
+    planFresh = activePlan_->committedUntil >= initTime - 1e-6;
+    commitTime = std::max(initTime, activePlan_->committedUntil);
+    if (!planFresh && ++stalePlanCount_ % 50 == 1) {
+      std::cerr << "[ContactPlanningReferenceManager] the contact plan is stale by " << (initTime - activePlan_->committedUntil)
+                << " s (commitTime " << config.commitTime << " s does not cover the planner latency); keeping the executed schedule."
+                << std::endl;
+    }
   }
-  const bool planUsable = hasActivePlan() && activePlan_->endTime() > commitTime + config.dt && activePlan_->startTime <= commitTime;
+  const bool planUsable =
+      hasActivePlan() && planFresh && activePlan_->endTime() > commitTime + config.dt && activePlan_->startTime <= commitTime;
 
   ModeSchedule schedule;
   if (planUsable) {
@@ -266,6 +275,7 @@ void ContactPlanningReferenceManager::modifyReferences(scalar_t initTime,
   modeSchedule_ = schedule;
   appliedSchedule_ = schedule;
   hasAppliedSchedule_ = true;
+  lastSolveTime_ = initTime;
   updateFootBookkeeping(initTime, initState);
   updateDcmStepAdjustment(initTime, config);
 }
@@ -322,23 +332,7 @@ void ContactPlanningReferenceManager::updateDcmStepAdjustment(scalar_t initTime,
 }
 
 scalar_t ContactPlanningReferenceManager::commitBoundary(scalar_t time) const {
-  const ContactPlanningConfig config = getConfig();
-  scalar_t boundary = time + config.commitTime;
-  const auto& eventTimes = appliedSchedule_.eventTimes;
-  const auto& modeSequence = appliedSchedule_.modeSequence;
-  if (modeSequence.empty()) return boundary;
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-    // Walk the phases that overlap [time, boundary]; a swing phase among them extends the boundary to its touch-down.
-    for (size_t i = modeIndexAtTime(appliedSchedule_, time); i < modeSequence.size(); ++i) {
-      const scalar_t phaseStart = (i == 0) ? -std::numeric_limits<scalar_t>::infinity() : eventTimes[i - 1];
-      if (phaseStart >= boundary) break;
-      const bool inContact = modeNumber2StanceLeg(modeSequence[i])[foot];
-      if (!inContact && i < eventTimes.size()) {
-        boundary = std::max(boundary, eventTimes[i]);  // touch-down of this swing
-      }
-    }
-  }
-  return boundary;
+  return commitBoundaryForSchedule(appliedSchedule_, time, getConfig().commitTime);
 }
 
 std::optional<std::pair<scalar_t, scalar_t>> ContactPlanningReferenceManager::swingPhase(size_t contactIndex, scalar_t time) const {
@@ -363,7 +357,18 @@ std::optional<SwingFootReference> ContactPlanningReferenceManager::getSwingFootR
   const scalar_t duration = xyTouchDownTime - liftOffTime;
   if (duration <= 1e-6) return std::nullopt;
 
-  const vector2_t start = liftOffPositions_[contactIndex].head<2>();
+  // The xy interpolation starts where the foot stands at lift-off. For the swing that ends the foot's current contact
+  // phase (in flight now, or the next to lift) that is the latched measured position. For a later swing of the same foot
+  // inside the horizon the foot first lands somewhere else, so the start is the planned foot position at that lift-off
+  // (the node at or before it, i.e. the stance position before the foot moves).
+  vector2_t start = liftOffPositions_[contactIndex].head<2>();
+  const std::optional<scalar_t> currentLiftOff = currentOrNextLiftOffTime(appliedSchedule_, contactIndex, lastSolveTime_);
+  const bool endsCurrentContactPhase = currentLiftOff.has_value() && std::abs(*currentLiftOff - liftOffTime) <= kSameSwingTolerance;
+  if (!endsCurrentContactPhase) {
+    const std::optional<vector2_t> plannedStance =
+        activePlan_->footholdAtTime(contactIndex, liftOffTime - 0.5 * activePlan_->dt + kSameSwingTolerance);
+    if (plannedStance.has_value()) start = *plannedStance;
+  }
   const scalar_t tau = std::clamp((time - liftOffTime) / duration, 0.0, 1.0);
 
   // Use a cubic spline with p'(0) = 1 and p'(1) = 0 to command an initial velocity matching the step velocity.
@@ -430,14 +435,9 @@ ContactPlannerInput ContactPlanningReferenceManager::makePlannerInput(scalar_t i
 
   const ContactPlanningConfig config = getConfig();
   input.committedUntil = hasAppliedSchedule_ ? commitBoundary(initTime) : initTime + config.commitTime;
-  // Every node whose midpoint lies before the boundary is fixed to the applied schedule; at least one node stays free.
+  // Nodes that start before the boundary are fixed to the executed schedule; at least one node stays free.
   const int maxCommitted = std::max(0, config.numNodes - 1);
-  input.committedContacts.clear();
-  for (int k = 0; k < maxCommitted; ++k) {
-    const scalar_t t = initTime + (static_cast<scalar_t>(k) + 0.5) * config.dt;
-    if (t >= input.committedUntil) break;
-    input.committedContacts.push_back(contactFlagsAtTime(schedule, t));
-  }
+  input.committedContacts = committedContactsForPlanner(schedule, initTime, config.dt, maxCommitted, input.committedUntil);
   return input;
 }
 

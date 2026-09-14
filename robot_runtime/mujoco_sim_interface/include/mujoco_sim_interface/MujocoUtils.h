@@ -31,6 +31,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <mujoco/mujoco.h>
 
+#include <cstdint>
+#include <deque>
+#include <string>
+#include <vector>
+
 namespace robot::mujoco_sim_interface {
 
 struct Metrics {
@@ -72,4 +77,62 @@ struct MjState {
   mjData* data{nullptr};
   Metrics metrics;
 };
+
+/** One sample of the contact timeline: the contact state the controller planned and the one the physics produced. */
+struct ContactTimelineSample {
+  double time{0.0};         // [s] simulation time of the sample
+  uint32_t target{0};       // bit i set: contact point i is planned to be in contact
+  uint32_t actual{0};       // bit i set: contact point i carries contact force against something outside the robot
+  bool targetKnown{false};  // false until the controller has provided a planned contact state
+};
+
+/**
+ * Sliding window of contact samples, oldest first. The simulation thread appends and the render thread copies; the
+ * owner provides the locking.
+ */
+class ContactTimeline {
+ public:
+  explicit ContactTimeline(double windowSeconds = 5.0) : window_(windowSeconds > 0.0 ? windowSeconds : 5.0) {}
+
+  double window() const { return window_; }
+
+  /** Appends a sample and drops the ones older than the window. A time that runs backwards (simulation reset) clears the history. */
+  void append(const ContactTimelineSample& sample);
+
+  void clear() { samples_.clear(); }
+
+  const std::deque<ContactTimelineSample>& samples() const { return samples_; }
+
+ private:
+  double window_;
+  std::deque<ContactTimelineSample> samples_;
+};
+
+/** True if `bodyId` is `ancestorId` or lies in its kinematic subtree. */
+bool isInBodySubtree(const mjModel* model, int bodyId, int ancestorId);
+
+/**
+ * MuJoCo body of every contact point, in the order of `contactFrameNames`, or -1 where none could be found (with a
+ * message appended to `errors`). Resolution order per contact point:
+ *  1. the body driven by `contactParentJointNames[i]` when that entry is given (the controller's contact frames are
+ *     usually added to its own kinematic model on such a joint and exist in neither the URDF nor the scene);
+ *  2. a MuJoCo body named like the frame;
+ *  3. the URDF walked up through fixed joints from the frame's link, since the MJCF conversion merges fixed-joint
+ *     children into their parent body. A link that hangs on a movable joint but is no body of the scene is an error,
+ *     not a guess.
+ */
+std::vector<int> resolveContactBodies(const mjModel* model,
+                                      const std::string& urdfPath,
+                                      const std::vector<std::string>& contactFrameNames,
+                                      const std::vector<std::string>& contactParentJointNames,
+                                      std::vector<std::string>* errors);
+
+/**
+ * Ground-truth contact mask: bit i is set when a geom of contact body i (or of its subtree) is in a contact that carries
+ * more than `forceThreshold` [N] of normal force against a geom outside the robot's kinematic tree (the world, or any
+ * body that does not share the contact body's root). Requires the constraint forces of the current state, i.e. call
+ * after mj_step() or mj_forward(). Contacts beyond the 32nd are ignored.
+ */
+uint32_t groundTruthContactMask(const mjModel* model, const mjData* data, const std::vector<int>& contactBodyIds, double forceThreshold);
+
 }  // namespace robot::mujoco_sim_interface

@@ -48,12 +48,30 @@ ContactPlannerModule::~ContactPlannerModule() {
 }
 
 void ContactPlannerModule::startWorker() {
+  if (worker_.joinable()) stopWorker();  // never assign over a joinable thread (std::terminate)
+  {
+    // A snapshot posted before the thread was stopped, or the throttle timestamp of the previous incarnation, must not
+    // leak into the new worker: it would plan from a stale time, or the first post after re-enabling would be throttled.
+    std::lock_guard<std::mutex> lock(inputMutex_);
+    pendingInput_.reset();
+    pendingInputUrgent_ = false;
+    hasPosted_ = false;
+  }
   running_.store(true);
   worker_ = std::thread([this]() { workerLoop(); });
 }
 
 void ContactPlannerModule::stopWorker() {
-  running_.store(false);
+  {
+    // The stop flag is part of the condition the worker waits on, so it has to be written under the same mutex the
+    // worker evaluates the predicate under. Otherwise a store + notify that lands between the worker's predicate check
+    // and its wait is a lost wake-up: the worker blocks forever and the join below hangs the calling thread (the solver
+    // thread on a runtime toggle, or shutdown).
+    std::lock_guard<std::mutex> lock(inputMutex_);
+    running_.store(false);
+    pendingInput_.reset();
+    pendingInputUrgent_ = false;
+  }
   inputCondition_.notify_all();
   if (worker_.joinable()) {
     worker_.join();
@@ -116,8 +134,11 @@ void ContactPlannerModule::runPlanner(const ContactPlannerInput& input) {
     referenceManagerPtr_->setContactPlan(plan);
     // Drop any snapshot taken before this plan is applied: the next plan must start from the schedule that includes it,
     // otherwise its committed window would disagree with the applied schedule and the merge could cut phases short.
+    // A snapshot posted after a contact event is the exception: the schedule it was taken from has already been re-timed
+    // by that event, which makes this plan stale, and the reference manager's one-shot re-plan request has already been
+    // consumed for it; dropping it would delay the re-plan by a full planning period.
     std::lock_guard<std::mutex> lock(inputMutex_);
-    pendingInput_.reset();
+    if (!pendingInputUrgent_) pendingInput_.reset();
   }
   std::lock_guard<std::mutex> lock(statisticsMutex_);
   ++statistics_.numPlans;
@@ -139,6 +160,7 @@ void ContactPlannerModule::workerLoop() {
       if (!running_.load()) return;
       input = std::move(*pendingInput_);
       pendingInput_.reset();
+      pendingInputUrgent_ = false;
     }
     runPlanner(input);
   }
@@ -182,7 +204,8 @@ void ContactPlannerModule::preSolverRun(scalar_t initTime,
   }
   {
     std::lock_guard<std::mutex> lock(inputMutex_);
-    pendingInput_ = input;  // latest snapshot wins
+    pendingInput_ = input;                                         // latest snapshot wins
+    pendingInputUrgent_ = pendingInputUrgent_ || replanRequested;  // urgency outlives the snapshot that carried it
   }
   lastPostTime_ = now;
   hasPosted_ = true;
