@@ -49,6 +49,15 @@ class SwingTrajectoryPlanner {
     scalar_t impactProximityFactorLiftOffVelocity = 0;    // should lesser or equal 0
     scalar_t impactProximityFactorTouchDownVelocity = 0;  // should be greater or equal to 0
     scalar_t impactProximityFactorMidPointValue = 0.1;    // should be between 0 and 1
+
+    // Toe-up pitch of the swing foot. The foot height reference is tracked at the centre of the sole, so the toe, half a
+    // foot length ahead of it, reaches the ground before the reference does whenever the foot droops toe-down. Pitching
+    // the reference toe-up through the swing lifts the toe by (half foot length) * sin(angle) at no cost in sole
+    // clearance. The pitch ramps up over the first swingPitchRiseFraction of the swing, is held, and is back to flat at
+    // touch-down so that the contact is made with the whole sole, as the contact model assumes.
+    scalar_t swingPitchAngle = 0.0;          // [rad] peak toe-up pitch; 0 (the default) reproduces the flat-foot reference
+    scalar_t swingPitchRiseFraction = 0.25;  // fraction of the swing spent ramping from flat up to swingPitchAngle
+    scalar_t swingPitchFallFraction = 0.15;  // fraction of the swing spent ramping back down to flat before touch-down
   };
 
   SwingTrajectoryPlanner(Config config, size_t numFeet);
@@ -66,6 +75,12 @@ class SwingTrajectoryPlanner {
   scalar_t getZpositionConstraint(size_t leg, scalar_t time) const;
 
   scalar_t getImpactProximityFactor(size_t leg, scalar_t time) const;
+
+  /**
+   * Toe-up pitch of the swing foot reference at the given time, in radians, positive toe-up (a rotation of -angle about
+   * the foot's lateral axis). Zero for a foot in contact, and zero at both ends of a swing.
+   */
+  scalar_t getSwingPitchAngle(size_t leg, scalar_t time) const;
 
   /** Update swing trajectory config at runtime (e.g. from online parameter tuning). */
   void setConfig(const Config& config) { config_ = config; }
@@ -114,9 +129,21 @@ class SwingTrajectoryPlanner {
 
   static scalar_t swingTrajectoryScaling(scalar_t startTime, scalar_t finalTime, scalar_t swingTimeScale);
 
+  /** Normalized toe-up pitch profile: 0 at lift-off, 1 over the held section, 0 at touch-down. */
+  scalar_t swingPitchProfile(scalar_t tau) const;
+
+  /** The swing this mode-schedule phase belongs to, so that the pitch can be evaluated on the swing's own time base. */
+  struct SwingWindow {
+    bool isSwing = false;
+    scalar_t startTime = 0.0;
+    scalar_t finalTime = 0.0;
+    scalar_t scaling = 1.0;
+  };
+
   Config config_;
   const size_t numFeet_;
 
+  feet_array_t<std::vector<SwingWindow>> swingWindows_;
   feet_array_t<std::vector<SplineCpg>> impactProximityTrajectories_;
   feet_array_t<std::vector<SplineCpg>> feetHeightTrajectories_;
   feet_array_t<std::vector<scalar_t>> feetHeightTrajectoriesEvents_;

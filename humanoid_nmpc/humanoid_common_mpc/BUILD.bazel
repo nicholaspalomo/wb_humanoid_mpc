@@ -210,6 +210,17 @@ cc_test(
 )
 
 cc_test(
+    name = "testSwingPitchReference",
+    size = "small",
+    srcs = ["test/testSwingPitchReference.cpp"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
     name = "testContactPhaseResetting",
     size = "small",
     srcs = ["test/testContactPhaseResetting.cpp"],

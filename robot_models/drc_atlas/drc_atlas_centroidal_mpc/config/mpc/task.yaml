@@ -86,7 +86,11 @@ model_settings:
 
   # LINT.IfChange(foot_constraint_section)
   foot_constraint:
-    positionErrorGain_z: 1.0
+    # Swing: the only regulation of the swing-foot height is the normal-velocity constraint
+    # zdot = zdot_ref + positionErrorGain_z * (z_ref - z). At 1.0 that is a 1 s time constant, so barely a fifth of any
+    # height error accumulated at lift-off is corrected over a 0.25 s descent and the foot arrives low. 5.0 matches the
+    # other robots. The remaining gains below act on the stance (zero-velocity) constraint only.
+    positionErrorGain_z: 5.0
     orientationErrorGain: 0.1
     linearVelocityErrorGain_z: 0.1
     linearVelocityErrorGain_xy: 0.1
@@ -133,15 +137,33 @@ model_settings:
     left_elbow_y: l_arm_ely
     right_elbow_y: r_arm_ely
 
+# The height reference is tracked at foot_*_contact, the CENTRE of the sole. The toe contact points are 0.12 m ahead of
+# it, so the toe height is not regulated by anything here -- it is the sole centre height minus 0.12 * sin(foot pitch).
+# Everything in this section is therefore about not leaving the sole centre near the ground for longer than necessary.
 swing_trajectory_config:
   liftOffVelocity: 0.05
-  touchDownVelocity: 0.0
-  swingHeight: 0.16
+  # A zero touch-down velocity makes the descent flatten out asymptotically, so the sole hovers within a few millimetres
+  # of the ground for the last ~30 ms of the swing while the foot is still translating forward at ~0.2 m/s. Landing with
+  # a real descent rate shortens that window and roughly doubles the clearance at 90% of the swing.
+  touchDownVelocity: -0.10
+  swingHeight: 0.12  # was 0.16; the higher apex made the descent steeper and widened the foot-pitch excursion
   touchDownHeightOffset: -0.001
   swingTimeScale: 0.4
   impactProximityFactorLiftOffVelocity: -0.15
   impactProximityFactorTouchDownVelocity: 0.3
   impactProximityFactorMidPointValue: 0
+
+  # Toe-up pitch of the swing foot reference, tilting the plane that task_space_foot_cost_weights.orientation_x / _y
+  # track. It raises the toe by 0.12 * sin(angle) without lowering the sole centre: 0.10 rad buys ~12 mm at the peak.
+  # The profile is flat at lift-off, ramps up over swingPitchRiseFraction of the swing, holds, and is back to flat at
+  # touch-down so that contact is still made with the whole sole, as the contact model assumes.
+  #
+  # DISABLED BY DEFAULT (0.0 reproduces the previous flat-foot reference exactly). The gains and the trajectory shape
+  # above should be validated in MuJoCo on their own first; enable this only if the toe still catches, and start around
+  # 0.08-0.12 rad. Watch that the heel does not strike first -- the contact model assumes a flat landing.
+  swingPitchAngle: 0.08
+  swingPitchRiseFraction: 0.25
+  swingPitchFallFraction: 0.15
 
 # Mixed-integer contact planner (active when useContactPlanning: true).
 # A Linear Inverted Pendulum model is planned on a coarse grid of numNodes * dt seconds. Per node and foot a binary decides
@@ -486,11 +508,20 @@ task_space_foot_cost_weights:
   activeInStance: false
   # pos_x / pos_y track the planned swing-foot landing spot and are only applied while a contact plan provides one
   # (useContactPlanning: true); without a plan the xy position error is switched off inside the cost.
-  pos_x: 0
-  pos_y: 0
+  # Restored from 0: with useContactPlanning the foot cost takes the planner's xy reference, and the else-branch
+  # heuristic that used to give the swing foot a forward velocity reference is then skipped. At 0 the swing foot had no
+  # longitudinal guidance at all, under-reached, and was still travelling forward when its height reference hit zero.
+  # If the landing target jitters, damp it with contact_planning.previousFootholdWeight / planConsistencyCost rather
+  # than by zeroing these again.
+  pos_x: 30
+  pos_y: 30
   pos_z: 100
-  orientation_x: 100
-  orientation_y: 100
+  # Raised from 100. This is the only thing holding the swing foot level, and it competes with the joint regularization
+  # Q(28,28) = 5 * 85 = 425 that pulls l_leg_aky back to its nominal -0.42 -- which, with the knee more extended than
+  # nominal at the end of a long step, IS a toe-down foot. Atlas has a 0.24 m long sole, so every degree of droop drops
+  # the toe 2.1 mm. G1 and R1 use 1000 here with a much shorter foot.
+  orientation_x: 800
+  orientation_y: 800
   orientation_z: 0
   lin_velocity_x: 0
   lin_velocity_y: 5
@@ -579,10 +610,14 @@ contacts:
     z: -0.082
   contact_rectangle:
     # ; length specified in contact frame ;;
-    x_max: 0.13
-    x_min: -0.13
-    y_max: 0.065
-    y_min: -0.065
+    # Matched to the actual sole contact geometry in atlas.xml: the four contact spheres sit at ankle-frame
+    # x = -0.08 / +0.16, y = +-0.055, and the contact frame is 0.04 ahead of the ankle, so the real support polygon is
+    # +-0.12 x +-0.055 in this frame. The previous +-0.13 / +-0.065 gave the MPC about a centimetre of CoP range fore,
+    # aft and to each side that the foot does not have.
+    x_max: 0.12
+    x_min: -0.12
+    y_max: 0.055
+    y_min: -0.055
 
   contactWrenchConeSoftConstraint:
     # With useContactBasisVectorInputs: true these same values build the wrench-cone generators, so the friction, CoP

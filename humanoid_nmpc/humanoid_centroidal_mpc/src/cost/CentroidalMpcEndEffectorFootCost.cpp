@@ -152,8 +152,11 @@ vector_t CentroidalMpcEndEffectorFootCost::getParameters(scalar_t time,
 
   // TODO Update this reference for non flat ground in the future
   vector_t parameters(kNumParameters);
-  parameters.head(3) = vector3_t(0.0, 0.0, 0.0);        // Reference position
-  parameters.segment(3, 3) = vector3_t(0.0, 0.0, 1.0);  // Ground plane normal
+  parameters.head(3) = vector3_t(0.0, 0.0, 0.0);  // Reference position
+  // Plane the foot orientation is tracked against. Flat ground unless a toe-up swing pitch is configured, in which case
+  // the normal is tilted back along the heading for the swing so that the toe -- half a foot length ahead of the
+  // tracked sole centre -- clears the ground by more than the height reference alone provides.
+  parameters.segment(3, 3) = referenceManagerPtr_->getSwingFootPlaneNormal(contactIndex_, time);
   parameters.segment(6, 3) = vector3_t(0.0, 0.0, 0.0);  // Reference linear velocity
   parameters.segment(9, 3) = vector3_t(0.0, 0.0, 0.0);  // Reference angular velocity
   parameters.segment(12, 12) = sqrtWeights_;            // EndEffectorKinematicsWeights vector element

@@ -34,6 +34,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 
 #include <ocs2_core/misc/Lookup.h>
+#include <ocs2_core/misc/Numerics.h>
+
+#include <algorithm>
 
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 
@@ -84,6 +87,42 @@ scalar_t SwingTrajectoryPlanner::getImpactProximityFactor(size_t leg, scalar_t t
 /******************************************************************************************************/
 /******************************************************************************************************/
 
+scalar_t SwingTrajectoryPlanner::swingPitchProfile(scalar_t tau) const {
+  // Smoothstep up, hold, smoothstep down. The two ramps are clamped so that they never overlap even if the configured
+  // fractions sum to more than one, in which case the profile simply never reaches its peak.
+  const scalar_t rise = std::clamp(config_.swingPitchRiseFraction, 0.0, 1.0);
+  const scalar_t fall = std::clamp(config_.swingPitchFallFraction, 0.0, 1.0 - rise);
+  const auto smoothStep = [](scalar_t u) { return u * u * (3.0 - 2.0 * u); };
+
+  if (tau <= 0.0 || tau >= 1.0) return 0.0;
+  if (rise > 0.0 && tau < rise) return smoothStep(tau / rise);
+  if (fall > 0.0 && tau > 1.0 - fall) return smoothStep((1.0 - tau) / fall);
+  return 1.0;
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+scalar_t SwingTrajectoryPlanner::getSwingPitchAngle(size_t leg, scalar_t time) const {
+  if (numerics::almost_eq(config_.swingPitchAngle, 0.0) || swingWindows_[leg].empty()) return 0.0;
+
+  const auto index = lookup::findIndexInTimeArray(feetHeightTrajectoriesEvents_[leg], time);
+  const SwingWindow& window = swingWindows_[leg][index];
+  if (!window.isSwing) return 0.0;
+
+  const scalar_t duration = window.finalTime - window.startTime;
+  if (duration <= 0.0) return 0.0;
+
+  const scalar_t tau = std::clamp((time - window.startTime) / duration, 0.0, 1.0);
+  // Short swings get proportionally less pitch, for the same reason they get less height.
+  return window.scaling * config_.swingPitchAngle * swingPitchProfile(tau);
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
 void SwingTrajectoryPlanner::update(const ModeSchedule& modeSchedule, scalar_t terrainHeight) {
   const scalar_array_t terrainHeightSequence(modeSchedule.modeSequence.size(), terrainHeight);
   const scalar_array_t touchDownTerrainHeightSequence(modeSchedule.modeSequence.size(), terrainHeight + config_.touchDownHeightOffset);
@@ -117,6 +156,8 @@ void SwingTrajectoryPlanner::update(const ModeSchedule& modeSchedule,
     feetHeightTrajectories_[j].reserve(modeSequence.size());
     impactProximityTrajectories_[j].clear();
     impactProximityTrajectories_[j].reserve(modeSequence.size());
+    swingWindows_[j].clear();
+    swingWindows_[j].reserve(modeSequence.size());
     for (int p = 0; p < modeSequence.size(); ++p) {
       const int swingStartIndex = startTimesIndices[j][p];
       const int swingFinalIndex = finalTimesIndices[j][p];
@@ -127,6 +168,8 @@ void SwingTrajectoryPlanner::update(const ModeSchedule& modeSchedule,
 
       if (!eesContactFlagStocks[j][p]) {
         const scalar_t scaling = swingTrajectoryScaling(swingStartTime, swingFinalTime, config_.swingTimeScale);  // for leg in the air
+        // The pitch reference is evaluated on the whole swing, which may span several phases of the mode sequence.
+        swingWindows_[j].push_back(SwingWindow{true, swingStartTime, swingFinalTime, scaling});
         if (eesContactFlagStocks[j][p - 1] && eesContactFlagStocks[j][p + 1]) {  // For a swing leg, only in the air for current mode
 
           const CubicSpline::Node liftOffHeight{swingStartTime, liftOffHeightSequence[j][p], scaling * config_.liftOffVelocity};
@@ -174,6 +217,7 @@ void SwingTrajectoryPlanner::update(const ModeSchedule& modeSchedule,
                                                        impactProximityTouchDown);
         }
       } else {  // for a stance leg
+        swingWindows_[j].push_back(SwingWindow{});
         // Note: setting the time here arbitrarily to 0.0 -> 1.0 makes the assert in CubicSpline fail
         const CubicSpline::Node liftOff{0.0, liftOffHeightSequence[j][p], 0.0};
         const CubicSpline::Node touchDown{1.0, liftOffHeightSequence[j][p], 0.0};
@@ -321,6 +365,10 @@ SwingTrajectoryPlanner::Config loadSwingTrajectorySettings(const std::string& fi
   loadData::loadPtreeValue(pt, config.impactProximityFactorLiftOffVelocity, prefix + "impactProximityFactorLiftOffVelocity", verbose);
   loadData::loadPtreeValue(pt, config.impactProximityFactorTouchDownVelocity, prefix + "impactProximityFactorTouchDownVelocity", verbose);
   loadData::loadPtreeValue(pt, config.impactProximityFactorMidPointValue, prefix + "impactProximityFactorMidPointValue", verbose);
+
+  loadData::loadPtreeValue(pt, config.swingPitchAngle, prefix + "swingPitchAngle", verbose);
+  loadData::loadPtreeValue(pt, config.swingPitchRiseFraction, prefix + "swingPitchRiseFraction", verbose);
+  loadData::loadPtreeValue(pt, config.swingPitchFallFraction, prefix + "swingPitchFallFraction", verbose);
 
   if (verbose) {
     std::cerr << " #### =============================================================================" << std::endl;
