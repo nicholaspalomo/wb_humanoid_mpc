@@ -15,27 +15,43 @@ contact_planning:
                               #     has started or starts within this window is always executed to its touch-down)
   comHeight: 0.85             # [m] LIP height, omega = sqrt(gravity / comHeight); 0 = CoM height above the feet at initialState
   gravity: 9.81               # [m/s^2]
-  minSwingDuration: 0.4      # [s]
-  maxSwingDuration: 0.7       # [s]
-  minContactDuration: 0.15    # [s] a foot stays down at least this long before lifting again
+  # Cadence. The stride period the planner can emit is bounded below by
+  # 2 * (minSwingDuration + minDoubleSupportDuration), so these three keys, not the reach limits, set the top speed:
+  # at 0.4 / 0.1 the floor was a 1.0 s stride, which needs a 0.6 m step to track the joypad's full-stick 1.2 m/s.
+  # At 0.3 / 0.1 it is 0.8 s, i.e. a 0.48 m step for the same command.
+  # Every duration is quantised to a whole number of `dt` nodes (ceil for a minimum, floor for a maximum), so at
+  # dt: 0.1 nothing below 0.1 s is expressible; see the dt note below before lowering these further.
+  # task.yaml swing_trajectory_config.swingTimeScale must stay <= minSwingDuration or every swing is scaled down in
+  # height and velocity by swingDuration / swingTimeScale and the foot lands short and low.
+  minSwingDuration: 0.3       # [s] was 0.4
+  maxSwingDuration: 0.5       # [s] was 0.7; a long swing at speed is dead time the planner would otherwise spend
+  minContactDuration: 0.1     # [s] was 0.15
   maxContactDuration: 0.0     # [s] <= 0: no limit (standing allowed)
   enforceAlternatingFeet: true  # a foot may not swing twice in a row
-  minDoubleSupportDuration: 0.1  # [s] after a touch-down the other foot stays down at least this long
+  minDoubleSupportDuration: 0.05  # [s] after a touch-down the other foot stays down at least this long.
+                              # NOTE: quantised up to one node, so at dt: 0.1 this still behaves as 0.1 s. It becomes
+                              # real only together with the dt: 0.05 change (stage 2 below).
   zmpHalfWidthX: 0.08         # [m] ZMP box half-width around a supporting foot along the heading
   zmpHalfWidthY: 0.04         # [m] ZMP box half-width laterally
   nominalStepWidth: 0.25      # [m] preferred lateral distance between the feet
   minStepWidth: 0.15          # [m] self-collision margin
   maxStepWidth: 0.45          # [m]
-  maxStepLength: 1.5          # [m] |x_left - x_right| bound
-  reachX: 1.2                 # [m] foot x offset from the CoM
+  # Reach. These were ~3x the header defaults, which let the planner buy velocity tracking with stride length the leg
+  # cannot deliver: the landing target ran away from the foot and the swing never reached it. Tightened to something
+  # the leg can actually reach, so the planner has to buy speed with cadence instead.
+  maxStepLength: 0.7          # [m] was 1.5; |x_left - x_right| bound
+  reachX: 0.6                 # [m] was 1.2; foot x offset from the CoM
   reachYInner: 0.05           # [m] left foot y - CoM y >= reachYInner (mirrored for the right foot)
   reachYOuter: 0.45           # [m]
-  bigM: 3.0                   # [m] big-M of the contact disjunctions (must exceed maxStepLength)
+  bigM: 1.5                   # [m] was 3.0; big-M of the contact disjunctions (must exceed maxStepLength). Kept just
+                              # above maxStepLength: a tighter big-M tightens the relaxations and speeds up the search.
   velocityTrackingWeight: 50.0        # ||v_com - v_cmd||^2 per node
   zmpRegularizationWeight: 0.1        # ||zmp - p_com||^2 per node
   footholdRegularizationWeight: 0.2   # ||foot displacement||^2 per node
   stepWidthWeight: 10.0               # (step width - nominalStepWidth)^2 per node
-  contactSwitchCost: 1.0              # per lift-off / touch-down event
+  contactSwitchCost: 0.3              # was 1.0; per lift-off / touch-down event. A faster cadence puts more events in
+                                      # the horizon, so at 1.0 this term charged the planner for the very thing the
+                                      # cadence limits above are meant to allow.
   planConsistencyCost: 0.5            # per node whose contact differs from the previous plan (hysteresis between plans)
   previousFootholdWeight: 5.0         # ||foot position - previous plan||^2 per node, damps landing-target jitter
   terminalDcmWeight: 50.0            # ||DCM_N - zmp_(N-1)||^2 (terminal capturability)

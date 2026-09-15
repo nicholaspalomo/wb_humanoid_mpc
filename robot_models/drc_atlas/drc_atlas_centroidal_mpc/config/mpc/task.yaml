@@ -183,7 +183,11 @@ swing_trajectory_config:
   touchDownVelocity: -0.05
   swingHeight: 0.08  # was 0.16; the higher apex made the descent steeper and widened the foot-pitch excursion
   touchDownHeightOffset: -0.001
-  swingTimeScale: 0.4
+  # Swings shorter than this are scaled down in height AND velocity by swingDuration / swingTimeScale
+  # (SwingTrajectoryPlanner::swingTrajectoryScaling). It must therefore stay <= contact_planning.yaml
+  # minSwingDuration, or lowering the swing duration to raise the cadence silently shrinks the foot clearance:
+  # at swingTimeScale 0.4 a 0.3 s swing would clear only 0.75 * 0.08 = 0.06 m.
+  swingTimeScale: 0.25  # was 0.4
   impactProximityFactorLiftOffVelocity: -0.15
   impactProximityFactorTouchDownVelocity: 0.3
   impactProximityFactorMidPointValue: 0
