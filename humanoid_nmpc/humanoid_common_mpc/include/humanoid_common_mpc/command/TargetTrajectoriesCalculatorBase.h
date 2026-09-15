@@ -79,9 +79,12 @@ class TargetTrajectoriesCalculatorBase {
 
   vector6_t getDeltaBaseTarget(const vector4_t& commadLinePoseTarget, const vector6_t& currentPoseTarget) const;
 
-  vector4_t filterAndTransformVelCommandToLocal(const vector4_t& commandedVelLocal,
-                                                const scalar_t& currentEulerZ,
-                                                scalar_t filterAlpha) const;
+  /**
+   * Low-pass filters the commanded velocity and rotates its linear part from the pelvis frame into the world frame.
+   *
+   * The filter state lives on the instance, so two calculators (or two tests) never share a hidden global.
+   */
+  vector4_t filterAndTransformVelCommandToLocal(const vector4_t& commandedVelLocal, const scalar_t& currentEulerZ, scalar_t filterAlpha);
 
   vector6_t integrateTargetBasePose(const vector6_t& currentPose,
                                     const vector3_t& averageVel,
@@ -103,6 +106,8 @@ class TargetTrajectoriesCalculatorBase {
   scalar_t defaultBaseHeight_;
   vector_t targetJointState_;
   scalar_t mpcHorizon_;
+  // State of the first-order low-pass filter applied to the commanded velocity [v_x, v_y, dz, yaw rate].
+  vector4_t filteredVelocityCommand_ = vector4_t::Zero();
 };
 
 }  // namespace ocs2::humanoid

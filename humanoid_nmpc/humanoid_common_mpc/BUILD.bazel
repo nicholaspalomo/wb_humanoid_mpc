@@ -211,6 +211,17 @@ cc_test(
 )
 
 cc_test(
+    name = "testSwingLandingVelocity",
+    size = "small",
+    srcs = ["test/testSwingLandingVelocity.cpp"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
     name = "testSwingPitchReference",
     size = "small",
     srcs = ["test/testSwingPitchReference.cpp"],
@@ -236,6 +247,17 @@ cc_test(
     name = "testContactPlan",
     size = "small",
     srcs = ["test/testContactPlan.cpp"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "testContactPlannerModule",
+    size = "small",
+    srcs = ["test/testContactPlannerModule.cpp"],
     copts = _COMMON_COPTS,
     deps = [
         ":humanoid_common_mpc",

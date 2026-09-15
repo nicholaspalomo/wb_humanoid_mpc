@@ -162,10 +162,16 @@ void LipContactPlanner::rebuildSolver() {
 
 void LipContactPlanner::setConfig(const ContactPlanningConfig& config) {
   config.validate();
+  const Layout layout = makeLayout(config);
+  // The warm start (the previous plan and its assignment) is only invalid when the grid or the decision variables
+  // change; it survives a change of weights or limits. Dropping it on every hot reload of the task file made the plan
+  // after each edit start from scratch and move footholds and timing abruptly while the operator was tuning.
+  const bool sameProblem = config.numNodes == config_.numNodes && std::abs(config.dt - config_.dt) <= 1e-12 && layout.nx == layout_.nx &&
+                           layout.nu == layout_.nu && layout.hasHeading == layout_.hasHeading;
   config_ = config;
-  layout_ = makeLayout(config_);
+  layout_ = layout;
   rebuildSolver();
-  reset();
+  if (!sameProblem) reset();
 }
 
 void LipContactPlanner::reset() {
@@ -273,7 +279,11 @@ bool LipContactPlanner::propagate(const ContactPlannerInput& input, MiqpAssignme
     if (k < static_cast<int>(input.committedPhaseStartTimes.size())) {
       const scalar_t start = input.committedPhaseStartTimes[k][foot];
       // The switch is detected between two samples; an event outside that window is not the switch we are looking at.
-      if (std::isfinite(start) && start > nodeStart - config_.dt && start <= nodeStart + config_.dt) return start;
+      // The window is closed at the node's end with a tolerance: the last committed node is sampled at the commit
+      // boundary, which lies exactly on its end whenever the boundary is on the grid, and the node times are sums of
+      // dt that land a few ulp off the event time. Rejecting that event counted the phase from the node start and let
+      // the double-support minimum be met a whole node early (an instantaneous weight transfer in the merged schedule).
+      if (std::isfinite(start) && start > nodeStart - config_.dt && start <= nodeStart + config_.dt + 1e-9) return start;
     }
     return nodeStart;
   };
@@ -483,7 +493,10 @@ bool LipContactPlanner::propagate(const ContactPlannerInput& input, MiqpAssignme
           const int index = contactBinaryIndex(k, foot);
           if (kappa[foot] == 1) {
             if (a[index] == 0) {
-              if (lastSwung == static_cast<int>(foot)) return false;
+              // The rule constrains the free nodes: along the committed prefix the executed schedule is what it is (a
+              // repeated lift-off there came from an earlier plan or a re-timed event), and refusing it made every plan
+              // infeasible, silently, until the node left the window.
+              if (lastSwung == static_cast<int>(foot) && k >= numCommitted) return false;
               lastSwung = static_cast<int>(foot);
             } else if (a[index] == kMiqpFree && lastSwung == static_cast<int>(foot)) {
               changed |= fix(index, 1);
@@ -647,8 +660,13 @@ OcpQpProblem LipContactPlanner::buildProblem(const ContactPlannerInput& input, c
       addQuadraticResidual(s, {{L.headingRate, 1.0}}, {}, -input.headingRateCommand, cfg.headingRateTrackingWeight);
       const scalar_t commandedHeading = input.heading + input.headingRateCommand * static_cast<scalar_t>(k) * dt;
       addQuadraticResidual(s, {{L.heading, 1.0}}, {}, -commandedHeading, cfg.headingTrackingWeight);
+      // The foot yaw is measured against the nominal heading (the linearisation point), not against the heading state:
+      // a stance foot's yaw is pinned, so (psi_i - theta)^2 on it is a penalty on theta alone, which pulled the heading
+      // back towards the stance feet (to a third of the command with equal weights and both feet down). Under the
+      // successive linearisation the nominal is the plan's own heading, so a swinging foot still lands where the heading
+      // goes.
       for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-        addQuadraticResidual(s, {{L.footYaw(foot), 1.0}, {L.heading, -1.0}}, {}, 0.0, cfg.footYawTrackingWeight);
+        addQuadraticResidual(s, {{L.footYaw(foot), 1.0}}, {}, -nominal.heading[k], cfg.footYawTrackingWeight);
       }
     }
     if (terminal) {
@@ -688,7 +706,8 @@ OcpQpProblem LipContactPlanner::buildProblem(const ContactPlannerInput& input, c
     s.lbu = (vector_t(6) << -M, -M, -M, -M, 0.0, 0.0).finished();
     s.ubu = (vector_t(6) << M, M, M, M, 1.0, 1.0).finished();
     if (hasHeading) {
-      const scalar_t torqueBound = torsion + couple;
+      // No foot ever carries more than the whole weight's torsion alone or half of the double-support budget (the rows below).
+      const scalar_t torqueBound = std::max(torsion, 0.5 * (torsion + couple));
       for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
         s.idxbu.push_back(L.yawTorque(foot));
         s.idxbu.push_back(L.footYawDelta(foot));
@@ -727,11 +746,15 @@ OcpQpProblem LipContactPlanner::buildProblem(const ContactPlannerInput& input, c
     rows.add({}, {{CL, 1.0}, {CR, 1.0}}, 1.0, 2.0, false);
     if (hasHeading) {
       for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-        // Yaw torque of a foot: torsional friction while it stands, half the friction couple on top in double support:
-        // +-tau_i - T_t c_i - T_c (c_L + c_R) / 2 <= -T_c / 2.
+        // Yaw torque of a foot: the torsional friction of the weight it carries plus its half of the friction couple in
+        // double support. Alone it carries the whole weight, T_t; with both feet down each carries half of it and half of
+        // the couple, (T_t + T_c) / 2, so that the pair has T_t + T_c (granting the full-weight torsion to both feet at
+        // once, 2 T_t + T_c, over-estimated the double-support budget by T_t):
+        // +-tau_i - T_t c_i - (T_c - T_t) (c_L + c_R - 1) / 2 <= 0.
+        const scalar_t doubleSupportShare = 0.5 * (couple - torsion);
         for (const scalar_t sign : {1.0, -1.0}) {
-          rows.add({}, {{L.yawTorque(foot), sign}, {cIndex[foot], -torsion}, {CL, -0.5 * couple}, {CR, -0.5 * couple}}, -kLooseBound,
-                   -0.5 * couple, false);
+          rows.add({}, {{L.yawTorque(foot), sign}, {cIndex[foot], -torsion}, {CL, -doubleSupportShare}, {CR, -doubleSupportShare}},
+                   -kLooseBound, -doubleSupportShare, false);
         }
         // A foot's yaw only changes while the foot is in the air: +-dpsi_i + 2 pi c_i <= 2 pi.
         for (const scalar_t sign : {1.0, -1.0}) {
@@ -918,7 +941,8 @@ ContactPlan LipContactPlanner::decode(const ContactPlannerInput& input, const Mi
   plan.yaw = input.yaw;
   plan.numBranchAndBoundNodes = statistics_.numBranchAndBoundRelaxations + statistics_.numLocalSearchQps;
   plan.solveTime = statistics_.branchAndBoundTime + statistics_.localSearchTime;
-  plan.optimal = result.optimal;
+  // A search that ended without an incumbent (an infeasible root) is exhausted, but there is no optimal plan to report.
+  plan.optimal = result.optimal && result.hasIncumbent;
   plan.nodeLimitHit = result.nodeLimitHit;
   plan.timeLimitHit = result.timeLimitHit;
   if (!result.hasIncumbent) {

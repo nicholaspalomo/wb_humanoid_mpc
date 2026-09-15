@@ -32,7 +32,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_core/reference/ModeSchedule.h>
 
+#include <optional>
 #include "humanoid_common_mpc/common/Types.h"
+
 #include "humanoid_common_mpc/swing_foot_planner/SplineCpg.h"
 
 namespace ocs2::humanoid {
@@ -60,6 +62,20 @@ class SwingTrajectoryPlanner {
     scalar_t swingPitchFallFraction = 0.15;  // fraction of the swing spent ramping back down to flat before touch-down
   };
 
+  /**
+   * A swing extended past its planned touch-down while the foot searches for the ground (late touch-down). The height
+   * reference of that swing is the planned swing's spline up to the planned touch-down, continued as a straight descent
+   * at `descentVelocity` from the planned touch-down height until the extended touch-down of the schedule; the pitch and
+   * the impact proximity hold their touch-down values. Re-fitting the spline over the extended swing instead moved its
+   * apex, raised the reference at the current time by several millimetres at every extension step and then drove the
+   * foot down at the spline's slope (about 0.35 m/s) rather than at the search velocity.
+   */
+  struct GroundSearch {
+    scalar_t liftOffTime = 0.0;           // identifies the swing in the schedule
+    scalar_t plannedTouchDownTime = 0.0;  // where the planned swing, and with it the spline, ends
+    scalar_t descentVelocity = 0.0;       // [m/s] downward rate of the height reference past the planned touch-down (>= 0)
+  };
+
   SwingTrajectoryPlanner(Config config, size_t numFeet);
 
   void update(const ModeSchedule& modeSchedule, scalar_t terrainHeight);
@@ -67,6 +83,12 @@ class SwingTrajectoryPlanner {
   void update(const ModeSchedule& modeSchedule,
               const feet_array_t<scalar_array_t>& liftOffHeightSequence,
               const feet_array_t<scalar_array_t>& touchDownHeightSequence);
+
+  /** As above, with the swings that are searching for the ground (empty entries: none). */
+  void update(const ModeSchedule& modeSchedule,
+              const feet_array_t<scalar_array_t>& liftOffHeightSequence,
+              const feet_array_t<scalar_array_t>& touchDownHeightSequence,
+              const feet_array_t<std::optional<GroundSearch>>& groundSearches);
 
   scalar_t getZaccelerationConstraint(size_t leg, scalar_t time) const;
 
@@ -136,9 +158,18 @@ class SwingTrajectoryPlanner {
   struct SwingWindow {
     bool isSwing = false;
     scalar_t startTime = 0.0;
-    scalar_t finalTime = 0.0;
+    scalar_t finalTime = 0.0;  // the planned touch-down: the spline and the pitch profile end here
     scalar_t scaling = 1.0;
+    // Ground search past finalTime (GroundSearch): a straight descent from the planned touch-down height.
+    bool searching = false;
+    scalar_t descentStartHeight = 0.0;
+    scalar_t descentVelocity = 0.0;
   };
+
+  /** True while the foot is searching for the ground past its planned touch-down at `time`. */
+  static bool isSearching(const SwingWindow& window, scalar_t time) {
+    return window.isSwing && window.searching && time > window.finalTime;
+  }
 
   Config config_;
   const size_t numFeet_;

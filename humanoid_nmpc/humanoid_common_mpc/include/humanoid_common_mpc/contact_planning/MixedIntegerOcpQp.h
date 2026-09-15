@@ -79,10 +79,11 @@ struct MiqpResult {
   int numNodes = 0;           // relaxations solved, including root, heuristic and warm-start solves
   int totalQpIterations = 0;  // interior point iterations summed over all relaxations
   int numPrunedByBound = 0;
-  int numInfeasible = 0;
+  int numInfeasible = 0;         // nodes the propagation proved infeasible
+  int numFailedRelaxations = 0;  // relaxations the QP solver did not solve; their subtrees were dropped unproven
   bool nodeLimitHit = false;
   bool timeLimitHit = false;
-  bool optimal = false;      // the search tree was exhausted (up to the tolerances)
+  bool optimal = false;      // the search tree was exhausted (up to the tolerances) with no relaxation failing
   scalar_t solveTime = 0.0;  // [s]
 };
 

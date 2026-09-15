@@ -145,8 +145,11 @@ std::vector<scalar_t> committedSampleTimes(scalar_t startTime, scalar_t dt, int 
     const scalar_t nodeStart = startTime + static_cast<scalar_t>(k) * dt;
     if (nodeStart >= committedUntil - kMinTimeShift) break;
     const scalar_t nodeEnd = nodeStart + dt;
-    const bool inside = nodeEnd <= committedUntil + kMinTimeShift;
-    sampleTimes.push_back(inside ? nodeStart + 0.5 * dt : committedUntil);
+    // The last committed node is sampled at the boundary whether it straddles the boundary or ends on it: an event
+    // inside it (a touch-down after its midpoint) has been executed by the boundary, and the plan's first free node has
+    // to continue from the state the executed schedule hands over there, not from the state at the node's midpoint.
+    const bool last = nodeEnd >= committedUntil - kMinTimeShift;
+    sampleTimes.push_back(last ? committedUntil : nodeStart + 0.5 * dt);
   }
   return sampleTimes;
 }

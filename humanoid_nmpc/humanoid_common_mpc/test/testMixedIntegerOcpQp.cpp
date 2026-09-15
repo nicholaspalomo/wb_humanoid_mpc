@@ -181,4 +181,21 @@ TEST(MixedIntegerOcpQpTest, InfeasibleRootPropagationReturnsNoIncumbent) {
   EXPECT_EQ(result.numNodes, 0);
 }
 
+/**
+ * A relaxation the QP solver does not solve (iteration limit) is dropped with its subtree, but nothing about it is
+ * proven: it is not an infeasible node, and a search that dropped one cannot claim to have exhausted the tree.
+ */
+TEST(MixedIntegerOcpQpTest, FailedRelaxationsAreNotReportedOptimal) {
+  OcpQpProblem problem = makeProblem(1.3);
+  OcpQpHpipmSolver::Settings starved;
+  starved.iterMax = 1;  // no relaxation converges in a single interior point iteration
+  MixedIntegerOcpQp miqp{starved, MiqpSettings{}};
+  const MiqpAssignment initial(kNumStages, kMiqpFree);
+  const MiqpResult result = miqp.solve(problem, makeBinaries(), initial, [](MiqpAssignment&) { return true; });
+  EXPECT_GT(result.numFailedRelaxations, 0);
+  EXPECT_EQ(result.numInfeasible, 0) << "an unsolved relaxation is not an infeasible node";
+  EXPECT_FALSE(result.optimal);
+  EXPECT_FALSE(result.hasIncumbent);
+}
+
 }  // namespace ocs2::humanoid

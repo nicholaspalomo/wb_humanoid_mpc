@@ -60,8 +60,45 @@ class ContactPlannerModule final : public SolverSynchronizedModule {
     scalar_t lastPlanStartTime = 0.0;
     scalar_t lastSolveTime = 0.0;
     int lastNumBranchAndBoundNodes = 0;
-    bool lastOptimal = false;
+    bool lastOptimal = false;  // false for a plan that is not valid, or whose search hit a limit or a solver failure
+    bool lastNodeLimitHit = false;
+    bool lastTimeLimitHit = false;
     scalar_t lastObjective = 0.0;
+    // Plans the reference manager dropped at activation instead of applying (see ContactPlanningReferenceManager). A
+    // valid plan that is dropped counts as a success here and as a drop there; while plans keep being dropped the
+    // executed schedule runs out and the robot stops walking.
+    size_t numStalePlansDropped = 0;
+    size_t numInconsistentPlansDropped = 0;
+  };
+
+  /**
+   * Rate limiter of the snapshots posted to the worker. The period is counted from the last snapshot the worker took (or
+   * from the one still waiting for it), not from the last post: a snapshot posted while the worker was busy and dropped
+   * at the hand-over would otherwise hold the next post for a whole period although the worker is idle, which halved the
+   * planning rate whenever a plan took longer than the period. Guarded by the module's input mutex; public for the test.
+   */
+  struct SnapshotThrottle {
+    using Clock = std::chrono::steady_clock;
+    bool hasPosted = false;
+    bool pending = false;  // a posted snapshot is waiting for the worker
+    Clock::time_point pendingPostTime{};
+    Clock::time_point lastTakenPostTime{};
+
+    /** Whether a snapshot may be posted at `now`. */
+    bool allows(Clock::time_point now, std::chrono::duration<scalar_t> minPeriod) const {
+      if (!hasPosted) return true;
+      return now - (pending ? pendingPostTime : lastTakenPostTime) >= minPeriod;
+    }
+    void posted(Clock::time_point now) {
+      hasPosted = true;
+      pending = true;
+      pendingPostTime = now;
+    }
+    void taken() {
+      pending = false;
+      lastTakenPostTime = pendingPostTime;
+    }
+    void dropped() { pending = false; }
   };
 
   ContactPlannerModule(std::shared_ptr<ContactPlanningReferenceManager> referenceManagerPtr, ContactPlanningConfig config);
@@ -110,8 +147,7 @@ class ContactPlannerModule final : public SolverSynchronizedModule {
   std::condition_variable inputCondition_;
   std::optional<ContactPlannerInput> pendingInput_;
   bool pendingInputUrgent_ = false;  // the pending snapshot follows a contact event and must not be dropped
-  std::chrono::steady_clock::time_point lastPostTime_;
-  bool hasPosted_ = false;
+  SnapshotThrottle throttle_;
 
   mutable std::mutex statisticsMutex_;
   Statistics statistics_;

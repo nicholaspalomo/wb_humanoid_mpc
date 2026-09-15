@@ -63,6 +63,7 @@ void ContactPlanningConfig::validate() const {
   if (dcmAdjustmentGain < 0.0) fail("dcmAdjustmentGain must be non-negative");
   if (dcmAdjustmentMaxOffset < 0.0) fail("dcmAdjustmentMaxOffset must be non-negative");
   if (energyCadenceGain < 0.0) fail("energyCadenceGain must be non-negative");
+  if (energyCadenceDeadband < 0.0) fail("energyCadenceDeadband must be non-negative");
   if (torsionalFrictionTorque < 0.0 || doubleSupportYawCouple < 0.0) fail("yaw torque limits must be >= 0");
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
     const bool unset = footYawOffsetLower[foot] == 0.0 && footYawOffsetUpper[foot] == 0.0;
@@ -136,6 +137,7 @@ ContactPlanningConfig loadContactPlanningConfig(const std::string& taskFile, con
   loadData::loadPtreeValue(pt, config.dcmAdjustmentMaxOffset, prefix + "dcmAdjustmentMaxOffset", verbose);
   loadData::loadPtreeValue(pt, config.enableEnergyCadenceModulation, prefix + "enableEnergyCadenceModulation", verbose);
   loadData::loadPtreeValue(pt, config.energyCadenceGain, prefix + "energyCadenceGain", verbose);
+  loadData::loadPtreeValue(pt, config.energyCadenceDeadband, prefix + "energyCadenceDeadband", verbose);
   loadData::loadPtreeValue(pt, config.useAcomDynamics, prefix + "useAcomDynamics", verbose);
   loadData::loadPtreeValue(pt, config.headingRateTrackingWeight, prefix + "headingRateTrackingWeight", verbose);
   loadData::loadPtreeValue(pt, config.headingTrackingWeight, prefix + "headingTrackingWeight", verbose);

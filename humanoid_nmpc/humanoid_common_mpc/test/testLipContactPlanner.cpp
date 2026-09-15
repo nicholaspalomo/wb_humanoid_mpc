@@ -25,6 +25,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <gtest/gtest.h>
 
+#include <array>
+
 #include <algorithm>
 
 #include <optional>
@@ -825,8 +827,10 @@ TEST(LipContactPlannerHeading, TurnsInPlaceByStepping) {
     scalar_t total = 0.0;
     for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
       const scalar_t tau = sol.u[k](L.yawTorque(foot));
-      const scalar_t limit = (plan.contacts[k][foot] ? c.torsionalFrictionTorque : 0.0) +
-                             ((plan.contacts[k][0] && plan.contacts[k][1]) ? 0.5 * c.doubleSupportYawCouple : 0.0);
+      const bool bothDown = plan.contacts[k][0] && plan.contacts[k][1];
+      const scalar_t limit = !plan.contacts[k][foot]
+                                 ? 0.0
+                                 : (bothDown ? 0.5 * (c.torsionalFrictionTorque + c.doubleSupportYawCouple) : c.torsionalFrictionTorque);
       EXPECT_LE(std::abs(tau), limit + 1e-6) << "foot " << foot << " node " << k;
       total += tau;
     }
@@ -869,9 +873,11 @@ TEST(LipContactPlannerHeading, RelinearisedFrameMatchesThePlannedHeading) {
     EXPECT_GE(width, c.minStepWidth - 0.02) << "node " << k;
     EXPECT_LE(width, c.maxStepWidth + 0.02) << "node " << k;
   }
-  // The heading trajectory seeds the next plan's nominal frame (warm start), and shifting keeps it consistent.
+  // The heading trajectory seeds the next plan's nominal frame (warm start): one node later the nominal is the previous
+  // plan shifted by one node, its last node held. (Node 0 of the nominal is always the input heading, so the shift is
+  // only visible from node 1 on, and only when the next input is timed on the plan's grid.)
   ContactPlannerInput next = turnInPlaceInput(0.5);
-  next.time = 0.1;
+  next.time = plan.startTime + c.dt;
   next.heading = plan.heading[1];
   next.headingRate = plan.headingRate[1];
   next.footYaws = plan.footYaws[1];
@@ -879,7 +885,20 @@ TEST(LipContactPlannerHeading, RelinearisedFrameMatchesThePlannedHeading) {
   next.phaseElapsedTime = makeFeetArray(0.1);
   const LipContactPlanner::HeadingNominal nominal = planner.defaultNominal(next);
   ASSERT_EQ(nominal.heading.size(), static_cast<size_t>(c.numNodes + 1));
-  EXPECT_NEAR(nominal.heading[0], plan.heading[1], 1e-12) << "the previous plan, shifted by one node, is the nominal";
+  for (int k = 0; k < c.numNodes; ++k) {
+    EXPECT_NEAR(nominal.heading[k], plan.heading[k + 1], 1e-12) << "node " << k << ": the previous plan shifted by one node";
+    EXPECT_NEAR((nominal.feet[k][0] - plan.footholds[k + 1][0]).norm(), 0.0, 1e-12) << "node " << k;
+  }
+  EXPECT_NEAR(nominal.heading[c.numNodes], plan.heading[c.numNodes], 1e-12) << "the last node is held";
+  EXPECT_GT(std::abs(nominal.heading[c.numNodes / 2] - (next.heading + next.headingRateCommand * 0.5 * c.horizon())), 1e-3)
+      << "the warm start must differ from the commanded ramp, or this test could not tell the two apart";
+  // Beyond the previous plan's horizon (or after a reset) the nominal falls back to the commanded ramp from the input
+  // heading; an input between two nodes is rounded to the nearest node of the previous plan, not dropped.
+  next.time = plan.startTime + c.horizon() + c.dt;
+  const LipContactPlanner::HeadingNominal ramp = planner.defaultNominal(next);
+  for (int k = 0; k <= c.numNodes; ++k) {
+    EXPECT_NEAR(ramp.heading[k], next.heading + next.headingRateCommand * static_cast<scalar_t>(k) * c.dt, 1e-12) << "node " << k;
+  }
 }
 
 TEST(LipContactPlannerTest, RecedingHorizonWarmStartKeepsPlanConsistent) {
@@ -904,7 +923,17 @@ TEST(LipContactPlannerTest, RecedingHorizonWarmStartKeepsPlanConsistent) {
   const ContactPlan second = planner.plan(next);
   printPlan(second);
   ASSERT_TRUE(second.valid);
-  EXPECT_LE(second.objective, first.objective + 1e-6) << "the shifted incumbent bounds the re-planned objective";
+  // From the state the first plan predicted, the re-plan is the first plan shifted by one node: the same contacts over
+  // the part of the horizon both plans cover, and the footholds where the feet stand within a few centimetres (the
+  // horizon gained a node and the pull towards the previous footholds is soft). The QP objectives are not comparable:
+  // the residual constants are dropped and the second problem carries previous-foothold terms the first lacks.
+  for (int k = 0; k + 1 < config.numNodes; ++k) {
+    EXPECT_EQ(second.contacts[k], first.contacts[k + 1]) << "node " << k;
+    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+      if (!first.contacts[k + 1][foot]) continue;
+      EXPECT_NEAR((second.footholds[k][foot] - first.footholds[k + 1][foot]).norm(), 0.0, 0.05) << "node " << k << " foot " << foot;
+    }
+  }
   std::cout << "re-plan solved in " << second.solveTime * 1e3 << " ms with " << second.numBranchAndBoundNodes << " relaxations\n";
 }
 
@@ -960,6 +989,478 @@ TEST(ContactPlanTest, AllStanceMergeKeepsOneEvent) {
   ASSERT_EQ(merged.modeSequence.size(), merged.eventTimes.size() + 1);
   for (const size_t mode : merged.modeSequence) {
     EXPECT_EQ(mode, static_cast<size_t>(ModeNumber::STANCE));
+  }
+}
+
+/*
+ * Physics of the ACoM-LIP model, pinned to closed forms computed independently of the planner: the exact zero-order-hold
+ * solution of the linear inverted pendulum, the capture-point propagation the terminal cost relies on, the orbital
+ * energy invariant, the heading double integrator with its torque budget, and the heading frame the footholds live in.
+ */
+namespace {
+
+/// Exact solution of xddot = omega^2 (x - z) with z held constant over dt, from x0, v0.
+std::pair<scalar_t, scalar_t> lipClosedForm(scalar_t x0, scalar_t v0, scalar_t z, scalar_t omega, scalar_t dt) {
+  const scalar_t ch = std::cosh(omega * dt);
+  const scalar_t sh = std::sinh(omega * dt);
+  return {z + (x0 - z) * ch + (v0 / omega) * sh, (x0 - z) * omega * sh + v0 * ch};
+}
+
+scalar_t orbitalEnergy(scalar_t x, scalar_t v, scalar_t z, scalar_t omega) {
+  return 0.5 * v * v - 0.5 * omega * omega * (x - z) * (x - z);
+}
+
+}  // namespace
+
+TEST(LipContactPlannerModel, LipTransitionIsTheExactZeroOrderHoldSolution) {
+  const ContactPlanningConfig c = makeConfig();
+  const scalar_t omega = c.omega();
+  EXPECT_NEAR(omega, std::sqrt(c.gravity / c.comHeight), 1e-12);
+  const scalar_t ch = std::cosh(omega * c.dt);
+  const scalar_t sh = std::sinh(omega * c.dt);
+
+  LipContactPlanner planner(c);
+  const OcpQpProblem problem = planner.buildProblem(makeStandingInput());
+  ASSERT_EQ(problem.stages.size(), static_cast<size_t>(c.numNodes + 1));
+  using P = LipContactPlanner;
+  for (int k = 0; k < c.numNodes; ++k) {
+    const OcpQpStage& s = problem.stages[k];
+    for (int axis = 0; axis < 2; ++axis) {
+      EXPECT_NEAR(s.A(P::CX + axis, P::CX + axis), ch, 1e-12) << "node " << k;
+      EXPECT_NEAR(s.A(P::CX + axis, P::VX + axis), sh / omega, 1e-12);
+      EXPECT_NEAR(s.A(P::VX + axis, P::CX + axis), omega * sh, 1e-12);
+      EXPECT_NEAR(s.A(P::VX + axis, P::VX + axis), ch, 1e-12);
+      EXPECT_NEAR(s.B(P::CX + axis, P::ZX + axis), 1.0 - ch, 1e-12);
+      EXPECT_NEAR(s.B(P::VX + axis, P::ZX + axis), -omega * sh, 1e-12);
+      // No cross-axis coupling and no coupling into the foothold states.
+      EXPECT_NEAR(s.A(P::CX + axis, P::CX + 1 - axis), 0.0, 1e-12);
+      EXPECT_NEAR(s.A(P::PLX + axis, P::CX + axis), 0.0, 1e-12);
+    }
+  }
+  // The matrices reproduce the analytic solution of the pendulum for arbitrary states, not just a linearisation of it.
+  const OcpQpStage& s0 = problem.stages[0];
+  const std::array<std::array<scalar_t, 3>, 3> cases{{{0.03, 0.4, -0.05}, {-0.2, -0.1, 0.1}, {0.0, 0.0, 0.08}}};
+  for (const auto& [x0, v0, z] : cases) {
+    const auto [x1, v1] = lipClosedForm(x0, v0, z, omega, c.dt);
+    EXPECT_NEAR(s0.A(P::CX, P::CX) * x0 + s0.A(P::CX, P::VX) * v0 + s0.B(P::CX, P::ZX) * z, x1, 1e-12);
+    EXPECT_NEAR(s0.A(P::VX, P::CX) * x0 + s0.A(P::VX, P::VX) * v0 + s0.B(P::VX, P::ZX) * z, v1, 1e-12);
+  }
+}
+
+TEST(LipContactPlannerModel, DecodedPlanObeysTheLipDynamicsDcmPropagationAndEnergyInvariant) {
+  const ContactPlanningConfig c = makeConfig();
+  const scalar_t omega = c.omega();
+  LipContactPlanner planner(c);
+  ContactPlannerInput input = makeStandingInput();
+  input.velocityCommand = vector2_t(0.4, 0.0);
+  const ContactPlan plan = planner.plan(input);
+  ASSERT_TRUE(plan.valid);
+  ASSERT_EQ(plan.comPosition.size(), static_cast<size_t>(c.numNodes + 1));
+  ASSERT_GT(analyse(plan).numSwings[0] + analyse(plan).numSwings[1], 0) << "a walking plan, so the dynamics are exercised";
+
+  for (int k = 0; k < c.numNodes; ++k) {
+    for (int axis = 0; axis < 2; ++axis) {
+      const scalar_t x0 = plan.comPosition[k](axis), v0 = plan.comVelocity[k](axis), z = plan.zmp[k](axis);
+      const auto [x1, v1] = lipClosedForm(x0, v0, z, omega, c.dt);
+      EXPECT_NEAR(plan.comPosition[k + 1](axis), x1, 1e-6) << "node " << k << " axis " << axis;
+      EXPECT_NEAR(plan.comVelocity[k + 1](axis), v1, 1e-6) << "node " << k << " axis " << axis;
+      // Capture point xi = x + v / omega: its offset from the (constant) ZMP grows exactly by e^{omega dt} per node,
+      // which is the identity the terminal capturability residual and its exp(2 omega dt) weight scaling rest on.
+      const scalar_t xi0 = x0 + v0 / omega, xi1 = plan.comPosition[k + 1](axis) + plan.comVelocity[k + 1](axis) / omega;
+      EXPECT_NEAR(xi1 - z, std::exp(omega * c.dt) * (xi0 - z), 1e-6) << "node " << k << " axis " << axis;
+      // Orbital energy is conserved over a node: the ZMP does no work while it is held.
+      EXPECT_NEAR(orbitalEnergy(plan.comPosition[k + 1](axis), plan.comVelocity[k + 1](axis), z, omega), orbitalEnergy(x0, v0, z, omega),
+                  1e-6)
+          << "node " << k << " axis " << axis;
+    }
+  }
+}
+
+TEST(LipContactPlannerModel, HeadingBlockIsTheExactDoubleIntegratorScaledByTheYawInertia) {
+  const ContactPlanningConfig c = headingConfig();
+  LipContactPlanner planner(c);
+  const LipContactPlanner::Layout& L = planner.getLayout();
+  for (const scalar_t inertia : {15.0, 30.0}) {
+    ContactPlannerInput in = turnInPlaceInput(0.6);
+    in.yawInertia = inertia;
+    const OcpQpProblem problem = planner.buildProblem(in);
+    for (int k = 0; k < c.numNodes; ++k) {
+      const OcpQpStage& s = problem.stages[k];
+      // theta_{k+1} = theta_k + dt * rate_k + 0.5 dt^2 tau / I ; rate_{k+1} = rate_k + dt tau / I  (zero-order hold).
+      EXPECT_NEAR(s.A(L.heading, L.heading), 1.0, 1e-12);
+      EXPECT_NEAR(s.A(L.heading, L.headingRate), c.dt, 1e-12);
+      EXPECT_NEAR(s.A(L.headingRate, L.headingRate), 1.0, 1e-12);
+      EXPECT_NEAR(s.A(L.headingRate, L.heading), 0.0, 1e-12);
+      for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+        EXPECT_NEAR(s.B(L.heading, L.yawTorque(foot)), 0.5 * c.dt * c.dt / inertia, 1e-12) << "I=" << inertia;
+        EXPECT_NEAR(s.B(L.headingRate, L.yawTorque(foot)), c.dt / inertia, 1e-12) << "I=" << inertia;
+        // A foot's yaw is a pure integrator of its own displacement input.
+        EXPECT_NEAR(s.B(L.footYaw(foot), L.footYawDelta(foot)), 1.0, 1e-12);
+      }
+      // The heading is not coupled to the translational LIP state.
+      EXPECT_NEAR(s.A(L.heading, LipContactPlanner::CX), 0.0, 1e-12);
+      EXPECT_NEAR(s.A(LipContactPlanner::VX, L.headingRate), 0.0, 1e-12);
+      // Yaw torque box: the most one foot ever carries, the whole weight's torsion alone or half the double-support budget.
+      const scalar_t share = std::max(c.torsionalFrictionTorque, 0.5 * (c.torsionalFrictionTorque + c.doubleSupportYawCouple));
+      for (size_t i = 0; i < s.idxbu.size(); ++i) {
+        for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+          if (s.idxbu[i] != L.yawTorque(foot)) continue;
+          EXPECT_NEAR(s.lbu(i), -share, 1e-12);
+          EXPECT_NEAR(s.ubu(i), share, 1e-12);
+        }
+      }
+    }
+  }
+}
+
+/**
+ * The yaw torque one foot may carry under every contact state, read off the planner's own constraint rows: with the
+ * torques at zero and the contact binaries set, the slack of the torque rows is the budget. T_t is the torsional
+ * friction of the whole weight on one foot, T_c the friction couple of two feet: alone a foot has T_t, in double support
+ * each foot has (T_t + T_c) / 2 so that the pair has T_t + T_c, and a swinging foot has nothing. The pair's budget was
+ * 2 T_t + T_c before, i.e. both feet carrying the whole weight at once.
+ */
+TEST(LipContactPlannerModel, YawTorqueBudgetPerContactStateIsTheGroundsTorsionAndCouple) {
+  const ContactPlanningConfig c = headingConfig();
+  LipContactPlanner planner(c);
+  const LipContactPlanner::Layout& L = planner.getLayout();
+  const OcpQpProblem problem = planner.buildProblem(turnInPlaceInput(0.6));
+  const OcpQpStage& s = problem.stages[0];
+  const scalar_t Tt = c.torsionalFrictionTorque, Tc = c.doubleSupportYawCouple;
+  ASSERT_GT(Tc, Tt) << "the fixture must tell the double-support share (T_t + T_c) / 2 from the old T_t + T_c / 2";
+
+  // Budget of `foot` given the contact state: the tightest upper bound the torque rows leave for +tau (the -tau rows are
+  // the mirror image).
+  const auto budget = [&](size_t foot, bool left, bool right) {
+    vector_t u = vector_t::Zero(s.numInputs());
+    u(LipContactPlanner::CL) = left ? 1.0 : 0.0;
+    u(LipContactPlanner::CR) = right ? 1.0 : 0.0;
+    scalar_t bound = std::numeric_limits<scalar_t>::infinity();
+    for (int i = 0; i < s.numGeneralConstraints(); ++i) {
+      const scalar_t coefficient = s.D(i, L.yawTorque(foot));
+      if (coefficient <= 0.0) continue;  // not a +tau row of this foot
+      bound = std::min(bound, (s.ug(i) - s.D.row(i).dot(u)) / coefficient);
+    }
+    return bound;
+  };
+  EXPECT_NEAR(budget(0, true, false), Tt, 1e-9) << "alone: the whole weight's torsion";
+  EXPECT_NEAR(budget(1, false, true), Tt, 1e-9);
+  EXPECT_NEAR(budget(0, false, true), 0.0, 1e-9) << "swinging: nothing";
+  EXPECT_NEAR(budget(1, true, false), 0.0, 1e-9);
+  EXPECT_NEAR(budget(0, true, true), 0.5 * (Tt + Tc), 1e-9) << "double support: half the weight's torsion and half the couple";
+  EXPECT_NEAR(budget(1, true, true), 0.5 * (Tt + Tc), 1e-9);
+  EXPECT_NEAR(budget(0, true, true) + budget(1, true, true), Tt + Tc, 1e-9) << "the pair has the ground's budget, not 2 T_t + T_c";
+  // A relaxed double support (both binaries at one half) is bounded by the single-support share of half a foot.
+  {
+    vector_t u = vector_t::Zero(s.numInputs());
+    u(LipContactPlanner::CL) = 0.5;
+    u(LipContactPlanner::CR) = 0.5;
+    scalar_t bound = std::numeric_limits<scalar_t>::infinity();
+    for (int i = 0; i < s.numGeneralConstraints(); ++i) {
+      if (s.D(i, L.yawTorque(0)) <= 0.0) continue;
+      bound = std::min(bound, (s.ug(i) - s.D.row(i).dot(u)) / s.D(i, L.yawTorque(0)));
+    }
+    EXPECT_NEAR(bound, 0.5 * Tt, 1e-9);
+  }
+}
+
+TEST(LipContactPlannerModel, YawTorqueIsCarriedOnlyByStanceFeetWithinTheGroundBudget) {
+  const ContactPlanningConfig c = headingConfig();
+  LipContactPlanner planner(c);
+  const ContactPlannerInput in = turnInPlaceInput(0.6);
+  const ContactPlan plan = planner.plan(in);
+  ASSERT_TRUE(plan.valid);
+  const LipContactPlanner::Layout& L = planner.getLayout();
+  const OcpQpSolution& sol = planner.getLastResult().solution;
+  int singleSupportNodes = 0, doubleSupportNodes = 0;
+  for (int k = 0; k < c.numNodes; ++k) {
+    const bool both = plan.contacts[k][0] && plan.contacts[k][1];
+    scalar_t sumAbs = 0.0;
+    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+      const scalar_t tau = std::abs(sol.u[k](L.yawTorque(foot)));
+      sumAbs += tau;
+      if (!plan.contacts[k][foot]) {
+        EXPECT_LE(tau, 1e-9) << "a swinging foot carries no ground torque, node " << k << " foot " << foot;
+      } else if (both) {
+        EXPECT_LE(tau, 0.5 * (c.torsionalFrictionTorque + c.doubleSupportYawCouple) + 1e-9) << "node " << k;
+      } else {
+        EXPECT_LE(tau, c.torsionalFrictionTorque + 1e-9) << "single support, node " << k;
+      }
+    }
+    if (both) {
+      ++doubleSupportNodes;
+      EXPECT_LE(sumAbs, c.torsionalFrictionTorque + c.doubleSupportYawCouple + 1e-9) << "node " << k;
+    } else {
+      ++singleSupportNodes;
+    }
+    // The heading rate integrates exactly the torque the feet carry.
+    scalar_t total = 0.0;
+    for (size_t foot = 0; foot < N_CONTACTS; ++foot) total += sol.u[k](L.yawTorque(foot));
+    EXPECT_NEAR(plan.headingRate[k + 1], plan.headingRate[k] + c.dt * total / in.yawInertia, 1e-6);
+  }
+  EXPECT_GT(singleSupportNodes, 0) << "turning in place must step, so both regimes are exercised";
+  EXPECT_GT(doubleSupportNodes, 0);
+}
+
+TEST(LipContactPlannerModel, FootholdGeometryLivesInTheHeadingFrame) {
+  // Facing +y (heading pi/2) and commanded to walk along it: the step width must be realised along world -x, the
+  // footholds must advance along world +y, and the ZMP must stay in the support box measured along the heading.
+  const ContactPlanningConfig c = headingConfig();
+  LipContactPlanner planner(c);
+  const scalar_t heading = M_PI / 2.0;
+  const vector2_t ex(std::cos(heading), std::sin(heading));   // (0, 1)
+  const vector2_t ey(-std::sin(heading), std::cos(heading));  // (-1, 0)
+  ContactPlannerInput in = turnInPlaceInput(0.0);
+  in.heading = heading;
+  in.yaw = heading;
+  in.footYaws = makeFeetArray(heading);
+  in.footPositions[0] = 0.5 * c.nominalStepWidth * ey;   // left foot on the heading's left
+  in.footPositions[1] = -0.5 * c.nominalStepWidth * ey;  // right foot on its right
+  in.velocityCommand = 0.4 * ex;                         // forward along the heading
+  const ContactPlan plan = planner.plan(in);
+  ASSERT_TRUE(plan.valid);
+  ASSERT_TRUE(plan.hasHeading());
+  ASSERT_GT(analyse(plan).numSwings[0] + analyse(plan).numSwings[1], 0) << "walking, so footholds move";
+
+  for (int k = 0; k <= c.numNodes; ++k) {
+    EXPECT_NEAR(plan.heading[k], heading, 0.05) << "no yaw command: the heading holds, node " << k;
+    const bool bothDown =
+        (k == c.numNodes) ? (plan.contacts[k - 1][0] && plan.contacts[k - 1][1]) : (plan.contacts[k][0] && plan.contacts[k][1]);
+    const vector2_t d = plan.footholds[k][0] - plan.footholds[k][1];
+    if (bothDown) {
+      EXPECT_GE(ey.dot(d), c.minStepWidth - kSoftTol) << "node " << k;
+      EXPECT_LE(ey.dot(d), c.maxStepWidth + kSoftTol) << "node " << k;
+      EXPECT_LE(std::abs(ex.dot(d)), c.maxStepLength + kSoftTol) << "node " << k;
+    }
+    // The lateral separation shows up on world x, the forward progress on world y: the frame really is rotated.
+    EXPECT_LT(d(0), 0.0) << "left foot at smaller world x when facing +y, node " << k;
+  }
+  const scalar_t forwardStart = ex.dot(0.5 * (plan.footholds.front()[0] + plan.footholds.front()[1]));
+  const scalar_t forwardEnd = ex.dot(0.5 * (plan.footholds.back()[0] + plan.footholds.back()[1]));
+  EXPECT_GT(forwardEnd - forwardStart, 0.1) << "the feet advance along the heading";
+  EXPECT_GT(ex.dot(plan.comVelocity.back()), 0.2) << "the CoM moves along the heading";
+  for (int k = 0; k < c.numNodes; ++k) {
+    // ZMP inside the box measured along the heading around the midpoint of the stance feet.
+    vector2_t mid = vector2_t::Zero();
+    int n = 0;
+    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+      if (plan.contacts[k][foot]) {
+        mid += plan.footholds[k][foot];
+        ++n;
+      }
+    }
+    ASSERT_GT(n, 0);
+    mid /= static_cast<scalar_t>(n);
+    EXPECT_LE(std::abs(ex.dot(plan.zmp[k] - mid)), c.zmpHalfWidthX + kSoftTol) << "node " << k;
+  }
+}
+
+/**
+ * The foot yaw tracking term is quadratic in the foot yaw alone, with the nominal heading as its target: a stance foot's
+ * yaw is pinned, so a term in (psi_i - theta) was a penalty on the heading state that pulled it back towards the stance
+ * feet. With equal weights and both feet down the per-node minimiser was (theta_cmd + psi_L + psi_R) / 3.
+ */
+TEST(LipContactPlannerModel, FootYawTrackingTargetsTheNominalHeadingAndLeavesTheHeadingStateAlone) {
+  const ContactPlanningConfig c = headingConfig();
+  ASSERT_GT(c.footYawTrackingWeight, 0.0);
+  LipContactPlanner planner(c);
+  const LipContactPlanner::Layout& L = planner.getLayout();
+  const ContactPlannerInput in = turnInPlaceInput(0.6);
+
+  // With a hand-set nominal the linear term on every foot yaw is the nominal heading of that node, nothing else.
+  LipContactPlanner::HeadingNominal nominal = planner.defaultNominal(in);
+  for (int k = 0; k <= c.numNodes; ++k) nominal.heading[k] = 0.3 + 0.01 * static_cast<scalar_t>(k);
+  const OcpQpProblem problem = planner.buildProblem(in, nominal);
+  for (int k = 0; k <= c.numNodes; ++k) {
+    const OcpQpStage& s = problem.stages[k];
+    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+      EXPECT_NEAR(s.Q(L.footYaw(foot), L.heading), 0.0, 1e-12) << "node " << k << ": no coupling of the foot yaw into the heading";
+      EXPECT_NEAR(s.Q(L.heading, L.footYaw(foot)), 0.0, 1e-12) << "node " << k;
+      // The diagonal carries the tracking weight (plus the solver's 1e-8 state regularisation).
+      EXPECT_NEAR(s.Q(L.footYaw(foot), L.footYaw(foot)), 2.0 * c.footYawTrackingWeight, 1e-6) << "node " << k;
+      EXPECT_NEAR(s.q(L.footYaw(foot)), -2.0 * c.footYawTrackingWeight * nominal.heading[k], 1e-12) << "node " << k;
+    }
+    // (The heading's own diagonal is not the tracking weight alone: the linearised step-width and reach rows put their
+    // first-order heading terms there as well, which is expected.)
+  }
+
+  // Turning in place with an ample torque budget: the heading gets close to the commanded ramp over the horizon. Under
+  // the old coupling the stance feet, pinned at zero yaw, held the heading back well below it.
+  const ContactPlan plan = planner.plan(in);
+  ASSERT_TRUE(plan.valid);
+  const scalar_t commanded = in.heading + in.headingRateCommand * c.horizon();
+  EXPECT_GT(plan.heading.back(), 0.85 * commanded) << "commanded " << commanded << " reached " << plan.heading.back();
+  // Whatever the heading did, the feet never step further than the hip range allows (soft rows, with margin).
+  for (int k = 0; k <= c.numNodes; ++k) {
+    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+      EXPECT_LE(std::abs(plan.footYaws[k][foot] - plan.heading[k]), c.footYawOffsetBounds(foot).second + 0.05) << "node " << k;
+    }
+  }
+}
+
+/**
+ * The ZMP support rows evaluated on hand-set states: in single support the ZMP is confined to the box of the stance
+ * foot (the other foot's box is switched off by the big M), in double support to the box of half-width r_x around the
+ * midpoint along the heading and to the lateral hull between the feet. The rows are soft; here their violation is read
+ * directly.
+ */
+TEST(LipContactPlannerModel, ZmpRowsSelectTheSupportOfTheContactState) {
+  ContactPlanningConfig c = makeConfig();
+  c.zmpHalfWidthX = 0.08;
+  c.zmpHalfWidthY = 0.05;
+  c.validate();
+  LipContactPlanner planner(c);
+  const ContactPlannerInput in = makeStandingInput();  // yaw 0: the heading frame is the world frame
+  const OcpQpProblem problem = planner.buildProblem(in);
+  const OcpQpStage& s = problem.stages[0];
+  using P = LipContactPlanner;
+  const vector2_t pL = in.footPositions[0], pR = in.footPositions[1];
+  ASSERT_GT(pL(1), pR(1)) << "left foot on the left";
+
+  // Largest violation over the soft rows that involve the ZMP for the given ZMP and contact state.
+  const auto zmpViolation = [&](const vector2_t& zmp, bool left, bool right) {
+    vector_t x = vector_t::Zero(s.numStates());
+    x.segment<2>(P::PLX) = pL;
+    x.segment<2>(P::PRX) = pR;
+    vector_t u = vector_t::Zero(s.numInputs());
+    u.segment<2>(P::ZX) = zmp;
+    u(P::CL) = left ? 1.0 : 0.0;
+    u(P::CR) = right ? 1.0 : 0.0;
+    const vector_t value = s.C * x + s.D * u;
+    scalar_t violation = -std::numeric_limits<scalar_t>::infinity();
+    for (const int i : s.softGeneralIndices) {
+      if (s.D(i, P::ZX) == 0.0 && s.D(i, P::ZX + 1) == 0.0) continue;
+      violation = std::max({violation, value(i) - s.ug(i), s.lg(i) - value(i)});
+    }
+    return violation;
+  };
+  const scalar_t rx = c.zmpHalfWidthX, ry = c.zmpHalfWidthY;
+
+  // Single support on the left foot: the ZMP may reach the edge of the left box, not beyond, and not the right foot.
+  EXPECT_NEAR(zmpViolation(pL + vector2_t(rx, 0.0), true, false), 0.0, 1e-12) << "on the edge of the stance box";
+  EXPECT_NEAR(zmpViolation(pL + vector2_t(rx + 0.01, 0.0), true, false), 0.01, 1e-12) << "past the edge along the heading";
+  EXPECT_NEAR(zmpViolation(pL + vector2_t(0.0, -ry - 0.02), true, false), 0.02, 1e-12) << "past the edge laterally";
+  EXPECT_NEAR(zmpViolation(pR, true, false), (pL(1) - pR(1)) - ry, 1e-12) << "under the swinging foot";
+  // And mirrored on the right.
+  EXPECT_NEAR(zmpViolation(pR + vector2_t(-rx, 0.0), false, true), 0.0, 1e-12);
+  EXPECT_NEAR(zmpViolation(pL, false, true), (pL(1) - pR(1)) - ry, 1e-12);
+
+  // Double support: a box of half-width r_x around the midpoint along the heading, the hull between the feet laterally.
+  const vector2_t mid = 0.5 * (pL + pR);
+  // At the midpoint the heading box binds first: the lateral hull leaves half the step width plus r_y on either side.
+  EXPECT_NEAR(zmpViolation(mid, true, true), -rx, 1e-12) << "the midpoint has the full margin of the heading box";
+  EXPECT_GT(0.5 * (pL(1) - pR(1)) + ry, rx) << "(sanity: the fixture's lateral margin is the larger one)";
+  EXPECT_NEAR(zmpViolation(mid + vector2_t(rx + 0.01, 0.0), true, true), 0.01, 1e-12);
+  EXPECT_LE(zmpViolation(pL, true, true), 1e-12) << "under the left foot: inside the lateral hull";
+  EXPECT_LE(zmpViolation(pR, true, true), 1e-12) << "under the right foot: inside the lateral hull";
+  EXPECT_NEAR(zmpViolation(vector2_t(0.0, pL(1) + ry + 0.03), true, true), 0.03, 1e-12) << "beyond the left foot's edge";
+  EXPECT_NEAR(zmpViolation(vector2_t(0.0, pR(1) - ry - 0.03), true, true), 0.03, 1e-12) << "beyond the right foot's edge";
+  // The single-support boxes are switched off in double support: a ZMP under the right foot is fine although it is
+  // outside the left box (and vice versa), which the previous two checks already rely on.
+  EXPECT_GT(zmpViolation(pR, true, false), 0.1);
+}
+
+/**
+ * The duration limits in whole planner nodes, pinned for the DRC Atlas grid (0.1 s nodes): the quotients 0.7 / 0.1,
+ * 0.15 / 0.1 and 0.3 / 0.1 are not exact in floating point and the epsilons must absorb that.
+ */
+TEST(LipContactPlannerModel, NodeConversionsRoundConservativelyOnTheLiveGrid) {
+  ContactPlanningConfig c = makeConfig();
+  c.dt = 0.1;
+  c.minSwingDuration = 0.4;
+  c.maxSwingDuration = 0.7;
+  c.minContactDuration = 0.15;
+  c.maxContactDuration = 0.0;
+  c.minDoubleSupportDuration = 0.1;
+  c.commitTime = 0.3;
+  c.validate();
+  EXPECT_EQ(c.minSwingNodes(), 4);
+  EXPECT_EQ(c.maxSwingNodes(), 7);
+  EXPECT_EQ(c.minContactNodes(), 2) << "0.15 s is rounded up to two whole nodes";
+  EXPECT_EQ(c.maxContactNodes(), 0) << "0 disables the maximum";
+  EXPECT_EQ(c.minDoubleSupportNodes(), 1);
+  EXPECT_EQ(c.commitNodes(), 3);
+  EXPECT_NEAR(c.horizon(), 1.2, 1e-12);
+  // A maximum below one node is raised to the minimum; a zero minimum double support disables it.
+  c.maxSwingDuration = 0.05;
+  EXPECT_EQ(c.maxSwingNodes(), c.minSwingNodes());
+  c.minDoubleSupportDuration = 0.0;
+  EXPECT_EQ(c.minDoubleSupportNodes(), 0);
+}
+
+/**
+ * The warm start survives a change of weights or limits (a hot reload of the task file while the operator tunes) and
+ * is dropped only when the grid or the decision variables change. Dropping it on every reload made the next plan start
+ * from scratch and move footholds and timing abruptly at every edit.
+ */
+TEST(LipContactPlannerTest, ChangingWeightsKeepsTheWarmStartChangingTheGridDropsIt) {
+  const ContactPlanningConfig c = headingConfig();
+  LipContactPlanner planner(c);
+  const ContactPlan plan = planner.plan(turnInPlaceInput(0.5));
+  ASSERT_TRUE(plan.valid);
+  ContactPlannerInput next = turnInPlaceInput(0.5);
+  next.time = plan.startTime + c.dt;
+  next.heading = plan.heading[1];
+  next.headingRate = plan.headingRate[1];
+  next.footYaws = plan.footYaws[1];
+  next.contacts = plan.contacts[1];
+  next.phaseElapsedTime = makeFeetArray(0.1);
+  const scalar_t ramp = next.heading + next.headingRateCommand * c.dt;
+  ASSERT_GT(std::abs(plan.heading[2] - ramp), 1e-6) << "the warm start must be distinguishable from the commanded ramp";
+
+  ContactPlanningConfig retuned = c;
+  retuned.headingTrackingWeight *= 2.0;
+  retuned.footholdRegularizationWeight *= 0.5;
+  planner.setConfig(retuned);
+  EXPECT_NEAR(planner.defaultNominal(next).heading[1], plan.heading[2], 1e-12) << "the previous plan still seeds the nominal";
+
+  ContactPlanningConfig regridded = retuned;
+  regridded.numNodes += 1;
+  regridded.validate();
+  planner.setConfig(regridded);
+  EXPECT_NEAR(planner.defaultNominal(next).heading[1], ramp, 1e-12) << "a new grid starts from the commanded ramp";
+}
+
+TEST(LipContactPlannerTest, APlanWithoutAnIncumbentIsNotReportedOptimal) {
+  const ContactPlanningConfig c = makeConfig();
+  LipContactPlanner planner(c);
+  ContactPlannerInput in = makeStandingInput();
+  // A committed prefix with both feet in the air breaks the no-flight rule: the root propagation is infeasible, the
+  // search is "exhausted" at once, and there is no plan to call optimal.
+  in.committedUntil = in.time + c.dt;
+  in.committedContacts = {makeFeetArray(false)};
+  const ContactPlan plan = planner.plan(in);
+  EXPECT_FALSE(plan.valid);
+  EXPECT_FALSE(plan.optimal);
+}
+
+/**
+ * The alternation rule constrains the plan's own decisions, not the executed history it is handed as the committed
+ * prefix: a foot that lifted twice there (a re-timed event, an earlier plan) used to make every plan infeasible,
+ * silently, until the node left the window. From the prefix on the rule applies: the next foot to lift is the other one.
+ */
+TEST(LipContactPlannerTest, ARepeatedLiftOffInTheCommittedPrefixDoesNotMakeThePlanInfeasible) {
+  const ContactPlanningConfig c = makeConfig();
+  LipContactPlanner planner(c);
+  ContactPlannerInput in = makeStandingInput();
+  in.velocityCommand = vector2_t(0.3, 0.0);
+  in.contacts = {false, true};  // the left foot is in the air now
+  in.phaseElapsedTime = {0.05, 5.0};
+  // Left: in the air over nodes 0-2, down over nodes 3-4, in the air again from node 5, the right foot down throughout.
+  const contact_flag_t leftUp{false, true}, bothDown{true, true};
+  in.committedContacts = {leftUp, leftUp, leftUp, bothDown, bothDown, leftUp, leftUp};
+  in.committedUntil = in.time + 7.0 * c.dt;
+  const ContactPlan plan = planner.plan(in);
+  ASSERT_TRUE(plan.valid) << "the committed prefix is not the plan's to judge";
+  for (int k = 0; k < 7; ++k) EXPECT_EQ(plan.contacts[k], in.committedContacts[k]) << "node " << k;
+  int lastSwung = 0;  // the left foot lifted last inside the prefix
+  for (int k = 7; k < c.numNodes; ++k) {
+    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+      if (plan.contacts[k - 1][foot] && !plan.contacts[k][foot]) {
+        EXPECT_NE(static_cast<int>(foot), lastSwung) << "foot " << foot << " lifted twice in a row at node " << k;
+        lastSwung = static_cast<int>(foot);
+      }
+    }
   }
 }
 

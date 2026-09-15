@@ -187,10 +187,11 @@ candidate incumbent:
   starts within that window. A swing in flight is therefore never re-timed or cut short by a later plan, and `commitTime`
   must cover the planner latency. A plan is merged into the executed schedule exactly at its own boundary, `commitTime` after the snapshot it was planned from; merging it any later (for instance at the boundary of the solve that activates it) cut its first lift-off short by the plan's age and the controller executed swings shorter than `minSwingDuration`. A plan whose boundary has already passed when it is activated is stale and dropped with a rate-limited warning (the planner latency exceeded `commitTime`, or a touch-down the boundary was extended to happened while the plan was computed); so is a plan that has a foot down where the executed schedule already has it in flight at the merge point, which means a swing was activated between the plan's snapshot and its activation. In both cases the executed schedule keeps running until a fresh plan arrives. Shifting a late plan forward onto the current boundary instead, whole, was tried and is wrong: a plan made just before a touch-down and activated just after it was delayed by a whole swing, and the foot that had just landed was lifted again at once, which threw the robot. The planner's
   node grid is not aligned with the executed events, so every node that *starts* before the boundary is committed: a
-  node entirely inside the window takes the executed contacts at its midpoint, the node straddling the boundary takes
-  the contacts the executed schedule hands over at the boundary itself. Sampling the straddling node at its midpoint let
-  the plan contradict the executed schedule inside that node, and the merge then delayed an in-flight touch-down by up
-  to half a node or re-lifted a foot that had just landed. A phase that begins inside a committed node (a touch-down
+  node entirely inside the window takes the executed contacts at its midpoint, the last committed node (straddling the
+  boundary or ending exactly on it) takes the contacts the executed schedule hands over at the boundary itself. Sampling
+  that node at its midpoint let the plan contradict the executed schedule inside it (a touch-down after the midpoint
+  read as "still swinging"), and the merge then delayed an in-flight touch-down by up to half a node or re-lifted a foot
+  that had just landed. A phase that begins inside a committed node (a touch-down
   between two node boundaries) is counted from the executed event, not from the node start: the reference manager hands
   the planner the phase start times of the committed nodes, and the propagation counts the nodes spent in such a phase
   rounded down against a minimum and up against a maximum, exactly like the elapsed time of the phase active at the
@@ -365,9 +366,12 @@ by the same amount, so that the following double support and the other feet's ph
 phase can appear). The extension is repeated every cycle while contact is missing, in total at most
 `maxLateTouchdownExtension` past the planned touch-down (measured from the planned touch-down, not from the last
 extension); when the budget is used up the contact phase proceeds as scheduled. During the extension the xy foot
-reference holds the landing target (its interpolation is timed on the swing without the extension) and the touch-down
-height target handed to the swing trajectory planner descends at `lateTouchdownSearchVelocity`, so the foot keeps moving
-down towards the ground instead of hovering. Contact measured at any time during the extension ends the swing at once
+reference holds the landing target (its interpolation is timed on the swing without the extension), and the height
+reference is the planned swing's up to the planned touch-down, continued from there as a straight descent at
+`lateTouchdownSearchVelocity` from the planned touch-down height (`SwingTrajectoryPlanner::GroundSearch`); the pitch and
+impact-proximity references hold their touch-down values. Re-fitting the height spline over the extended swing, as an
+earlier version did, moved its apex, raised the reference at the current time by several millimetres at every extension
+step and then drove the foot down at the spline's slope of about 0.35 m/s instead of at the search velocity. Contact measured at any time during the extension ends the swing at once
 through the early touch-down path.
 
 Because a late extension moves later events, the active plan is shifted by the same amount (`ContactPlan::shiftInTime`,
@@ -395,8 +399,12 @@ planned CoM at touch-down, in the plan's yaw frame (`reachX`, `reachYInner`, `re
 (left or right of the CoM) is taken from the nominal foothold so that a foot is never moved across the body. The
 adjustment is recomputed at every solve (it is a function of the current state, so it cannot run faster than the MPC)
 and blended into the swing reference with the same smooth-step profile as the step itself, so it is invisible at lift-off
-and fully applied at touch-down. When the next plan arrives it already contains the correction, the error with respect
-to the new prediction is small and the adjustment fades, so there is no double counting. The adjustment only modulates
+and fully applied at touch-down. The prediction is refreshed after every solve, so the error is the deviation that
+appeared over the last solver period and the correction acts on that increment once: the next cycle measures against a
+prediction that already starts from the disturbed state, and the offset fades on its own. That is what makes the loop
+safe (it cannot grow with the age of a plan) and also what bounds it: it damps impulses and slips, and it does not
+integrate a sustained push, whose persistent displacement is left to the planner, which re-plans from the measured state
+every planning period. A skipped solve makes the next increment correspondingly larger. The adjustment only modulates
 the landing target; it never triggers an early touch-down. Without a prediction covering the current time (first solve,
 solver failure) no correction is applied.
 
@@ -425,8 +433,13 @@ touch-down forward to 20 ms from now at the earliest, and never pushes a touch-d
 land); every later event moves with it and the plan is shifted alongside, exactly as for a late touch-down. Shifts
 logged while a plan was being computed are applied to that plan when it arrives, summed against the plan's original
 snapshot time so that shifts of opposite sign cancel. It is not applied while a foot is
-searching for the ground. `energyCadenceGain` is in seconds per joule of the full robot mass; the default 0.01 s/J moves
-the touch-down by about 0.1 s for a 0.15 m/s forward velocity error of a 150 kg robot walking at 0.4 m/s. The feature is
+searching for the ground. `energyCadenceGain` is in seconds per joule of the full robot mass, so the same value acts differently
+on robots of different mass; the default 0.01 s/J moves the touch-down by about 0.1 s for a 0.15 m/s forward velocity
+deviation of a 150 kg robot walking at 0.4 m/s, if that deviation appears within one solver period (like the step
+adjustment, the energy is compared against the prediction refreshed at every solve, so it is the per-period increment
+that is corrected). `energyCadenceDeadband` (joules, 0 by default) ignores deviations within the band and measures the
+shift from its edge: without it the CoM velocity noise re-times the touch-down, and every event after it, at every solve
+(5 mm/s at 0.4 m/s on 150 kg is 0.3 J, about 3 ms). The feature is
 a heuristic that overlaps with the DCM step adjustment and the planner's own re-timing; it is disabled by default and
 should be enabled only with simulation tests. Like the step adjustment it measures the energy error against the NMPC's
 own predicted CoM state, relative to the planned support point, not against the planner's LIP.
@@ -449,6 +462,15 @@ functions), `ContactPlanningReferenceManager` (event handling, plan shifting, DC
 `ContactPlannerModule` (immediate re-plan on a contact event). Note that the mixed-integer planner itself
 (`LipContactPlanner`) is formulated for two feet; the execution layer described here is not.
 
+The closed forms of the adaptive execution are pinned by `humanoid_centroidal_mpc/test/testContactPlanningIntegration.cpp`
+on the DRC Atlas model: the cadence shift against the orbital-energy increment (velocity, position, lateral, with and
+without the deadband), the DCM adjustment against the propagated DCM increment (no accumulation over cycles, vanishing
+once the prediction agrees, applied to the swing in flight only), the descent of the height reference at the search
+velocity during a late extension, and the counting of dropped plans. `humanoid_common_mpc/test/testSwingLandingVelocity.cpp`
+covers the ground-search reference of the swing trajectory planner, `testContactPlannerModule.cpp` the snapshot throttle,
+and `testLipContactPlanner.cpp` / `testContactPlan.cpp` the committed-node sampling and merge at a grid-aligned commit
+boundary, the warm start surviving a hot reload, and the alternation rule not judging the committed prefix.
+
 ### 2.9 Heading model: ACoM dynamics in the planner (`useAcomDynamics`)
 
 The point-mass LIP has no notion of heading. Its foothold frame is the base yaw at planning time, held fixed over the
@@ -464,18 +486,28 @@ Per node, appended to the LIP block so that the contact binaries keep their plac
 omega_{k+1} = omega_k + dt (tau_L + tau_R) / I_zz
 theta_{k+1} = theta_k + dt omega_k + dt^2 (tau_L + tau_R) / (2 I_zz)     exact zero-order hold of the double integrator
 psi_{i,k+1} = psi_{i,k} + dpsi_{i,k}                    foot yaw, one per foot
-|tau_i| <= T_t c_i + T_c (c_L + c_R - 1) / 2            torsional friction per stance foot, the friction couple in double support
+|tau_i| <= T_t c_i + (T_c - T_t) (c_L + c_R - 1) / 2    T_t alone, (T_t + T_c) / 2 per foot in double support
 |dpsi_i| <= 2 pi (1 - c_i)                              a foot's yaw is pinned while it is in contact
 |psi_i - theta| <= maxFootYawOffset                     hip range (soft)
 ```
 
 The heading is driven only by the ground: a point mass's horizontal contact force acts through the ZMP and produces no
-yaw moment about the centre of mass, so what remains is the torsional friction every stance foot carries
-(`torsionalFrictionTorque`) and, in double support, the friction couple of the two feet (`doubleSupportYawCouple`). A
-turn therefore has to be stepped: the planner rotates the foothold frame with the heading, the feet must follow it
-within hip range, and the yaw torques bound how fast the heading can go. The costs track the commanded yaw rate
-(differentiated from the target trajectory) and the commanded heading, keep the foot yaws at the heading, and
-regularise the torques and the foot yaw displacements.
+yaw moment about the centre of mass, so what remains is the torsional friction of the weight a stance foot carries
+(`torsionalFrictionTorque`, `T_t`, for the whole weight on one foot) and, in double support, the friction couple of the
+two feet (`doubleSupportYawCouple`, `T_c`). With both feet down each carries half the weight and half the couple, so the
+pair has `T_t + T_c`; granting the full-weight torsion to both feet at once, as an earlier version did, over-estimated
+the double-support budget by `T_t` (78 N m on the DRC Atlas). A turn therefore has to be stepped: the planner rotates
+the foothold frame with the heading, the feet must follow it within hip range, and the yaw torques bound how fast the
+heading can go. The costs track the commanded yaw rate and the commanded heading, keep the foot yaws at the nominal
+heading (the linearisation point, which is the plan's own heading under the successive linearisation; measuring a pinned
+stance foot's yaw against the heading *state* was a penalty on the heading alone and pulled it back towards the stance
+feet), and regularise the torques and the foot yaw displacements.
+
+The commanded yaw rate is read off the momentum channel of the MPC's target trajectory, where the command is carried
+as the angular momentum of a rigid turn about the vertical, `h_z = I_zz omega / m`, with the same locked inertia the
+planner uses. The target's base yaw is not used: its first stretch integrates the average of the measured and the
+commanded yaw rate, so differentiating it commanded half the rate at the start of a turn and fed the measured rate back
+in, and once the override below has rewritten it, it carries the previous plan's rate.
 
 The constraint frame of node k is the planned heading of node k. That makes the step-width, reach and foot-separation
 rows bilinear in the heading and the footholds, which the mixed-integer solver cannot take. They are linearised to

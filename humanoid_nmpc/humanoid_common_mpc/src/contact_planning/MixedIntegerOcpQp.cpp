@@ -183,7 +183,9 @@ MiqpResult MixedIntegerOcpQp::solve(OcpQpProblem& problem,
                 << std::endl;
     }
     if (!solution.success()) {
-      ++result.numInfeasible;
+      // HPIPM does not certify infeasibility: a relaxation it did not solve (iteration limit, step failure) is dropped
+      // with its subtree unproven, which is counted separately and keeps the result from being reported as optimal.
+      ++result.numFailedRelaxations;
       return false;
     }
     return true;
@@ -342,7 +344,7 @@ MiqpResult MixedIntegerOcpQp::solve(OcpQpProblem& problem,
     }
   }
 
-  result.optimal = open.empty() && !result.nodeLimitHit && !result.timeLimitHit;
+  result.optimal = open.empty() && !result.nodeLimitHit && !result.timeLimitHit && result.numFailedRelaxations == 0;
   result.solveTime = elapsedSeconds(startTime);
   if (result.hasIncumbent) {
     // Leave the problem's binary bounds at the incumbent so that the caller can inspect it.

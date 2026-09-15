@@ -108,9 +108,10 @@ bool planAgreesWithSwingsInFlight(const ModeSchedule& applied, const ContactPlan
 /**
  * Contacts the planner has to keep fixed on its first nodes, taken from the executed schedule: every node that starts
  * before `committedUntil`, at most `maxNodes` of them. A node that lies entirely inside the window is sampled at its
- * midpoint; the node that straddles the boundary is sampled just after the boundary, i.e. with the contact state the
- * executed schedule hands over to the plan there. Sampling that node at its midpoint let the planner contradict the
- * executed schedule inside it, which the merge then turned into a delayed touch-down or a phantom re-lift.
+ * midpoint; the last committed node, whether it straddles the boundary or ends exactly on it, is sampled at the boundary,
+ * i.e. with the contact state the executed schedule hands over to the plan there. Sampling that node at its midpoint let
+ * the planner contradict the executed schedule inside it (a touch-down after the midpoint read as "still swinging"),
+ * which the merge then turned into a delayed touch-down or a phantom re-lift of the foot that had just landed.
  */
 std::vector<contact_flag_t> committedContactsForPlanner(
     const ModeSchedule& schedule, scalar_t startTime, scalar_t dt, int maxNodes, scalar_t committedUntil);
