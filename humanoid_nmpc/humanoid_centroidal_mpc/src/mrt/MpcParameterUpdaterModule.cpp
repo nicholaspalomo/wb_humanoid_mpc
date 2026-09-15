@@ -126,6 +126,7 @@ MpcParameterUpdaterModule::MpcParameterUpdaterModule(MPC_BASE* mpcPtr,
       taskFile_(taskFile),
       urdfFile_(urdfFile),
       referenceFile_(referenceFile),
+      contactPlanningFile_(taskFile.empty() ? std::string() : resolveContactPlanningConfigFile(taskFile)),
       stateDim_(stateDim),
       inputDim_(inputDim),
       contactNames_(contactNames),
@@ -153,6 +154,10 @@ MpcParameterUpdaterModule::MpcParameterUpdaterModule(MPC_BASE* mpcPtr,
   if (!taskFile_.empty() && std::filesystem::exists(taskFile_)) {
     std::error_code ec;
     taskFileLastWriteTime_ = std::filesystem::last_write_time(taskFile_, ec);
+  }
+  if (contactPlanningFile_ != taskFile_ && std::filesystem::exists(contactPlanningFile_)) {
+    std::error_code ec;
+    contactPlanningFileLastWriteTime_ = std::filesystem::last_write_time(contactPlanningFile_, ec);
   }
 }
 
@@ -189,13 +194,22 @@ void MpcParameterUpdaterModule::preSolverRun(scalar_t initTime,
     }
   }
 
-  // Pathway 2: Check task.yaml modification time at roughly 1Hz (assuming solver runs around 100Hz)
+  // Pathway 2: Check the modification times of task.yaml and of the planner's own file at roughly 1Hz (assuming the
+  // solver runs around 100Hz). The planner's file is watched separately only when it is a file of its own; a
+  // `contact_planning` block inside the task file is applied by applyParameterUpdates() with the rest.
   if (!taskFile_.empty() && checkCounter_++ % 100 == 0) {
     std::error_code ec;
     auto last_write = std::filesystem::last_write_time(taskFile_, ec);
     if (!ec && last_write != taskFileLastWriteTime_) {
       taskFileLastWriteTime_ = last_write;
       applyParameterUpdates(taskFile_);
+    }
+    if (contactPlanningFile_ != taskFile_) {
+      auto planningLastWrite = std::filesystem::last_write_time(contactPlanningFile_, ec);
+      if (!ec && planningLastWrite != contactPlanningFileLastWriteTime_) {
+        contactPlanningFileLastWriteTime_ = planningLastWrite;
+        applyContactPlanningUpdates(contactPlanningFile_);
+      }
     }
   }
 }
@@ -784,16 +798,24 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
     }
   }
 
-  // ── Contact planning config (applied before the planner's next run) ──
-  if (contactPlannerModulePtr_ != nullptr && pt.get_child_optional("contact_planning")) {
-    try {
-      contactPlannerModulePtr_->setConfig(loadContactPlanningConfig(yamlFile, "contact_planning.", false));
-    } catch (const std::exception& e) {
-      LOG(WARNING) << "[MpcParameterUpdaterModule] contact_planning section could not be applied: " << e.what();
-    }
+  // ── Contact planning config, when the file carries the block (a task file with it inline, or the YAML published on
+  // the topic, which the GUI assembles from both files) ──
+  if (pt.get_child_optional("contact_planning")) {
+    applyContactPlanningUpdates(yamlFile);
   }
 
   LOG(INFO) << "[MpcParameterUpdaterModule] Successfully applied in-place parameter updates to SqpSolver.";
+}
+
+void MpcParameterUpdaterModule::applyContactPlanningUpdates(const std::string& yamlFile) {
+  if (contactPlannerModulePtr_ == nullptr) return;
+  // Applied before the planner's next run.
+  try {
+    contactPlannerModulePtr_->setConfig(loadContactPlanningConfig(yamlFile, "contact_planning.", false));
+    LOG(INFO) << "[MpcParameterUpdaterModule] Applied the contact_planning configuration from " << yamlFile << ".";
+  } catch (const std::exception& e) {
+    LOG(WARNING) << "[MpcParameterUpdaterModule] contact_planning configuration of " << yamlFile << " could not be applied: " << e.what();
+  }
 }
 
 }  // namespace ocs2::humanoid

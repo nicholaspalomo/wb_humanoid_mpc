@@ -114,13 +114,20 @@ struct ContactPlanningConfig {
   // design, so a LIP reference would report that design difference as a "disturbance", amplified by exp(omega * plan
   // age) and again by exp(omega * time to touch-down), and saturate the bound every step. Against the NMPC's prediction
   // the error is zero while the robot does what the controller expects and non-zero only under a real disturbance.
-  // dcmAdjustmentMaxOffset remains the safety bound.
+  // Because that prediction is refreshed after every solve, what the loops see is the deviation that appeared over the
+  // last solver period, and they correct that increment once: they damp sudden disturbances (an impulse, a slip) and
+  // cannot integrate a sustained push, whose persistent displacement is the planner's business (it re-plans from the
+  // measured state every planning period). A skipped solve shows up as a larger increment. dcmAdjustmentMaxOffset
+  // remains the safety bound.
   bool enableDcmStepAdjustment = false;    // move the landing target by the DCM error propagated to touch-down
-  scalar_t dcmAdjustmentGain = 0.5;        // gain on the closed-form LIP step adjustment (1 = exact compensation)
+  scalar_t dcmAdjustmentGain = 0.5;        // gain on the closed-form LIP step adjustment (1 = exact compensation of the increment)
   scalar_t dcmAdjustmentMaxOffset = 0.05;  // [m] bound on the landing target offset (also clipped to reachX / reachY*)
 
   bool enableEnergyCadenceModulation = false;  // move the touch-down of the swing in flight by the LIP orbital energy error
-  scalar_t energyCadenceGain = 0.01;           // [s/J] touch-down shift = -gain * (E - E_plan), E = m (v^2 - w^2 x^2) / 2
+  scalar_t energyCadenceGain = 0.01;           // [s/J] touch-down shift = -gain * (E - E_pred), E = m (v^2 - w^2 x^2) / 2, full model mass
+  scalar_t energyCadenceDeadband = 0.0;        // [J] deviations within this band re-time nothing, beyond it the shift is measured from
+                                               // the band's edge (0: none). Without one the CoM velocity noise re-times the swing and
+                                               // everything after it at every solve: 5 mm/s at 0.4 m/s on a 150 kg robot is 0.3 J.
 
   // Heading model. Off: the point-mass LIP, whose foothold frame is the base yaw at planning time and cannot express a
   // turn. On: the LIP for the centre of mass plus the whole-body heading (the angular centre of mass, ACoM, when the
@@ -187,11 +194,24 @@ struct ContactPlanningConfig {
   void validate() const;
 };
 
+/** Name of the planner's own configuration file, expected in the directory of the robot's task file. */
+inline constexpr const char* kContactPlanningConfigFileName = "contact_planning.yaml";
+
 /**
- * Loads the configuration from a task file. Missing keys keep their defaults. With `validate` false the values that may
- * be 0 for "derive from the model" are accepted as they are; call validate() after ContactPlanningModelParameters::applyTo().
+ * The file the contact planning configuration is read from for a given task file: `contact_planning.yaml` in the task
+ * file's directory when it exists, otherwise the task file itself (a `contact_planning` block inside it, the layout from
+ * before the planner had its own file). The `useContactPlanning` switch stays in the task file with the other model
+ * settings; everything the planner is tuned with lives in its own file.
  */
-ContactPlanningConfig loadContactPlanningConfig(const std::string& taskFile,
+std::string resolveContactPlanningConfigFile(const std::string& taskFile);
+
+/**
+ * Loads the configuration from a YAML file: the planner's own contact_planning.yaml, or a task file with the block
+ * inline (see resolveContactPlanningConfigFile). Missing keys keep their defaults. With `validate` false the values that
+ * may be 0 for "derive from the model" are accepted as they are; call validate() after
+ * ContactPlanningModelParameters::applyTo().
+ */
+ContactPlanningConfig loadContactPlanningConfig(const std::string& yamlFile,
                                                 const std::string& prefix = "contact_planning.",
                                                 bool verbose = false,
                                                 bool validate = true);

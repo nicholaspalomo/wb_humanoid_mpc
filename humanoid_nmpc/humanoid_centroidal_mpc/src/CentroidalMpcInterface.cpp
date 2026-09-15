@@ -218,7 +218,10 @@ CentroidalMpcInterface::CentroidalMpcInterface(const std::string& taskFile,
   if (modelSettings_.useContactPlanning) {
     // Online mixed-integer contact planning replaces the periodic gait schedule. The gait schedule is still loaded: it is
     // used until the first plan arrives and whenever the planner has no valid plan.
-    ContactPlanningConfig contactPlanningConfig = loadContactPlanningConfig(taskFile, "contact_planning.", verbose_, /*validate=*/false);
+    const std::string contactPlanningFile = resolveContactPlanningConfigFile(taskFile);
+    LOG(INFO) << "[CentroidalMpcInterface] Loading contact planning config from " << contactPlanningFile;
+    ContactPlanningConfig contactPlanningConfig =
+        loadContactPlanningConfig(contactPlanningFile, "contact_planning.", verbose_, /*validate=*/false);
     {
       // Parameters left at 0 in the task file are derived from the robot model and from the ground parameters of the
       // wrench cone, so that the planner never assumes more friction, torque or footprint than the whole-body

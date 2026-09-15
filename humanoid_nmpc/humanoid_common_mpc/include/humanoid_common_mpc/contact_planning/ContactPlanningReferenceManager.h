@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
+#include "humanoid_common_mpc/contact_planning/TargetContactPose.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
 namespace ocs2::humanoid {
@@ -94,8 +95,29 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
   bool hasAngularCenterOfMass() const { return acom_ != nullptr; }
   /** Whole-body heading at `state`: the ACoM yaw with an evaluator, the base yaw otherwise. */
   scalar_t computeHeading(const vector_t& state) const;
-  /** Commanded yaw rate: the desired base yaw of the target trajectory differentiated over a short window after `time`. */
-  scalar_t commandedYawRate(scalar_t time) const;
+  /**
+   * The operator's commanded yaw rate as of the last modifyReferences(), read off the momentum channel of the target
+   * trajectory: the target carries the command as the angular momentum of a rigid turn about the vertical,
+   * h_z = I_zz omega / m (CentroidalMpcTargetTrajectoriesCalculator), which the heading override never touches.
+   *
+   * The target's base yaw is not used. Its first stretch integrates the average of the measured and the commanded yaw
+   * rate, so differentiating it (as an earlier version did) commanded half the rate at the start of a turn and fed the
+   * measured rate back in; and once applyPlannedHeading() has rewritten it, it carries the previous plan's rate, so any
+   * shortfall of the plan against the command was re-issued as the next command and the turn decayed. Solver thread only.
+   */
+  scalar_t commandedYawRate() const { return commandedYawRate_; }
+
+  /** True while a plan handed over by setContactPlan() has not been activated by the solver thread yet (thread-safe). */
+  bool hasPendingPlan() const;
+
+  /**
+   * Plans dropped at activation instead of applied (thread-safe): stale ones, whose commit boundary had already passed
+   * (the planner latency exceeded commitTime), and inconsistent ones, made before a swing that is in flight at their
+   * merge point was committed. While plans keep being dropped the executed schedule runs out and the robot stops
+   * walking; these counters are the only sign of it besides a rate-limited warning.
+   */
+  size_t numStalePlansDropped() const { return stalePlanCount_.load(); }
+  size_t numInconsistentPlansDropped() const { return inconsistentPlanCount_.load(); }
 
   void setConfig(const ContactPlanningConfig& config);
   ContactPlanningConfig getConfig() const;
@@ -122,6 +144,13 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
   /** True once after a contact event re-timed the schedule (thread-safe); the planner module then plans immediately. */
   bool consumeReplanRequest() { return replanRequested_.exchange(false); }
 
+  /**
+   * Target contact pose of every foot as of the last solver run (thread-safe; for the MuJoCo viewer, see
+   * TargetContactPose.h): the landing pose of the foot's swing in flight or of its next swing, or its placement. Every
+   * pose is invalid while no plan is active.
+   */
+  feet_array_t<TargetContactPose> getTargetContactPoses() const;
+
   // Introspection of the adaptive execution (solver thread only; for tests and telemetry).
   const feet_array_t<ContactEventReport>& getLastContactEvents() const { return lastContactEvents_; }
   const feet_array_t<SwingTimingLatch>& getSwingTimingLatches() const { return swingLatches_; }
@@ -146,6 +175,8 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
   scalar_t computeYawInertia(const vector_t& state);
   /** Heading model: the plan's heading replaces the commanded base yaw of the target trajectory. */
   void applyPlannedHeading(TargetTrajectories& targetTrajectories) const;
+  /** Refreshes commandedYawRate_ from the momentum channel of the target at `initTime`, with the yaw inertia at `initState`. */
+  void captureCommandedYawRate(scalar_t initTime, const vector_t& initState, const TargetTrajectories& targetTrajectories);
 
   /** CoM position and velocity (xy) of the full model at `state`. */
   std::pair<vector2_t, vector2_t> computeComState(const vector_t& state);
@@ -177,22 +208,26 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
   /** DCM step adjustment of every swing foot from the DCM error with respect to the plan (zero unless enabled). */
   void updateDcmStepAdjustment(scalar_t initTime, const ContactPlanningConfig& config);
 
+  /** Snapshot of the target contact poses for getTargetContactPoses(), from the state of the current solver run. */
+  void updateTargetContactPoses(scalar_t initTime, scalar_t terrainHeight);
+
   mutable std::mutex configMutex_;
   ContactPlanningConfig config_;
 
-  std::mutex planMutex_;
+  mutable std::mutex planMutex_;
   std::optional<ContactPlan> pendingPlan_;  // written by the planner thread
   std::optional<ContactPlan> activePlan_;   // solver thread copy
 
   ModeSchedule appliedSchedule_;
   bool hasAppliedSchedule_ = false;
   scalar_t lastSolveTime_ = std::numeric_limits<scalar_t>::lowest();  // initTime of the last modifyReferences()
-  size_t stalePlanCount_ = 0;         // plans dropped because their commit boundary had passed (rate-limits the warning)
-  size_t inconsistentPlanCount_ = 0;  // plans dropped because a swing they did not know about was in flight (rate-limited)
+  std::atomic<size_t> stalePlanCount_{0};         // plans dropped because their commit boundary had passed (rate-limits the warning)
+  std::atomic<size_t> inconsistentPlanCount_{0};  // plans dropped because a swing they did not know about was in flight (rate-limited)
 
   // Heading model.
   std::shared_ptr<AngularCenterOfMass> acom_;
   scalar_t totalMass_ = 0.0;
+  scalar_t commandedYawRate_ = 0.0;  // [rad/s] operator command, from the target's momentum channel
   feet_array_t<scalar_t> footYaws_ = makeFeetArray(0.0);
   feet_array_t<scalar_t> liftOffYaws_ = makeFeetArray(0.0);
 
@@ -213,6 +248,9 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
   vector2_t predictedComState_[2] = {vector2_t::Zero(), vector2_t::Zero()};  // predicted CoM at the current solver run
   std::deque<std::pair<scalar_t, scalar_t>> scheduleShiftLog_;               // (time, shift) of every re-timing of later events
   std::atomic<bool> replanRequested_{false};
+
+  mutable std::mutex targetPoseMutex_;
+  feet_array_t<TargetContactPose> targetContactPoses_ = makeFeetArray(TargetContactPose{});  // read by the control thread
 };
 
 }  // namespace ocs2::humanoid

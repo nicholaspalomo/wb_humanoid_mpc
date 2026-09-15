@@ -96,8 +96,9 @@ class MpcParameterUpdaterModule : public SolverSynchronizedModule {
   void subscribe(rclcpp::Node::SharedPtr node);
 
   /**
-   * Registers the contact planner module (may be nullptr) so that the `contact_planning` section of task.yaml is
-   * hot-reloadable as well.
+   * Registers the contact planner module (may be nullptr) so that its configuration is hot-reloadable as well: the
+   * `contact_planning` block of contact_planning.yaml next to the task file (watched like the task file), or of the task
+   * file itself when the block still lives there, and of the YAML published on the parameter topic.
    */
   void setContactPlannerModule(std::shared_ptr<ContactPlannerModule> contactPlannerModule) {
     contactPlannerModulePtr_ = std::move(contactPlannerModule);
@@ -118,6 +119,9 @@ class MpcParameterUpdaterModule : public SolverSynchronizedModule {
    */
   void applyParameterUpdates(const std::string& yamlFile);
 
+  /** Applies the `contact_planning` block of a YAML file to the contact planner, if both exist. */
+  void applyContactPlanningUpdates(const std::string& yamlFile);
+
   /** ROS topic callback — stores the incoming YAML string for the solver thread. */
   void topicCallback(const std_msgs::msg::String::SharedPtr msg);
 
@@ -125,6 +129,8 @@ class MpcParameterUpdaterModule : public SolverSynchronizedModule {
   const std::string taskFile_;
   const std::string urdfFile_;
   const std::string referenceFile_;
+  /// The planner's own configuration file (resolveContactPlanningConfigFile); equals taskFile_ when the block is inline.
+  const std::string contactPlanningFile_;
 
   const size_t stateDim_;
   const size_t inputDim_;
@@ -137,6 +143,7 @@ class MpcParameterUpdaterModule : public SolverSynchronizedModule {
 
   // File-watching state
   std::filesystem::file_time_type taskFileLastWriteTime_;
+  std::filesystem::file_time_type contactPlanningFileLastWriteTime_;
   size_t checkCounter_{0};
 
   // ROS topic state

@@ -28,6 +28,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <cmath>
 
+#include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 
 namespace ocs2::humanoid {
@@ -110,9 +111,10 @@ ModeSchedule mergeModeSchedules(
   std::vector<scalar_t> eventTimes;
   std::vector<size_t> modeSequence;
 
-  // Part 1: the applied schedule up to commitTime.
-  const size_t modeAtLower = applied.modeAtTime(lowerBoundTime);
-  modeSequence.push_back(modeAtLower);
+  // Part 1: the applied schedule up to commitTime. The leading mode uses the same convention as the loop below (an event
+  // at lowerBoundTime itself has passed); ocs2's modeAtTime treats it as not yet passed, which dropped the phase that
+  // started exactly there.
+  modeSequence.push_back(applied.modeSequence[modeIndexAtTime(applied, lowerBoundTime)]);
   for (size_t i = 0; i < applied.eventTimes.size(); ++i) {
     const scalar_t t = applied.eventTimes[i];
     if (t <= lowerBoundTime) continue;

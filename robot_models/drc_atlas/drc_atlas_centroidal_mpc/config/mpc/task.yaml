@@ -7,10 +7,30 @@ simContactTimelineWindow: 5.0          # [s] width of the sliding window
 simContactForceThreshold: 5.0          # [N] normal force above which a contact point counts as touching (ground truth)
 simReportsGroundTruthContacts: true   # feed the ground-truth contacts to the MPC as its measured contact state instead of
 # "always touching"; required for contact_planning.enablePhaseResetting in simulation
+# Viewer visualizations (each listed one starts on; the key in brackets toggles it, 'p' prints the cheatsheet). Every
+# marker is a class in robot_runtime/mujoco_sim_interface/.../visualization; the names are those of VisualizationRegistry.
+# LINT.IfChange(sim_visualizations)
+simVisualizations:
+  - metrics                 # render/sim FPS, real-time factor and drift (top-left text)
+  - external_forces         # arrows of the external forces applied to the bodies (pushes)
+  - contact_forces          # arrows of the physical contact forces on the robot
+  - base_velocity           # measured (red) vs commanded (green) base velocity and yaw rate at the CoM
+  - contact_timeline        # [b] barcode of planned vs ground-truth contact per contact point
+  - target_contact_patches  # [g] contact patch of every foot at the planner's target position and yaw
+  # MuJoCo's own markers, off unless listed:
+  # - mj_contact_points     # [c] markers at the physical contact points
+  # - mj_contact_forces     # [f] MuJoCo's normal and friction force arrows at the contacts
+  # - mj_com                # [m] centre of mass markers of the bodies
+  # - mj_inertia            # [i] equivalent inertia ellipsoids
+  # - mj_convex_hull        # [h] convex hulls of the meshes
+  # - mj_transparent        # [t] model transparency (x-ray view)
+# LINT.ThenChange(//robot_runtime/mujoco_sim_interface/src/visualization/VisualizationRegistry.cpp:visualization_names)
 enableOnlineTuning: true     # Enable runtime parameter and gain tuning in Controller GUI
 useContactBasisVectorInputs: true  # Set true to use basis-vector scalings λ as MPC contact inputs (instead of direct wrenches)
 useComAndAcomTracking: true      # Set true to regulate CoM + Angular Center of Mass (ACoM) instead of base pose
 useContactPlanning: true        # Set true to plan the contact sequence, timing and footholds online with the mixed-integer contact planner (replaces the gait schedule)
+# The planner's parameters are the contact_planning block of contact_planning.yaml next to this file (hot-reloaded and
+# edited by the tuning GUI like this file).
 useDcmTerminalCost: true         # Set true to end the horizon with the DCM (capture point) viability cost; Q_final / terminal_cost are then ignored
 
 # Weights for CoM and ACoM tracking (active when useComAndAcomTracking is true).
@@ -90,14 +110,22 @@ model_settings:
     # zdot = zdot_ref + positionErrorGain_z * (z_ref - z). At 1.0 that is a 1 s time constant, so barely a fifth of any
     # height error accumulated at lift-off is corrected over a 0.25 s descent and the foot arrives low. 5.0 matches the
     # other robots. The remaining gains below act on the stance (zero-velocity) constraint only.
-    positionErrorGain_z: 5.0
+    # Lowered from 5. This gain is proportional feedback injected straight into the
+    # swing foot's commanded vertical velocity by a HARD equality constraint:
+    #   v_z = zdot_ref + positionErrorGain_z * (z_ref - z)
+    # With touchDownVelocity restored below, zdot_ref carries the descent and this
+    # term only trims the residual. At 5 with zdot_ref = 0 the entire touch-down
+    # velocity was 5x the tracking lag, so the foot kicked into the ground and the
+    # zero_velocity constraint then had to absorb that velocity in one 0.02 s
+    # shooting interval, which threw the body upward once per step.
+    positionErrorGain_z: 2.0
     orientationErrorGain: 0.1
     linearVelocityErrorGain_z: 0.1
     linearVelocityErrorGain_xy: 0.1
     angularVelocityErrorGain: 0.01
-    linearAccelerationErrorGain_z: 0.0
-    linearAccelerationErrorGain_xy: 0.0
-    angularAccelerationErrorGain: 0.0
+    linearAccelerationErrorGain_z: 0
+    linearAccelerationErrorGain_xy: 0
+    angularAccelerationErrorGain: 0
     softConstraintWeight: 250
     constrainOrientation: true
     # The orientation error to the ground plane only measures the tilt of the foot normal, so with constrainOrientation
@@ -147,10 +175,19 @@ swing_trajectory_config:
   # A zero touch-down velocity makes the descent flatten out asymptotically, so the sole hovers within a few millimetres
   # of the ground for the last ~30 ms of the swing while the foot is still translating forward at ~0.2 m/s. Landing with
   # a real descent rate shortens that window and roughly doubles the clearance at 90% of the swing.
-  touchDownVelocity: 0.0
-  swingHeight: 0.12  # was 0.16; the higher apex made the descent steeper and widened the foot-pitch excursion
+  # Restored to a real descent rate (negative is downward; liftOffVelocity is +0.05
+  # upward). At 0 the height spline arrived with zero terminal slope, so the sole
+  # flattened out and hovered millimetres above the ground for the last stretch of
+  # swing while still translating forward, and every bit of the landing velocity had
+  # to come from positionErrorGain_z acting on the tracking error.
+  touchDownVelocity: -0.05
+  swingHeight: 0.08  # was 0.16; the higher apex made the descent steeper and widened the foot-pitch excursion
   touchDownHeightOffset: -0.001
-  swingTimeScale: 0.4
+  # Swings shorter than this are scaled down in height AND velocity by swingDuration / swingTimeScale
+  # (SwingTrajectoryPlanner::swingTrajectoryScaling). It must therefore stay <= contact_planning.yaml
+  # minSwingDuration, or lowering the swing duration to raise the cadence silently shrinks the foot clearance:
+  # at swingTimeScale 0.4 a 0.3 s swing would clear only 0.75 * 0.08 = 0.06 m.
+  swingTimeScale: 0.25  # was 0.4
   impactProximityFactorLiftOffVelocity: -0.15
   impactProximityFactorTouchDownVelocity: 0.3
   impactProximityFactorMidPointValue: 0
@@ -166,91 +203,6 @@ swing_trajectory_config:
   swingPitchAngle: 0.08
   swingPitchRiseFraction: 0.25
   swingPitchFallFraction: 0.15
-
-# Mixed-integer contact planner (active when useContactPlanning: true).
-# A Linear Inverted Pendulum model is planned on a coarse grid of numNodes * dt seconds. Per node and foot a binary decides
-# contact vs. swing, continuous variables place the feet and the ZMP, and a run-length counter turns the min/max phase
-# durations into linear constraints. The problem is solved by branch-and-bound over HPIPM relaxations, warm-started with
-# the previous plan. The result replaces the gait schedule (mode sequence + event times) and provides the swing-foot
-# landing targets tracked by task_space_foot_cost_weights.pos_x / pos_y.
-# LINT.IfChange(contact_planning_config)
-contact_planning:
-  dt: 0.1                     # [s] planner node duration
-  numNodes: 12                # planning horizon = numNodes * dt, should cover mpc.timeHorizon
-  commitTime: 0.3             # [s] the applied schedule is fixed this far ahead; must cover the planner latency (a swing that
-                              #     has started or starts within this window is always executed to its touch-down)
-  comHeight: 0.85             # [m] LIP height, omega = sqrt(gravity / comHeight); 0 = CoM height above the feet at initialState
-  gravity: 9.81               # [m/s^2]
-  minSwingDuration: 0.4      # [s]
-  maxSwingDuration: 0.7       # [s]
-  minContactDuration: 0.15    # [s] a foot stays down at least this long before lifting again
-  maxContactDuration: 0.0     # [s] <= 0: no limit (standing allowed)
-  enforceAlternatingFeet: true  # a foot may not swing twice in a row
-  minDoubleSupportDuration: 0.1  # [s] after a touch-down the other foot stays down at least this long
-  zmpHalfWidthX: 0.08         # [m] ZMP box half-width around a supporting foot along the heading
-  zmpHalfWidthY: 0.04         # [m] ZMP box half-width laterally
-  nominalStepWidth: 0.25      # [m] preferred lateral distance between the feet
-  minStepWidth: 0.15          # [m] self-collision margin
-  maxStepWidth: 0.45          # [m]
-  maxStepLength: 1.5          # [m] |x_left - x_right| bound
-  reachX: 1.2                 # [m] foot x offset from the CoM
-  reachYInner: 0.05           # [m] left foot y - CoM y >= reachYInner (mirrored for the right foot)
-  reachYOuter: 0.45           # [m]
-  bigM: 3.0                   # [m] big-M of the contact disjunctions (must exceed maxStepLength)
-  velocityTrackingWeight: 50.0        # ||v_com - v_cmd||^2 per node
-  zmpRegularizationWeight: 0.1        # ||zmp - p_com||^2 per node
-  footholdRegularizationWeight: 0.2   # ||foot displacement||^2 per node
-  stepWidthWeight: 10.0               # (step width - nominalStepWidth)^2 per node
-  contactSwitchCost: 1.0              # per lift-off / touch-down event
-  planConsistencyCost: 0.5            # per node whose contact differs from the previous plan (hysteresis between plans)
-  previousFootholdWeight: 5.0         # ||foot position - previous plan||^2 per node, damps landing-target jitter
-  terminalDcmWeight: 50.0            # ||DCM_N - zmp_(N-1)||^2 (terminal capturability)
-  constraintSlackWeight: 10000.0      # quadratic penalty on the soft ZMP / reachability slacks
-  constraintSlackLinearWeight: 100.0  # linear penalty on the same slacks
-  maxBranchAndBoundNodes: 200         # relaxations per plan
-  maxSolveTime: 0.1                   # [s] anytime limit, the best plan found so far is returned
-  maxQpIterations: 60
-  localSearchIterations: 10           # rounds of event-shift local search on the incumbent (0 disables)
-  localSearchMaxTime: 0.05            # [s]
-  verbose: false
-  runInBackgroundThread: true         # false: plan synchronously in the MPC pre-solve hook
-  planningFrequency: 10.0             # [Hz] upper bound on the background planning rate
-
-  # Adaptive execution between plans (measured contact events, closed-form LIP corrections).
-  # All three are opt-in: with them disabled the reference manager merges plans exactly as it did before they existed,
-  # which is the behaviour the gait is tuned against. Enable one at a time and validate it in MuJoCo before hardware.
-  enablePhaseResetting: false           # early touch-down: switch the foot to contact at once; late: extend the swing
-  earlyTouchdownMinSwingRatio: 0.25     # contact during this initial fraction of the nominal swing is ignored (scuffing)
-  earlyTouchdownMinContactDuration: 0.02  # [s] contact must persist this long before the swing is ended (sensor debounce)
-  maxLateTouchdownExtension: 0.15       # [s] total extension budget of a swing past its planned touch-down
-  lateTouchdownExtensionStep: 0.05      # [s] the touch-down is pushed this far ahead of the current time per cycle
-  lateTouchdownSearchVelocity: 0.05     # [m/s] descent rate of the foot height target while searching for the ground
-  # The DCM step adjustment and the cadence modulation measure the deviation of the measured CoM from the NMPC's own
-  # predicted trajectory, so they act only on real disturbances and are zero while the robot does what the controller
-  # expects. dcmAdjustmentMaxOffset is the safety bound; check in simulation that the offset is not sitting at it.
-  enableDcmStepAdjustment: false        # move the landing target by the DCM error propagated to touch-down
-  dcmAdjustmentGain: 0.5                # 1 = exact LIP compensation of the DCM error at touch-down
-  dcmAdjustmentMaxOffset: 0.05          # [m] bound on the landing target offset (also clipped to reachX / reachY*)
-  enableEnergyCadenceModulation: false  # re-time the touch-down of the swing in flight by the LIP orbital energy error
-  energyCadenceGain: 0.01               # [s/J] touch-down shift = -gain * (E - E_plan)
-  # Heading model (ACoM dynamics). The whole-body heading (the angular centre of mass) and its angular momentum about the
-  # vertical join the reduced model, driven by the yaw torques the stance feet can carry: torsional friction on every
-  # stance foot and the friction couple of both feet in double support. Every foot gets a yaw, pinned while it stands
-  # and within hip range of the heading. Turning becomes a stepping decision bounded by the ground torques, and the
-  # foothold frame follows the planned heading (successive linearisation, the relaxations stay convex). Opt-in; the
-  # planned foot yaw reaches the foot cost through task_space_foot_cost_weights.orientation_z (0 = not tracked).
-  useAcomDynamics: true
-  # The yaw inertia, the yaw torque limits (torsional friction coefficient * weight, friction coefficient * half the
-  # weight * nominalStepWidth, both from contactWrenchConeSoftConstraint) and the per-leg hip yaw range are taken from
-  # the robot model and are not keys here.
-  headingRateTrackingWeight: 20.0       # (heading rate - commanded yaw rate)^2 per node
-  headingTrackingWeight: 5.0            # (heading - commanded heading)^2 per node
-  yawTorqueWeight: 0.001                # yaw torque^2 per node
-  footYawTrackingWeight: 5.0            # (foot yaw - heading)^2 per node
-  footYawRegularizationWeight: 1.0      # (foot yaw displacement)^2 per node
-  headingLinearizationPasses: 1         # re-linearisations of the heading frame at the incumbent (0 disables)
-  planHeadingOverridesTarget: true      # the plan's heading replaces the commanded yaw in the MPC target trajectory
-# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/contact_planning/ContactPlanningConfig.cpp:contact_planning_keys)
 
 # multiple_shooting settings
 multiple_shooting:
@@ -337,16 +289,22 @@ Q:
   scaling: 85
 
   # ; Normalized Centroidal Momentum: [linear, angular] ;;
-  "(0,0)": 2  # h_com_x / robotMass
-  "(1,1)": 2  # h_com_y / robotMass
+  # Raised from 2. The linear entries are the ONLY thing asking the MPC to reach the
+  # commanded CoM velocity, and at 2 (170 after scaling) they were outvoted 125:1 by
+  # the hip roll regularization below. Under-striding was then the cheap option: a
+  # short step keeps every joint near nominal and only costs a little velocity error,
+  # so the robot walked with small strides no matter how large the command. G1 and R1
+  # keep their largest joint weight within 1.3-2.5x of this entry; Atlas was at 125x.
+  "(0,0)": 10  # h_com_x / robotMass
+  "(1,1)": 10  # h_com_y / robotMass
   "(2,2)": 15  # h_com_z / robotMass
   # Reduced for CoM + ACoM tracking: the aCOM coordinate is the integral of the
   # locked angular velocity, so penalising angular momentum heavily fights the
   # torso and arm counter-rotation the aCOM cost is there to produce. What is
   # left provides damping only; orientation itself is regulated by Q_acom.
-  "(3,3)": 5  # L_x / robotMass (was 50)
-  "(4,4)": 5  # L_y / robotMass (was 75)
-  "(5,5)": 2  # L_z / robotMass (was 4)
+  "(3,3)": 5  # L_x / robotMass
+  "(4,4)": 5  # L_y / robotMass
+  "(5,5)": 2  # L_z / robotMass
 
   # ; Base Pose: [position, orientation] ;;
   # Ignored while useComAndAcomTracking is true: the factory zeroes this 6x6
@@ -362,9 +320,9 @@ Q:
   # ; Joint Positions ;;
   # Reduced for CoM + ACoM tracking: the torso is the main contributor to the
   # learned orientation offset, so it must be free to rotate.
-  "(12,12)": 10  # back_bkz (was 10)
-  "(13,13)": 25  # back_bky (was 25)
-  "(14,14)": 25  # back_bkx (was 25)
+  "(12,12)": 10  # back_bkz
+  "(13,13)": 25  # back_bky
+  "(14,14)": 25  # back_bkx
   "(15,15)": 0.1  # l_arm_shz
   "(16,16)": 0.1  # l_arm_shx
   "(17,17)": 0.1  # l_arm_ely
@@ -375,15 +333,22 @@ Q:
   "(22,22)": 0.1  # r_arm_ely
   "(23,23)": 0.1  # r_arm_elx
   "(24,24)": 10  # l_leg_hpz
-  "(25,25)": 250  # l_leg_hpx
-  "(26,26)": 10  # l_leg_hpy
-  "(27,27)": 10  # l_leg_kny
+  # Lowered from 250. Nominal hip roll is 0, i.e. legs vertical in the frontal plane,
+  # so this entry directly opposed the lateral pelvis shift that unloads the swing
+  # foot. At 21250 a mere 0.1 rad of shift cost ~213, more than closing a 0.7 m/s
+  # velocity error was worth, so single support stayed short and strides with it.
+  # Self-collision is NOT what this weight was doing: collision_constraint.foot and
+  # .knee enforce that with their own barrier (mu 30000), and the contact planner
+  # additionally bounds minStepWidth (0.15 m) and reachYInner (0.05 m).
+  "(25,25)": 25  # l_leg_hpx
+  "(26,26)": 1  # l_leg_hpy
+  "(27,27)": 2  # l_leg_kny
   "(28,28)": 5  # l_leg_aky
   "(29,29)": 5  # l_leg_akx
   "(30,30)": 10  # r_leg_hpz
-  "(31,31)": 250  # r_leg_hpx
-  "(32,32)": 10  # r_leg_hpy
-  "(33,33)": 10  # r_leg_kny
+  "(31,31)": 25  # r_leg_hpx
+  "(32,32)": 1  # r_leg_hpy
+  "(33,33)": 2  # r_leg_kny
   "(34,34)": 5  # r_leg_aky
   "(35,35)": 5  # r_leg_akx
 
@@ -409,25 +374,25 @@ R:
   "(12,12)": 1000  # back_bkz
   "(13,13)": 1000  # back_bky
   "(14,14)": 25  # back_bkx
-  "(15,15)": 10.0  # l_arm_shz
-  "(16,16)": 10.0  # l_arm_shx
-  "(17,17)": 20.0  # l_arm_ely
-  "(18,18)": 20.0  # l_arm_elx
+  "(15,15)": 10  # l_arm_shz
+  "(16,16)": 10  # l_arm_shx
+  "(17,17)": 20  # l_arm_ely
+  "(18,18)": 20  # l_arm_elx
   "(19,19)": 100  # neck_ry
-  "(20,20)": 10.0  # r_arm_shz
-  "(21,21)": 10.0  # r_arm_shx
-  "(22,22)": 20.0  # r_arm_ely
-  "(23,23)": 20.0  # r_arm_elx
+  "(20,20)": 10  # r_arm_shz
+  "(21,21)": 10  # r_arm_shx
+  "(22,22)": 20  # r_arm_ely
+  "(23,23)": 20  # r_arm_elx
   "(24,24)": 500  # l_leg_hpz
   "(25,25)": 5  # l_leg_hpx
-  "(26,26)": 1.0  # l_leg_hpy
-  "(27,27)": 1.0  # l_leg_kny
+  "(26,26)": 0.001  # l_leg_hpy
+  "(27,27)": 1  # l_leg_kny
   "(28,28)": 5  # l_leg_aky
   "(29,29)": 50  # l_leg_akx
   "(30,30)": 500  # r_leg_hpz
   "(31,31)": 5  # r_leg_hpx
-  "(32,32)": 1.0  # r_leg_hpy
-  "(33,33)": 1.0  # r_leg_kny
+  "(32,32)": 0.001  # r_leg_hpy
+  "(33,33)": 1  # r_leg_kny
   "(34,34)": 5  # r_leg_aky
   "(35,35)": 50  # r_leg_akx
 
@@ -453,16 +418,22 @@ Q_final:
   scaling: 85
 
   # ; Normalized Centroidal Momentum: [linear, angular] ;;
-  "(0,0)": 2  # h_com_x / robotMass
-  "(1,1)": 2  # h_com_y / robotMass
+  # Raised from 2. The linear entries are the ONLY thing asking the MPC to reach the
+  # commanded CoM velocity, and at 2 (170 after scaling) they were outvoted 125:1 by
+  # the hip roll regularization below. Under-striding was then the cheap option: a
+  # short step keeps every joint near nominal and only costs a little velocity error,
+  # so the robot walked with small strides no matter how large the command. G1 and R1
+  # keep their largest joint weight within 1.3-2.5x of this entry; Atlas was at 125x.
+  "(0,0)": 10  # h_com_x / robotMass
+  "(1,1)": 10  # h_com_y / robotMass
   "(2,2)": 15  # h_com_z / robotMass
   # Reduced for CoM + ACoM tracking: the aCOM coordinate is the integral of the
   # locked angular velocity, so penalising angular momentum heavily fights the
   # torso and arm counter-rotation the aCOM cost is there to produce. What is
   # left provides damping only; orientation itself is regulated by Q_acom.
-  "(3,3)": 5  # L_x / robotMass (was 50)
-  "(4,4)": 5  # L_y / robotMass (was 75)
-  "(5,5)": 2  # L_z / robotMass (was 4)
+  "(3,3)": 5  # L_x / robotMass
+  "(4,4)": 5  # L_y / robotMass
+  "(5,5)": 2  # L_z / robotMass
 
   # ; Base Pose: [position, orientation] ;;
   # Ignored while useComAndAcomTracking is true: the factory zeroes this 6x6
@@ -478,9 +449,9 @@ Q_final:
   # ; Joint Positions ;;
   # Reduced for CoM + ACoM tracking: the torso is the main contributor to the
   # learned orientation offset, so it must be free to rotate.
-  "(12,12)": 10  # back_bkz (was 10)
-  "(13,13)": 25  # back_bky (was 25)
-  "(14,14)": 25  # back_bkx (was 25)
+  "(12,12)": 10  # back_bkz
+  "(13,13)": 25  # back_bky
+  "(14,14)": 25  # back_bkx
   "(15,15)": 0.1  # l_arm_shz
   "(16,16)": 0.1  # l_arm_shx
   "(17,17)": 0.1  # l_arm_ely
@@ -491,15 +462,22 @@ Q_final:
   "(22,22)": 0.1  # r_arm_ely
   "(23,23)": 0.1  # r_arm_elx
   "(24,24)": 10  # l_leg_hpz
-  "(25,25)": 250  # l_leg_hpx
-  "(26,26)": 10  # l_leg_hpy
-  "(27,27)": 10  # l_leg_kny
+  # Lowered from 250. Nominal hip roll is 0, i.e. legs vertical in the frontal plane,
+  # so this entry directly opposed the lateral pelvis shift that unloads the swing
+  # foot. At 21250 a mere 0.1 rad of shift cost ~213, more than closing a 0.7 m/s
+  # velocity error was worth, so single support stayed short and strides with it.
+  # Self-collision is NOT what this weight was doing: collision_constraint.foot and
+  # .knee enforce that with their own barrier (mu 30000), and the contact planner
+  # additionally bounds minStepWidth (0.15 m) and reachYInner (0.05 m).
+  "(25,25)": 25  # l_leg_hpx
+  "(26,26)": 1  # l_leg_hpy
+  "(27,27)": 2  # l_leg_kny
   "(28,28)": 5  # l_leg_aky
   "(29,29)": 5  # l_leg_akx
   "(30,30)": 10  # r_leg_hpz
-  "(31,31)": 250  # r_leg_hpx
-  "(32,32)": 10  # r_leg_hpy
-  "(33,33)": 10  # r_leg_kny
+  "(31,31)": 25  # r_leg_hpx
+  "(32,32)": 1  # r_leg_hpy
+  "(33,33)": 2  # r_leg_kny
   "(34,34)": 5  # r_leg_aky
   "(35,35)": 5  # r_leg_akx
 
@@ -628,12 +606,12 @@ contacts:
     # the cone (lambda = 0 always yields the zero wrench). The interface logs a warning when they are non-zero.
     frictionCoefficient: 0.5
     torsionalFrictionCoefficient: 0.05
-    minNormalForce: 5.0
-    gripperForce: 0.0
+    minNormalForce: 5
+    gripperForce: 0
     numBasisVectors: 4          # friction pyramid facets; the basis spans exactly the same polyhedral friction cone
     # relaxed log barrier parameters
     mu: 0.2
-    delta: 5.0
+    delta: 5
 
   # Barrier penalty enforcing λ ≥ 0 for basis-vector contact inputs.
   # Only active when useContactBasisVectorInputs: true.
@@ -642,8 +620,8 @@ contacts:
   # increase mu for stronger penalty on constraint violation.
   # LINT.IfChange(basis_barrier_config)
   basisNonNegativityBarrier:
-    mu: 1.0e-2
-    delta: 1.0e-3
+    mu: 0.01
+    delta: 0.001
   # LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/src/CentroidalMpcInterface.cpp:basis_barrier_yaml_path)
 
   # Quadratic regularization on the basis-vector scalings λ (only active when useContactBasisVectorInputs: true).
@@ -652,14 +630,14 @@ contacts:
   # optimal λ would not be unique; this value is added to the diagonal of the λ block to make the input
   # Hessian positive definite. Keep it small relative to the R force weights (units: cost per λ², λ in N).
   # LINT.IfChange(basis_regularization_config)
-  basisScalingRegularization: 1.0e-4
+  basisScalingRegularization: 0.0001
   # LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/src/CentroidalMpcInterface.cpp:basis_regularization_yaml_path)
 
   frictionForceConeSoftConstraint:
     frictionCoefficient: 0.5
     # relaxed log barrier parameters
     mu: 0.2
-    delta: 5.0
+    delta: 5
 
   contactMomentXYSoftConstraint:
     # relaxed log barrier parameters

@@ -767,6 +767,44 @@ TEST(CommittedContacts, BoundaryInsideAContactPhaseAndNodeLimit) {
   EXPECT_TRUE(committedContactsForPlanner(schedule, 1.0, 0.1, 11, 0.9).empty());
 }
 
+TEST(CommittedContacts, LastCommittedNodeEndingOnTheBoundaryIsSampledAtTheBoundary) {
+  if (N_CONTACTS < 2) GTEST_SKIP() << "needs a second foot";
+  // Right foot swings -0.13 -> 0.27 and lands 0.03 s before a boundary at 0.3 that lies on the node grid from 0.0 (the
+  // live commit time of three whole nodes, with no swing to extend it). Sampled at its midpoint 0.25 the node [0.2, 0.3)
+  // read "swinging" although the foot is down by the boundary; a plan that kept it in the air over node 3 then had the
+  // merge re-lift the foot 0.03 s after it had landed.
+  const ModeSchedule schedule({-0.13, 0.27}, {kAllInContact, modeWithSwinging({1}), kAllInContact});
+  const std::vector<scalar_t> samples = committedSampleTimes(0.0, 0.1, 11, 0.3);
+  ASSERT_EQ(samples.size(), 3u) << "nodes starting at 0.0, 0.1, 0.2 start before the boundary";
+  EXPECT_NEAR(samples[0], 0.05, kTol);
+  EXPECT_NEAR(samples[1], 0.15, kTol);
+  EXPECT_NEAR(samples[2], 0.3, kTol) << "the node that ends on the boundary is sampled at the boundary, not at 0.25";
+  const std::vector<contact_flag_t> committed = committedContactsForPlanner(schedule, 0.0, 0.1, 11, 0.3);
+  ASSERT_EQ(committed.size(), 3u);
+  EXPECT_FALSE(committed[0][1]);
+  EXPECT_FALSE(committed[1][1]);
+  EXPECT_TRUE(committed[2][1]) << "landed before the boundary: the plan continues from a foot on the ground";
+  const std::vector<feet_array_t<scalar_t>> starts = committedPhaseStartsForPlanner(schedule, 0.0, 0.1, 11, 0.3);
+  ASSERT_EQ(starts.size(), 3u);
+  EXPECT_NEAR(starts[2][1], 0.27, kTol) << "the contact is counted from the executed touch-down";
+  // A touch-down exactly on the boundary has passed as well (the event at the query time counts as passed).
+  const ModeSchedule onBoundary({-0.1, 0.3}, {kAllInContact, modeWithSwinging({1}), kAllInContact});
+  EXPECT_TRUE(committedContactsForPlanner(onBoundary, 0.0, 0.1, 11, 0.3)[2][1]);
+  EXPECT_NEAR(committedPhaseStartsForPlanner(onBoundary, 0.0, 0.1, 11, 0.3)[2][1], 0.3, kTol);
+
+  // The merge of a plan built on these committed contacts keeps the executed touch-down and never lifts the foot again.
+  ContactPlan plan;
+  plan.valid = true;
+  plan.startTime = 0.0;
+  plan.dt = 0.1;
+  plan.committedUntil = 0.3;
+  plan.contacts = committed;
+  while (plan.contacts.size() < 12) plan.contacts.push_back(makeFeetArray(true));
+  const ModeSchedule merged = mergeModeSchedules(schedule, plan.toModeSchedule(), 0.3, -1.2, 2.4);
+  EXPECT_FALSE(contactFlagsAtTime(merged, 0.269)[1]);
+  for (scalar_t t = 0.27; t < 2.0; t += 0.01) EXPECT_TRUE(contactFlagsAtTime(merged, t)[1]) << "phantom re-lift at " << t;
+}
+
 TEST(CommitBoundary, CoversSwingsOfEveryFootThatStartOnAnExtendedBoundary) {
   if (N_CONTACTS < 2) GTEST_SKIP() << "needs a second foot";
   // Right swings 1.0 -> 1.4; the left lifts at the very touch-down of the right (no double support) and lands at 1.8.
@@ -953,26 +991,30 @@ TEST(LipHelpers, ReachClippingInYawFrameKeepsSideOfBody) {
   config.reachYInner = 0.05;
   config.reachYOuter = 0.3;
   const vector2_t com(1.0, 2.0);
+  constexpr size_t kLeft = 0, kRight = 1;
   for (scalar_t yaw : {0.0, 0.7, -2.0}) {
     const vector2_t ex(std::cos(yaw), std::sin(yaw)), ey(-std::sin(yaw), std::cos(yaw));
     const vector2_t nominalLeft = com + 0.1 * ex + 0.15 * ey;
     const vector2_t nominalRight = com + 0.1 * ex - 0.15 * ey;
     // Inside the region: unchanged.
-    EXPECT_TRUE(clipFootholdToReach(nominalLeft, nominalLeft, com, yaw, config).isApprox(nominalLeft, 1e-12));
+    EXPECT_TRUE(clipFootholdToReach(nominalLeft, kLeft, com, yaw, config).isApprox(nominalLeft, 1e-12));
+    EXPECT_TRUE(clipFootholdToReach(nominalRight, kRight, com, yaw, config).isApprox(nominalRight, 1e-12));
     // Too far forward: clipped to reachX along the heading, lateral offset kept.
-    const vector2_t forward = clipFootholdToReach(com + 0.9 * ex + 0.15 * ey, nominalLeft, com, yaw, config);
+    const vector2_t forward = clipFootholdToReach(com + 0.9 * ex + 0.15 * ey, kLeft, com, yaw, config);
     EXPECT_NEAR(ex.dot(forward - com), 0.4, 1e-12);
     EXPECT_NEAR(ey.dot(forward - com), 0.15, 1e-12);
     // Too far back.
-    EXPECT_NEAR(ex.dot(clipFootholdToReach(com - 0.9 * ex + 0.15 * ey, nominalLeft, com, yaw, config) - com), -0.4, 1e-12);
-    // Across the body: a left foot never crosses to the right of the CoM, a right foot never to the left.
-    const vector2_t crossedLeft = clipFootholdToReach(com - 0.2 * ey, nominalLeft, com, yaw, config);
+    EXPECT_NEAR(ex.dot(clipFootholdToReach(com - 0.9 * ex + 0.15 * ey, kLeft, com, yaw, config) - com), -0.4, 1e-12);
+    // Across the body: a left foot never crosses to the right of the CoM, a right foot never to the left. The side is
+    // the foot's own, not read off where the foothold happens to be, so an adjusted foothold that has already crossed
+    // the CoM is pulled back to its own side rather than clipped into the other foot's region.
+    const vector2_t crossedLeft = clipFootholdToReach(com - 0.2 * ey, kLeft, com, yaw, config);
     EXPECT_NEAR(ey.dot(crossedLeft - com), 0.05, 1e-12);
-    const vector2_t crossedRight = clipFootholdToReach(com + 0.2 * ey, nominalRight, com, yaw, config);
+    const vector2_t crossedRight = clipFootholdToReach(com + 0.2 * ey, kRight, com, yaw, config);
     EXPECT_NEAR(ey.dot(crossedRight - com), -0.05, 1e-12);
     // Too far outward.
-    EXPECT_NEAR(ey.dot(clipFootholdToReach(com + 0.8 * ey, nominalLeft, com, yaw, config) - com), 0.3, 1e-12);
-    EXPECT_NEAR(ey.dot(clipFootholdToReach(com - 0.8 * ey, nominalRight, com, yaw, config) - com), -0.3, 1e-12);
+    EXPECT_NEAR(ey.dot(clipFootholdToReach(com + 0.8 * ey, kLeft, com, yaw, config) - com), 0.3, 1e-12);
+    EXPECT_NEAR(ey.dot(clipFootholdToReach(com - 0.8 * ey, kRight, com, yaw, config) - com), -0.3, 1e-12);
   }
 }
 
@@ -1008,7 +1050,8 @@ TEST(ContactPlanningConfigAdaptive, DefaultsAreValidAndLoadable) {
         << "  dcmAdjustmentGain: 0.7\n"
         << "  dcmAdjustmentMaxOffset: 0.1\n"
         << "  enableEnergyCadenceModulation: true\n"
-        << "  energyCadenceGain: 0.02\n";
+        << "  energyCadenceGain: 0.02\n"
+        << "  energyCadenceDeadband: 0.6\n";
   }
   const ContactPlanningConfig loaded = loadContactPlanningConfig(file, "contact_planning.", false);
   std::remove(file.c_str());
@@ -1023,6 +1066,8 @@ TEST(ContactPlanningConfigAdaptive, DefaultsAreValidAndLoadable) {
   EXPECT_NEAR(loaded.dcmAdjustmentMaxOffset, 0.1, kTol);
   EXPECT_TRUE(loaded.enableEnergyCadenceModulation);
   EXPECT_NEAR(loaded.energyCadenceGain, 0.02, kTol);
+  EXPECT_NEAR(loaded.energyCadenceDeadband, 0.6, kTol);
+  EXPECT_NEAR(config.energyCadenceDeadband, 0.0, kTol) << "no deadband by default: the shipped behaviour is unchanged";
   EXPECT_NEAR(loaded.dt, config.dt, kTol) << "missing keys keep their defaults";
 }
 
@@ -1038,6 +1083,7 @@ TEST(ContactPlanningConfigAdaptive, ValidationRejectsBadValues) {
   rejects([](ContactPlanningConfig& c) { c.maxLateTouchdownExtension = -0.1; });
   rejects([](ContactPlanningConfig& c) { c.lateTouchdownExtensionStep = 0.0; });
   rejects([](ContactPlanningConfig& c) { c.lateTouchdownSearchVelocity = -1.0; });
+  rejects([](ContactPlanningConfig& c) { c.energyCadenceDeadband = -1.0; });
   rejects([](ContactPlanningConfig& c) { c.dcmAdjustmentGain = -1.0; });
   rejects([](ContactPlanningConfig& c) { c.dcmAdjustmentMaxOffset = -0.1; });
   rejects([](ContactPlanningConfig& c) { c.energyCadenceGain = -0.1; });

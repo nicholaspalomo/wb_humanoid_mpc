@@ -71,20 +71,6 @@ scalar_t ContactPlanningReferenceManager::computeHeading(const vector_t& state) 
   return mpcRobotModelPtr_->getBaseOrientationEulerZYX(state)(0);
 }
 
-scalar_t ContactPlanningReferenceManager::commandedYawRate(scalar_t time) const {
-  const TargetTrajectories& target = this->getTargetTrajectories();
-  if (target.timeTrajectory.size() < 2) return 0.0;
-  constexpr scalar_t kWindow = 0.2;  // [s] the target integrates the commanded yaw rate; differentiate it over this window
-  // The interpolation holds the terminal state past the end of the target, which read as a decaying yaw rate over the
-  // last window of a constant turn; the window is kept inside the target instead (moved back when `time` is near its end).
-  const scalar_t t1 = std::min(time + kWindow, target.timeTrajectory.back());
-  const scalar_t t0 = std::max(std::min(time, t1 - kWindow), target.timeTrajectory.front());
-  if (t1 - t0 <= 1e-6) return 0.0;
-  const scalar_t yaw0 = mpcRobotModelPtr_->getBaseOrientationEulerZYX(target.getDesiredState(t0))(0);
-  const scalar_t yaw1 = mpcRobotModelPtr_->getBaseOrientationEulerZYX(target.getDesiredState(t1))(0);
-  return (moduloAngleWithReference(yaw1, yaw0) - yaw0) / (t1 - t0);
-}
-
 feet_array_t<scalar_t> ContactPlanningReferenceManager::readFootYaws() const {
   feet_array_t<scalar_t> yaws = makeFeetArray(0.0);
   const auto& data = pinocchioInterface_.getData();
@@ -103,26 +89,49 @@ scalar_t ContactPlanningReferenceManager::computeYawInertia(const vector_t& stat
   return data.Ig.inertia().matrix()(2, 2);
 }
 
+void ContactPlanningReferenceManager::captureCommandedYawRate(scalar_t initTime,
+                                                              const vector_t& initState,
+                                                              const TargetTrajectories& targetTrajectories) {
+  // The target carries the operator's yaw rate as the angular momentum of a rigid turn about the vertical, h_z = I_zz
+  // omega / m, with the same locked inertia this manager derives from the model. The momentum channel is the one place
+  // the command survives untouched: the target's base yaw blends the measured yaw rate into its first stretch and is
+  // rewritten by applyPlannedHeading().
+  commandedYawRate_ = 0.0;
+  if (targetTrajectories.empty()) return;
+  const scalar_t yawInertia = computeYawInertia(initState);
+  if (yawInertia <= 0.0) return;
+  const vector_t desiredState = targetTrajectories.getDesiredState(initTime);
+  if (desiredState.size() < 6) return;
+  commandedYawRate_ = totalMass_ * mpcRobotModelPtr_->getBaseComVelocity(desiredState)(5) / yawInertia;
+}
+
 void ContactPlanningReferenceManager::applyPlannedHeading(TargetTrajectories& targetTrajectories) const {
   if (!hasActivePlan() || !activePlan_->hasHeading()) return;
-  for (size_t i = 0; i < targetTrajectories.timeTrajectory.size(); ++i) {
-    const std::optional<scalar_t> heading = activePlan_->headingAtTime(targetTrajectories.timeTrajectory[i]);
-    if (!heading.has_value()) continue;
+  const size_t n = targetTrajectories.timeTrajectory.size();
+  for (size_t i = 0; i < n; ++i) {
     vector_t& stateRef = targetTrajectories.stateTrajectory[i];
-    // The ACoM cost compares the ACoM of the state with the ACoM of the reference state, which is the reference base
-    // yaw plus the joint offset of the reference joints; the base yaw reference is set so that the reference ACoM
-    // heading equals the planned heading.
-    scalar_t offset = 0.0;
-    if (acom_) offset = acomXyzToZyx(acom_->computeJointOrientationOffset(mpcRobotModelPtr_->getJointAngles(stateRef)))(0);
     vector3_t euler = mpcRobotModelPtr_->getBaseOrientationEulerZYX(stateRef);
-    euler(0) = moduloAngleWithReference(*heading - offset, euler(0));
-    mpcRobotModelPtr_->setBaseOrientationEulerZYX(stateRef, euler);
+    const std::optional<scalar_t> heading = activePlan_->headingAtTime(targetTrajectories.timeTrajectory[i]);
+    if (heading.has_value()) {
+      // The ACoM cost compares the ACoM of the state with the ACoM of the reference state, which is the reference base
+      // yaw plus the joint offset of the reference joints; the base yaw reference is set so that the reference ACoM
+      // heading equals the planned heading.
+      scalar_t offset = 0.0;
+      if (acom_) offset = acomXyzToZyx(acom_->computeJointOrientationOffset(mpcRobotModelPtr_->getJointAngles(stateRef)))(0);
+      euler(0) = moduloAngleWithReference(*heading - offset, euler(0));
+      mpcRobotModelPtr_->setBaseOrientationEulerZYX(stateRef, euler);
+    }
   }
 }
 
 void ContactPlanningReferenceManager::setContactPlan(const ContactPlan& plan) {
   std::lock_guard<std::mutex> lock(planMutex_);
   pendingPlan_ = plan;
+}
+
+bool ContactPlanningReferenceManager::hasPendingPlan() const {
+  std::lock_guard<std::mutex> lock(planMutex_);
+  return pendingPlan_.has_value();
 }
 
 void ContactPlanningReferenceManager::setConfig(const ContactPlanningConfig& config) {
@@ -249,14 +258,19 @@ feet_array_t<scalar_t> ContactPlanningReferenceManager::computeCadenceTouchDownS
   const std::optional<LipState> reference = lipReferenceState(*activePlan_, omega, initTime);
   if (!reference.has_value()) return shifts;
 
-  // Orbital energy along the heading of the plan: a CoM that carries more energy than the controller expected passes
-  // over the support earlier and the step is brought forward, less energy delays it.
-  const scalar_t mass = pinocchio::computeTotalMass(pinocchioInterface_.getModel());
-  const vector2_t heading(std::cos(activePlan_->yaw), std::sin(activePlan_->yaw));
-  const scalar_t measured = lipOrbitalEnergy(heading.dot(comState_[0] - reference->zmp), heading.dot(comState_[1]), omega, mass);
+  // Orbital energy along the planned heading at the current time: a CoM that carries more energy than the controller
+  // expected passes over the support earlier and the step is brought forward, less energy delays it. With the heading
+  // model the plan turns over its horizon, so the heading at the snapshot (activePlan_->yaw) is stale by the plan's age.
+  const scalar_t yaw = activePlan_->headingAtTime(initTime).value_or(activePlan_->yaw);
+  const vector2_t heading(std::cos(yaw), std::sin(yaw));
+  const scalar_t measured = lipOrbitalEnergy(heading.dot(comState_[0] - reference->zmp), heading.dot(comState_[1]), omega, totalMass_);
   const scalar_t predicted =
-      lipOrbitalEnergy(heading.dot(predictedComState_[0] - reference->zmp), heading.dot(predictedComState_[1]), omega, mass);
-  shifts.fill(-config.energyCadenceGain * (measured - predicted));
+      lipOrbitalEnergy(heading.dot(predictedComState_[0] - reference->zmp), heading.dot(predictedComState_[1]), omega, totalMass_);
+  // Deviations within the deadband re-time nothing; beyond it the shift is measured from the band's edge, so that the
+  // touch-down moves continuously with the deviation instead of jumping at the threshold.
+  const scalar_t deviation = measured - predicted;
+  const scalar_t beyondDeadband = std::max(0.0, std::abs(deviation) - config.energyCadenceDeadband);
+  shifts.fill(-config.energyCadenceGain * std::copysign(beyondDeadband, deviation));
   return shifts;
 }
 
@@ -348,6 +362,7 @@ void ContactPlanningReferenceManager::modifyReferences(scalar_t initTime,
     schedule = gaitSchedulePtr_->getModeSchedule(lowerBoundTime, upperBoundTime);
   }
 
+  captureCommandedYawRate(initTime, initState, targetTrajectories);
   if (config.useAcomDynamics && config.planHeadingOverridesTarget) applyPlannedHeading(targetTrajectories);
   const scalar_t terrainHeight = adaptToCurrentGroundHeight(targetTrajectories, initState, initMode);
   updateSwingTrajectories(schedule, initTime, terrainHeight, config);
@@ -359,6 +374,27 @@ void ContactPlanningReferenceManager::modifyReferences(scalar_t initTime,
   lastSolveTime_ = initTime;
   updateFootBookkeeping(initTime, initState);
   updateDcmStepAdjustment(initTime, config);
+  updateTargetContactPoses(initTime, terrainHeight);
+}
+
+void ContactPlanningReferenceManager::updateTargetContactPoses(scalar_t initTime, scalar_t terrainHeight) {
+  feet_array_t<TargetContactPose> poses = makeFeetArray(TargetContactPose{});
+  if (hasActivePlan() && footBookkeepingInitialized_) {
+    TargetContactPoseInputs inputs;
+    inputs.time = initTime;
+    inputs.footPositions = footPositions_;
+    inputs.footYaws = footYaws_;
+    inputs.dcmStepAdjustment = dcmStepAdjustment_;
+    inputs.terrainHeight = terrainHeight;
+    poses = computeTargetContactPoses(*activePlan_, appliedSchedule_, inputs);
+  }
+  std::lock_guard<std::mutex> lock(targetPoseMutex_);
+  targetContactPoses_ = poses;
+}
+
+feet_array_t<TargetContactPose> ContactPlanningReferenceManager::getTargetContactPoses() const {
+  std::lock_guard<std::mutex> lock(targetPoseMutex_);
+  return targetContactPoses_;
 }
 
 void ContactPlanningReferenceManager::updateSwingTrajectories(const ModeSchedule& schedule,
@@ -371,21 +407,24 @@ void ContactPlanningReferenceManager::updateSwingTrajectories(const ModeSchedule
   feet_array_t<scalar_array_t> touchDownHeights =
       makeFeetArray(scalar_array_t(numPhases, terrainHeight + swingConfig.touchDownHeightOffset));
 
-  // A foot that missed the ground at its planned touch-down searches for it: while its swing is extended the height target
-  // at touch-down descends at the search velocity, so that the foot keeps moving down instead of hovering.
-  if (config.enablePhaseResetting && config.lateTouchdownSearchVelocity > 0.0) {
+  // A foot that missed the ground at its planned touch-down searches for it: the height reference of the extended swing
+  // is the planned swing's, continued past the planned touch-down as a straight descent at the search velocity
+  // (SwingTrajectoryPlanner::GroundSearch), so that the foot keeps moving down instead of hovering, and the reference
+  // never rises when the swing is extended again.
+  feet_array_t<std::optional<SwingTrajectoryPlanner::GroundSearch>> groundSearches =
+      makeFeetArray(std::optional<SwingTrajectoryPlanner::GroundSearch>{});
+  if (config.enablePhaseResetting) {
     for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
       const SwingTimingLatch& latch = swingLatches_[foot];
       if (!latch.active || latch.lateExtension <= 0.0) continue;
       const auto range = swingPhaseIndexRange(schedule, foot, initTime);
       if (!range.has_value() || range->first == 0) continue;
       if (std::abs(schedule.eventTimes[range->first - 1] - latch.liftOffTime) > kSameSwingTolerance) continue;
-      for (size_t p = range->first; p <= range->second; ++p) {
-        touchDownHeights[foot][p] -= config.lateTouchdownSearchVelocity * latch.lateExtension;
-      }
+      groundSearches[foot] =
+          SwingTrajectoryPlanner::GroundSearch{latch.liftOffTime, latch.plannedTouchDownTime(), config.lateTouchdownSearchVelocity};
     }
   }
-  swingTrajectoryPtr_->update(schedule, liftOffHeights, touchDownHeights);
+  swingTrajectoryPtr_->update(schedule, liftOffHeights, touchDownHeights, groundSearches);
 }
 
 void ContactPlanningReferenceManager::updateDcmStepAdjustment(scalar_t initTime, const ContactPlanningConfig& config) {
@@ -407,7 +446,10 @@ void ContactPlanningReferenceManager::updateDcmStepAdjustment(scalar_t initTime,
         dcmStepAdjustment(dcmError, omega, touchDownTime - initTime, config.dcmAdjustmentGain, config.dcmAdjustmentMaxOffset);
     const std::optional<LipState> atTouchDown = lipReferenceState(*activePlan_, omega, touchDownTime);
     const vector2_t comAtTouchDown = atTouchDown.has_value() ? atTouchDown->com : activePlan_->comPosition.back();
-    const vector2_t clipped = clipFootholdToReach(*landing + adjustment, *landing, comAtTouchDown, activePlan_->yaw, config);
+    // The reachable region is the planner's, in the frame the planner wrote it in for that node: the planned heading at
+    // touch-down (the heading at the snapshot, activePlan_->yaw, is the same thing without the heading model).
+    const scalar_t yawAtTouchDown = activePlan_->headingAtTime(touchDownTime).value_or(activePlan_->yaw);
+    const vector2_t clipped = clipFootholdToReach(*landing + adjustment, foot, comAtTouchDown, yawAtTouchDown, config);
     dcmStepAdjustment_[foot] = clipped - *landing;
   }
 }
@@ -458,8 +500,13 @@ std::optional<SwingFootReference> ContactPlanningReferenceManager::getSwingFootR
   const scalar_t blend = -tau2 * tau + tau2 + tau;
   const scalar_t blendRate = (-3.0 * tau2 + 2.0 * tau + 1.0) / duration;
 
-  // The DCM step adjustment (zero when disabled) is blended in with the same profile, so the target moves smoothly.
-  const vector2_t delta = *landing + dcmStepAdjustment_[contactIndex] - start;
+  // The DCM step adjustment (zero when disabled) is blended in with the same profile, so the target moves smoothly. It
+  // is computed for the swing in flight at the last solve and belongs to that swing alone: a later swing of the same foot
+  // inside the horizon lands on its planned foothold (the offset is propagated to the first touch-down, not the second).
+  const std::optional<std::pair<scalar_t, scalar_t>> swingInFlight = swingPhase(contactIndex, lastSolveTime_);
+  const bool isTheSwingInFlight = swingInFlight.has_value() && std::abs(swingInFlight->first - liftOffTime) <= kSameSwingTolerance;
+  const vector2_t adjustment = isTheSwingInFlight ? dcmStepAdjustment_[contactIndex] : vector2_t(vector2_t::Zero());
+  const vector2_t delta = *landing + adjustment - start;
 
   SwingFootReference reference;
   reference.position.head<2>() = start + blend * delta;
@@ -507,7 +554,7 @@ ContactPlannerInput ContactPlanningReferenceManager::makePlannerInput(scalar_t i
     input.yawInertia = computeYawInertia(initState);
     const scalar_t angularMomentumZ = totalMass_ * mpcRobotModelPtr_->getBaseComVelocity(initState)(5);
     input.headingRate = input.yawInertia > 0.0 ? angularMomentumZ / input.yawInertia : 0.0;
-    input.headingRateCommand = commandedYawRate(initTime);
+    input.headingRateCommand = commandedYawRate();
     for (size_t i = 0; i < N_CONTACTS; ++i) {
       input.footYaws[i] = moduloAngleWithReference(yaws[i], input.heading);
     }

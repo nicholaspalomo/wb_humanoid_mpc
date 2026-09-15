@@ -72,9 +72,15 @@ scalar_t solveUnconstrainedDense(const OcpQpProblem& problem, std::vector<vector
   const auto xi = [&](int k) { return k * nx; };
   const auto ui = [&](int k) { return (N + 1) * nx + k * nu; };
   for (int k = 0; k <= N; ++k) {
-    H.block(xi(k), xi(k), nx, nx) = problem.stages[k].Q;
+    const OcpQpStage& s = problem.stages[k];
+    H.block(xi(k), xi(k), nx, nx) = s.Q;
+    g.segment(xi(k), nx) = s.q;
     if (k < N) {
-      H.block(ui(k), ui(k), nu, nu) = problem.stages[k].R;
+      H.block(ui(k), ui(k), nu, nu) = s.R;
+      g.segment(ui(k), nu) = s.r;
+      // The cross term u'Sx, S being nu x nx, is the off-diagonal block of the symmetric Hessian.
+      H.block(ui(k), xi(k), nu, nx) = s.S;
+      H.block(xi(k), ui(k), nx, nu) = s.S.transpose();
     }
   }
   Aeq.block(0, 0, nx, nx).setIdentity();
@@ -114,6 +120,39 @@ TEST(OcpQpHpipmTest, UnconstrainedMatchesDenseKkt) {
     EXPECT_LT((solution.x[k] - xRef[k]).norm(), 1e-5) << "state mismatch at k=" << k;
   }
   EXPECT_LT(evaluateOcpQpMaxHardViolation(problem, solution.x, solution.u), 1e-6);
+}
+
+/**
+ * The state-input cross term S (nu x nx, cost u'Sx) is what the contact planner's terminal capturability and ZMP
+ * regularisation residuals produce; a wrong transpose or a dropped block would go unnoticed by every S = 0 problem.
+ */
+TEST(OcpQpHpipmTest, StateInputCrossTermMatchesDenseKkt) {
+  OcpQpProblem problem = makeDoubleIntegratorProblem(1.0, -0.5);
+  OcpQpProblem noCrossTerm = problem;
+  for (int k = 0; k < kNumStages; ++k) {
+    // Small enough to keep [Q S'; S R] positive definite (Q - S' R^-1 S stays so).
+    problem.stages[k].S = (matrix_t(1, 2) << 0.1, -0.05).finished();
+  }
+  OcpQpHpipmSolver solver;
+  const OcpQpSolution solution = solver.solve(problem);
+  ASSERT_TRUE(solution.success());
+
+  std::vector<vector_t> xRef, uRef;
+  const scalar_t objRef = solveUnconstrainedDense(problem, xRef, uRef);
+  EXPECT_NEAR(solution.objective, objRef, 1e-6);
+  EXPECT_NEAR(evaluateOcpQpObjective(problem, solution.x, solution.u), objRef, 1e-6);
+  for (int k = 0; k <= kNumStages; ++k) {
+    EXPECT_LT((solution.x[k] - xRef[k]).norm(), 1e-5) << "state mismatch at k=" << k;
+  }
+  for (int k = 0; k < kNumStages; ++k) {
+    EXPECT_LT((solution.u[k] - uRef[k]).norm(), 1e-5) << "input mismatch at k=" << k;
+  }
+  // The cross term actually changes the solution, so an S that was silently ignored could not pass this test.
+  const OcpQpSolution without = solver.solve(noCrossTerm);
+  ASSERT_TRUE(without.success());
+  scalar_t difference = 0.0;
+  for (int k = 0; k < kNumStages; ++k) difference = std::max(difference, (solution.u[k] - without.u[k]).norm());
+  EXPECT_GT(difference, 1e-3);
 }
 
 TEST(OcpQpHpipmTest, InputBoxConstraintIsRespected) {

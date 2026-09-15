@@ -139,11 +139,12 @@ void printSchedule(const ModeSchedule& schedule) {
  * Plans from the executed schedule at `time`, merges the plan at its commit boundary as the reference manager does, and
  * checks that every phase the merge produces honours the configured minima in real time.
  */
-void expectMergedScheduleHonoursMinimumDurations(const ModeSchedule& applied, scalar_t time, const ContactPlanningConfig& config) {
+ModeSchedule expectMergedScheduleHonoursMinimumDurations(const ModeSchedule& applied, scalar_t time, const ContactPlanningConfig& config) {
   LipContactPlanner planner(config);
   const ContactPlannerInput input = makeInput(applied, time, config);
   const ContactPlan plan = planner.plan(input);
-  ASSERT_TRUE(plan.valid);
+  EXPECT_TRUE(plan.valid);
+  if (!plan.valid) return applied;
   const scalar_t commitTime = std::max(time, plan.committedUntil);
   const ModeSchedule merged = mergeModeSchedules(applied, plan.toModeSchedule(), commitTime, time - 1.2, plan.endTime() + 1.2);
   printSchedule(merged);
@@ -163,6 +164,7 @@ void expectMergedScheduleHonoursMinimumDurations(const ModeSchedule& applied, sc
   for (const auto& [start, end] : supports) {
     EXPECT_GE(end - start, config.minDoubleSupportDuration - kTol) << "double support from " << start << " to " << end;
   }
+  return merged;
 }
 
 }  // namespace
@@ -203,6 +205,65 @@ TEST(ContactPlanMerge, GridAlignedTouchDownIsUnchanged) {
   const ContactPlanningConfig config = makeConfig();
   const ModeSchedule applied({0.6, 1.0}, {ModeNumber::STANCE, modeWithSwinging(1), ModeNumber::STANCE});
   expectMergedScheduleHonoursMinimumDurations(applied, 0.7, config);
+}
+
+/**
+ * With the live commit time of three whole nodes the boundary of a plan made at 0.7 s lies on the node grid at 1.0 s
+ * whenever no swing extends it. A touch-down inside the last committed node but after its midpoint (0.97 s) used to be
+ * handed to the planner as "still swinging"; a plan that then kept the foot up over the first free node made the merge
+ * lift the foot again 0.03 s after it had landed. The touch-down must stay where it is and the foot must stay down.
+ */
+TEST(ContactPlanMerge, TouchDownJustBeforeAGridAlignedBoundaryIsNotReLifted) {
+  if (N_CONTACTS < 2) GTEST_SKIP() << "needs a second foot";
+  ContactPlanningConfig config = makeConfig();
+  config.commitTime = 0.3;
+  config.validate();
+  const ModeSchedule applied({0.57, 0.97}, {ModeNumber::STANCE, modeWithSwinging(1), ModeNumber::STANCE});
+  EXPECT_NEAR(commitBoundaryForSchedule(applied, 0.7, config.commitTime), 1.0, kTol) << "the boundary lies on the grid";
+  const ModeSchedule merged = expectMergedScheduleHonoursMinimumDurations(applied, 0.7, config);
+  EXPECT_FALSE(contactFlagsAtTime(merged, 0.969)[1]);
+  EXPECT_TRUE(contactFlagsAtTime(merged, 0.971)[1]) << "the executed touch-down is kept";
+  for (scalar_t t = 0.97; t < 0.97 + config.minContactDuration; t += 0.005) {
+    EXPECT_TRUE(contactFlagsAtTime(merged, t)[1]) << "phantom re-lift at " << t;
+  }
+}
+
+TEST(ContactPlanMerge, TouchDownExactlyOnAGridAlignedBoundaryIsKept) {
+  if (N_CONTACTS < 2) GTEST_SKIP() << "needs a second foot";
+  ContactPlanningConfig config = makeConfig();
+  config.commitTime = 0.3;
+  config.validate();
+  const ModeSchedule applied({0.6, 1.0}, {ModeNumber::STANCE, modeWithSwinging(1), ModeNumber::STANCE});
+  EXPECT_NEAR(commitBoundaryForSchedule(applied, 0.7, config.commitTime), 1.0, kTol);
+  const ModeSchedule merged = expectMergedScheduleHonoursMinimumDurations(applied, 0.7, config);
+  EXPECT_FALSE(contactFlagsAtTime(merged, 0.999)[1]);
+  EXPECT_TRUE(contactFlagsAtTime(merged, 1.0)[1]) << "the touch-down on the boundary is neither delayed nor dropped";
+  for (scalar_t t = 1.0; t < 1.0 + config.minContactDuration; t += 0.005) {
+    EXPECT_TRUE(contactFlagsAtTime(merged, t)[1]) << "phantom re-lift at " << t;
+  }
+}
+
+/**
+ * The applied schedule's history is walked with one convention: an event at the lower bound itself has passed. ocs2's
+ * modeAtTime treats it as not passed, so a phase that began exactly at the lower bound (every time lies on the solver's
+ * 0.02 s lattice, so this happens) vanished from the merged history, and with it the last swung foot of a robot that
+ * had been standing for a horizon.
+ */
+TEST(ContactPlanMerge, PhaseStartingExactlyAtTheLowerBoundSurvivesTheMerge) {
+  if (N_CONTACTS < 2) GTEST_SKIP() << "needs a second foot";
+  const scalar_t lowerBound = -1.0;
+  const ModeSchedule applied({lowerBound, lowerBound + 0.4}, {ModeNumber::STANCE, modeWithSwinging(0), ModeNumber::STANCE});
+  const ModeSchedule allStance({}, {ModeNumber::STANCE});
+  const ModeSchedule merged = mergeModeSchedules(applied, allStance, 0.3, lowerBound, 2.0);
+  EXPECT_FALSE(contactFlagsAtTime(merged, lowerBound + 0.2)[0]) << "the swing that began at the lower bound is kept";
+  EXPECT_TRUE(contactFlagsAtTime(merged, lowerBound + 0.5)[0]);
+  bool touchDownKept = false;
+  for (const scalar_t t : merged.eventTimes) touchDownKept = touchDownKept || std::abs(t - (lowerBound + 0.4)) < kTol;
+  EXPECT_TRUE(touchDownKept);
+  // An event strictly before the lower bound is history that is not carried.
+  const ModeSchedule earlier({lowerBound - 0.01, lowerBound + 0.4}, {ModeNumber::STANCE, modeWithSwinging(0), ModeNumber::STANCE});
+  const ModeSchedule mergedEarlier = mergeModeSchedules(earlier, allStance, 0.3, lowerBound, 2.0);
+  EXPECT_FALSE(contactFlagsAtTime(mergedEarlier, lowerBound + 0.2)[0]) << "in flight at the lower bound: the leading mode";
 }
 
 }  // namespace ocs2::humanoid

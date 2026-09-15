@@ -47,8 +47,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <Eigen/Dense>
 
 #include <robot_model/RobotState.h>
+#include "mujoco_sim_interface/MujocoContactPatch.h"
 #include "mujoco_sim_interface/MujocoRenderer.h"
 #include "mujoco_sim_interface/MujocoUtils.h"
+#include "mujoco_sim_interface/visualization/VisualizationRegistry.h"
 #include "robot_core/FPSTracker.h"
 #include "robot_core/TripleBuffer.h"
 #include "robot_core/Types.h"
@@ -78,6 +80,15 @@ struct MujocoSimConfig {
   double contactForceThreshold{5.0};      // [N] normal force above which a contact point counts as touching
   double contactTimelineWindow{5.0};      // [s] sliding window of the contact timeline overlay
   bool reportGroundTruthContacts{false};  // false: every contact point is reported as touching (historical behaviour)
+
+  // Contact patch of every contact point (same order) in its contact frame, drawn by the viewer at the target contact
+  // pose the controller reports through setTargetContactPatches (MujocoContactPatch.h). A contact point without an
+  // entry, or with an empty one, gets a generic outline.
+  std::vector<ContactPatchCorners> contactPatchCorners;
+
+  // Visualizations of the viewer, by registry name (task file `simVisualizations`, see VisualizationRegistry.h). Each
+  // listed one starts enabled; its hotkey toggles it. Defaults to the historical set of the viewer.
+  std::vector<std::string> visualizations = defaultVisualizationNames();
 };
 
 class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
@@ -139,6 +150,12 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   std::vector<bool> getGroundTruthContactFlags() const;
   /// Snapshot of the timeline for the render thread, oldest sample first.
   void copyContactTimeline(std::vector<ContactTimelineSample>& out) const;
+
+  /// Target contact pose of every contact point from the control thread (MujocoContactPatch.h); an empty vector or
+  /// invalid entries clear the viewer's patches.
+  void setTargetContactPatches(const std::vector<TargetContactPatch>& patches);
+  /// Snapshot of the target patches for the render thread.
+  void copyTargetContactPatches(std::vector<TargetContactPatch>& out) const;
 
   void setTargetVelocities(double vx, double vy, double yawRate) {
     targetVelocityX_.store(vx, std::memory_order_relaxed);
@@ -235,6 +252,8 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   std::atomic<uint32_t> groundTruthContactMask_{0};
   mutable std::mutex contactTimelineMutex_;
   ContactTimeline contactTimeline_;
+  mutable std::mutex targetPatchMutex_;
+  std::vector<TargetContactPatch> targetContactPatches_;  // written by the control thread, drawn by the renderer
   size_t contactTimelineSampleInterval_{1};
   size_t contactTimelineSampleCounter_{0};
 };

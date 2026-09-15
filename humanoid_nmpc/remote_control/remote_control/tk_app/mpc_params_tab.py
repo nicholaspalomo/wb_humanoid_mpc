@@ -141,6 +141,8 @@ class MpcParamsTab(ttk.Frame):
         self.configure(style="TFrame")
 
         self.task_file = task_file
+        # The contact planner's own file (contact_planning.yaml next to the task file), None while the block is inline.
+        self.contact_planning_file: Optional[str] = None
         self.on_params_updated = on_params_updated
         self._explicit_online_tuning = enable_online_tuning
         self.enable_online_tuning = (
@@ -319,13 +321,26 @@ class MpcParamsTab(ttk.Frame):
         self.path_var.set(self.task_file)
         self.raw_data = load_yaml_safe(self.task_file)
 
-        # Create a backup of the original file at load time (before any
-        # slider-driven writes) so "Reset All" can always restore it.
-        bak_path = self.task_file + ".bak"
-        if not os.path.exists(bak_path):
-            import shutil
+        # The contact planner's parameters live in contact_planning.yaml next to the task file (the C++ interface
+        # resolves it the same way); a task file that still carries the block inline is read as before.
+        self.contact_planning_file = self._resolve_contact_planning_file(self.task_file)
+        if self.contact_planning_file:
+            planner_data = load_yaml_safe(self.contact_planning_file).get(
+                "contact_planning"
+            )
+            if planner_data:
+                self.raw_data["contact_planning"] = planner_data
 
-            shutil.copy2(self.task_file, bak_path)
+        # Create a backup of the original files at load time (before any
+        # slider-driven writes) so "Reset All" can always restore them.
+        import shutil
+
+        for original in (self.task_file, self.contact_planning_file):
+            if not original:
+                continue
+            bak_path = original + ".bak"
+            if not os.path.exists(bak_path):
+                shutil.copy2(original, bak_path)
 
         if self._explicit_online_tuning is not None:
             self.enable_online_tuning = self._explicit_online_tuning
@@ -343,6 +358,26 @@ class MpcParamsTab(ttk.Frame):
             self.load_file(self.task_file)
             # Publish the reloaded values so the MPC syncs with the sliders
             self._publish_to_topic()
+
+    @staticmethod
+    def _resolve_contact_planning_file(task_file: str) -> Optional[str]:
+        """Path of contact_planning.yaml next to the task file, or None when there is none (block inline)."""
+        if not task_file:
+            return None
+        candidate = os.path.join(
+            os.path.dirname(os.path.abspath(task_file)), "contact_planning.yaml"
+        )
+        return candidate if os.path.isfile(candidate) else None
+
+    def _split_updates(self, updates):
+        """Splits (key_path, value) updates into those of the task file and those of the planner's own file."""
+        if not self.contact_planning_file:
+            return updates, []
+        planner_updates = [u for u in updates if u[0] and u[0][0] == "contact_planning"]
+        task_updates = [
+            u for u in updates if not (u[0] and u[0][0] == "contact_planning")
+        ]
+        return task_updates, planner_updates
 
     def _parse_yaml_comments(self, file_path: str):
         """Extracts inline annotations like '# back_bkz' or '# p_base_z' from task.yaml."""
@@ -1332,9 +1367,10 @@ class MpcParamsTab(ttk.Frame):
         )
         header.pack(fill="x", padx=6, pady=4)
         if not cp_data:
-            ttk.Label(header, text="No contact_planning section in task.yaml.").pack(
-                anchor="w", padx=6, pady=4
-            )
+            ttk.Label(
+                header,
+                text="No contact_planning section (contact_planning.yaml next to the task file, or a block in it).",
+            ).pack(anchor="w", padx=6, pady=4)
             return
         groups = [
             (
@@ -1607,8 +1643,21 @@ class MpcParamsTab(ttk.Frame):
         # but without writing to disk)
         from remote_control.tk_app.yaml_editor_utils import _update_single_key
 
-        for key_path, value in updates:
+        task_updates, planner_updates = self._split_updates(updates)
+        for key_path, value in task_updates:
             lines = _update_single_key(lines, key_path, value)
+
+        # The planner's file is a second YAML document with its own top-level key; appended to the task file's
+        # content it parses as one document, which is what the C++ updater expects on the topic.
+        if self.contact_planning_file and os.path.exists(self.contact_planning_file):
+            with open(self.contact_planning_file, "r") as f:
+                planner_lines = f.readlines()
+            for key_path, value in planner_updates:
+                planner_lines = _update_single_key(planner_lines, key_path, value)
+            if lines and not lines[-1].endswith("\n"):
+                lines.append("\n")
+            lines.append("\n")
+            lines.extend(planner_lines)
 
         return "".join(lines)
 
@@ -1665,10 +1714,15 @@ class MpcParamsTab(ttk.Frame):
 
         try:
             # Never create .bak here — the backup was already created at
-            # file-load time in load_file().
+            # file-load time in load_file(). The planner's sliders go to its own file.
+            task_updates, planner_updates = self._split_updates(updates)
             success = update_yaml_values_in_place(
-                self.task_file, updates, create_backup=False
+                self.task_file, task_updates, create_backup=False
             )
+            if success and planner_updates:
+                success = update_yaml_values_in_place(
+                    self.contact_planning_file, planner_updates, create_backup=False
+                )
             if success:
                 if update_defaults:
                     # Explicit "Save to YAML": update the reset checkpoint

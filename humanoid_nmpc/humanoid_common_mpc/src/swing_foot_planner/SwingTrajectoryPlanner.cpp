@@ -54,6 +54,7 @@ SwingTrajectoryPlanner::SwingTrajectoryPlanner(Config config, size_t numFeet) : 
 
 scalar_t SwingTrajectoryPlanner::getZaccelerationConstraint(size_t leg, scalar_t time) const {
   const auto index = lookup::findIndexInTimeArray(feetHeightTrajectoriesEvents_[leg], time);
+  if (isSearching(swingWindows_[leg][index], time)) return 0.0;
   return feetHeightTrajectories_[leg][index].acceleration(time);
 }
 
@@ -63,6 +64,8 @@ scalar_t SwingTrajectoryPlanner::getZaccelerationConstraint(size_t leg, scalar_t
 
 scalar_t SwingTrajectoryPlanner::getZvelocityConstraint(size_t leg, scalar_t time) const {
   const auto index = lookup::findIndexInTimeArray(feetHeightTrajectoriesEvents_[leg], time);
+  const SwingWindow& window = swingWindows_[leg][index];
+  if (isSearching(window, time)) return -window.descentVelocity;
   return feetHeightTrajectories_[leg][index].velocity(time);
 }
 
@@ -71,6 +74,8 @@ scalar_t SwingTrajectoryPlanner::getZvelocityConstraint(size_t leg, scalar_t tim
 /******************************************************************************************************/
 scalar_t SwingTrajectoryPlanner::getZpositionConstraint(size_t leg, scalar_t time) const {
   const auto index = lookup::findIndexInTimeArray(feetHeightTrajectoriesEvents_[leg], time);
+  const SwingWindow& window = swingWindows_[leg][index];
+  if (isSearching(window, time)) return window.descentStartHeight - window.descentVelocity * (time - window.finalTime);
   return feetHeightTrajectories_[leg][index].position(time);
 }
 
@@ -80,6 +85,9 @@ scalar_t SwingTrajectoryPlanner::getZpositionConstraint(size_t leg, scalar_t tim
 
 scalar_t SwingTrajectoryPlanner::getImpactProximityFactor(size_t leg, scalar_t time) const {
   const auto index = lookup::findIndexInTimeArray(feetHeightTrajectoriesEvents_[leg], time);
+  const SwingWindow& window = swingWindows_[leg][index];
+  // A foot searching for the ground holds the factor of its planned touch-down.
+  if (isSearching(window, time)) return impactProximityTrajectories_[leg][index].position(window.finalTime);
   return impactProximityTrajectories_[leg][index].position(time);
 }
 
@@ -140,6 +148,18 @@ void SwingTrajectoryPlanner::update(const ModeSchedule& modeSchedule, scalar_t t
 void SwingTrajectoryPlanner::update(const ModeSchedule& modeSchedule,
                                     const feet_array_t<scalar_array_t>& liftOffHeightSequence,
                                     const feet_array_t<scalar_array_t>& touchDownHeightSequence) {
+  update(modeSchedule, liftOffHeightSequence, touchDownHeightSequence, makeFeetArray(std::optional<GroundSearch>{}));
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+void SwingTrajectoryPlanner::update(const ModeSchedule& modeSchedule,
+                                    const feet_array_t<scalar_array_t>& liftOffHeightSequence,
+                                    const feet_array_t<scalar_array_t>& touchDownHeightSequence,
+                                    const feet_array_t<std::optional<GroundSearch>>& groundSearches) {
+  constexpr scalar_t kSwingTimeTolerance = 1e-6;  // [s] event times that identify the same swing
   const auto& modeSequence = modeSchedule.modeSequence;
   const auto& eventTimes = modeSchedule.eventTimes;
 
@@ -164,12 +184,31 @@ void SwingTrajectoryPlanner::update(const ModeSchedule& modeSchedule,
       checkThatIndicesAreValid(j, p, swingStartIndex, swingFinalIndex, modeSequence);
 
       const scalar_t swingStartTime = eventTimes[swingStartIndex];
-      const scalar_t swingFinalTime = eventTimes[swingFinalIndex];
+      scalar_t swingFinalTime = eventTimes[swingFinalIndex];
+
+      // A swing extended past its planned touch-down (GroundSearch): the spline and the pitch profile are fitted to the
+      // planned swing, and the height reference continues from its end as a straight descent.
+      bool searching = false;
+      const std::optional<GroundSearch>& search = groundSearches[j];
+      if (!eesContactFlagStocks[j][p] && search.has_value() && std::abs(search->liftOffTime - swingStartTime) <= kSwingTimeTolerance &&
+          search->plannedTouchDownTime > swingStartTime + kSwingTimeTolerance &&
+          search->plannedTouchDownTime < swingFinalTime - kSwingTimeTolerance) {
+        searching = true;
+        swingFinalTime = search->plannedTouchDownTime;
+      }
 
       if (!eesContactFlagStocks[j][p]) {
         const scalar_t scaling = swingTrajectoryScaling(swingStartTime, swingFinalTime, config_.swingTimeScale);  // for leg in the air
         // The pitch reference is evaluated on the whole swing, which may span several phases of the mode sequence.
-        swingWindows_[j].push_back(SwingWindow{true, swingStartTime, swingFinalTime, scaling});
+        SwingWindow window;
+        window.isSwing = true;
+        window.startTime = swingStartTime;
+        window.finalTime = swingFinalTime;
+        window.scaling = scaling;
+        window.searching = searching;
+        window.descentStartHeight = touchDownHeightSequence[j][p];
+        window.descentVelocity = searching ? std::max(0.0, search->descentVelocity) : 0.0;
+        swingWindows_[j].push_back(window);
         if (eesContactFlagStocks[j][p - 1] && eesContactFlagStocks[j][p + 1]) {  // For a swing leg, only in the air for current mode
 
           const CubicSpline::Node liftOffHeight{swingStartTime, liftOffHeightSequence[j][p], scaling * config_.liftOffVelocity};

@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <ocs2_sqp/SqpMpc.h>
+#include <cmath>
 #include <fstream>
 #include <rclcpp/rclcpp.hpp>
 
@@ -43,6 +44,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h>
 #include <humanoid_centroidal_mpc/mrt/MpcParameterUpdaterModule.h>
 #include <humanoid_common_mpc/common/ThreadAffinity.h>
+#include <humanoid_common_mpc/contact/ContactRectangle.h>
+#include <humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h>
 #include "humanoid_common_mpc_ros2/fsm/SimFsmBridge.h"
 #include "humanoid_common_mpc_ros2/ros_comm/Ros2ProceduralMpcMotionManager.h"
 #include "humanoid_common_mpc_ros2/telemetry/PinocchioTelemetryPublisher.h"
@@ -151,11 +154,14 @@ int main(int argc, char** argv) {
   bool simReportsGroundTruthContacts = false;
   double simContactForceThreshold = 5.0;
   double simContactTimelineWindow = 5.0;
+  // Viewer visualizations by name (VisualizationRegistry.h); absent: the viewer's default set.
+  std::vector<std::string> simVisualizations = robot::mujoco_sim_interface::defaultVisualizationNames();
   try {
     YAML::Node taskYaml = YAML::LoadFile(taskFile);
     if (taskYaml["simReportsGroundTruthContacts"]) simReportsGroundTruthContacts = taskYaml["simReportsGroundTruthContacts"].as<bool>();
     if (taskYaml["simContactForceThreshold"]) simContactForceThreshold = taskYaml["simContactForceThreshold"].as<double>();
     if (taskYaml["simContactTimelineWindow"]) simContactTimelineWindow = taskYaml["simContactTimelineWindow"].as<double>();
+    if (taskYaml["simVisualizations"]) simVisualizations = taskYaml["simVisualizations"].as<std::vector<std::string>>();
   } catch (const std::exception& e) {
     LOG(WARNING) << "Failed to read the simulator contact settings from " << taskFile << ": " << e.what();
   }
@@ -170,6 +176,30 @@ int main(int argc, char** argv) {
   config.contactForceThreshold = simContactForceThreshold;
   config.contactTimelineWindow = simContactTimelineWindow;
   config.reportGroundTruthContacts = simReportsGroundTruthContacts;
+  config.visualizations = simVisualizations;
+  // Target contact patches in the viewer ('g' toggles them): the contact rectangle of every foot, drawn at the pose the
+  // contact planner wants the foot on the ground. Without a contact planner there is no target and nothing is drawn.
+  const auto planningReferenceManager = std::dynamic_pointer_cast<ContactPlanningReferenceManager>(interface.getReferenceManagerPtr());
+  if (planningReferenceManager) {
+    for (size_t contact = 0; contact < N_CONTACTS; ++contact) {
+      robot::mujoco_sim_interface::ContactPatchCorners corners;
+      try {
+        const ContactRectangle rectangle =
+            ContactRectangle::loadContactRectangle(taskFile, interface.modelSettings(), static_cast<int>(contact), false);
+        const PolygonBounds& bounds = rectangle.getBounds();
+        if (bounds.x_max > bounds.x_min && bounds.y_max > bounds.y_min) {
+          for (size_t corner = 0; corner < rectangle.getNumberOfContactPoints(); ++corner) {
+            const vector3_t point = rectangle.getContactPointTranslation(static_cast<int>(corner));
+            corners.push_back({point(0), point(1)});
+          }
+        }
+      } catch (const std::exception& e) {
+        LOG(WARNING) << "No contact rectangle for contact point " << contact << " in " << taskFile << ": " << e.what()
+                     << "; the viewer draws a generic outline.";
+      }
+      config.contactPatchCorners.push_back(std::move(corners));
+    }
+  }
 
   robot::mujoco_sim_interface::MujocoSimInterface robotInterface(config, urdfFile);
 
@@ -294,6 +324,35 @@ int main(int argc, char** argv) {
       robotInterface.setTargetContactFlags(std::vector<bool>(planned->begin(), planned->end()));
     } else {
       robotInterface.setTargetContactFlags({});
+    }
+
+    // Target contact patches in the MuJoCo viewer: where the contact planner wants each foot next (or where it holds it).
+    if (planningReferenceManager) {
+      const feet_array_t<TargetContactPose> poses = planningReferenceManager->getTargetContactPoses();
+      std::vector<robot::mujoco_sim_interface::TargetContactPatch> patches(N_CONTACTS);
+      for (size_t contact = 0; contact < N_CONTACTS; ++contact) {
+        const TargetContactPose& pose = poses[contact];
+        robot::mujoco_sim_interface::TargetContactPatch& patch = patches[contact];
+        patch.valid = pose.valid && pose.position.allFinite() && std::isfinite(pose.height) && std::isfinite(pose.yaw);
+        switch (pose.kind) {
+          case TargetContactPose::Kind::SWING_IN_FLIGHT:
+            patch.kind = robot::mujoco_sim_interface::TargetContactPatch::Kind::SWING_IN_FLIGHT;
+            break;
+          case TargetContactPose::Kind::NEXT_SWING:
+            patch.kind = robot::mujoco_sim_interface::TargetContactPatch::Kind::NEXT_SWING;
+            break;
+          case TargetContactPose::Kind::STANCE:
+          default:
+            patch.kind = robot::mujoco_sim_interface::TargetContactPatch::Kind::STANCE;
+            break;
+        }
+        patch.x = pose.position(0);
+        patch.y = pose.position(1);
+        patch.z = pose.height;
+        patch.yaw = pose.yaw;
+        patch.yawPlanned = pose.yawPlanned;
+      }
+      robotInterface.setTargetContactPatches(patches);
     }
 
     WalkingVelocityCommand targetCmd = ros2ProceduralMpcMotionManager->getScaledWalkingVelocityCommand();

@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 
 #include <pinocchio/algorithm/center-of-mass.hpp>
+#include <pinocchio/algorithm/centroidal.hpp>
 
 #include <ocs2_core/misc/LoadData.h>
 #include "ocs2_centroidal_model/ModelHelperFunctions.h"
@@ -107,18 +108,27 @@ TargetTrajectories CentroidalMpcTargetTrajectoriesCalculator::commandedVelocityT
   updateCentroidalDynamics(pinocchioInterface_, info_, mpcRobotModelPtr_->getGeneralizedCoordinates(initState));
   const Eigen::Matrix<scalar_t, 6, Eigen::Dynamic>& A = getCentroidalMomentumMatrix(pinocchioInterface_);
 
-  vector6_t targetMomentum;
-
   const Eigen::Matrix<scalar_t, 6, 6> Ab = A.leftCols<6>();
   const Eigen::Matrix<scalar_t, 6, 6> Ab_inv = computeFloatingBaseCentroidalMomentumMatrixInverse(Ab);
 
-  // This did not lead to meaningful commands around the z axis. Needs more investigations.
-  // targetMomentum = (Ab * targetBaseTwist);
-  // targetMomentum[2] = 0.0;
-  // targetMomentum[3] = 0.0;
-  // targetMomentum[4] = 0.0;
+  // The state carries the NORMALIZED centroidal momentum h = [p / m, L / m]. Its linear part is the CoM velocity, so
+  // the commanded velocity maps onto it directly. Its angular part is the momentum of the whole body spinning about the
+  // vertical through its CoM at the commanded yaw rate: L = I_G * (0, 0, yaw_rate), i.e. the yaw column of the locked
+  // inertia I_G, which is the composite rigid body inertia that ccrba() leaves in data.Ig. That column is dominated by
+  // I_zz but also carries the products of inertia I_xz and I_yz, without which the target would not correspond to any
+  // rigid rotation of the body. The previous mapping, yaw_rate / m, dropped the inertia altogether, which for the DRC
+  // Atlas made the yaw momentum target 8x too small (and dimensionally a rate per kilogram); the MPC then barely turned
+  // however hard it was asked.
+  const matrix3_t lockedInertia = [&]() {
+    const auto& model = pinocchioInterface_.getModel();
+    auto& data = pinocchioInterface_.getData();
+    pinocchio::ccrba(model, data, mpcRobotModelPtr_->getGeneralizedCoordinates(initState), vector_t::Zero(model.nv));
+    return matrix3_t(data.Ig.inertia().matrix());
+  }();
 
-  targetMomentum << commVelTargetGlobal[0], commVelTargetGlobal[1], 0.0, 0.0, 0.0, commVelTargetGlobal[3] / mass_;
+  vector6_t targetMomentum;
+  targetMomentum.head<3>() << commVelTargetGlobal[0], commVelTargetGlobal[1], 0.0;
+  targetMomentum.tail<3>() = lockedInertia.col(2) * (commVelTargetGlobal[3] / mass_);
 
   // Comput base velocity from centroidal momentum, this assumes no joint velocities.
   vector6_t baseVel = Ab_inv * initState.head(6);

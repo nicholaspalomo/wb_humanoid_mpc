@@ -159,7 +159,7 @@ _setup_package "mujoco_sim_interface" \
 # --- Python-only packages (remote_control) ---
 _setup_package "remote_control" \
     "${SCRIPT_DIR}/humanoid_nmpc/remote_control"
-# LINT.ThenChange(//Makefile:launch_targets, //.devcontainer/VISUALIZATION.md:launch_targets)
+# LINT.ThenChange(//Makefile:launch_targets, //.devcontainer/README.md:launch_targets)
 # Link the Python entry point for base_velocity_controller_gui
 mkdir -p "${BAZEL_INSTALL}/remote_control/lib/remote_control"
 cat > "${BAZEL_INSTALL}/remote_control/lib/remote_control/base_velocity_controller_gui" << 'PYEOF'

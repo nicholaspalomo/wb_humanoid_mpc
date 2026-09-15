@@ -9,8 +9,17 @@ cc_library(
     name = "mujoco_sim_interface",
     srcs = [
         "src/MujocoContactUtils.cpp",
+        "src/MujocoContactPatch.cpp",
         "src/MujocoSimInterface.cpp",
         "src/MujocoRenderer.cpp",
+        "src/visualization/VisualizationRegistry.cpp",
+        "src/visualization/MetricsOverlay.cpp",
+        "src/visualization/ExternalForceVisualization.cpp",
+        "src/visualization/ContactForceVisualization.cpp",
+        "src/visualization/BaseVelocityVisualization.cpp",
+        "src/visualization/ContactTimelineVisualization.cpp",
+        "src/visualization/TargetContactPatchVisualization.cpp",
+        "src/visualization/MujocoOptionFlagVisualization.cpp",
     ],
     hdrs = glob(["include/**"], allow_empty = True),
     includes = ["include"],
@@ -50,6 +59,36 @@ cc_test(
     name = "test_mujoco_contact_utils",
     size = "small",
     srcs = ["test/testMujocoContactUtils.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+    ],
+    deps = [
+        ":mujoco_sim_interface",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "test_mujoco_contact_patch",
+    size = "small",
+    srcs = ["test/testMujocoContactPatch.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+    ],
+    deps = [
+        ":mujoco_sim_interface",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "test_visualization_registry",
+    size = "small",
+    srcs = ["test/testVisualizationRegistry.cpp"],
     copts = [
         "-std=c++20",
         "-Wall",

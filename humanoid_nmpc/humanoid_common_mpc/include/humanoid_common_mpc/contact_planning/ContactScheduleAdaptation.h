@@ -108,9 +108,10 @@ bool planAgreesWithSwingsInFlight(const ModeSchedule& applied, const ContactPlan
 /**
  * Contacts the planner has to keep fixed on its first nodes, taken from the executed schedule: every node that starts
  * before `committedUntil`, at most `maxNodes` of them. A node that lies entirely inside the window is sampled at its
- * midpoint; the node that straddles the boundary is sampled just after the boundary, i.e. with the contact state the
- * executed schedule hands over to the plan there. Sampling that node at its midpoint let the planner contradict the
- * executed schedule inside it, which the merge then turned into a delayed touch-down or a phantom re-lift.
+ * midpoint; the last committed node, whether it straddles the boundary or ends exactly on it, is sampled at the boundary,
+ * i.e. with the contact state the executed schedule hands over to the plan there. Sampling that node at its midpoint let
+ * the planner contradict the executed schedule inside it (a touch-down after the midpoint read as "still swinging"),
+ * which the merge then turned into a delayed touch-down or a phantom re-lift of the foot that had just landed.
  */
 std::vector<contact_flag_t> committedContactsForPlanner(
     const ModeSchedule& schedule, scalar_t startTime, scalar_t dt, int maxNodes, scalar_t committedUntil);
@@ -232,15 +233,13 @@ std::optional<LipState> lipReferenceState(const ContactPlan& plan, scalar_t omeg
 vector2_t dcmStepAdjustment(const vector2_t& dcmError, scalar_t omega, scalar_t timeToTouchDown, scalar_t gain, scalar_t maxOffset);
 
 /**
- * Clips `foothold` to the planner's reachable region around `comAtTouchDown` in the yaw frame: |x| <= reachX and
- * reachYInner <= side * y <= reachYOuter, where the side of the foot (left / right of the CoM) is taken from
- * `nominalFoothold` so that the clipping never moves a foot across the body.
+ * Clips `foothold` to the planner's reachable region of foot `contactIndex` around `comAtTouchDown` in the yaw frame:
+ * |x| <= reachX and reachYInner <= side * y <= reachYOuter, with side +1 for the left foot (index 0) and -1 for the right
+ * foot, as in the planner's reachability rows, so that the clipping never moves a foot across the body. `yaw` is the
+ * planned heading at touch-down (the frame those rows were written in).
  */
-vector2_t clipFootholdToReach(const vector2_t& foothold,
-                              const vector2_t& nominalFoothold,
-                              const vector2_t& comAtTouchDown,
-                              scalar_t yaw,
-                              const ContactPlanningConfig& config);
+vector2_t clipFootholdToReach(
+    const vector2_t& foothold, size_t contactIndex, const vector2_t& comAtTouchDown, scalar_t yaw, const ContactPlanningConfig& config);
 
 /** Orbital energy of a 1D LIP, E = m (v^2 - omega^2 x^2) / 2, with x the CoM position relative to the ZMP. */
 inline scalar_t lipOrbitalEnergy(scalar_t position, scalar_t velocity, scalar_t omega, scalar_t mass) {

@@ -55,7 +55,7 @@ void ContactPlannerModule::startWorker() {
     std::lock_guard<std::mutex> lock(inputMutex_);
     pendingInput_.reset();
     pendingInputUrgent_ = false;
-    hasPosted_ = false;
+    throttle_ = SnapshotThrottle{};
   }
   running_.store(true);
   worker_ = std::thread([this]() { workerLoop(); });
@@ -118,8 +118,14 @@ ContactPlanningConfig ContactPlannerModule::getConfig() const {
 }
 
 ContactPlannerModule::Statistics ContactPlannerModule::getStatistics() const {
-  std::lock_guard<std::mutex> lock(statisticsMutex_);
-  return statistics_;
+  Statistics statistics;
+  {
+    std::lock_guard<std::mutex> lock(statisticsMutex_);
+    statistics = statistics_;
+  }
+  statistics.numStalePlansDropped = referenceManagerPtr_->numStalePlansDropped();
+  statistics.numInconsistentPlansDropped = referenceManagerPtr_->numInconsistentPlansDropped();
+  return statistics;
 }
 
 void ContactPlannerModule::runPlanner(const ContactPlannerInput& input) {
@@ -145,7 +151,10 @@ void ContactPlannerModule::runPlanner(const ContactPlannerInput& input) {
     // by that event, which makes this plan stale, and the reference manager's one-shot re-plan request has already been
     // consumed for it; dropping it would delay the re-plan by a full planning period.
     std::lock_guard<std::mutex> lock(inputMutex_);
-    if (!pendingInputUrgent_) pendingInput_.reset();
+    if (!pendingInputUrgent_ && pendingInput_.has_value()) {
+      pendingInput_.reset();
+      throttle_.dropped();
+    }
   }
   std::lock_guard<std::mutex> lock(statisticsMutex_);
   ++statistics_.numPlans;
@@ -155,6 +164,8 @@ void ContactPlannerModule::runPlanner(const ContactPlannerInput& input) {
   statistics_.lastSolveTime = plan.solveTime;
   statistics_.lastNumBranchAndBoundNodes = plan.numBranchAndBoundNodes;
   statistics_.lastOptimal = plan.optimal;
+  statistics_.lastNodeLimitHit = plan.nodeLimitHit;
+  statistics_.lastTimeLimitHit = plan.timeLimitHit;
   statistics_.lastObjective = plan.objective;
 }
 
@@ -168,6 +179,7 @@ void ContactPlannerModule::workerLoop() {
       input = std::move(*pendingInput_);
       pendingInput_.reset();
       pendingInputUrgent_ = false;
+      throttle_.taken();
     }
     runPlanner(input);
   }
@@ -204,18 +216,25 @@ void ContactPlannerModule::preSolverRun(scalar_t initTime,
     return;
   }
 
-  const auto now = std::chrono::steady_clock::now();
-  const std::chrono::duration<scalar_t> minPeriod(1.0 / config.planningFrequency);
-  if (hasPosted_ && !replanRequested && (now - lastPostTime_) < minPeriod) {
+  // A plan handed over after this cycle's activation (the worker finished between the reference manager's and this
+  // module's pre-solve hooks) is not in the schedule this snapshot was taken from: the worker, idle again, would plan
+  // from a schedule without it, and the drop above never sees that snapshot. Wait for the next cycle, which activates
+  // the plan first, unless a contact event asks for an immediate re-plan.
+  if (!replanRequested && referenceManagerPtr_->hasPendingPlan()) {
     return;
   }
+
+  const auto now = std::chrono::steady_clock::now();
+  const std::chrono::duration<scalar_t> minPeriod(1.0 / config.planningFrequency);
   {
     std::lock_guard<std::mutex> lock(inputMutex_);
+    if (!replanRequested && !throttle_.allows(now, minPeriod)) {
+      return;
+    }
     pendingInput_ = input;                                         // latest snapshot wins
     pendingInputUrgent_ = pendingInputUrgent_ || replanRequested;  // urgency outlives the snapshot that carried it
+    throttle_.posted(now);
   }
-  lastPostTime_ = now;
-  hasPosted_ = true;
   inputCondition_.notify_one();
 }
 

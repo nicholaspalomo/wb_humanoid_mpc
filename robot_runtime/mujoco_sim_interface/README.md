@@ -58,3 +58,20 @@ or similar.
 Then in the window that opens klick export xml.
 
 Then modify the xml by adding the extra actuator and collision entries as required. Here take a look at the MuJoCo files that were already created.
+
+## Viewer visualizations
+
+Everything the viewer draws on top of the model is a class derived from `MujocoVisualization`
+(`include/mujoco_sim_interface/visualization/`), one file pair per marker: the metrics text, the external and contact
+force arrows, the base velocity arrows, the contact timeline barcode, the target contact patches, and MuJoCo's own
+option-flag markers. A visualization implements up to three per-frame hooks (`beforeSceneUpdate`, `addSceneGeoms`,
+`renderOverlay`), reports a `name()` and optionally a `hotkey()`.
+
+Which visualizations run is decided at start-up by the `simVisualizations` list of the robot's `task.yaml`
+(`MujocoSimConfig::visualizations`): every listed name starts enabled, its hotkey toggles it, and `p` prints the
+cheatsheet with the current state. Unknown names are reported with the available ones. When the key is absent the
+viewer falls back to `defaultVisualizationNames()`.
+
+To add a marker: derive from `MujocoVisualization`, add the source to `BUILD.bazel`, and register it in the table of
+`src/visualization/VisualizationRegistry.cpp` (drawing order is the table order); the IFTTT directive there points at
+the task file comments to update with the new name.

@@ -25,6 +25,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 
+#include <filesystem>
 #include <iostream>
 #include <stdexcept>
 
@@ -63,6 +64,7 @@ void ContactPlanningConfig::validate() const {
   if (dcmAdjustmentGain < 0.0) fail("dcmAdjustmentGain must be non-negative");
   if (dcmAdjustmentMaxOffset < 0.0) fail("dcmAdjustmentMaxOffset must be non-negative");
   if (energyCadenceGain < 0.0) fail("energyCadenceGain must be non-negative");
+  if (energyCadenceDeadband < 0.0) fail("energyCadenceDeadband must be non-negative");
   if (torsionalFrictionTorque < 0.0 || doubleSupportYawCouple < 0.0) fail("yaw torque limits must be >= 0");
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
     const bool unset = footYawOffsetLower[foot] == 0.0 && footYawOffsetUpper[foot] == 0.0;
@@ -77,9 +79,16 @@ void ContactPlanningConfig::validate() const {
   if (headingLinearizationPasses < 0 || headingLinearizationPasses > 5) fail("headingLinearizationPasses must be in [0, 5]");
 }
 
-ContactPlanningConfig loadContactPlanningConfig(const std::string& taskFile, const std::string& prefix, bool verbose, bool validate) {
+std::string resolveContactPlanningConfigFile(const std::string& taskFile) {
+  const std::filesystem::path sibling = std::filesystem::path(taskFile).parent_path() / kContactPlanningConfigFileName;
+  std::error_code ec;
+  if (std::filesystem::is_regular_file(sibling, ec)) return sibling.string();
+  return taskFile;
+}
+
+ContactPlanningConfig loadContactPlanningConfig(const std::string& yamlFile, const std::string& prefix, bool verbose, bool validate) {
   boost::property_tree::ptree pt;
-  loadData::readPropertyTree(taskFile, pt);
+  loadData::readPropertyTree(yamlFile, pt);
   ContactPlanningConfig config;
   if (verbose) {
     std::cerr << "\n #### Contact Planning Config:";
@@ -136,6 +145,7 @@ ContactPlanningConfig loadContactPlanningConfig(const std::string& taskFile, con
   loadData::loadPtreeValue(pt, config.dcmAdjustmentMaxOffset, prefix + "dcmAdjustmentMaxOffset", verbose);
   loadData::loadPtreeValue(pt, config.enableEnergyCadenceModulation, prefix + "enableEnergyCadenceModulation", verbose);
   loadData::loadPtreeValue(pt, config.energyCadenceGain, prefix + "energyCadenceGain", verbose);
+  loadData::loadPtreeValue(pt, config.energyCadenceDeadband, prefix + "energyCadenceDeadband", verbose);
   loadData::loadPtreeValue(pt, config.useAcomDynamics, prefix + "useAcomDynamics", verbose);
   loadData::loadPtreeValue(pt, config.headingRateTrackingWeight, prefix + "headingRateTrackingWeight", verbose);
   loadData::loadPtreeValue(pt, config.headingTrackingWeight, prefix + "headingTrackingWeight", verbose);
@@ -144,7 +154,7 @@ ContactPlanningConfig loadContactPlanningConfig(const std::string& taskFile, con
   loadData::loadPtreeValue(pt, config.footYawRegularizationWeight, prefix + "footYawRegularizationWeight", verbose);
   loadData::loadPtreeValue(pt, config.headingLinearizationPasses, prefix + "headingLinearizationPasses", verbose);
   loadData::loadPtreeValue(pt, config.planHeadingOverridesTarget, prefix + "planHeadingOverridesTarget", verbose);
-  // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:contact_planning_config)
+  // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/contact_planning.yaml:contact_planning_config)
   if (verbose) {
     std::cerr << " #### =============================================================================" << std::endl;
   }

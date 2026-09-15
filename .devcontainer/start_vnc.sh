@@ -50,7 +50,7 @@ VNC_DISPLAY="${VNC_DISPLAY:-:99}"
 PJ_VNC_PORT="${PJ_VNC_PORT:-5903}"
 PJ_NOVNC_PORT="${PJ_NOVNC_PORT:-6082}"
 PJ_DISPLAY="${PJ_DISPLAY:-:100}"
-# LINT.ThenChange(//docker-compose.yaml:vnc_ports, //.devcontainer/devcontainer.json:vnc_ports, //.devcontainer/VISUALIZATION.md:vnc_ports, //Makefile:vnc_ports)
+# LINT.ThenChange(//docker-compose.yaml:vnc_ports, //.devcontainer/devcontainer.json:vnc_ports, //.devcontainer/README.md:vnc_ports, //Makefile:vnc_ports)
 
 # Derive noVNC web root – works on Ubuntu 22.04+ (may be /usr/share/novnc)
 NOVNC_DIR="/usr/share/novnc"

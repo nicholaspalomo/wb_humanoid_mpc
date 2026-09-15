@@ -99,6 +99,6 @@
       "onAutoForward": "notify"
     }
   },
-  // LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_ports, //docker-compose.yaml:vnc_ports, //.devcontainer/VISUALIZATION.md:vnc_ports, //Makefile:vnc_ports)
+  // LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_ports, //docker-compose.yaml:vnc_ports, //.devcontainer/README.md:vnc_ports, //Makefile:vnc_ports)
   "postCreateCommand": "bash -c 'chmod +x ${containerWorkspaceFolder}/.devcontainer/post_create.sh && ${containerWorkspaceFolder}/.devcontainer/post_create.sh'"
 }
