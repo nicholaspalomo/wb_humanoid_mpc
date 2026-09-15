@@ -194,11 +194,24 @@ struct ContactPlanningConfig {
   void validate() const;
 };
 
+/** Name of the planner's own configuration file, expected in the directory of the robot's task file. */
+inline constexpr const char* kContactPlanningConfigFileName = "contact_planning.yaml";
+
 /**
- * Loads the configuration from a task file. Missing keys keep their defaults. With `validate` false the values that may
- * be 0 for "derive from the model" are accepted as they are; call validate() after ContactPlanningModelParameters::applyTo().
+ * The file the contact planning configuration is read from for a given task file: `contact_planning.yaml` in the task
+ * file's directory when it exists, otherwise the task file itself (a `contact_planning` block inside it, the layout from
+ * before the planner had its own file). The `useContactPlanning` switch stays in the task file with the other model
+ * settings; everything the planner is tuned with lives in its own file.
  */
-ContactPlanningConfig loadContactPlanningConfig(const std::string& taskFile,
+std::string resolveContactPlanningConfigFile(const std::string& taskFile);
+
+/**
+ * Loads the configuration from a YAML file: the planner's own contact_planning.yaml, or a task file with the block
+ * inline (see resolveContactPlanningConfigFile). Missing keys keep their defaults. With `validate` false the values that
+ * may be 0 for "derive from the model" are accepted as they are; call validate() after
+ * ContactPlanningModelParameters::applyTo().
+ */
+ContactPlanningConfig loadContactPlanningConfig(const std::string& yamlFile,
                                                 const std::string& prefix = "contact_planning.",
                                                 bool verbose = false,
                                                 bool validate = true);

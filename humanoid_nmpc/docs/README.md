@@ -85,6 +85,11 @@ Implementation: `humanoid_centroidal_mpc/cost/DcmTerminalCost.{h,cpp}`; wiring i
 
 ## 2. Mixed-integer contact planning (`useContactPlanning`)
 
+The planner is switched on with `useContactPlanning` in the robot's `config/mpc/task.yaml`; everything it is tuned with
+is the `contact_planning` block of `config/mpc/contact_planning.yaml` next to it (the interface looks for that file in
+the task file's directory and falls back to a block inside the task file). The file is hot-reloaded whenever it is saved,
+like the task file, and the tuning GUI edits it in place.
+
 ### 2.1 Architecture
 
 ```
@@ -298,7 +303,7 @@ implemented in `humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.{
 
 **All three are disabled by default.** Each changes the closed loop, and with them off the reference manager merges
 plans exactly as it did before they existed, which is the behaviour every gait is tuned against. Enable one at a time
-and validate it in simulation. They are configured in the `contact_planning` block of `task.yaml`:
+and validate it in simulation. They are configured in the `contact_planning` block of `contact_planning.yaml`:
 
 ```yaml
 contact_planning:
@@ -535,7 +540,7 @@ plan), `torsionalFrictionTorque` (the torsional friction coefficient of the wren
 bounds (the hip yaw joint limits of every leg, found by walking the kinematic tree up from the joint that carries the
 contact frame to the first revolute joint about the vertical; per foot and asymmetric, which matters because a hip yaw
 range is typically much wider outward than inward). They are derived once by the interface and applied to every
-planner configuration, including the hot reloads from the task file, and logged at start-up. `comHeight` and the ZMP
+planner configuration, including the hot reloads of `contact_planning.yaml`, and logged at start-up. `comHeight` and the ZMP
 box stay tunable, with 0 meaning "from the model": the centre of mass height above the feet at `initialState`, and the
 sole's footprint from the wrench cone. The friction and footprint come from `contactWrenchConeSoftConstraint`, so the
 planner cannot assume more yaw torque than the whole-body constraint would ever allow.

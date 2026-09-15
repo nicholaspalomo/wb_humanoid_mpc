@@ -1,0 +1,91 @@
+# Mixed-integer contact planner of the DRC Atlas: the contact_planning block, read when useContactPlanning is true in
+# task.yaml. This file lives next to task.yaml (CentroidalMpcInterface looks for contact_planning.yaml in the task file's
+# directory); the parameter updater reloads it whenever it is saved, like task.yaml, and the tuning GUI edits it in place.
+#
+# A Linear Inverted Pendulum model is planned on a coarse grid of numNodes * dt seconds. Per node and foot a binary decides
+# contact vs. swing, continuous variables place the feet and the ZMP, and a run-length counter turns the min/max phase
+# durations into linear constraints. The problem is solved by branch-and-bound over HPIPM relaxations, warm-started with
+# the previous plan. The result replaces the gait schedule (mode sequence + event times) and provides the swing-foot
+# landing targets tracked by task_space_foot_cost_weights.pos_x / pos_y.
+# LINT.IfChange(contact_planning_config)
+contact_planning:
+  dt: 0.1                     # [s] planner node duration
+  numNodes: 12                # planning horizon = numNodes * dt, should cover mpc.timeHorizon
+  commitTime: 0.3             # [s] the applied schedule is fixed this far ahead; must cover the planner latency (a swing that
+                              #     has started or starts within this window is always executed to its touch-down)
+  comHeight: 0.85             # [m] LIP height, omega = sqrt(gravity / comHeight); 0 = CoM height above the feet at initialState
+  gravity: 9.81               # [m/s^2]
+  minSwingDuration: 0.4      # [s]
+  maxSwingDuration: 0.7       # [s]
+  minContactDuration: 0.15    # [s] a foot stays down at least this long before lifting again
+  maxContactDuration: 0.0     # [s] <= 0: no limit (standing allowed)
+  enforceAlternatingFeet: true  # a foot may not swing twice in a row
+  minDoubleSupportDuration: 0.1  # [s] after a touch-down the other foot stays down at least this long
+  zmpHalfWidthX: 0.08         # [m] ZMP box half-width around a supporting foot along the heading
+  zmpHalfWidthY: 0.04         # [m] ZMP box half-width laterally
+  nominalStepWidth: 0.25      # [m] preferred lateral distance between the feet
+  minStepWidth: 0.15          # [m] self-collision margin
+  maxStepWidth: 0.45          # [m]
+  maxStepLength: 1.5          # [m] |x_left - x_right| bound
+  reachX: 1.2                 # [m] foot x offset from the CoM
+  reachYInner: 0.05           # [m] left foot y - CoM y >= reachYInner (mirrored for the right foot)
+  reachYOuter: 0.45           # [m]
+  bigM: 3.0                   # [m] big-M of the contact disjunctions (must exceed maxStepLength)
+  velocityTrackingWeight: 50.0        # ||v_com - v_cmd||^2 per node
+  zmpRegularizationWeight: 0.1        # ||zmp - p_com||^2 per node
+  footholdRegularizationWeight: 0.2   # ||foot displacement||^2 per node
+  stepWidthWeight: 10.0               # (step width - nominalStepWidth)^2 per node
+  contactSwitchCost: 1.0              # per lift-off / touch-down event
+  planConsistencyCost: 0.5            # per node whose contact differs from the previous plan (hysteresis between plans)
+  previousFootholdWeight: 5.0         # ||foot position - previous plan||^2 per node, damps landing-target jitter
+  terminalDcmWeight: 50.0            # ||DCM_N - zmp_(N-1)||^2 (terminal capturability)
+  constraintSlackWeight: 10000.0      # quadratic penalty on the soft ZMP / reachability slacks
+  constraintSlackLinearWeight: 100.0  # linear penalty on the same slacks
+  maxBranchAndBoundNodes: 200         # relaxations per plan
+  maxSolveTime: 0.1                   # [s] anytime limit, the best plan found so far is returned
+  maxQpIterations: 60
+  localSearchIterations: 10           # rounds of event-shift local search on the incumbent (0 disables)
+  localSearchMaxTime: 0.05            # [s]
+  verbose: false
+  runInBackgroundThread: true         # false: plan synchronously in the MPC pre-solve hook
+  planningFrequency: 10.0             # [Hz] upper bound on the background planning rate
+
+  # Adaptive execution between plans (measured contact events, closed-form LIP corrections).
+  # All three are opt-in: with them disabled the reference manager merges plans exactly as it did before they existed,
+  # which is the behaviour the gait is tuned against. Enable one at a time and validate it in MuJoCo before hardware.
+  enablePhaseResetting: true           # early touch-down: switch the foot to contact at once; late: extend the swing
+  earlyTouchdownMinSwingRatio: 0.25     # contact during this initial fraction of the nominal swing is ignored (scuffing)
+  earlyTouchdownMinContactDuration: 0.02  # [s] contact must persist this long before the swing is ended (sensor debounce)
+  maxLateTouchdownExtension: 0.15       # [s] total extension budget of a swing past its planned touch-down
+  lateTouchdownExtensionStep: 0.05      # [s] the touch-down is pushed this far ahead of the current time per cycle
+  lateTouchdownSearchVelocity: 0.05     # [m/s] descent rate of the foot height target while searching for the ground
+  # The DCM step adjustment and the cadence modulation measure the deviation of the measured CoM from the NMPC's own
+  # predicted trajectory, so they act only on real disturbances and are zero while the robot does what the controller
+  # expects. That prediction is refreshed every solve, so each loop corrects the deviation that appeared over the last
+  # solver period, once: they damp impulses and slips and do not integrate a sustained push (the planner re-plans from
+  # the measured state for that). dcmAdjustmentMaxOffset is the safety bound; check in simulation that the offset is
+  # not sitting at it.
+  enableDcmStepAdjustment: false        # move the landing target by the DCM error propagated to touch-down
+  dcmAdjustmentGain: 0.5                # 1 = exact LIP compensation of the DCM increment, propagated to touch-down
+  dcmAdjustmentMaxOffset: 0.05          # [m] bound on the landing target offset (also clipped to reachX / reachY*)
+  enableEnergyCadenceModulation: false  # re-time the touch-down of the swing in flight by the LIP orbital energy error
+  energyCadenceGain: 0.01               # [s/J] touch-down shift = -gain * (E - E_pred), E of the full model mass
+  energyCadenceDeadband: 0.0            # [J] deviations within this band re-time nothing; a few joules absorb velocity noise
+  # Heading model (ACoM dynamics). The whole-body heading (the angular centre of mass) and its angular momentum about the
+  # vertical join the reduced model, driven by the yaw torques the stance feet can carry: torsional friction on every
+  # stance foot and the friction couple of both feet in double support. Every foot gets a yaw, pinned while it stands
+  # and within hip range of the heading. Turning becomes a stepping decision bounded by the ground torques, and the
+  # foothold frame follows the planned heading (successive linearisation, the relaxations stay convex). Opt-in; the
+  # planned foot yaw reaches the foot cost through task_space_foot_cost_weights.orientation_z (0 = not tracked).
+  useAcomDynamics: true
+  # The yaw inertia, the yaw torque limits (torsional friction coefficient * weight, friction coefficient * half the
+  # weight * nominalStepWidth, both from contactWrenchConeSoftConstraint) and the per-leg hip yaw range are taken from
+  # the robot model and are not keys here.
+  headingRateTrackingWeight: 20.0       # (heading rate - commanded yaw rate)^2 per node
+  headingTrackingWeight: 5.0            # (heading - commanded heading)^2 per node
+  yawTorqueWeight: 0.001                # yaw torque^2 per node
+  footYawTrackingWeight: 5.0            # (foot yaw - heading)^2 per node
+  footYawRegularizationWeight: 1.0      # (foot yaw displacement)^2 per node
+  headingLinearizationPasses: 1         # re-linearisations of the heading frame at the incumbent (0 disables)
+  planHeadingOverridesTarget: true      # the plan's heading replaces the commanded yaw in the MPC target trajectory
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/contact_planning/ContactPlanningConfig.cpp:contact_planning_keys)

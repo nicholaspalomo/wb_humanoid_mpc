@@ -117,7 +117,7 @@ class YawCommandDynamicsTest : public ::testing::Test {
 
   /** A contact-planning reference manager with the heading model, built the way the interface builds it. */
   std::unique_ptr<ContactPlanningReferenceManager> makeHeadingReferenceManager() {
-    ContactPlanningConfig config = loadContactPlanningConfig(taskFile_, "contact_planning.", false);
+    ContactPlanningConfig config = loadContactPlanningConfig(resolveContactPlanningConfigFile(taskFile_), "contact_planning.", false);
     config.useAcomDynamics = true;
     ContactPlanningGroundParameters ground;
     ground.frictionCoefficient = 0.5;

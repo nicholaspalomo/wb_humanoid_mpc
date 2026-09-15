@@ -68,28 +68,44 @@ class ContactPlanningIntegrationTest : public ::testing::Test {
     referenceFile_ = configDir + "/config/command/reference.yaml";
     urdfFile_ = descriptionDir + "/urdf/atlas.urdf";
 
-    // Temporary task file with contact planning on, planned synchronously so that the test controls the timing.
-    std::ifstream in(taskFile);
-    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    // Temporary task file with contact planning on, and next to it a temporary copy of the planner's own file
+    // (contact_planning.yaml, found by its name in the task file's directory) with the test's solver limits, planned
+    // synchronously so that the test controls the timing, and the heading model on.
+    const auto readFile = [](const std::string& path) {
+      std::ifstream in(path);
+      return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    };
+    std::string content = readFile(taskFile);
     content = std::regex_replace(content, std::regex("useContactPlanning: *(true|false)"), "useContactPlanning: true");
-    content = std::regex_replace(content, std::regex("runInBackgroundThread: *(true|false)"), "runInBackgroundThread: false");
-    content = std::regex_replace(content, std::regex("maxSolveTime: *[0-9.]+"), "maxSolveTime: 5.0");
-    content = std::regex_replace(content, std::regex("maxBranchAndBoundNodes: *[0-9]+"), "maxBranchAndBoundNodes: 2000");
-    content = std::regex_replace(content, std::regex("useAcomDynamics: *(true|false)"), "useAcomDynamics: true");
-    content = std::regex_replace(content, std::regex("planHeadingOverridesTarget: *(true|false)"), "planHeadingOverridesTarget: true");
     tmpTaskFile_ = testing::TempDir() + "/contact_planning_task.yaml";
     std::ofstream out(tmpTaskFile_);
     out << content;
     out.close();
+
+    std::string planning = readFile(resolveContactPlanningConfigFile(taskFile));
+    ASSERT_NE(planning.find("contact_planning:"), std::string::npos) << "the shipped planner configuration was not found";
+    planning = std::regex_replace(planning, std::regex("runInBackgroundThread: *(true|false)"), "runInBackgroundThread: false");
+    planning = std::regex_replace(planning, std::regex("maxSolveTime: *[0-9.]+"), "maxSolveTime: 5.0");
+    planning = std::regex_replace(planning, std::regex("maxBranchAndBoundNodes: *[0-9]+"), "maxBranchAndBoundNodes: 2000");
+    planning = std::regex_replace(planning, std::regex("useAcomDynamics: *(true|false)"), "useAcomDynamics: true");
+    planning = std::regex_replace(planning, std::regex("planHeadingOverridesTarget: *(true|false)"), "planHeadingOverridesTarget: true");
+    tmpContactPlanningFile_ = testing::TempDir() + "/" + kContactPlanningConfigFileName;
+    std::ofstream planningOut(tmpContactPlanningFile_);
+    planningOut << planning;
+    planningOut.close();
+    ASSERT_EQ(resolveContactPlanningConfigFile(tmpTaskFile_), tmpContactPlanningFile_);
 
     auto created = CentroidalMpcInterface::Create(tmpTaskFile_, urdfFile_, referenceFile_);
     ASSERT_TRUE(created.ok()) << created.status().message();
     interface_ = *std::move(created);
   }
 
-  void TearDown() override { std::remove(tmpTaskFile_.c_str()); }
+  void TearDown() override {
+    std::remove(tmpTaskFile_.c_str());
+    std::remove(tmpContactPlanningFile_.c_str());
+  }
 
-  std::string referenceFile_, urdfFile_, tmpTaskFile_;
+  std::string referenceFile_, urdfFile_, tmpTaskFile_, tmpContactPlanningFile_;
   std::unique_ptr<CentroidalMpcInterface> interface_;
 };
 
