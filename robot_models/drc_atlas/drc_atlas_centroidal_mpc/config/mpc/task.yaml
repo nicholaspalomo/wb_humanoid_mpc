@@ -250,7 +250,7 @@ contact_planning:
   # Adaptive execution between plans (measured contact events, closed-form LIP corrections).
   # All three are opt-in: with them disabled the reference manager merges plans exactly as it did before they existed,
   # which is the behaviour the gait is tuned against. Enable one at a time and validate it in MuJoCo before hardware.
-  enablePhaseResetting: false           # early touch-down: switch the foot to contact at once; late: extend the swing
+  enablePhaseResetting: true           # early touch-down: switch the foot to contact at once; late: extend the swing
   earlyTouchdownMinSwingRatio: 0.25     # contact during this initial fraction of the nominal swing is ignored (scuffing)
   earlyTouchdownMinContactDuration: 0.02  # [s] contact must persist this long before the swing is ended (sensor debounce)
   maxLateTouchdownExtension: 0.15       # [s] total extension budget of a swing past its planned touch-down
