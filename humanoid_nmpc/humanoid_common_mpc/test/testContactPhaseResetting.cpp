@@ -991,26 +991,30 @@ TEST(LipHelpers, ReachClippingInYawFrameKeepsSideOfBody) {
   config.reachYInner = 0.05;
   config.reachYOuter = 0.3;
   const vector2_t com(1.0, 2.0);
+  constexpr size_t kLeft = 0, kRight = 1;
   for (scalar_t yaw : {0.0, 0.7, -2.0}) {
     const vector2_t ex(std::cos(yaw), std::sin(yaw)), ey(-std::sin(yaw), std::cos(yaw));
     const vector2_t nominalLeft = com + 0.1 * ex + 0.15 * ey;
     const vector2_t nominalRight = com + 0.1 * ex - 0.15 * ey;
     // Inside the region: unchanged.
-    EXPECT_TRUE(clipFootholdToReach(nominalLeft, nominalLeft, com, yaw, config).isApprox(nominalLeft, 1e-12));
+    EXPECT_TRUE(clipFootholdToReach(nominalLeft, kLeft, com, yaw, config).isApprox(nominalLeft, 1e-12));
+    EXPECT_TRUE(clipFootholdToReach(nominalRight, kRight, com, yaw, config).isApprox(nominalRight, 1e-12));
     // Too far forward: clipped to reachX along the heading, lateral offset kept.
-    const vector2_t forward = clipFootholdToReach(com + 0.9 * ex + 0.15 * ey, nominalLeft, com, yaw, config);
+    const vector2_t forward = clipFootholdToReach(com + 0.9 * ex + 0.15 * ey, kLeft, com, yaw, config);
     EXPECT_NEAR(ex.dot(forward - com), 0.4, 1e-12);
     EXPECT_NEAR(ey.dot(forward - com), 0.15, 1e-12);
     // Too far back.
-    EXPECT_NEAR(ex.dot(clipFootholdToReach(com - 0.9 * ex + 0.15 * ey, nominalLeft, com, yaw, config) - com), -0.4, 1e-12);
-    // Across the body: a left foot never crosses to the right of the CoM, a right foot never to the left.
-    const vector2_t crossedLeft = clipFootholdToReach(com - 0.2 * ey, nominalLeft, com, yaw, config);
+    EXPECT_NEAR(ex.dot(clipFootholdToReach(com - 0.9 * ex + 0.15 * ey, kLeft, com, yaw, config) - com), -0.4, 1e-12);
+    // Across the body: a left foot never crosses to the right of the CoM, a right foot never to the left. The side is
+    // the foot's own, not read off where the foothold happens to be, so an adjusted foothold that has already crossed
+    // the CoM is pulled back to its own side rather than clipped into the other foot's region.
+    const vector2_t crossedLeft = clipFootholdToReach(com - 0.2 * ey, kLeft, com, yaw, config);
     EXPECT_NEAR(ey.dot(crossedLeft - com), 0.05, 1e-12);
-    const vector2_t crossedRight = clipFootholdToReach(com + 0.2 * ey, nominalRight, com, yaw, config);
+    const vector2_t crossedRight = clipFootholdToReach(com + 0.2 * ey, kRight, com, yaw, config);
     EXPECT_NEAR(ey.dot(crossedRight - com), -0.05, 1e-12);
     // Too far outward.
-    EXPECT_NEAR(ey.dot(clipFootholdToReach(com + 0.8 * ey, nominalLeft, com, yaw, config) - com), 0.3, 1e-12);
-    EXPECT_NEAR(ey.dot(clipFootholdToReach(com - 0.8 * ey, nominalRight, com, yaw, config) - com), -0.3, 1e-12);
+    EXPECT_NEAR(ey.dot(clipFootholdToReach(com + 0.8 * ey, kLeft, com, yaw, config) - com), 0.3, 1e-12);
+    EXPECT_NEAR(ey.dot(clipFootholdToReach(com - 0.8 * ey, kRight, com, yaw, config) - com), -0.3, 1e-12);
   }
 }
 

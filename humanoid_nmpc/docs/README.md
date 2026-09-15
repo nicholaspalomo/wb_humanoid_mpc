@@ -155,13 +155,21 @@ In double support the region is the convex hull of the two boxes. Laterally the 
 $\mathbf{e}_y^\top(\mathbf{p}_{R,k}) - r_y \le \mathbf{e}_y^\top \mathbf{z}_k \le \mathbf{e}_y^\top(\mathbf{p}_{L,k}) + r_y$ (each side relaxed by
 $M(1-c_{i,k})$). Along the heading the order of the feet is not known in advance and the exact hull would need one more
 binary per node; the planner uses the box of half-width $r_x$ around the midpoint of the feet instead, a conservative inner
-approximation that costs nothing. These constraints are *soft* (HPIPM slacks with a quadratic and a linear penalty,
+approximation that costs nothing (the region between the feet is part of the double-support polygon, so nothing planned
+inside the box is unsupported; the approximation only bites when the feet are more than $4 r_x$ apart along the heading,
+where the planned ZMP has to jump from the midpoint box into the remaining foot's box at lift-off instead of travelling
+there during the double support). These constraints are *soft* (HPIPM slacks with a quadratic and a linear penalty,
 `constraintSlackWeight`, `constraintSlackLinearWeight`) so that the relaxations always stay feasible and an unavoidable
 violation shows up as cost instead of as a solver failure.
 
 **Kinematics (soft).** Reachability of every foot with respect to the CoM (`reachX`, `reachYInner`, `reachYOuter`), step
 length $|\mathbf{e}_x^\top(\mathbf{p}_L - \mathbf{p}_R)| \le$ `maxStepLength` and step width
-`minStepWidth` $\le \mathbf{e}_y^\top(\mathbf{p}_L - \mathbf{p}_R) \le$ `maxStepWidth` (self-collision margin).
+`minStepWidth` $\le \mathbf{e}_y^\top(\mathbf{p}_L - \mathbf{p}_R) \le$ `maxStepWidth` (self-collision margin). These
+rows involve the state alone and are imposed at every node $k = 0 \dots N$, the terminal node included: the foothold of a
+swing that ends at the horizon, $\mathbf{p}_{i,N} = \mathbf{p}_{i,N-1} + \delta\mathbf{p}_{i,N-1}$, is produced by an
+input of node $N-1$ but is a state of node $N$, and it is the landing target the controller tracks when a step ends at
+the horizon. (An earlier version skipped the terminal node along with its inputs and dynamics, which left that foothold
+held only by the step-width and regularisation costs.)
 
 **Logic on the binaries (exact, outside the QP).** The combinatorial rules are enforced by a propagation hook that the
 branch-and-bound calls on every partial assignment (fixing implied values, rejecting contradictions) and on every
@@ -400,8 +408,10 @@ $$\mathbf{p}^{\mathrm{adj}}_{\mathrm{land}} = \mathbf{p}^{\mathrm{nom}}_{\mathrm
 
 with $K_{\mathrm{dcm}} = 1$ the exact LIP compensation (`dcmAdjustmentGain`). The offset is limited to
 `dcmAdjustmentMaxOffset` in norm and the adjusted foothold is clipped to the planner's reachable region around the
-planned CoM at touch-down, in the plan's yaw frame (`reachX`, `reachYInner`, `reachYOuter`), where the side of the foot
-(left or right of the CoM) is taken from the nominal foothold so that a foot is never moved across the body. The
+planned CoM at touch-down, in the planner's frame at touch-down (`reachX`, `reachYInner`, `reachYOuter`; with the heading
+model that is the planned heading at the touch-down time, not the heading at the plan's snapshot, which is stale by the
+plan's age while the robot turns), where the side of the foot (left or right of the CoM) is the foot's own, as in the
+planner's reachability rows, so that a foot is never moved across the body. The
 adjustment is recomputed at every solve (it is a function of the current state, so it cannot run faster than the MPC)
 and blended into the swing reference with the same smooth-step profile as the step itself, so it is invisible at lift-off
 and fully applied at touch-down. The prediction is refreshed after every solve, so the error is the deviation that
@@ -425,7 +435,8 @@ first and check that the offset is not sitting at its bound.
 
 #### 2.8.3 Energy-based cadence modulation (`enableEnergyCadenceModulation`, off by default)
 
-The orbital energy of the LIP along the heading of the plan, relative to the planned ZMP,
+The orbital energy of the LIP along the planned heading at the current time (with the heading model the plan turns over
+its horizon; without it this is the plan's yaw), relative to the planned ZMP,
 
 $$E = \tfrac{1}{2} m \big(\dot{x}^2 - \omega^2 x^2\big), \qquad x = \mathbf{e}_x^\top(\mathbf{c} - \mathbf{z}),$$
 
@@ -518,7 +529,10 @@ The constraint frame of node k is the planned heading of node k. That makes the 
 rows bilinear in the heading and the footholds, which the mixed-integer solver cannot take. They are linearised to
 first order around a nominal heading trajectory, the previous plan shifted to the current time or, without one, the
 commanded yaw integrated from the current heading, so that the relaxations stay convex and the branch-and-bound is
-unchanged. After the search the frame is re-linearised at the incumbent's own heading and footholds and the QP is
+unchanged. The measured heading arrives wrapped to $[-\pi, \pi]$ while the previous plan's heading lives on whatever
+branch that plan started on; the nominal is moved onto the measurement's branch by one $2\pi$ offset before use (across
+a crossing of $\pm\pi$ the unshifted nominal made every first-order frame term worth $2\pi g$, over a metre on the step
+width, and aimed the foot yaw tracking a full turn away). After the search the frame is re-linearised at the incumbent's own heading and footholds and the QP is
 re-solved with the contacts fixed (`headingLinearizationPasses`, successive linearisation), so that the frame the
 constraints were written in is the frame the plan actually turns through.
 

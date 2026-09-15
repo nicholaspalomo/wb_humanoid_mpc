@@ -390,15 +390,16 @@ vector2_t dcmStepAdjustment(const vector2_t& dcmError, scalar_t omega, scalar_t 
   return adjustment;
 }
 
-vector2_t clipFootholdToReach(const vector2_t& foothold,
-                              const vector2_t& nominalFoothold,
-                              const vector2_t& comAtTouchDown,
-                              scalar_t yaw,
-                              const ContactPlanningConfig& config) {
+vector2_t clipFootholdToReach(
+    const vector2_t& foothold, size_t contactIndex, const vector2_t& comAtTouchDown, scalar_t yaw, const ContactPlanningConfig& config) {
   const vector2_t ex(std::cos(yaw), std::sin(yaw));
   const vector2_t ey(-std::sin(yaw), std::cos(yaw));
   const vector2_t relative = foothold - comAtTouchDown;
-  const scalar_t side = (ey.dot(nominalFoothold - comAtTouchDown) >= 0.0) ? 1.0 : -1.0;
+  // The planner's reachability rows put the left foot (index 0) on the +y side of the CoM and the right foot on the -y
+  // side. Reading the side off the nominal foothold instead flipped it whenever the planned foothold sat on the other
+  // side of the planned CoM (a soft-row violation, or the CoM ahead of the feet in a tight turn) and clipped the foot
+  // into the other foot's region.
+  const scalar_t side = (contactIndex == 0) ? 1.0 : -1.0;
   const scalar_t x = std::clamp(ex.dot(relative), -config.reachX, config.reachX);
   const scalar_t y = side * std::clamp(side * ey.dot(relative), config.reachYInner, config.reachYOuter);
   return comAtTouchDown + x * ex + y * ey;

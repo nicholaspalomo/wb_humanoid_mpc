@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <chrono>
 #include <cmath>
+#include <filesystem>
 #include <fstream>
 #include <limits>
 #include <memory>
@@ -77,7 +78,7 @@ class ContactPlanningIntegrationTest : public ::testing::Test {
     };
     std::string content = readFile(taskFile);
     content = std::regex_replace(content, std::regex("useContactPlanning: *(true|false)"), "useContactPlanning: true");
-    tmpTaskFile_ = testing::TempDir() + "/contact_planning_task.yaml";
+    tmpTaskFile_ = (std::filesystem::path(testing::TempDir()) / "contact_planning_task.yaml").string();
     std::ofstream out(tmpTaskFile_);
     out << content;
     out.close();
@@ -89,7 +90,7 @@ class ContactPlanningIntegrationTest : public ::testing::Test {
     planning = std::regex_replace(planning, std::regex("maxBranchAndBoundNodes: *[0-9]+"), "maxBranchAndBoundNodes: 2000");
     planning = std::regex_replace(planning, std::regex("useAcomDynamics: *(true|false)"), "useAcomDynamics: true");
     planning = std::regex_replace(planning, std::regex("planHeadingOverridesTarget: *(true|false)"), "planHeadingOverridesTarget: true");
-    tmpContactPlanningFile_ = testing::TempDir() + "/" + kContactPlanningConfigFileName;
+    tmpContactPlanningFile_ = (std::filesystem::path(testing::TempDir()) / kContactPlanningConfigFileName).string();
     std::ofstream planningOut(tmpContactPlanningFile_);
     planningOut << planning;
     planningOut.close();
@@ -289,10 +290,15 @@ std::optional<Swing> firstSwingAfter(const ModeSchedule& schedule, scalar_t afte
 }  // namespace
 
 /**
- * The shipped configuration has to reproduce plain plan merging. The adaptive execution features change the closed
- * loop, so they are opt-in; if one of them were enabled by default it would silently alter the gait every robot is
- * tuned against, and the symptom would be a walking regression rather than a failing unit test, because the other
- * tests set the flags explicitly.
+ * The shipped configuration has to step where it is told. The corrections that feed a measured deviation back into the
+ * plan change the closed loop, so each one is enabled in the task file only once it has been validated in simulation:
+ * enabling one silently alters the gait every robot is tuned against, and the symptom is a walking regression rather
+ * than a failing unit test, because the other tests set the flags explicitly.
+ *
+ * Phase resetting is validated and shipped enabled; it acts on a measured contact, which is a fact about the ground
+ * rather than a mismatch between models. The two loops whose gain acts on the deviation of the measured centre of mass
+ * from the controller's own prediction are still off, and this test holds them there. Their sub-checks below disable
+ * phase resetting explicitly, since what they exercise is plain plan merging.
  */
 TEST_F(ContactPlanningIntegrationTest, DefaultConfigurationStepsInTheCommandedDirection) {
   auto module = interface_->getContactPlannerModulePtr();
@@ -301,9 +307,8 @@ TEST_F(ContactPlanningIntegrationTest, DefaultConfigurationStepsInTheCommandedDi
   ASSERT_NE(referenceManager, nullptr);
 
   const ContactPlanningConfig config = referenceManager->getConfig();
-  EXPECT_FALSE(config.enablePhaseResetting) << "adaptive execution must be opt-in in the shipped task file";
-  EXPECT_FALSE(config.enableDcmStepAdjustment) << "adaptive execution must be opt-in in the shipped task file";
-  EXPECT_FALSE(config.enableEnergyCadenceModulation) << "adaptive execution must be opt-in in the shipped task file";
+  EXPECT_FALSE(config.enableDcmStepAdjustment) << "the step adjustment must stay opt-in in the shipped task file";
+  EXPECT_FALSE(config.enableEnergyCadenceModulation) << "the cadence modulation must stay opt-in in the shipped task file";
 
   const vector_t state = interface_->getInitialState();
   const scalar_t horizon = interface_->mpcSettings().timeHorizon_;
@@ -344,12 +349,16 @@ TEST_F(ContactPlanningIntegrationTest, DefaultConfigurationStepsInTheCommandedDi
   EXPECT_TRUE(referenceManager->getDcmStepAdjustment()[foot].isZero())
       << "the step adjustment must be inactive in the default configuration";
 
-  // A measured contact in mid-swing leaves the executed schedule untouched.
+  // A measured contact in mid-swing leaves the executed schedule untouched once the phase resetting is switched off,
+  // which is the plain merging the rest of the gait is tuned against.
+  ContactPlanningConfig plainMerging = config;
+  plainMerging.enablePhaseResetting = false;
+  module->setConfig(plainMerging);
   const scalar_t midSwing = 0.5 * (swing->liftOff + swing->touchDown);
   const ModeSchedule beforeEvent = referenceManager->getModeSchedule();
   referenceManager->preSolverRun(midSwing, midSwing + horizon, state, ModeNumber::STANCE);
   EXPECT_EQ(referenceManager->getLastContactEvents()[foot].type, ContactEventReport::Type::NONE)
-      << "phase resetting must be inactive in the default configuration";
+      << "phase resetting must be inactive once it is switched off";
   EXPECT_FALSE(referenceManager->isInContact(midSwing, foot)) << "the swing must run to its scheduled touch-down";
   EXPECT_FALSE(referenceManager->consumeReplanRequest());
   const ModeSchedule afterEvent = referenceManager->getModeSchedule();
@@ -1095,10 +1104,15 @@ TEST_F(ContactPlanningIntegrationTest, CadenceAndDcmCorrectionsMatchTheirClosedF
   referenceManager->setPredictedTrajectory({0.0, t + 100.0}, {state, state});
 
   const auto orbitalEnergy = [&](scalar_t x, scalar_t v) { return 0.5 * mass * (v * v - omega * omega * x * x); };
-  // The CoM state along the plan's heading relative to the plan's ZMP at `time`, as the manager computes it from a state.
+  // The planned heading at `time` (the plan turns over its horizon; the yaw at its snapshot is stale by the plan's age).
+  const auto headingAt = [](const ContactPlan& plan, scalar_t time) {
+    const scalar_t yaw = plan.headingAtTime(time).value_or(plan.yaw);
+    return vector2_t(std::cos(yaw), std::sin(yaw));
+  };
+  // The CoM state along the planned heading relative to the plan's ZMP at `time`, as the manager computes it from a state.
   const auto lipState = [&](const vector_t& x, scalar_t time) {
     const ContactPlan plan = *referenceManager->getActiveContactPlan();
-    const vector2_t heading(std::cos(plan.yaw), std::sin(plan.yaw));
+    const vector2_t heading = headingAt(plan, time);
     const std::optional<LipState> reference = lipReferenceState(plan, omega, time);
     EXPECT_TRUE(reference.has_value());
     const ContactPlannerInput input = referenceManager->makePlannerInput(time, x, vector2_t::Zero());
@@ -1109,7 +1123,7 @@ TEST_F(ContactPlanningIntegrationTest, CadenceAndDcmCorrectionsMatchTheirClosedF
   scalar_t time = swing->liftOff + 0.05;
   {
     const ContactPlan plan = *referenceManager->getActiveContactPlan();
-    const vector2_t heading(std::cos(plan.yaw), std::sin(plan.yaw));
+    const vector2_t heading = headingAt(plan, time);
     vector_t faster = state;
     faster.segment<2>(0) += 0.05 * heading;  // normalized linear momentum = CoM velocity
     const auto [xPredicted, vPredicted] = lipState(state, time);
@@ -1124,7 +1138,8 @@ TEST_F(ContactPlanningIntegrationTest, CadenceAndDcmCorrectionsMatchTheirClosedF
   time += 0.02;
   {
     const ContactPlan plan = *referenceManager->getActiveContactPlan();
-    const vector2_t lateral(-std::sin(plan.yaw), std::cos(plan.yaw));
+    const vector2_t heading = headingAt(plan, time);
+    const vector2_t lateral(-heading(1), heading(0));
     vector_t sideways = state;
     sideways.segment<2>(0) += 0.05 * lateral;
     referenceManager->preSolverRun(time, time + horizon, sideways, inFlight);
@@ -1134,7 +1149,7 @@ TEST_F(ContactPlanningIntegrationTest, CadenceAndDcmCorrectionsMatchTheirClosedF
   time += 0.02;
   {
     const ContactPlan plan = *referenceManager->getActiveContactPlan();
-    const vector2_t heading(std::cos(plan.yaw), std::sin(plan.yaw));
+    const vector2_t heading = headingAt(plan, time);
     vector_t ahead = state;
     ahead.segment<2>(6) += 0.02 * heading;  // the base, and with it the CoM, 2 cm further along the heading
     const auto [xPredicted, vPredicted] = lipState(state, time);
@@ -1153,7 +1168,7 @@ TEST_F(ContactPlanningIntegrationTest, CadenceAndDcmCorrectionsMatchTheirClosedF
     banded.energyCadenceDeadband = 0.1;
     module->setConfig(banded);
     const ContactPlan plan = *referenceManager->getActiveContactPlan();
-    const vector2_t heading(std::cos(plan.yaw), std::sin(plan.yaw));
+    const vector2_t heading = headingAt(plan, time);
     vector_t faster = state;
     faster.segment<2>(0) += 0.05 * heading;
     const auto [xPredicted, vPredicted] = lipState(state, time);

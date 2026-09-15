@@ -901,6 +901,73 @@ TEST(LipContactPlannerHeading, RelinearisedFrameMatchesThePlannedHeading) {
   }
 }
 
+/**
+ * The measured heading is wrapped to [-pi, pi]; the previous plan's heading trajectory lives on whatever branch that plan
+ * started on. Crossing +-pi between two plans, the warm-started nominal must follow the measurement's branch: on the old
+ * branch every first-order frame term g (theta - theta_n) was worth g 2 pi and the foot yaw tracking aimed a full turn
+ * away, so the plan after the crossing was garbage.
+ */
+TEST(LipContactPlannerHeading, WarmStartNominalFollowsTheBranchOfTheMeasuredHeadingAcrossTheWrap) {
+  const ContactPlanningConfig c = headingConfig();
+  LipContactPlanner planner(c);
+  // Turning left just below +pi.
+  ContactPlannerInput first = turnInPlaceInput(0.6);
+  first.heading = M_PI - 0.05;
+  first.yaw = first.heading;
+  first.footYaws = makeFeetArray(first.heading);
+  const ContactPlan before = planner.plan(first);
+  ASSERT_TRUE(before.valid);
+  ASSERT_GT(before.heading.back(), M_PI) << "the first plan turns through +pi on its own branch";
+
+  // One node later the measurement has wrapped to just above -pi.
+  ContactPlannerInput second = first;
+  second.time = first.time + c.dt;
+  second.heading = -M_PI + 0.02;
+  second.yaw = second.heading;
+  second.footYaws = makeFeetArray(second.heading);
+  const LipContactPlanner::HeadingNominal nominal = planner.defaultNominal(second);
+  for (int k = 0; k <= c.numNodes; ++k) {
+    EXPECT_LT(std::abs(nominal.heading[k] - second.heading), M_PI) << "node " << k << " on the measurement's branch";
+    if (k > 0) EXPECT_LT(std::abs(nominal.heading[k] - nominal.heading[k - 1]), 0.5) << "node " << k << " continuous";
+  }
+  EXPECT_NEAR(std::remainder(nominal.heading[0] - before.heading[1], 2.0 * M_PI), 0.0, 1e-9) << "the same trajectory, shifted by 2 pi";
+
+  const ContactPlan after = planner.plan(second);
+  ASSERT_TRUE(after.valid);
+  EXPECT_NEAR(after.heading.front(), second.heading, 1e-9);
+  for (int k = 0; k <= c.numNodes; ++k) {
+    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+      EXPECT_LE(std::abs(after.footYaws[k][foot] - after.heading[k]), c.footYawOffsetBounds(foot).second + 0.05)
+          << "node " << k << " foot " << foot << ": the feet stay within hip range of the heading, no full turn";
+    }
+  }
+  // The plan still turns the commanded way and continues the plan before the wrap (shifted by 2 pi, one node on).
+  EXPECT_GT(after.heading.back() - after.heading.front(), 0.2);
+  for (int k = 0; k <= c.numNodes; ++k) {
+    EXPECT_NEAR(after.heading[k], before.heading[std::min(k + 1, c.numNodes)] - 2.0 * M_PI, 0.3) << "node " << k;
+  }
+  // Its geometry is as good as a fresh solve of the same input and as the plan before the wrap: the step-width rows are
+  // soft and a turn in place bends them by a few centimetres, but a nominal on the wrong branch bent them by a metre.
+  const auto worstWidthViolation = [&](const ContactPlan& plan) {
+    scalar_t worst = 0.0;
+    for (int k = 0; k <= c.numNodes; ++k) {
+      const bool bothDown =
+          (k == c.numNodes) ? (plan.contacts[k - 1][0] && plan.contacts[k - 1][1]) : (plan.contacts[k][0] && plan.contacts[k][1]);
+      if (!bothDown) continue;
+      const vector2_t ey(-std::sin(plan.heading[k]), std::cos(plan.heading[k]));
+      const scalar_t width = ey.dot(plan.footholds[k][0] - plan.footholds[k][1]);
+      worst = std::max({worst, c.minStepWidth - width, width - c.maxStepWidth});
+    }
+    return worst;
+  };
+  LipContactPlanner fresh(c);
+  const ContactPlan freshAfter = fresh.plan(second);
+  ASSERT_TRUE(freshAfter.valid);
+  EXPECT_LE(worstWidthViolation(after), worstWidthViolation(freshAfter) + 0.01) << "no worse than a solve without the warm start";
+  EXPECT_LE(worstWidthViolation(after), worstWidthViolation(before) + 0.02) << "no worse than the plan before the wrap";
+  EXPECT_LT(worstWidthViolation(after), 0.1) << "and nowhere near the metre a wrong-branch frame term produced";
+}
+
 TEST(LipContactPlannerTest, RecedingHorizonWarmStartKeepsPlanConsistent) {
   const ContactPlanningConfig config = makeConfig();
   LipContactPlanner planner(config);
@@ -1358,6 +1425,75 @@ TEST(LipContactPlannerModel, ZmpRowsSelectTheSupportOfTheContactState) {
   // The single-support boxes are switched off in double support: a ZMP under the right foot is fine although it is
   // outside the left box (and vice versa), which the previous two checks already rely on.
   EXPECT_GT(zmpViolation(pR, true, false), 0.1);
+}
+
+/**
+ * The kinematic rows (reachability, foot separation, hip range) involve the state alone and must bind at the terminal
+ * node too: the foothold of a swing that ends at the horizon is a state of node N (its last displacement is an input of
+ * node N-1), and it was left without any constraint when the terminal node was skipped along with its inputs.
+ */
+TEST(LipContactPlannerModel, TerminalNodeCarriesTheKinematicRows) {
+  using P = LipContactPlanner;
+  for (const bool heading : {false, true}) {
+    const ContactPlanningConfig c = heading ? headingConfig() : makeConfig();
+    LipContactPlanner planner(c);
+    const ContactPlannerInput in = heading ? turnInPlaceInput(0.0) : makeStandingInput();  // yaw 0: the frame is the world frame
+    const OcpQpProblem problem = planner.buildProblem(in);
+    const OcpQpStage& terminal = problem.stages.back();
+    const OcpQpStage& running = problem.stages[problem.numStages() - 1];
+    ASSERT_EQ(terminal.numInputs(), 0);
+    // Reachability (2 feet x 2 axes) and separation (2 axes), plus the hip range of both feet with the heading model.
+    const int expected = 4 + 2 + (heading ? 2 : 0);
+    EXPECT_EQ(terminal.numGeneralConstraints(), expected) << "heading " << heading;
+    EXPECT_EQ(static_cast<int>(terminal.softGeneralIndices.size()), expected) << "all of them soft";
+    // They are exactly the state-only rows of the last running node: same state coefficients, same bounds.
+    for (int i = 0; i < terminal.numGeneralConstraints(); ++i) {
+      bool found = false;
+      for (int j = 0; j < running.numGeneralConstraints() && !found; ++j) {
+        found = running.D.row(j).isZero() && running.C.row(j).isApprox(terminal.C.row(i), 1e-12) &&
+                std::abs(running.lg(j) - terminal.lg(i)) < 1e-12 && std::abs(running.ug(j) - terminal.ug(i)) < 1e-12;
+      }
+      EXPECT_TRUE(found) << "terminal row " << i << " has no state-only twin on the last running node (heading " << heading << ")";
+    }
+    // Evaluated on hand-set terminal states.
+    const auto violation = [&](const vector_t& x) {
+      const vector_t value = terminal.C * x;
+      scalar_t worst = -std::numeric_limits<scalar_t>::infinity();
+      for (int i = 0; i < terminal.numGeneralConstraints(); ++i) {
+        worst = std::max({worst, value(i) - terminal.ug(i), terminal.lg(i) - value(i)});
+      }
+      return worst;
+    };
+    vector_t x = vector_t::Zero(terminal.numStates());
+    x.segment<2>(P::PLX) = vector2_t(0.0, 0.5 * c.nominalStepWidth);
+    x.segment<2>(P::PRX) = vector2_t(0.0, -0.5 * c.nominalStepWidth);
+    EXPECT_LE(violation(x), 1e-12) << "the nominal stance is feasible";
+    x(P::PLX) = c.reachX + 0.1;
+    EXPECT_NEAR(violation(x), std::max(0.1, c.reachX + 0.1 - c.maxStepLength), 1e-12) << "a landing beyond reach is caught at node N";
+    x(P::PLX) = 0.0;
+    // Feet 3 cm inside the self-collision margin, symmetric about the CoM (which may also put them inside reachYInner).
+    const scalar_t half = 0.5 * (c.minStepWidth - 0.03);
+    x(P::PLY) = half;
+    x(P::PRY) = -half;
+    EXPECT_NEAR(violation(x), std::max(0.03, c.reachYInner - half), 1e-12) << "feet too close are caught at node N";
+  }
+
+  // On a real plan the terminal footholds obey the bounds (soft rows, with margin), whichever foot is in the air at the end.
+  ContactPlanningConfig c = makeConfig();
+  c.reachX = 0.35;
+  c.maxStepLength = 0.6;
+  c.validate();
+  LipContactPlanner planner(c);
+  ContactPlannerInput in = makeStandingInput();
+  in.velocityCommand = vector2_t(0.6, 0.0);
+  const ContactPlan plan = planner.plan(in);
+  ASSERT_TRUE(plan.valid);
+  const int N = c.numNodes;
+  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    EXPECT_LE(std::abs(plan.footholds[N][foot](0) - plan.comPosition[N](0)), c.reachX + kSoftTol) << "foot " << foot;
+  }
+  EXPECT_LE(std::abs(plan.footholds[N][0](0) - plan.footholds[N][1](0)), c.maxStepLength + kSoftTol);
+  EXPECT_GE(plan.footholds[N][0](1) - plan.footholds[N][1](1), c.minStepWidth - kSoftTol);
 }
 
 /**

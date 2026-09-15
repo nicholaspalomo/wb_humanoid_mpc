@@ -258,9 +258,11 @@ feet_array_t<scalar_t> ContactPlanningReferenceManager::computeCadenceTouchDownS
   const std::optional<LipState> reference = lipReferenceState(*activePlan_, omega, initTime);
   if (!reference.has_value()) return shifts;
 
-  // Orbital energy along the heading of the plan: a CoM that carries more energy than the controller expected passes
-  // over the support earlier and the step is brought forward, less energy delays it.
-  const vector2_t heading(std::cos(activePlan_->yaw), std::sin(activePlan_->yaw));
+  // Orbital energy along the planned heading at the current time: a CoM that carries more energy than the controller
+  // expected passes over the support earlier and the step is brought forward, less energy delays it. With the heading
+  // model the plan turns over its horizon, so the heading at the snapshot (activePlan_->yaw) is stale by the plan's age.
+  const scalar_t yaw = activePlan_->headingAtTime(initTime).value_or(activePlan_->yaw);
+  const vector2_t heading(std::cos(yaw), std::sin(yaw));
   const scalar_t measured = lipOrbitalEnergy(heading.dot(comState_[0] - reference->zmp), heading.dot(comState_[1]), omega, totalMass_);
   const scalar_t predicted =
       lipOrbitalEnergy(heading.dot(predictedComState_[0] - reference->zmp), heading.dot(predictedComState_[1]), omega, totalMass_);
@@ -444,7 +446,10 @@ void ContactPlanningReferenceManager::updateDcmStepAdjustment(scalar_t initTime,
         dcmStepAdjustment(dcmError, omega, touchDownTime - initTime, config.dcmAdjustmentGain, config.dcmAdjustmentMaxOffset);
     const std::optional<LipState> atTouchDown = lipReferenceState(*activePlan_, omega, touchDownTime);
     const vector2_t comAtTouchDown = atTouchDown.has_value() ? atTouchDown->com : activePlan_->comPosition.back();
-    const vector2_t clipped = clipFootholdToReach(*landing + adjustment, *landing, comAtTouchDown, activePlan_->yaw, config);
+    // The reachable region is the planner's, in the frame the planner wrote it in for that node: the planned heading at
+    // touch-down (the heading at the snapshot, activePlan_->yaw, is the same thing without the heading model).
+    const scalar_t yawAtTouchDown = activePlan_->headingAtTime(touchDownTime).value_or(activePlan_->yaw);
+    const vector2_t clipped = clipFootholdToReach(*landing + adjustment, foot, comAtTouchDown, yawAtTouchDown, config);
     dcmStepAdjustment_[foot] = clipped - *landing;
   }
 }

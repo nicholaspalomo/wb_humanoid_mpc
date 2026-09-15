@@ -25,6 +25,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/LipContactPlanner.h"
 
+#include <ocs2_robotic_tools/common/RotationTransforms.h>
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -525,10 +527,20 @@ LipContactPlanner::HeadingNominal LipContactPlanner::defaultNominal(const Contac
   const bool fromPrevious =
       shift >= 0 && previousPlan_ && previousPlan_->hasHeading() && previousPlan_->heading.size() == static_cast<size_t>(N + 1) &&
       previousPlan_->comPosition.size() == static_cast<size_t>(N + 1) && previousPlan_->footholds.size() == static_cast<size_t>(N + 1);
+  // The measured heading arrives wrapped to [-pi, pi] (an atan2 of the base quaternion), the previous plan's heading is
+  // whatever branch that plan started on. Across a crossing of +-pi the two differ by 2 pi, and a nominal on the old
+  // branch made every first-order frame term g (theta - theta_n) worth g 2 pi (over a metre on the step width) and
+  // aimed the foot yaw tracking a full turn away. One offset moves the whole previous heading trajectory onto the branch
+  // of the measurement, which keeps it continuous whatever the plan turns through.
+  scalar_t branchOffset = 0.0;
+  if (fromPrevious) {
+    const scalar_t previousNow = previousPlan_->heading[std::min(shift, N)];
+    branchOffset = moduloAngleWithReference(previousNow, input.heading) - previousNow;
+  }
   for (int k = 0; k <= N; ++k) {
     if (fromPrevious) {
       const int source = std::min(k + shift, N);
-      nominal.heading[k] = previousPlan_->heading[source];
+      nominal.heading[k] = previousPlan_->heading[source] + branchOffset;
       nominal.com[k] = previousPlan_->comPosition[source];
       nominal.feet[k] = previousPlan_->footholds[source];
     } else {
@@ -561,6 +573,281 @@ OcpQpProblem LipContactPlanner::buildProblem(const ContactPlannerInput& input) c
   return buildProblem(input, defaultNominal(input));
 }
 
+namespace {
+
+using P = LipContactPlanner;
+
+/**
+ * Yaw-aligned constraint frame of node k: components of the world-frame unit vectors of the local x and y axes. With the
+ * heading model the frame of node k is the nominal heading of node k, and every projection e_a(theta) . d gets its
+ * first-order heading term d e_a / d theta (theta_n) . d_n (theta - theta_n) (frameTerm), so that the heading and the
+ * footholds are decided together; d e_x / d theta = e_y and d e_y / d theta = -e_x.
+ */
+std::array<vector2_t, 2> constraintAxes(const P::Layout& layout,
+                                        const P::HeadingNominal& nominal,
+                                        const ContactPlannerInput& input,
+                                        int k) {
+  const scalar_t theta = layout.hasHeading ? nominal.heading[k] : input.yaw;
+  return {vector2_t(std::cos(theta), std::sin(theta)), vector2_t(-std::sin(theta), std::cos(theta))};
+}
+
+/** Coefficient on the heading state and the constant offset of the first-order term of e_axis(theta) . d around
+ * (theta_n, d_n): g (theta - theta_n) = g theta - g theta_n. Zero without the heading model. */
+std::pair<scalar_t, scalar_t> frameTerm(
+    const P::Layout& layout, const P::HeadingNominal& nominal, const std::array<vector2_t, 2>& axes, int axis, int k, const vector2_t& dn) {
+  if (!layout.hasHeading) return {0.0, 0.0};
+  const vector2_t de = (axis == 0) ? axes[1] : vector2_t(-axes[0]);
+  const scalar_t g = de.dot(dn);
+  return {g, -g * nominal.heading[k]};
+}
+
+/**
+ * Everything that exists on the N running nodes only: the input costs, the dynamics, the input boxes and the general
+ * constraint rows with inputs (contact logic, yaw torques, ZMP support, foot displacement).
+ */
+void addRunningNodeTerms(const ContactPlanningConfig& cfg,
+                         const P::Layout& L,
+                         const ContactPlannerInput& input,
+                         const P::HeadingNominal& nominal,
+                         scalar_t inertia,
+                         int k,
+                         OcpQpStage& s,
+                         RowBuilder& rows) {
+  const bool hasHeading = L.hasHeading;
+  const scalar_t torsion = cfg.torsionalFrictionTorque;
+  const scalar_t couple = cfg.doubleSupportYawCouple;
+  constexpr scalar_t kYawBigM = 2.0 * M_PI;
+  const int N = cfg.numNodes;
+  const scalar_t dt = cfg.dt;
+  const scalar_t omega = cfg.omega();
+  const scalar_t ch = std::cosh(omega * dt);
+  const scalar_t sh = std::sinh(omega * dt);
+  const scalar_t M = cfg.bigM;
+  const std::array<scalar_t, 2> zmpHalfWidth{cfg.zmpHalfWidthX, cfg.zmpHalfWidthY};
+  const std::array<int, 2> pIndex{P::PLX, P::PRX};  // x index of each foot's position; y follows
+  const std::array<int, 2> dIndex{P::DLX, P::DRX};
+  const std::array<int, 2> cIndex{P::CL, P::CR};
+  const std::array<vector2_t, 2> axes = constraintAxes(L, nominal, input, k);
+
+  s.R.diagonal().array() += kInputRegularization;
+  if (hasHeading) {
+    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+      addQuadraticResidual(s, {}, {{L.yawTorque(foot), 1.0}}, 0.0, cfg.yawTorqueWeight);
+      addQuadraticResidual(s, {}, {{L.footYawDelta(foot), 1.0}}, 0.0, cfg.footYawRegularizationWeight);
+    }
+  }
+
+  // ---------------- dynamics ----------------
+  s.A.setIdentity();
+  for (int axis = 0; axis < 2; ++axis) {
+    s.A(P::CX + axis, P::CX + axis) = ch;
+    s.A(P::CX + axis, P::VX + axis) = sh / omega;
+    s.A(P::VX + axis, P::CX + axis) = omega * sh;
+    s.A(P::VX + axis, P::VX + axis) = ch;
+    s.B(P::CX + axis, P::ZX + axis) = 1.0 - ch;
+    s.B(P::VX + axis, P::ZX + axis) = -omega * sh;
+    s.B(P::PLX + axis, P::DLX + axis) = 1.0;
+    s.B(P::PRX + axis, P::DRX + axis) = 1.0;
+  }
+  if (hasHeading) {
+    s.A(L.heading, L.headingRate) = dt;
+    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+      s.B(L.heading, L.yawTorque(foot)) = 0.5 * dt * dt / inertia;
+      s.B(L.headingRate, L.yawTorque(foot)) = dt / inertia;
+      s.B(L.footYaw(foot), L.footYawDelta(foot)) = 1.0;
+    }
+  }
+
+  // ---------------- input boxes ----------------
+  s.idxbu = {P::DLX, P::DLY, P::DRX, P::DRY, P::CL, P::CR};
+  s.lbu = (vector_t(6) << -M, -M, -M, -M, 0.0, 0.0).finished();
+  s.ubu = (vector_t(6) << M, M, M, M, 1.0, 1.0).finished();
+  if (hasHeading) {
+    // No foot ever carries more than the whole weight's torsion alone or half of the double-support budget (the rows below).
+    const scalar_t torqueBound = std::max(torsion, 0.5 * (torsion + couple));
+    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+      s.idxbu.push_back(L.yawTorque(foot));
+      s.idxbu.push_back(L.footYawDelta(foot));
+    }
+    vector_t lbu(s.idxbu.size()), ubu(s.idxbu.size());
+    lbu.head(6) = s.lbu;
+    ubu.head(6) = s.ubu;
+    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+      lbu(6 + 2 * foot) = -torqueBound;
+      ubu(6 + 2 * foot) = torqueBound;
+      lbu(7 + 2 * foot) = -kYawBigM;
+      ubu(7 + 2 * foot) = kYawBigM;
+    }
+    s.lbu = lbu;
+    s.ubu = ubu;
+  }
+
+  // ---------------- running cost ----------------
+  for (int axis = 0; axis < 2; ++axis) {
+    addQuadraticResidual(s, {{P::CX + axis, -1.0}}, {{P::ZX + axis, 1.0}}, 0.0, cfg.zmpRegularizationWeight);
+    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+      addQuadraticResidual(s, {}, {{dIndex[foot] + axis, 1.0}}, 0.0, cfg.footholdRegularizationWeight);
+    }
+  }
+  if (k == N - 1) {
+    // Terminal capturability: xi_N - zmp_{N-1} = e^{omega dt} (xi_{N-1} - zmp_{N-1}).
+    const scalar_t gain = std::exp(2.0 * omega * dt);
+    for (int axis = 0; axis < 2; ++axis) {
+      addQuadraticResidual(s, {{P::CX + axis, 1.0}, {P::VX + axis, 1.0 / omega}}, {{P::ZX + axis, -1.0}}, 0.0,
+                           cfg.terminalDcmWeight * gain);
+    }
+  }
+
+  // ---------------- general constraints with inputs ----------------
+  // No flight phase.
+  rows.add({}, {{P::CL, 1.0}, {P::CR, 1.0}}, 1.0, 2.0, false);
+  if (hasHeading) {
+    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+      // Yaw torque of a foot: the torsional friction of the weight it carries plus its half of the friction couple in
+      // double support. Alone it carries the whole weight, T_t; with both feet down each carries half of it and half of
+      // the couple, (T_t + T_c) / 2, so that the pair has T_t + T_c (granting the full-weight torsion to both feet at
+      // once, 2 T_t + T_c, over-estimated the double-support budget by T_t):
+      // +-tau_i - T_t c_i - (T_c - T_t) (c_L + c_R - 1) / 2 <= 0.
+      const scalar_t doubleSupportShare = 0.5 * (couple - torsion);
+      for (const scalar_t sign : {1.0, -1.0}) {
+        rows.add({}, {{L.yawTorque(foot), sign}, {cIndex[foot], -torsion}, {P::CL, -doubleSupportShare}, {P::CR, -doubleSupportShare}},
+                 -kLooseBound, -doubleSupportShare, false);
+      }
+      // A foot's yaw only changes while the foot is in the air: +-dpsi_i + 2 pi c_i <= 2 pi.
+      for (const scalar_t sign : {1.0, -1.0}) {
+        rows.add({}, {{L.footYawDelta(foot), sign}, {cIndex[foot], kYawBigM}}, -kLooseBound, kYawBigM, false);
+      }
+    }
+  }
+
+  // ZMP support region (soft). Single support: the box of the supporting foot. Double support: laterally the exact hull
+  // of both boxes (the feet never cross laterally), along the heading a box around the midpoint of the feet, which is a
+  // conservative inner approximation of the hull that needs no extra binary for the foot order. (The region between the
+  // feet is part of the double-support polygon; the approximation only bites when the feet are more than 4 r_x apart
+  // along the heading, where the planned ZMP has to jump from the midpoint box into the box of the remaining foot at
+  // lift-off instead of travelling there during the double support.)
+  const auto zmpMinusFoot = [&](size_t foot, int axis, scalar_t sign, Coefficients& xc, Coefficients& uc) {
+    for (int w = 0; w < 2; ++w) {
+      xc.push_back({pIndex[foot] + w, -sign * axes[axis](w)});
+      uc.push_back({P::ZX + w, sign * axes[axis](w)});
+    }
+  };
+  // Single-support boxes: +-e_j'(zmp - p_i) <= r_j + M (1 - c_i) + M c_other.
+  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    const size_t other = 1 - foot;
+    for (int axis = 0; axis < 2; ++axis) {
+      for (const scalar_t sign : {1.0, -1.0}) {
+        Coefficients xc, uc;
+        zmpMinusFoot(foot, axis, sign, xc, uc);
+        uc.push_back({cIndex[foot], M});
+        uc.push_back({cIndex[other], -M});
+        rows.add(xc, uc, -kLooseBound, zmpHalfWidth[axis] + M, true);
+      }
+    }
+  }
+  // Double support, heading axis: +-e_x'(zmp - (p_L + p_R) / 2) <= r_x + M (1 - c_L) + M (1 - c_R).
+  for (const scalar_t sign : {1.0, -1.0}) {
+    Coefficients xc, uc;
+    for (int w = 0; w < 2; ++w) {
+      xc.push_back({P::PLX + w, -0.5 * sign * axes[0](w)});
+      xc.push_back({P::PRX + w, -0.5 * sign * axes[0](w)});
+      uc.push_back({P::ZX + w, sign * axes[0](w)});
+    }
+    uc.push_back({P::CL, M});
+    uc.push_back({P::CR, M});
+    rows.add(xc, uc, -kLooseBound, zmpHalfWidth[0] + 2.0 * M, true);
+  }
+  // Double support, lateral axis: upper bound from the left foot, lower bound from the right foot.
+  {
+    Coefficients xc, uc;  // e_y'(zmp - p_L) <= r + M (1 - c_L)
+    zmpMinusFoot(0, 1, 1.0, xc, uc);
+    uc.push_back({P::CL, M});
+    rows.add(xc, uc, -kLooseBound, zmpHalfWidth[1] + M, true);
+  }
+  {
+    Coefficients xc, uc;  // -e_y'(zmp - p_R) <= r + M (1 - c_R)
+    zmpMinusFoot(1, 1, -1.0, xc, uc);
+    uc.push_back({P::CR, M});
+    rows.add(xc, uc, -kLooseBound, zmpHalfWidth[1] + M, true);
+  }
+  // A foot only moves while it is not in contact: +-dp_ij + M c_i <= M.
+  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    for (int axis = 0; axis < 2; ++axis) {
+      for (const scalar_t sign : {1.0, -1.0}) {
+        rows.add({}, {{dIndex[foot] + axis, sign}, {cIndex[foot], M}}, -kLooseBound, M, false);
+      }
+    }
+  }
+}
+
+/**
+ * General constraint rows on the state alone (soft): hip range, reachability and foot separation. They hold at every
+ * node, the terminal one included. The foothold of a swing that ends at the horizon, p_i(N) = p_i(N-1) + dp_i(N-1), is
+ * produced by an input of node N-1 but is a state of node N, and it is the landing target the controller tracks when a
+ * step ends at the horizon; skipping the terminal node (it has no inputs, dynamics or ZMP) left that foothold without
+ * any reachability or separation constraint, held only by the step-width and regularisation costs.
+ */
+void addStateConstraintRows(const ContactPlanningConfig& cfg,
+                            const P::Layout& L,
+                            const ContactPlannerInput& input,
+                            const P::HeadingNominal& nominal,
+                            int k,
+                            RowBuilder& rows) {
+  const bool hasHeading = L.hasHeading;
+  const std::array<int, 2> pIndex{P::PLX, P::PRX};
+  const std::array<vector2_t, 2> axes = constraintAxes(L, nominal, input, k);
+  if (hasHeading) {
+    // Hip range: the foot yaw stays within the hip yaw limits of the heading.
+    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+      const auto [yawLower, yawUpper] = cfg.footYawOffsetBounds(foot);
+      rows.add({{L.footYaw(foot), 1.0}, {L.heading, -1.0}}, {}, yawLower, yawUpper, true);
+    }
+  }
+  // Reachability of the feet with respect to the CoM, yaw frame (with its first-order heading term).
+  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    for (int axis = 0; axis < 2; ++axis) {
+      Coefficients xc;
+      for (int w = 0; w < 2; ++w) {
+        xc.push_back({pIndex[foot] + w, axes[axis](w)});
+        xc.push_back({P::CX + w, -axes[axis](w)});
+      }
+      scalar_t lower, upper;
+      if (axis == 0) {
+        lower = -cfg.reachX;
+        upper = cfg.reachX;
+      } else if (foot == 0) {
+        lower = cfg.reachYInner;
+        upper = cfg.reachYOuter;
+      } else {
+        lower = -cfg.reachYOuter;
+        upper = -cfg.reachYInner;
+      }
+      const auto [g, offset] =
+          frameTerm(L, nominal, axes, axis, k, hasHeading ? vector2_t(nominal.feet[k][foot] - nominal.com[k]) : vector2_t::Zero());
+      if (hasHeading) xc.push_back({L.heading, g});
+      rows.add(xc, {}, lower - offset, upper - offset, true);
+    }
+  }
+  // Foot separation: step length and width bounds.
+  for (int axis = 0; axis < 2; ++axis) {
+    Coefficients xc;
+    for (int w = 0; w < 2; ++w) {
+      xc.push_back({P::PLX + w, axes[axis](w)});
+      xc.push_back({P::PRX + w, -axes[axis](w)});
+    }
+    const auto [g, offset] =
+        frameTerm(L, nominal, axes, axis, k, hasHeading ? vector2_t(nominal.feet[k][0] - nominal.feet[k][1]) : vector2_t::Zero());
+    if (hasHeading) xc.push_back({L.heading, g});
+    if (axis == 0) {
+      rows.add(xc, {}, -cfg.maxStepLength - offset, cfg.maxStepLength - offset, true);
+    } else {
+      rows.add(xc, {}, cfg.minStepWidth - offset, cfg.maxStepWidth - offset, true);
+    }
+  }
+}
+
+}  // namespace
+
 OcpQpProblem LipContactPlanner::buildProblem(const ContactPlannerInput& input, const HeadingNominal& nominal) const {
   const ContactPlanningConfig& cfg = config_;
   const Layout& L = layout_;
@@ -576,37 +863,9 @@ OcpQpProblem LipContactPlanner::buildProblem(const ContactPlannerInput& input, c
         "ContactPlanningModelParameters to the configuration first");
   }
   const scalar_t inertia = hasHeading ? yawInertia(input) : 1.0;
-  const scalar_t torsion = cfg.torsionalFrictionTorque;
-  const scalar_t couple = cfg.doubleSupportYawCouple;
-  constexpr scalar_t kYawBigM = 2.0 * M_PI;
   const int N = cfg.numNodes;
   const scalar_t dt = cfg.dt;
-  const scalar_t omega = cfg.omega();
-  const scalar_t ch = std::cosh(omega * dt);
-  const scalar_t sh = std::sinh(omega * dt);
-  const scalar_t M = cfg.bigM;
-
-  // Yaw-aligned constraint frame: components of the world-frame unit vectors of the local x and y axes. With the heading
-  // model the frame of node k is the nominal heading of node k, and every projection e_a(theta) . d gets its first-order
-  // heading term d e_a / d theta (theta_n) . d_n (theta - theta_n), so that the heading and the footholds are decided
-  // together; d e_x / d theta = e_y and d e_y / d theta = -e_x.
-  const auto axesAt = [&](int k) -> std::array<vector2_t, 2> {
-    const scalar_t theta = hasHeading ? nominal.heading[k] : input.yaw;
-    return {vector2_t(std::cos(theta), std::sin(theta)), vector2_t(-std::sin(theta), std::cos(theta))};
-  };
-  // Coefficient on the heading state and the constant offset of the first-order term of e_axis(theta) . d around
-  // (theta_n, d_n): g (theta - theta_n) = g theta - g theta_n.
-  const auto frameTerm = [&](int axis, int k, const vector2_t& dn) -> std::pair<scalar_t, scalar_t> {
-    if (!hasHeading) return {0.0, 0.0};
-    const std::array<vector2_t, 2> ax = axesAt(k);
-    const vector2_t de = (axis == 0) ? ax[1] : vector2_t(-ax[0]);
-    const scalar_t g = de.dot(dn);
-    return {g, -g * nominal.heading[k]};
-  };
-  const std::array<scalar_t, 2> zmpHalfWidth{cfg.zmpHalfWidthX, cfg.zmpHalfWidthY};
   const std::array<int, 2> pIndex{PLX, PRX};  // x index of each foot's position; y follows
-  const std::array<int, 2> dIndex{DLX, DRX};
-  const std::array<int, 2> cIndex{CL, CR};
   const int previousShift = previousPlanShift(input);
 
   OcpQpProblem problem;
@@ -627,9 +886,10 @@ OcpQpProblem LipContactPlanner::buildProblem(const ContactPlannerInput& input, c
     OcpQpStage& s = problem.stages[k];
     s = OcpQpStage::Zero(L.nx, terminal ? 0 : L.nu, !terminal);
     s.Q.diagonal().array() += kStateRegularization;
-    const std::array<vector2_t, 2> axes = axesAt(k);
+    const std::array<vector2_t, 2> axes = constraintAxes(L, nominal, input, k);
     const vector2_t& ey = axes[1];
 
+    // ---------------- state costs, at every node ----------------
     // Foothold consistency: pull the feet towards the previous plan, shifted to the current time (only matters while a
     // foot moves, the contact constraints pin it otherwise).
     if (previousShift >= 0 && cfg.previousFootholdWeight > 0.0) {
@@ -641,7 +901,7 @@ OcpQpProblem LipContactPlanner::buildProblem(const ContactPlannerInput& input, c
         }
       }
     }
-    // Velocity tracking and nominal step width at every node.
+    // Velocity tracking and nominal step width.
     for (int axis = 0; axis < 2; ++axis) {
       addQuadraticResidual(s, {{VX + axis, 1.0}}, {}, -input.velocityCommand(axis), cfg.velocityTrackingWeight);
     }
@@ -651,7 +911,8 @@ OcpQpProblem LipContactPlanner::buildProblem(const ContactPlannerInput& input, c
         xc.push_back({PLX + axis, ey(axis)});
         xc.push_back({PRX + axis, -ey(axis)});
       }
-      const auto [g, offset] = frameTerm(1, k, hasHeading ? vector2_t(nominal.feet[k][0] - nominal.feet[k][1]) : vector2_t::Zero());
+      const auto [g, offset] =
+          frameTerm(L, nominal, axes, 1, k, hasHeading ? vector2_t(nominal.feet[k][0] - nominal.feet[k][1]) : vector2_t::Zero());
       if (hasHeading) xc.push_back({L.heading, g});
       addQuadraticResidual(s, xc, {}, -cfg.nominalStepWidth + offset, cfg.stepWidthWeight);
     }
@@ -669,197 +930,13 @@ OcpQpProblem LipContactPlanner::buildProblem(const ContactPlannerInput& input, c
         addQuadraticResidual(s, {{L.footYaw(foot), 1.0}}, {}, -nominal.heading[k], cfg.footYawTrackingWeight);
       }
     }
-    if (terminal) {
-      continue;
-    }
-    s.R.diagonal().array() += kInputRegularization;
-    if (hasHeading) {
-      for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-        addQuadraticResidual(s, {}, {{L.yawTorque(foot), 1.0}}, 0.0, cfg.yawTorqueWeight);
-        addQuadraticResidual(s, {}, {{L.footYawDelta(foot), 1.0}}, 0.0, cfg.footYawRegularizationWeight);
-      }
-    }
 
-    // ---------------- dynamics ----------------
-    s.A.setIdentity();
-    for (int axis = 0; axis < 2; ++axis) {
-      s.A(CX + axis, CX + axis) = ch;
-      s.A(CX + axis, VX + axis) = sh / omega;
-      s.A(VX + axis, CX + axis) = omega * sh;
-      s.A(VX + axis, VX + axis) = ch;
-      s.B(CX + axis, ZX + axis) = 1.0 - ch;
-      s.B(VX + axis, ZX + axis) = -omega * sh;
-      s.B(PLX + axis, DLX + axis) = 1.0;
-      s.B(PRX + axis, DRX + axis) = 1.0;
-    }
-    if (hasHeading) {
-      s.A(L.heading, L.headingRate) = dt;
-      for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-        s.B(L.heading, L.yawTorque(foot)) = 0.5 * dt * dt / inertia;
-        s.B(L.headingRate, L.yawTorque(foot)) = dt / inertia;
-        s.B(L.footYaw(foot), L.footYawDelta(foot)) = 1.0;
-      }
-    }
-
-    // ---------------- input boxes ----------------
-    s.idxbu = {DLX, DLY, DRX, DRY, CL, CR};
-    s.lbu = (vector_t(6) << -M, -M, -M, -M, 0.0, 0.0).finished();
-    s.ubu = (vector_t(6) << M, M, M, M, 1.0, 1.0).finished();
-    if (hasHeading) {
-      // No foot ever carries more than the whole weight's torsion alone or half of the double-support budget (the rows below).
-      const scalar_t torqueBound = std::max(torsion, 0.5 * (torsion + couple));
-      for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-        s.idxbu.push_back(L.yawTorque(foot));
-        s.idxbu.push_back(L.footYawDelta(foot));
-      }
-      vector_t lbu(s.idxbu.size()), ubu(s.idxbu.size());
-      lbu.head(6) = s.lbu;
-      ubu.head(6) = s.ubu;
-      for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-        lbu(6 + 2 * foot) = -torqueBound;
-        ubu(6 + 2 * foot) = torqueBound;
-        lbu(7 + 2 * foot) = -kYawBigM;
-        ubu(7 + 2 * foot) = kYawBigM;
-      }
-      s.lbu = lbu;
-      s.ubu = ubu;
-    }
-
-    // ---------------- running cost ----------------
-    for (int axis = 0; axis < 2; ++axis) {
-      addQuadraticResidual(s, {{CX + axis, -1.0}}, {{ZX + axis, 1.0}}, 0.0, cfg.zmpRegularizationWeight);
-      for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-        addQuadraticResidual(s, {}, {{dIndex[foot] + axis, 1.0}}, 0.0, cfg.footholdRegularizationWeight);
-      }
-    }
-    if (k == N - 1) {
-      // Terminal capturability: xi_N - zmp_{N-1} = e^{omega dt} (xi_{N-1} - zmp_{N-1}).
-      const scalar_t gain = std::exp(2.0 * omega * dt);
-      for (int axis = 0; axis < 2; ++axis) {
-        addQuadraticResidual(s, {{CX + axis, 1.0}, {VX + axis, 1.0 / omega}}, {{ZX + axis, -1.0}}, 0.0, cfg.terminalDcmWeight * gain);
-      }
-    }
-
-    // ---------------- general constraints ----------------
-    RowBuilder rows(L.nx, L.nu);
-    // No flight phase.
-    rows.add({}, {{CL, 1.0}, {CR, 1.0}}, 1.0, 2.0, false);
-    if (hasHeading) {
-      for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-        // Yaw torque of a foot: the torsional friction of the weight it carries plus its half of the friction couple in
-        // double support. Alone it carries the whole weight, T_t; with both feet down each carries half of it and half of
-        // the couple, (T_t + T_c) / 2, so that the pair has T_t + T_c (granting the full-weight torsion to both feet at
-        // once, 2 T_t + T_c, over-estimated the double-support budget by T_t):
-        // +-tau_i - T_t c_i - (T_c - T_t) (c_L + c_R - 1) / 2 <= 0.
-        const scalar_t doubleSupportShare = 0.5 * (couple - torsion);
-        for (const scalar_t sign : {1.0, -1.0}) {
-          rows.add({}, {{L.yawTorque(foot), sign}, {cIndex[foot], -torsion}, {CL, -doubleSupportShare}, {CR, -doubleSupportShare}},
-                   -kLooseBound, -doubleSupportShare, false);
-        }
-        // A foot's yaw only changes while the foot is in the air: +-dpsi_i + 2 pi c_i <= 2 pi.
-        for (const scalar_t sign : {1.0, -1.0}) {
-          rows.add({}, {{L.footYawDelta(foot), sign}, {cIndex[foot], kYawBigM}}, -kLooseBound, kYawBigM, false);
-        }
-        // Hip range: the foot yaw stays within the hip yaw limits of the heading (soft).
-        const auto [yawLower, yawUpper] = cfg.footYawOffsetBounds(foot);
-        rows.add({{L.footYaw(foot), 1.0}, {L.heading, -1.0}}, {}, yawLower, yawUpper, true);
-      }
-    }
-
-    // ZMP support region (soft). Single support: the box of the supporting foot. Double support: laterally the exact hull
-    // of both boxes (the feet never cross laterally), along the heading a box around the midpoint of the feet, which is a
-    // conservative inner approximation of the hull that needs no extra binary for the foot order.
-    const auto zmpMinusFoot = [&](size_t foot, int axis, scalar_t sign, Coefficients& xc, Coefficients& uc) {
-      for (int w = 0; w < 2; ++w) {
-        xc.push_back({pIndex[foot] + w, -sign * axes[axis](w)});
-        uc.push_back({ZX + w, sign * axes[axis](w)});
-      }
-    };
-    // Single-support boxes: +-e_j'(zmp - p_i) <= r_j + M (1 - c_i) + M c_other.
-    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-      const size_t other = 1 - foot;
-      for (int axis = 0; axis < 2; ++axis) {
-        for (const scalar_t sign : {1.0, -1.0}) {
-          Coefficients xc, uc;
-          zmpMinusFoot(foot, axis, sign, xc, uc);
-          uc.push_back({cIndex[foot], M});
-          uc.push_back({cIndex[other], -M});
-          rows.add(xc, uc, -kLooseBound, zmpHalfWidth[axis] + M, true);
-        }
-      }
-    }
-    // Double support, heading axis: +-e_x'(zmp - (p_L + p_R) / 2) <= r_x + M (1 - c_L) + M (1 - c_R).
-    for (const scalar_t sign : {1.0, -1.0}) {
-      Coefficients xc, uc;
-      for (int w = 0; w < 2; ++w) {
-        xc.push_back({PLX + w, -0.5 * sign * axes[0](w)});
-        xc.push_back({PRX + w, -0.5 * sign * axes[0](w)});
-        uc.push_back({ZX + w, sign * axes[0](w)});
-      }
-      uc.push_back({CL, M});
-      uc.push_back({CR, M});
-      rows.add(xc, uc, -kLooseBound, zmpHalfWidth[0] + 2.0 * M, true);
-    }
-    // Double support, lateral axis: upper bound from the left foot, lower bound from the right foot.
-    {
-      Coefficients xc, uc;  // e_y'(zmp - p_L) <= r + M (1 - c_L)
-      zmpMinusFoot(0, 1, 1.0, xc, uc);
-      uc.push_back({CL, M});
-      rows.add(xc, uc, -kLooseBound, zmpHalfWidth[1] + M, true);
-    }
-    {
-      Coefficients xc, uc;  // -e_y'(zmp - p_R) <= r + M (1 - c_R)
-      zmpMinusFoot(1, 1, -1.0, xc, uc);
-      uc.push_back({CR, M});
-      rows.add(xc, uc, -kLooseBound, zmpHalfWidth[1] + M, true);
-    }
-    // A foot only moves while it is not in contact: +-dp_ij + M c_i <= M.
-    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-      for (int axis = 0; axis < 2; ++axis) {
-        for (const scalar_t sign : {1.0, -1.0}) {
-          rows.add({}, {{dIndex[foot] + axis, sign}, {cIndex[foot], M}}, -kLooseBound, M, false);
-        }
-      }
-    }
-    // Reachability of the feet with respect to the CoM (soft), yaw frame (with its first-order heading term).
-    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-      for (int axis = 0; axis < 2; ++axis) {
-        Coefficients xc;
-        for (int w = 0; w < 2; ++w) {
-          xc.push_back({pIndex[foot] + w, axes[axis](w)});
-          xc.push_back({CX + w, -axes[axis](w)});
-        }
-        scalar_t lower, upper;
-        if (axis == 0) {
-          lower = -cfg.reachX;
-          upper = cfg.reachX;
-        } else if (foot == 0) {
-          lower = cfg.reachYInner;
-          upper = cfg.reachYOuter;
-        } else {
-          lower = -cfg.reachYOuter;
-          upper = -cfg.reachYInner;
-        }
-        const auto [g, offset] = frameTerm(axis, k, hasHeading ? vector2_t(nominal.feet[k][foot] - nominal.com[k]) : vector2_t::Zero());
-        if (hasHeading) xc.push_back({L.heading, g});
-        rows.add(xc, {}, lower - offset, upper - offset, true);
-      }
-    }
-    // Foot separation (soft): step length and width bounds.
-    for (int axis = 0; axis < 2; ++axis) {
-      Coefficients xc;
-      for (int w = 0; w < 2; ++w) {
-        xc.push_back({PLX + w, axes[axis](w)});
-        xc.push_back({PRX + w, -axes[axis](w)});
-      }
-      const auto [g, offset] = frameTerm(axis, k, hasHeading ? vector2_t(nominal.feet[k][0] - nominal.feet[k][1]) : vector2_t::Zero());
-      if (hasHeading) xc.push_back({L.heading, g});
-      if (axis == 0) {
-        rows.add(xc, {}, -cfg.maxStepLength - offset, cfg.maxStepLength - offset, true);
-      } else {
-        rows.add(xc, {}, cfg.minStepWidth - offset, cfg.maxStepWidth - offset, true);
-      }
-    }
+    // ---------------- everything else ----------------
+    // The running nodes carry the input costs, the dynamics, the input boxes and the constraint rows with inputs; the
+    // rows on the state alone (hip range, reachability, foot separation) are added at every node, the terminal one too.
+    RowBuilder rows(L.nx, terminal ? 0 : L.nu);
+    if (!terminal) addRunningNodeTerms(cfg, L, input, nominal, inertia, k, s, rows);
+    addStateConstraintRows(cfg, L, input, nominal, k, rows);
     rows.writeTo(s, cfg.constraintSlackWeight, cfg.constraintSlackLinearWeight);
   }
   return problem;
