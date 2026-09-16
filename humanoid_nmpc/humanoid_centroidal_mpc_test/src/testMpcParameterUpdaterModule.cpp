@@ -92,6 +92,40 @@ TEST_F(MpcParameterUpdaterModuleTest, testFileWatcher) {
   });
 }
 
+// The `contactEstimator` key of an applied YAML is handed to the simulator node once, whichever pathway delivered it
+// (the task file here), and only when the YAML carries the key. It is recorded without a solver to update.
+TEST_F(MpcParameterUpdaterModuleTest, contactEstimatorSelectionIsRecordedOnceFromAppliedYaml) {
+  MpcParameterUpdaterModule updater(nullptr, tempTaskFile_.string(), testingModelInterface.urdfFile, testingModelInterface.referenceFile,
+                                    testingModelInterface.getMpcRobotModel().getStateDim(),
+                                    testingModelInterface.getMpcRobotModel().getInputDim(),
+                                    testingModelInterface.getModelSettings().contactNames);
+  ReferenceManager referenceManager;
+  vector_t state = vector_t::Zero(testingModelInterface.getMpcRobotModel().getStateDim());
+  EXPECT_FALSE(updater.takeContactEstimatorUpdate().has_value());
+
+  // Without a solver nothing but the key is read, so a file holding only the key is enough (the copied task file already
+  // selects an estimator, and a YAML parser keeps the first of two equal keys).
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  {
+    std::ofstream ofs(tempTaskFile_, std::ios::trunc);
+    ofs << "contactEstimator: Always_In_Contact\n";
+  }
+  for (int i = 0; i < 150; ++i) updater.preSolverRun(0.0, 0.01, state, referenceManager);
+  const std::optional<std::string> update = updater.takeContactEstimatorUpdate();
+  ASSERT_TRUE(update.has_value());
+  EXPECT_EQ(*update, "Always_In_Contact");  // the registry canonicalises the name
+  EXPECT_FALSE(updater.takeContactEstimatorUpdate().has_value());
+
+  // A YAML without the key records nothing.
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  {
+    std::ofstream ofs(tempTaskFile_, std::ios::trunc);
+    ofs << "Q:\n  scaling: 1.0\n";
+  }
+  for (int i = 0; i < 150; ++i) updater.preSolverRun(0.0, 0.01, state, referenceManager);
+  EXPECT_FALSE(updater.takeContactEstimatorUpdate().has_value());
+}
+
 TEST_F(MpcParameterUpdaterModuleTest, basisCostTransformRequiresBasisSpaceInputDim) {
   // The yaml R is indexed in wrench space, so the only sane inputDim for a module carrying a basis-space transform is
   // the transform's basis-space dimension. Passing the wrench-space dimension must be rejected at construction.

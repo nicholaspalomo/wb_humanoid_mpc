@@ -392,12 +392,18 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
             root.destroy()
 
     def test_build_yaml_returns_empty_without_file(self):
-        """_build_yaml_with_slider_values should return '' if no task_file."""
+        """_build_yaml_with_slider_values should return '' if no task_file.
+
+        Without a file the tab falls back to the first robot preset, a path relative to the repository root, so the
+        test runs in an empty working directory where no preset can be found (its outcome must not depend on where
+        pytest is launched from)."""
         import tkinter as tk
         from remote_control.tk_app.mpc_params_tab import MpcParamsTab
 
         root = tk.Tk()
         root.withdraw()
+        previous_cwd = os.getcwd()
+        os.chdir(self.tmpdir)
         try:
             tab = MpcParamsTab(
                 root,
@@ -405,9 +411,13 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
                 enable_online_tuning=True,
                 param_publisher=self.mock_publisher,
             )
+            self.assertIsNone(
+                tab.task_file, "no file and no reachable preset: nothing loaded"
+            )
             result = tab._build_yaml_with_slider_values()
             self.assertEqual(result, "", "Should return empty string with no task_file")
         finally:
+            os.chdir(previous_cwd)
             root.destroy()
 
     # ──────────────────────────────────────────────────────────
@@ -499,6 +509,96 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
             # Cancel it to avoid interference
             tab.after_cancel(tab._debounce_publish_id)
             tab._debounce_publish_id = None
+        finally:
+            root.destroy()
+
+    # ──────────────────────────────────────────────────────────
+    #  6. Contact estimator selection (checkbox on the Base Controller tab)
+    # ──────────────────────────────────────────────────────────
+    def test_contact_estimator_selection_publishes_name_and_saves_it(self):
+        """The Base Controller checkbox selects the contact estimator by name through the tab: cheater_sim on,
+        always_in_contact off. Selecting publishes the name on the topic without touching the file; 'Save to YAML'
+        writes it; 'Reset All' restores the checkpoint; every change notifies the registered callback.
+        """
+        import tkinter as tk
+
+        import yaml
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            tab = self._create_tab(root, "Contact Planning")
+            notifications = []
+            tab.on_contact_estimator_changed = lambda: notifications.append(
+                tab.selected_contact_estimator()
+            )
+            self.assertTrue(tab.has_contact_estimator_selection())
+            self.assertTrue(
+                tab.is_cheater_contact_estimator_selected(),
+                "the Atlas task file selects cheater_sim",
+            )
+
+            # Off: always_in_contact goes out on the topic, the file stays as it is.
+            tab.set_cheater_contact_estimator(False)
+            self.assertEqual(notifications, ["always_in_contact"])
+            tab.after_cancel(tab._debounce_publish_id)
+            tab._debounce_publish_id = None
+            tab._publish_to_topic()
+            published = yaml.safe_load(self.mock_publisher.last_data)
+            self.assertEqual(published["contactEstimator"], "always_in_contact")
+            self.assertFalse(self._file_was_modified())
+            self.assertFalse(tab.is_cheater_contact_estimator_selected())
+
+            # Save writes the name into the file, keeping the comment block around it.
+            tab.save_and_checkpoint()
+            self.assertEqual(
+                load_yaml_safe(self.tmp_task_file)["contactEstimator"],
+                "always_in_contact",
+            )
+            with open(self.tmp_task_file, "r") as f:
+                content = f.read()
+            self.assertIn(
+                "# LINT.IfChange(contact_estimator)\ncontactEstimator: always_in_contact\n",
+                content,
+            )
+
+            # Back on, and Reset All returns to the saved checkpoint (always_in_contact after the save above).
+            tab.set_cheater_contact_estimator(True)
+            tab.after_cancel(tab._debounce_publish_id)
+            tab._debounce_publish_id = None
+            tab._publish_to_topic()
+            self.assertEqual(
+                yaml.safe_load(self.mock_publisher.last_data)["contactEstimator"],
+                "cheater_sim",
+            )
+            tab.reset_all_defaults()
+            self.assertFalse(tab.is_cheater_contact_estimator_selected())
+            self.assertEqual(notifications[-1], "always_in_contact")
+            self.assertEqual(
+                yaml.safe_load(self.mock_publisher.last_data)["contactEstimator"],
+                "always_in_contact",
+            )
+        finally:
+            root.destroy()
+
+    def test_contact_estimator_selection_is_ignored_without_online_tuning(self):
+        import tkinter as tk
+
+        from remote_control.tk_app.mpc_params_tab import MpcParamsTab
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            tab = MpcParamsTab(
+                root,
+                task_file=self.tmp_task_file,
+                enable_online_tuning=False,
+                param_publisher=self.mock_publisher,
+            )
+            tab.set_cheater_contact_estimator(False)
+            self.assertTrue(tab.is_cheater_contact_estimator_selected())
+            self.assertIsNone(tab._debounce_publish_id)
+            self.assertEqual(self.mock_publisher.publish_count, 0)
         finally:
             root.destroy()
 

@@ -44,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <humanoid_common_mpc/gait/MotionPhaseDefinition.h>
 #include <humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h>
 #include <humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h>
+#include <robot_model/RobotStateContactEstimator.h>
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 
 #include <yaml-cpp/yaml.h>
@@ -67,6 +68,7 @@ CentroidalMpcMrtJointController::CentroidalMpcMrtJointController(const ::robot::
                                                                  const std::string& pdGainsFile,
                                                                  const MpcRobotModelBase<scalar_t>* effectiveMpcRobotModel)
     : mcpMrtInterface_(mpc),
+      contactEstimator_(std::make_shared<::robot::model::RobotStateContactEstimator>()),
       pinocchioInterface_(pinocchioInterface),
       mpcRobotModelPtr_(mpcRobotModel.clone()),
       effectiveModelPtr_(effectiveMpcRobotModel ? std::unique_ptr<MpcRobotModelBase<scalar_t>>(effectiveMpcRobotModel->clone())
@@ -249,11 +251,24 @@ void CentroidalMpcMrtJointController::updateMpcObservation(ocs2::SystemObservati
   // The contact block of the input differs between the wrench-space (6 per foot) and basis-vector (numBasisPerFoot)
   // layouts, so the joint velocities are written through the effective model rather than by a fixed-offset slice.
   effectiveModelPtr_->setJointVelocities(mpcObservation.state, mpcObservation.input, robotState.getJointVelocities(mpcJointIndices_, 0.0));
-  std::vector<bool> configContacts = robotState.getContactFlags();
-  assert(configContacts.size() == N_CONTACTS);
-  contact_flag_t contactFlags;
-  std::copy(configContacts.begin(), configContacts.end(), contactFlags.begin());
-  mpcObservation.mode = stanceLeg2ModeNumber(contactFlags);
+  // The measured contact state of this cycle: the observation mode of the MPC, and the gate of the contact wrenches in
+  // the inverse dynamics (computeJointControlAction).
+  const std::vector<bool> measuredContacts = contactEstimator_->estimateContactFlags(robotState);
+  if (measuredContacts.size() != N_CONTACTS) {
+    throw std::runtime_error("[CentroidalMpcMrtJointController] contact estimator '" + contactEstimator_->getName() + "' reported " +
+                             std::to_string(measuredContacts.size()) + " contact flags, expected " + std::to_string(N_CONTACTS));
+  }
+  std::copy(measuredContacts.begin(), measuredContacts.end(), measuredContactFlags_.begin());
+  mpcObservation.mode = stanceLeg2ModeNumber(measuredContactFlags_);
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+void CentroidalMpcMrtJointController::setContactEstimator(std::shared_ptr<::robot::model::ContactEstimator> contactEstimator) {
+  contactEstimator_ = contactEstimator ? std::move(contactEstimator) : std::make_shared<::robot::model::RobotStateContactEstimator>();
+  LOG(INFO) << "[CentroidalMpcMrtJointController] measured contact state from " << contactEstimator_->getName() << ".";
 }
 
 /******************************************************************************************************/
@@ -381,8 +396,13 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
     // dynamics used when it chose lambda. A non-finite policy state (divergence) would poison the rotation, so fall
     // back to the measured state in that case.
     const vector_t& wrenchFrameState = mpcPolicyState.allFinite() ? mpcPolicyState : currentMpcObservation_.state;
-    std::array<vector6_t, 2> footWrenches{effectiveModelPtr_->getContactWrenchInWorldFrame(wrenchFrameState, mpcPolicyInput, 0),
-                                          effectiveModelPtr_->getContactWrenchInWorldFrame(wrenchFrameState, mpcPolicyInput, 1)};
+    // The policy carries a wrench wherever its own schedule expects contact. Whether a foot can actually transmit it is
+    // decided by the measured contact state of this cycle, not by the plan: the wrench of a foot that is not touching is
+    // dropped (gateContactWrenchesByMeasuredContacts).
+    const std::array<vector6_t, 2> footWrenches =
+        gateContactWrenchesByMeasuredContacts({effectiveModelPtr_->getContactWrenchInWorldFrame(wrenchFrameState, mpcPolicyInput, 0),
+                                               effectiveModelPtr_->getContactWrenchInWorldFrame(wrenchFrameState, mpcPolicyInput, 1)},
+                                              measuredContactFlags_);
 
     // Evaluate inverse dynamics using measured robot state for physical consistency
     vector_t q = effectiveModelPtr_->getGeneralizedCoordinates(currentMpcObservation_.state);
@@ -487,7 +507,9 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
     vector_t qdd_j_des = vector_t::Zero(effectiveModelPtr_->getJointDim());
     // State-aware overload: the vertical world-frame force is expressed in the input parameterization of the effective
     // model (rotated into the local contact frame for basis-vector inputs), and read back in the world frame below.
-    mpcPolicyInput = weightCompensatingInput(pinocchioInterface_, {true, true}, *effectiveModelPtr_, currentMpcObservation_.state);
+    // The weight is carried by the feet measured in contact; with none (the robot hangs on the gantry) no contact force
+    // is compensated and the feedforward is the gravity and Coriolis term of the free legs.
+    mpcPolicyInput = weightCompensatingInput(pinocchioInterface_, measuredContactFlags_, *effectiveModelPtr_, currentMpcObservation_.state);
     std::array<vector6_t, 2> footWrenches{
         effectiveModelPtr_->getContactWrenchInWorldFrame(currentMpcObservation_.state, mpcPolicyInput, 0),
         effectiveModelPtr_->getContactWrenchInWorldFrame(currentMpcObservation_.state, mpcPolicyInput, 1)};

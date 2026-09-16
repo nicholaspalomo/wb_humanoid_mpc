@@ -32,7 +32,7 @@ import os
 import re
 import tkinter as tk
 from tkinter import ttk, filedialog
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from remote_control.tk_app.scrollable_frame import ScrollableFrame
 from remote_control.tk_app.slider_row import SliderRow
@@ -112,6 +112,16 @@ class MpcParamsTab(ttk.Frame):
         "ACoM Roll (theta_acom_x)",
     ]
 
+    # Measured contact state of the controller, selected by name in the task file (robot_model/ContactEstimatorRegistry.h)
+    # and hot-reloadable through the parameter topic. The Base Controller tab's checkbox (set_cheater_contact_estimator)
+    # switches between the simulator's ground truth and every contact point touching (the historical behaviour, with
+    # which phase resetting must stay off).
+    # LINT.IfChange(contact_estimator_gui)
+    CONTACT_ESTIMATOR_KEY = "contactEstimator"
+    CHEATER_SIM_CONTACT_ESTIMATOR = "cheater_sim"
+    CONTACT_ESTIMATOR_WHEN_UNCHECKED = "always_in_contact"
+    # LINT.ThenChange(//robot_runtime/robot_model/src/ContactEstimatorRegistry.cpp:contact_estimator_names, //robot_runtime/mujoco_sim_interface/src/CheaterSimContactEstimator.cpp:cheater_sim_contact_estimator_name)
+
     CONTACT_FORCE_LABELS = [
         "Left Foot Force X",
         "Left Foot Force Y",
@@ -162,6 +172,9 @@ class MpcParamsTab(ttk.Frame):
         self._default_values: Dict[str, float] = (
             {}
         )  # Persists reset-checkpoint defaults across category switches
+        # Called (no arguments) whenever the contact estimator selection changes: file loaded, reset, or set through
+        # set_cheater_contact_estimator. The Base Controller tab keeps its checkbox in sync with it.
+        self.on_contact_estimator_changed: Optional[Callable[[], None]] = None
 
         self._build_header_ui()
 
@@ -261,6 +274,38 @@ class MpcParamsTab(ttk.Frame):
                 self.reset_btn.configure(state="normal")
             for row in self.slider_rows.values():
                 row.set_state("normal")
+        self._notify_contact_estimator_changed()
+
+    # ── Contact estimator selection (checkbox on the Base Controller tab) ──────────────────────────────────────
+    def has_contact_estimator_selection(self) -> bool:
+        """True when the loaded task file selects a contact estimator by name (`contactEstimator`)."""
+        return self.CONTACT_ESTIMATOR_KEY in self.raw_data
+
+    def selected_contact_estimator(self) -> Optional[str]:
+        """The live contact estimator name, or None without a selection in the file."""
+        return self._live_values.get(self.CONTACT_ESTIMATOR_KEY)
+
+    def is_cheater_contact_estimator_selected(self) -> bool:
+        return self.selected_contact_estimator() == self.CHEATER_SIM_CONTACT_ESTIMATOR
+
+    def set_cheater_contact_estimator(self, enabled: bool):
+        """Selects `cheater_sim` (True) or `always_in_contact` (False) and publishes it like a slider change (the name
+        reaches the simulator through the parameter topic; 'Save to YAML' writes it into the file). Ignored while
+        online tuning is off or the file has no selection."""
+        if not self.enable_online_tuning or not self.has_contact_estimator_selection():
+            self._notify_contact_estimator_changed()
+            return
+        name = (
+            self.CHEATER_SIM_CONTACT_ESTIMATOR
+            if enabled
+            else self.CONTACT_ESTIMATOR_WHEN_UNCHECKED
+        )
+        self._on_any_slider_change(self.CONTACT_ESTIMATOR_KEY, name)
+        self._notify_contact_estimator_changed()
+
+    def _notify_contact_estimator_changed(self):
+        if self.on_contact_estimator_changed is not None:
+            self.on_contact_estimator_changed()
 
     @staticmethod
     def _to_float(v):
@@ -289,6 +334,10 @@ class MpcParamsTab(ttk.Frame):
             "Contact Planning",
         ]
 
+        # The buttons flow into as many rows as the width of the tab allows. A single packed row needs more width than
+        # the GUI's default window (960 px), and tkinter silently drops the buttons that do not fit, so the last
+        # categories would be unreachable without resizing the window.
+        self.category_buttons = []
         for cat in self.categories:
             btn = ttk.Radiobutton(
                 nav_frame,
@@ -297,7 +346,37 @@ class MpcParamsTab(ttk.Frame):
                 variable=self.active_category,
                 command=self._render_active_category,
             )
-            btn.pack(side="left", padx=6)
+            self.category_buttons.append(btn)
+        self._category_nav_frame = nav_frame
+        self._category_nav_columns = 0
+        nav_frame.bind(
+            "<Configure>", lambda event: self._reflow_category_buttons(event.width)
+        )
+        self._reflow_category_buttons(nav_frame.winfo_reqwidth())
+
+    def _reflow_category_buttons(self, available_width: int):
+        """Lays the category buttons out in rows that fit `available_width` (at least one button per row)."""
+        pad = 6
+        widths = [btn.winfo_reqwidth() + 2 * pad for btn in self.category_buttons]
+        columns = 0
+        used = 0
+        for width in widths:
+            if columns and used + width > available_width:
+                break
+            used += width
+            columns += 1
+        columns = max(1, columns)
+        if columns == self._category_nav_columns:
+            return
+        self._category_nav_columns = columns
+        for index, btn in enumerate(self.category_buttons):
+            btn.grid(
+                row=index // columns,
+                column=index % columns,
+                padx=pad,
+                pady=(0, 2),
+                sticky="w",
+            )
 
     def _on_preset_selected(self, event=None):
         preset_name = self.preset_var.get()
@@ -341,6 +420,15 @@ class MpcParamsTab(ttk.Frame):
             bak_path = original + ".bak"
             if not os.path.exists(bak_path):
                 shutil.copy2(original, bak_path)
+
+        # The file's contact estimator selection is the live value and the reset checkpoint of the checkbox.
+        self._live_values.pop(self.CONTACT_ESTIMATOR_KEY, None)
+        self._default_values.pop(self.CONTACT_ESTIMATOR_KEY, None)
+        if self.CONTACT_ESTIMATOR_KEY in self.raw_data:
+            name = str(self.raw_data[self.CONTACT_ESTIMATOR_KEY]).strip().lower()
+            self._live_values[self.CONTACT_ESTIMATOR_KEY] = name
+            self._default_values[self.CONTACT_ESTIMATOR_KEY] = name
+        self._notify_contact_estimator_changed()
 
         if self._explicit_online_tuning is not None:
             self.enable_online_tuning = self._explicit_online_tuning
@@ -1562,12 +1650,17 @@ class MpcParamsTab(ttk.Frame):
             return
         for row in self.slider_rows.values():
             row.reset_to_default()
+        if self.CONTACT_ESTIMATOR_KEY in self._default_values:
+            self._live_values[self.CONTACT_ESTIMATOR_KEY] = self._default_values[
+                self.CONTACT_ESTIMATOR_KEY
+            ]
+            self._notify_contact_estimator_changed()
         # Publish immediately so the MPC picks up the reset values
         self._publish_to_topic()
         self._show_status("All parameters reset to loaded defaults")
 
-    def _on_any_slider_change(self, name: str, value: float):
-        """Called on every slider move; debounces publish to ROS topic.
+    def _on_any_slider_change(self, name: str, value):
+        """Called on every slider move (or checkbox toggle, with the selected name); debounces publish to ROS topic.
 
         The C++ MpcParameterUpdaterModule subscribes to /mpc_parameter_updates
         for real-time parameter updates without touching the YAML file.

@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <humanoid_common_mpc/gait/MotionPhaseDefinition.h>
 #include <humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h>
 #include <humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h>
+#include <robot_model/RobotStateContactEstimator.h>
 #include "humanoid_wb_mpc/dynamics/DynamicsHelperFunctions.h"
 
 #include <yaml-cpp/yaml.h>
@@ -57,6 +58,7 @@ WBMpcMrtJointController::WBMpcMrtJointController(const ::robot::model::RobotDesc
                                                  std::shared_ptr<DummyObserver> rVizVisualizerPtr,
                                                  const std::string& pdGainsFile)
     : mcpMrtInterface_(mpc),
+      contactEstimator_(std::make_shared<::robot::model::RobotStateContactEstimator>()),
       pinocchioInterface_(pinocchioInterface),
       mpcRobotModel_(modelSettings),
       mpcDeltaTMicroSeconds_(1000000 / mpcDesiredFrequency),
@@ -206,11 +208,24 @@ void WBMpcMrtJointController::updateMpcObservation(ocs2::SystemObservation& mpcO
   updateMpcState(mpcObservation.state, robotState);
   mpcObservation.time = robotState.getTime();
   mpcObservation.input = vector_t::Zero(mpcRobotModel_.getInputDim());  // Add contact forces later.
-  std::vector<bool> configContacts = robotState.getContactFlags();
-  assert(configContacts.size() == N_CONTACTS);
-  contact_flag_t contactFlags;
-  std::copy(configContacts.begin(), configContacts.end(), contactFlags.begin());
-  mpcObservation.mode = stanceLeg2ModeNumber(contactFlags);
+  // The measured contact state of this cycle: the observation mode of the MPC, and the gate of the contact wrenches in
+  // the inverse dynamics (computeJointControlAction).
+  const std::vector<bool> measuredContacts = contactEstimator_->estimateContactFlags(robotState);
+  if (measuredContacts.size() != N_CONTACTS) {
+    throw std::runtime_error("[WBMpcMrtJointController] contact estimator '" + contactEstimator_->getName() + "' reported " +
+                             std::to_string(measuredContacts.size()) + " contact flags, expected " + std::to_string(N_CONTACTS));
+  }
+  std::copy(measuredContacts.begin(), measuredContacts.end(), measuredContactFlags_.begin());
+  mpcObservation.mode = stanceLeg2ModeNumber(measuredContactFlags_);
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+void WBMpcMrtJointController::setContactEstimator(std::shared_ptr<::robot::model::ContactEstimator> contactEstimator) {
+  contactEstimator_ = contactEstimator ? std::move(contactEstimator) : std::make_shared<::robot::model::RobotStateContactEstimator>();
+  LOG(INFO) << "[WBMpcMrtJointController] measured contact state from " << contactEstimator_->getName() << ".";
 }
 
 /******************************************************************************************************/
@@ -270,7 +285,16 @@ void WBMpcMrtJointController::computeJointControlAction(scalar_t time,
                                     mpcPolicyMode);
     latestPolicyInput_ = mpcPolicyInput;
 
-    vector_t mpcJointTorques = computeJointTorques<scalar_t>(mpcPolicyState, mpcPolicyInput, pinocchioInterface_, mpcRobotModel_);
+    // The policy carries a wrench wherever its own schedule expects contact. Whether a foot can actually transmit it is
+    // decided by the measured contact state of this cycle, not by the plan: the wrench of a foot that is not touching is
+    // dropped (gateContactWrenchesByMeasuredContacts). World-frame wrenches for the LOCAL_WORLD_ALIGNED Jacobians.
+    const std::array<vector6_t, 2> footWrenches =
+        gateContactWrenchesByMeasuredContacts({mpcRobotModel_.getContactWrenchInWorldFrame(mpcPolicyState, mpcPolicyInput, 0),
+                                               mpcRobotModel_.getContactWrenchInWorldFrame(mpcPolicyState, mpcPolicyInput, 1)},
+                                              measuredContactFlags_);
+    vector_t mpcJointTorques = computeJointTorques<scalar_t>(
+        mpcRobotModel_.getGeneralizedCoordinates(mpcPolicyState), mpcRobotModel_.getGeneralizedVelocities(mpcPolicyState, mpcPolicyInput),
+        mpcRobotModel_.getJointAccelerations(mpcPolicyInput), footWrenches, pinocchioInterface_);
     vector_t mpc_q_desired = mpcRobotModel_.getJointAngles(mpcPolicyState);
     vector_t mpc_qd_desired = mpcRobotModel_.getJointVelocities(mpcPolicyState, mpcPolicyInput);
 
@@ -299,7 +323,9 @@ void WBMpcMrtJointController::computeJointControlAction(scalar_t time,
     std::cerr << "Apply weight compensating torque..." << std::endl;
     //   Apply weight compensated input around current state
     mpcPolicyState = currentMpcObservation_.state;
-    mpcPolicyInput = weightCompensatingInput(pinocchioInterface_, {true, true}, mpcRobotModel_);
+    // The weight is carried by the feet measured in contact; with none (the robot hangs on the gantry) no contact force
+    // is compensated and the feedforward is the gravity and Coriolis term of the free legs.
+    mpcPolicyInput = weightCompensatingInput(pinocchioInterface_, measuredContactFlags_, mpcRobotModel_);
     latestPolicyInput_ = mpcPolicyInput;
     vector_t weightCompensatingTorques = computeJointTorques<scalar_t>(mpcPolicyState, mpcPolicyInput, pinocchioInterface_, mpcRobotModel_);
 

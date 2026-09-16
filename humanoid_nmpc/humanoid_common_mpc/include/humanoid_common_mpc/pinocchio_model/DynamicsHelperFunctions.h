@@ -196,6 +196,27 @@ inline vector_t weightCompensatingInput(const PinocchioInterface& pinocchioInter
 }
 
 ///
+/// @brief Contact wrenches the inverse dynamics may project into joint torques, given the measured contact state.
+///
+/// A contact point that is not measured in contact cannot transmit a wrench to the environment, whatever the executed
+/// plan expects there: projecting its planned wrench would push the leg against nothing (a late touch-down) or, after a
+/// foot lifted early, keep loading a leg that carries nothing. The planned wrench of every such point is dropped; the
+/// points measured in contact keep the planned wrench (zero where the plan holds the foot in swing).
+///
+/// @param plannedWrenches [W_left, W_right] of the executed policy, world frame.
+/// @param measuredContactFlags Measured contact state, one flag per contact point.
+///
+/// @return the wrenches to hand to computeJointTorques.
+
+inline std::array<vector6_t, 2> gateContactWrenchesByMeasuredContacts(std::array<vector6_t, 2> plannedWrenches,
+                                                                      const contact_flag_t& measuredContactFlags) {
+  for (size_t i = 0; i < plannedWrenches.size() && i < measuredContactFlags.size(); ++i) {
+    if (!measuredContactFlags[i]) plannedWrenches[i].setZero();
+  }
+  return plannedWrenches;
+}
+
+///
 /// @brief Computes the weight-compensating input (evenly distributed vertical world-frame forces) for the
 /// given state. The state is used to express the world-frame force correctly in the input parameterization
 /// (e.g. rotated into the local contact frame for basis-vector inputs).

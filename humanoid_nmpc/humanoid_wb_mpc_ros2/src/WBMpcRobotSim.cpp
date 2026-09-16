@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <rclcpp/rclcpp.hpp>
 
 #include <humanoid_wb_mpc/WBMpcInterface.h>
+#include <mujoco_sim_interface/CheaterSimContactEstimator.h>
 #include <mujoco_sim_interface/MujocoSimInterface.h>
 #include <ocs2_robotic_tools/common/RotationTransforms.h>
 #include "absl/log/check.h"
@@ -124,16 +125,17 @@ int main(int argc, char** argv) {
 
   SimFsmBridge fsmBridge(robotDescription, initState, nodeHandle);
 
-  // Ground-truth contact detection in MuJoCo: the viewer's contact timeline ('b') and, with
-  // simReportsGroundTruthContacts, the measured contact flags handed to the MPC (otherwise every point reads as touching).
-  bool simReportsGroundTruthContacts = false;
+  // Ground-truth contact detection in MuJoCo: the viewer's contact timeline ('b' toggles it) and the cheater_sim contact
+  // estimator, the measured contact state of the controller (task file `contactEstimator`, a name of the
+  // ContactEstimatorRegistry: MPC observation mode and the contact wrenches the inverse dynamics projects).
+  std::string contactEstimatorName = robot::mujoco_sim_interface::kCheaterSimContactEstimatorName;
   double simContactForceThreshold = 5.0;
   double simContactTimelineWindow = 5.0;
   // Viewer visualizations by name (VisualizationRegistry.h); absent: the viewer's default set.
   std::vector<std::string> simVisualizations = robot::mujoco_sim_interface::defaultVisualizationNames();
   try {
     YAML::Node taskYaml = YAML::LoadFile(taskFile);
-    if (taskYaml["simReportsGroundTruthContacts"]) simReportsGroundTruthContacts = taskYaml["simReportsGroundTruthContacts"].as<bool>();
+    if (taskYaml["contactEstimator"]) contactEstimatorName = taskYaml["contactEstimator"].as<std::string>();
     if (taskYaml["simContactForceThreshold"]) simContactForceThreshold = taskYaml["simContactForceThreshold"].as<double>();
     if (taskYaml["simContactTimelineWindow"]) simContactTimelineWindow = taskYaml["simContactTimelineWindow"].as<double>();
     if (taskYaml["simVisualizations"]) simVisualizations = taskYaml["simVisualizations"].as<std::vector<std::string>>();
@@ -150,7 +152,6 @@ int main(int argc, char** argv) {
   config.contactParentJointNames = interface.modelSettings().contactParentJointNames;
   config.contactForceThreshold = simContactForceThreshold;
   config.contactTimelineWindow = simContactTimelineWindow;
-  config.reportGroundTruthContacts = simReportsGroundTruthContacts;
   config.visualizations = simVisualizations;
 
   robot::mujoco_sim_interface::MujocoSimInterface robotInterface(config, urdfFile);
@@ -162,6 +163,13 @@ int main(int argc, char** argv) {
                                              interface.getPinocchioInterface(), interface.mpcSettings().mpcDesiredFrequency_,
                                              humanoidVisualizer, pdGainsFile);
   mpcJointController.subscribePdGains(nodeHandle);
+  // Measured contact state of the controller, by name (task file `contactEstimator`; an unknown name is fatal and the
+  // message lists the available ones).
+  {
+    robot::model::ContactEstimatorRegistry contactEstimators;
+    robot::mujoco_sim_interface::registerCheaterSimContactEstimator(contactEstimators, robotInterface);
+    mpcJointController.setContactEstimator(contactEstimators.create(contactEstimatorName));
+  }
   fsmBridge.subscribeJointTargets(nodeHandle);
   bool enableTelemetry = true;
   std::vector<std::string> telemetryFrames;

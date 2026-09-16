@@ -357,16 +357,29 @@ used throughout the reference manager for this reason.
 
 #### 2.8.1 Phase resetting on measured contact events (`phase_resetting`)
 
-The measured contact flags reach the MPC as the observation mode (`RobotState::getContactFlags()` in the MRT controller,
-MuJoCo contact sensors in simulation) and are compared with the schedule at the start of every solve. Per foot the
+The measured contact flags reach the MPC as the observation mode. The MRT joint controller asks its contact estimator
+(`robot_model/ContactEstimator.h`) once per control cycle; the answer is the observation mode and, in the same cycle,
+the gate of the inverse dynamics: the feedforward torques project only the planned contact wrenches of the feet that are
+measured in contact (`gateContactWrenchesByMeasuredContacts`), since a foot in the air cannot transmit a wrench whatever
+the executed plan expects there. The estimator is selected by name in the task file, `contactEstimator: <name>`, the
+way the costs and constraints of the formulation are: the `ContactEstimatorRegistry` resolves the name and rejects an
+unknown one listing the available names. `robot_state` hands back the flags of the `RobotState`, `always_in_contact`
+reports every point as touching (the executed schedule then is the measured contact state), and the MuJoCo simulator
+registers `cheater_sim`. A controller built without an estimator uses `robot_state`. In the centroidal simulator the
+name is hot-reloadable like the rest of the task file (the parameter updater hands it to the simulator loop, which
+swaps the estimator on the control thread); the GUI's Base Controller tab has a checkbox for it, `cheater_sim` on and
+`always_in_contact` off. The whole-body simulator reads the name at start-up only. The measured flags are compared
+with the schedule at the start of every solve. Per foot the
 manager keeps a small latch of the swing currently in flight (its lift-off, its nominal touch-down, and any re-timing
 applied so far).
 
-In the MuJoCo simulation those flags are `true` for every contact point unless `simReportsGroundTruthContacts: true` is
-set in the task file: the simulator then reports a contact point as touching when it carries more than
-`simContactForceThreshold` newtons of normal force against anything outside the robot. With the default, every swing
-reads as an early touch-down at its scuffing window, so phase resetting must not be enabled in simulation without it
-(the simulator logs a warning). The viewer's contact timeline (`b`, `contact_timeline` in `simVisualizations`) shows
+In the MuJoCo simulation `contactEstimator: cheater_sim` (the default when the key is absent) selects the
+`CheaterSimContactEstimator` (`mujoco_sim_interface/CheaterSimContactEstimator.h`), which reports a contact point as
+touching when the physics carries more than `simContactForceThreshold` newtons of normal force between it and anything
+outside the robot (a contact point without a resolvable MuJoCo body keeps reading as touching). With
+`always_in_contact` every swing reads as an early touch-down at its scuffing window, so phase resetting must not be
+enabled in simulation with it (the simulator logs a warning), and every planned contact wrench reaches the inverse
+dynamics as it historically did. The viewer's contact timeline (`b`, `contact_timeline` in `simVisualizations`) shows
 the contact state the executed policy plans against that ground truth, which is the quickest way to see early or late
 touch-downs and foot scuffing.
 

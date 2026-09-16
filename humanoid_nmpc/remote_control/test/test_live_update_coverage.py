@@ -159,6 +159,32 @@ class TestLiveUpdateCoverage(unittest.TestCase):
         return actual
 
     # ══════════════════════════════════════════════════════════════
+    #  0. Selections by name and checkboxes (string and bool values)
+    # ══════════════════════════════════════════════════════════════
+    def test_contact_estimator_name_roundtrip(self):
+        """The contact estimator is selected by name; the checkbox writes the name verbatim, keeping the comment."""
+        self.assertEqual(self.original_data["contactEstimator"], "cheater_sim")
+        self.assertEqual(
+            self._roundtrip("contactEstimator", "always_in_contact"),
+            "always_in_contact",
+        )
+        result_lines = _update_single_key(
+            list(self.lines), ["contactEstimator"], "always_in_contact"
+        )
+        changed = [l for l in result_lines if l.startswith("contactEstimator:")]
+        self.assertEqual(len(changed), 1)
+        self.assertTrue(changed[0].startswith("contactEstimator: always_in_contact"))
+        # The rest of the file, including the LINT directives around the key, is untouched.
+        self.assertEqual(
+            [l for l in result_lines if not l.startswith("contactEstimator:")],
+            [l for l in self.lines if not l.startswith("contactEstimator:")],
+        )
+
+    def test_boolean_roundtrip(self):
+        self.assertEqual(self._roundtrip("useContactPlanning", False), False)
+        self.assertEqual(self._roundtrip("useContactPlanning", True), True)
+
+    # ══════════════════════════════════════════════════════════════
     #  1. Q matrix: scaling + 36 diagonal entries
     # ══════════════════════════════════════════════════════════════
     def test_q_scaling_roundtrip(self):

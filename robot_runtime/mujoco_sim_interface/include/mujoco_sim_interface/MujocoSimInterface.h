@@ -70,16 +70,15 @@ struct MujocoSimConfig {
   double gantryHeight{0.0};
 
   // Contact points of the controller, in its order (URDF frame or link names). They drive the ground-truth contact
-  // detection behind the viewer's contact timeline and, with reportGroundTruthContacts, the contact flags of the
-  // RobotState handed to the controller.
+  // detection behind the viewer's contact timeline, the contact flags of the RobotState handed to the controller and
+  // the CheaterSimContactEstimator.
   std::vector<std::string> contactFrameNames;
   // Joint carrying each contact frame (same order, may be shorter or hold empty strings). A contact frame that the
   // controller adds to its own kinematic model does not exist in the URDF or the MuJoCo scene; the MuJoCo body driven
   // by that joint is the contact body then.
   std::vector<std::string> contactParentJointNames;
-  double contactForceThreshold{5.0};      // [N] normal force above which a contact point counts as touching
-  double contactTimelineWindow{5.0};      // [s] sliding window of the contact timeline overlay
-  bool reportGroundTruthContacts{false};  // false: every contact point is reported as touching (historical behaviour)
+  double contactForceThreshold{5.0};  // [N] normal force above which a contact point counts as touching
+  double contactTimelineWindow{5.0};  // [s] sliding window of the contact timeline overlay
 
   // Contact patch of every contact point (same order) in its contact frame, drawn by the viewer at the target contact
   // pose the controller reports through setTargetContactPatches (MujocoContactPatch.h). A contact point without an

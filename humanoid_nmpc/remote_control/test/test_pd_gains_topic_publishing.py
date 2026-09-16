@@ -327,12 +327,18 @@ class TestPdGainsTopicPublishing(unittest.TestCase):
             root.destroy()
 
     def test_build_yaml_returns_empty_without_file(self):
-        """_build_yaml_with_slider_values should return '' if no pd_gains_file."""
+        """_build_yaml_with_slider_values should return '' if no pd_gains_file.
+
+        Without a file the tab falls back to the first robot preset, a path relative to the repository root, so the
+        test runs in an empty working directory where no preset can be found (its outcome must not depend on where
+        pytest is launched from)."""
         import tkinter as tk
         from remote_control.tk_app.joint_pd_tab import JointPdGainsTab
 
         root = tk.Tk()
         root.withdraw()
+        previous_cwd = os.getcwd()
+        os.chdir(self.tmpdir)
         try:
             tab = JointPdGainsTab(
                 root,
@@ -340,11 +346,15 @@ class TestPdGainsTopicPublishing(unittest.TestCase):
                 enable_online_tuning=True,
                 param_publisher=self.mock_publisher,
             )
+            self.assertIsNone(
+                tab.pd_gains_file, "no file and no reachable preset: nothing loaded"
+            )
             result = tab._build_yaml_with_slider_values()
             self.assertEqual(
                 result, "", "Should return empty string with no pd_gains_file"
             )
         finally:
+            os.chdir(previous_cwd)
             root.destroy()
 
     # ──────────────────────────────────────────────────────────

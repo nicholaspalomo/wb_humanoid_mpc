@@ -25,6 +25,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import unittest
 import numpy as np
+import yaml
 from humanoid_nmpc.remote_control.remote_control.humanoid_finite_state_machine import (
     ControlMode,
     HumanoidFSM,
@@ -183,10 +184,14 @@ class TestHumanoidFSM(unittest.TestCase):
         self.assertIsNotNone(atlas_cfg["controller_path"])
         self.assertEqual(len(atlas_cfg["kp_vector"]), len(atlas_cfg["joint_names"]))
         self.assertEqual(len(atlas_cfg["kd_vector"]), len(atlas_cfg["joint_names"]))
-        # Atlas knee gain from joint_pd_gains.yaml is 3500.0 / 140.0
+        # The knee gains are those of the joint_gains block of joint_pd_gains.yaml (the file the config resolved), so
+        # the test follows the tuned values instead of pinning them.
+        with open(atlas_cfg["controller_path"], "r", encoding="utf-8") as f:
+            knee_gains = yaml.safe_load(f)["joint_gains"]["r_leg_kny"]
         kny_idx = atlas_cfg["joint_names"].index("r_leg_kny")
-        self.assertEqual(atlas_cfg["kp_vector"][kny_idx], 3500.0)
-        self.assertEqual(atlas_cfg["kd_vector"][kny_idx], 140.0)
+        self.assertEqual(atlas_cfg["kp_vector"][kny_idx], float(knee_gains["kp"]))
+        self.assertEqual(atlas_cfg["kd_vector"][kny_idx], float(knee_gains["kd"]))
+        self.assertGreater(atlas_cfg["kp_vector"][kny_idx], 0.0)
 
     def test_safety_damped_pd_decay(self):
         """Verifies SAFETY mode decays PD gains smoothly and transitions to ZERO_TORQUE."""

@@ -7,6 +7,7 @@ package(default_visibility = ["//visibility:public"])
 cc_library(
     name = "robot_model",
     srcs = [
+        "src/ContactEstimatorRegistry.cpp",
         "src/RobotDescription.cpp",
         "src/RobotState.cpp",
     ],
@@ -36,5 +37,25 @@ cc_test(
         ":robot_model",
         "@googletest//:gtest_main",
         "@urdf",
+    ],
+)
+
+cc_test(
+    name = "test_contact_estimator",
+    size = "small",
+    srcs = ["test/testContactEstimator.cpp"],
+    deps = [
+        ":robot_model",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "test_contact_estimator_registry",
+    size = "small",
+    srcs = ["test/testContactEstimatorRegistry.cpp"],
+    deps = [
+        ":robot_model",
+        "@googletest//:gtest_main",
     ],
 )

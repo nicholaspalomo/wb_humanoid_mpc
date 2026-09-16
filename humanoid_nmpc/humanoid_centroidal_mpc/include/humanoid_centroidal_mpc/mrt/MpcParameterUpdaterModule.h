@@ -104,6 +104,14 @@ class MpcParameterUpdaterModule : public SolverSynchronizedModule {
     contactPlannerModulePtr_ = std::move(contactPlannerModule);
   }
 
+  /**
+   * The `contactEstimator` name of the last YAML applied since this was last called (task file or parameter topic), or
+   * nullopt when none carried the key. The estimator itself belongs to the MRT joint controller and is swapped on its
+   * control thread, so the simulator node polls this from its loop and resolves the name through its
+   * ContactEstimatorRegistry. Thread-safe.
+   */
+  std::optional<std::string> takeContactEstimatorUpdate();
+
   void preSolverRun(scalar_t initTime,
                     scalar_t finalTime,
                     const vector_t& currentState,
@@ -121,6 +129,9 @@ class MpcParameterUpdaterModule : public SolverSynchronizedModule {
 
   /** Applies the `contact_planning` block of a YAML file to the contact planner, if both exist. */
   void applyContactPlanningUpdates(const std::string& yamlFile);
+
+  /** Records the `contactEstimator` key of a YAML file for takeContactEstimatorUpdate(), if the file has one. */
+  void recordContactEstimatorUpdate(const std::string& yamlFile);
 
   /** ROS topic callback — stores the incoming YAML string for the solver thread. */
   void topicCallback(const std_msgs::msg::String::SharedPtr msg);
@@ -145,6 +156,10 @@ class MpcParameterUpdaterModule : public SolverSynchronizedModule {
   std::filesystem::file_time_type taskFileLastWriteTime_;
   std::filesystem::file_time_type contactPlanningFileLastWriteTime_;
   size_t checkCounter_{0};
+
+  // Contact estimator selection (takeContactEstimatorUpdate)
+  std::mutex contactEstimatorMutex_;
+  std::optional<std::string> pendingContactEstimator_;
 
   // ROS topic state
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr subscription_;

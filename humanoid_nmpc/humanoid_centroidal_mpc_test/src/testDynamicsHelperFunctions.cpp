@@ -103,6 +103,28 @@ TEST(TestDynamicsHelperFunctions, computeContactCoPStateAwareOverloadMatchesInpu
   }
 }
 
+TEST(TestDynamicsHelperFunctions, gateContactWrenchesByMeasuredContactsDropsTheWrenchOfAFootNotTouching) {
+  const vector6_t left = (vector6_t() << 1, 2, 300, 4, 5, 6).finished();
+  const vector6_t right = (vector6_t() << -1, -2, 400, -4, -5, -6).finished();
+  const std::array<vector6_t, 2> planned{left, right};
+
+  // Both feet measured in contact: the planned wrenches pass through unchanged.
+  const auto both = gateContactWrenchesByMeasuredContacts(planned, {true, true});
+  EXPECT_TRUE(both[0].isApprox(left));
+  EXPECT_TRUE(both[1].isApprox(right));
+
+  // A foot that is not touching cannot transmit its planned wrench, whatever the plan expects.
+  const auto leftOnly = gateContactWrenchesByMeasuredContacts(planned, {true, false});
+  EXPECT_TRUE(leftOnly[0].isApprox(left));
+  EXPECT_TRUE(leftOnly[1].isZero());
+  const auto rightOnly = gateContactWrenchesByMeasuredContacts(planned, {false, true});
+  EXPECT_TRUE(rightOnly[0].isZero());
+  EXPECT_TRUE(rightOnly[1].isApprox(right));
+  const auto none = gateContactWrenchesByMeasuredContacts(planned, {false, false});
+  EXPECT_TRUE(none[0].isZero());
+  EXPECT_TRUE(none[1].isZero());
+}
+
 TEST(TestDynamicsHelperFunctions, weightCompensatingInput) {
   CentroidalTestingModelInterface testingModelInterface = CentroidalTestingModelInterface();
 

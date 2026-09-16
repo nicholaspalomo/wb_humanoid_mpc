@@ -253,6 +253,41 @@ class TestMpcParamsAutoSaveRoundTrip(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
+    def test_mpc_params_tab_category_buttons_all_reachable_at_default_window_size(self):
+        """Every category button is laid out inside the GUI's default 960 px wide window; a single packed row needed
+        more than that and tkinter dropped the last buttons ("Contact Planning" was unreachable).
+        """
+        import tkinter as tk
+
+        from remote_control.tk_app.mpc_params_tab import MpcParamsTab
+
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
+        task_file = os.path.join(
+            repo_root,
+            "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml",
+        )
+        root = tk.Tk()
+        root.geometry("960x700")
+        try:
+            tab = MpcParamsTab(root, task_file=task_file, enable_online_tuning=False)
+            tab.pack(fill="both", expand=True)
+            root.update_idletasks()
+            root.update()
+            self.assertEqual(len(tab.category_buttons), len(tab.categories))
+            rows = set()
+            for btn in tab.category_buttons:
+                self.assertTrue(
+                    btn.winfo_ismapped(), f"{btn.cget('text')} is not laid out"
+                )
+                right_edge = btn.winfo_x() + btn.winfo_width()
+                self.assertLessEqual(right_edge, 960, f"{btn.cget('text')} is clipped")
+                rows.add(btn.grid_info()["row"])
+            self.assertGreaterEqual(
+                len(rows), 2, "at 960 px the categories need more than one row"
+            )
+        finally:
+            root.destroy()
+
     def test_slider_change_triggers_debounced_save(self):
         """Verify that _on_any_slider_change schedules a debounced publish."""
         import tkinter as tk

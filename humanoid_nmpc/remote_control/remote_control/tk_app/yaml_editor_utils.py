@@ -30,7 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 import os
 import re
 import shutil
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Union
 import yaml
 
 
@@ -44,11 +44,11 @@ def load_yaml_safe(file_path: str) -> Dict[str, Any]:
 
 def update_yaml_values_in_place(
     file_path: str,
-    key_value_updates: List[Tuple[List[str], float]],
+    key_value_updates: List[Tuple[List[str], Union[float, bool, str]]],
     create_backup: bool = True,
 ) -> bool:
     """
-    Updates numeric parameter values directly in a YAML file while preserving all
+    Updates parameter values (numbers, booleans or names) directly in a YAML file while preserving all
     comments, annotations, whitespace, and formatting.
 
     Args:
@@ -79,10 +79,28 @@ def update_yaml_values_in_place(
     return True
 
 
+def _format_yaml_scalar(new_val) -> str:
+    """The YAML text of a slider value (float), a checkbox (bool) or a selection by name (str)."""
+    if isinstance(new_val, bool):
+        return "true" if new_val else "false"
+    if isinstance(new_val, str):
+        return new_val
+    # Format new numeric value (ensuring scientific notation has a dot so YAML 1.1 parses as float)
+    val_str = f"{new_val:.6g}"
+    if ("e" in val_str or "E" in val_str) and "." not in val_str:
+        parts = re.split(r"([eE])", val_str, maxsplit=1)
+        val_str = parts[0] + ".0" + "".join(parts[1:])
+    return val_str
+
+
 def _update_single_key(
-    lines: List[str], key_path: List[str], new_val: float
+    lines: List[str], key_path: List[str], new_val: Union[float, bool, str]
 ) -> List[str]:
-    """Updates a single key specified by hierarchical path within lines."""
+    """Updates a single key specified by hierarchical path within lines.
+
+    The value is a float (a slider), a bool (a checkbox, written as true/false) or a string (a selection by name,
+    such as `contactEstimator: cheater_sim`, written verbatim).
+    """
     if not key_path:
         return lines
 
@@ -127,12 +145,7 @@ def _update_single_key(
                 if hash_idx != -1:
                     comment_part = "  " + after_colon[hash_idx:]
 
-                # Format new numeric value (ensuring scientific notation has a dot so YAML 1.1 parses as float)
-                val_str = f"{new_val:.6g}"
-                if ("e" in val_str or "E" in val_str) and "." not in val_str:
-                    parts = re.split(r"([eE])", val_str, maxsplit=1)
-                    val_str = parts[0] + ".0" + "".join(parts[1:])
-                new_line = prefix + val_str + comment_part + "\n"
+                new_line = prefix + _format_yaml_scalar(new_val) + comment_part + "\n"
                 new_lines.append(new_line)
                 updated = True
                 continue

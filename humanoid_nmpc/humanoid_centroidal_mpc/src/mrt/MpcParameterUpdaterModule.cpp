@@ -230,8 +230,32 @@ void MpcParameterUpdaterModule::topicCallback(const std_msgs::msg::String::Share
 /******************************************************************************************************/
 /******************************************************************************************************/
 
+std::optional<std::string> MpcParameterUpdaterModule::takeContactEstimatorUpdate() {
+  std::lock_guard<std::mutex> lock(contactEstimatorMutex_);
+  std::optional<std::string> update = std::move(pendingContactEstimator_);
+  pendingContactEstimator_.reset();
+  return update;
+}
+
+void MpcParameterUpdaterModule::recordContactEstimatorUpdate(const std::string& yamlFile) {
+  boost::property_tree::ptree pt;
+  try {
+    loadData::readPropertyTree(yamlFile, pt);
+  } catch (const std::exception& e) {
+    LOG(ERROR) << "[MpcParameterUpdaterModule] Could not parse " << yamlFile << " for contactEstimator: " << e.what();
+    return;
+  }
+  const boost::optional<std::string> name = pt.get_optional<std::string>("contactEstimator");
+  if (!name) return;
+  std::lock_guard<std::mutex> lock(contactEstimatorMutex_);
+  pendingContactEstimator_ = *name;
+}
+
 void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFile) {
   LOG(INFO) << "[MpcParameterUpdaterModule] Applying in-place parameter updates from " << yamlFile << "...";
+
+  // The contact estimator selection does not touch the solver; it is recorded even when there is no solver to update.
+  recordContactEstimatorUpdate(yamlFile);
 
   if (mpcPtr_ == nullptr) {
     LOG(ERROR) << "[MpcParameterUpdaterModule] mpcPtr_ is null.";

@@ -242,6 +242,7 @@ The joystick GUI (`base_velocity_controller_gui`) features a dark-themed tabbed 
    - Command planar velocities ($v_x, v_y, \omega_z$) via interactive virtual joysticks or physical Xbox gamepad.
    - Adjust root pelvis height and virtual gantry suspension.
    - Switch supervisory FSM modes (`ZERO_TORQUE`, `JOINT_PD`, `GRAVITY_COMP`, `WB_MPC`, `SAFETY`).
+   - Checkbox selecting the simulator's cheater contact estimator (task file `contactEstimator: cheater_sim` on, `always_in_contact` off), applied live through the parameter topic.
    - Instant-launch **PlotJuggler** pre-configured with telemetry stream tabs.
 
 2. **⚙️ Joint PD Gains Tuning (`joint_pd_gains.yaml`):**
@@ -253,7 +254,7 @@ The joystick GUI (`base_velocity_controller_gui`) features a dark-themed tabbed 
 
 3. **📈 MPC Parameters Tuning (`task.yaml`):**
    - Real-time sliders and numeric entry for diagonal state cost weights ($Q$), control input penalties ($R$), and terminal state weights ($Q_{\text{final}}$).
-   - Category filtering across **State Costs (Q)**, **Input Costs (R)**, **Terminal Costs (Q_final)**, **Task-Space Costs** (foot/torso tracking), and **Constraints & Barriers** (friction cone $\mu$, relaxed barrier parameters).
+   - Category filtering across **State Costs (Q)**, **Input Costs (R)**, **Terminal Costs (Q_final)**, **Task-Space Costs** (foot/torso tracking), **Constraints & Barriers** (friction cone $\mu$, relaxed barrier parameters), **Solver & Horizon** and **Contact Planning** (the contact planner's parameter blocks).
    - In-place YAML updater preserving all section headers, inline documentation, and matrix layouts with `.bak` safety backups.
 
 ---

@@ -425,11 +425,11 @@ void MujocoSimInterface::updateThreadSafeRobotState() {
   quaternion_t quat_l_to_w = quaternion_t(mujocoData_->qpos[3], mujocoData_->qpos[4], mujocoData_->qpos[5], mujocoData_->qpos[6]);
   vector3_t pelvisAngularVelLocal = vector3_t(mujocoData_->qvel[3], mujocoData_->qvel[4], mujocoData_->qvel[5]);
 
-  // Contact flags handed to the controller. By default every contact point is reported as touching (the historical
-  // behaviour: the controller then treats its own schedule as the measured contact state). With
-  // reportGroundTruthContacts the physics decides, see updateGroundTruthContacts(); a contact point whose MuJoCo body
-  // could not be resolved keeps the default.
-  const bool useGroundTruth = config_.reportGroundTruthContacts && hasContactDetection();
+  // Contact flags handed to the controller: the ground truth of the physics, see updateGroundTruthContacts(). Without
+  // contact detection (no contact frame names configured), and for a contact point whose MuJoCo body could not be
+  // resolved, the point is reported as touching. Which contact state the controller actually uses is the choice of
+  // its contact estimator (task file `contactEstimator`).
+  const bool useGroundTruth = hasContactDetection();
   const uint32_t touching = groundTruthContactMask_.load() | unresolvedContactMask_;
 
   robotStateInternal_.setRootPositionInWorldFrame(vector3_t(mujocoData_->qpos[0], mujocoData_->qpos[1], mujocoData_->qpos[2]));
@@ -660,9 +660,9 @@ void MujocoSimInterface::setupContactDetection() {
   const double timestep = mujocoModel_->opt.timestep > 0.0 ? mujocoModel_->opt.timestep : config_.dt;
   contactTimelineSampleInterval_ = std::max<size_t>(1, static_cast<size_t>(std::lround(1.0 / (kTimelineSampleRateHz * timestep))));
   contactTimeline_ = ContactTimeline(config_.contactTimelineWindow);
-  if (config_.reportGroundTruthContacts) {
-    std::cerr << "[MujocoSimInterface] reporting ground-truth contacts to the controller (normal force > " << config_.contactForceThreshold
-              << " N)." << std::endl;
+  if (verbose_) {
+    std::cerr << "[MujocoSimInterface] ground-truth contact detection: normal force > " << config_.contactForceThreshold << " N."
+              << std::endl;
   }
 }
 

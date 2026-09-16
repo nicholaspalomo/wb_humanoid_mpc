@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <rclcpp/rclcpp.hpp>
 
 #include <humanoid_centroidal_mpc/CentroidalMpcInterface.h>
+#include <mujoco_sim_interface/CheaterSimContactEstimator.h>
 #include <mujoco_sim_interface/MujocoSimInterface.h>
 #include <ocs2_robotic_tools/common/RotationTransforms.h>
 #include "absl/log/check.h"
@@ -148,17 +149,17 @@ int main(int argc, char** argv) {
 
   SimFsmBridge fsmBridge(robotDescription, initState, nodeHandle);
 
-  // Ground-truth contact detection in MuJoCo. It drives the viewer's contact timeline ('b' toggles it) and, with
-  // simReportsGroundTruthContacts, the contact flags the MPC receives as its measured contact state; without it every
-  // contact point is reported as touching.
-  bool simReportsGroundTruthContacts = false;
+  // Ground-truth contact detection in MuJoCo: the viewer's contact timeline ('b' toggles it) and the cheater_sim contact
+  // estimator, the measured contact state of the controller (task file `contactEstimator`, a name of the
+  // ContactEstimatorRegistry: MPC observation mode and the contact wrenches the inverse dynamics projects).
+  std::string contactEstimatorName = robot::mujoco_sim_interface::kCheaterSimContactEstimatorName;
   double simContactForceThreshold = 5.0;
   double simContactTimelineWindow = 5.0;
   // Viewer visualizations by name (VisualizationRegistry.h); absent: the viewer's default set.
   std::vector<std::string> simVisualizations = robot::mujoco_sim_interface::defaultVisualizationNames();
   try {
     YAML::Node taskYaml = YAML::LoadFile(taskFile);
-    if (taskYaml["simReportsGroundTruthContacts"]) simReportsGroundTruthContacts = taskYaml["simReportsGroundTruthContacts"].as<bool>();
+    if (taskYaml["contactEstimator"]) contactEstimatorName = taskYaml["contactEstimator"].as<std::string>();
     if (taskYaml["simContactForceThreshold"]) simContactForceThreshold = taskYaml["simContactForceThreshold"].as<double>();
     if (taskYaml["simContactTimelineWindow"]) simContactTimelineWindow = taskYaml["simContactTimelineWindow"].as<double>();
     if (taskYaml["simVisualizations"]) simVisualizations = taskYaml["simVisualizations"].as<std::vector<std::string>>();
@@ -175,7 +176,6 @@ int main(int argc, char** argv) {
   config.contactParentJointNames = interface.modelSettings().contactParentJointNames;
   config.contactForceThreshold = simContactForceThreshold;
   config.contactTimelineWindow = simContactTimelineWindow;
-  config.reportGroundTruthContacts = simReportsGroundTruthContacts;
   config.visualizations = simVisualizations;
   // Target contact patches in the viewer ('g' toggles them): the contact rectangle of every foot, drawn at the pose the
   // contact planner wants the foot on the ground. Without a contact planner there is no target and nothing is drawn.
@@ -204,11 +204,12 @@ int main(int argc, char** argv) {
   robot::mujoco_sim_interface::MujocoSimInterface robotInterface(config, urdfFile);
 
   if (auto plannerModule = interface.getContactPlannerModulePtr();
-      plannerModule && plannerModule->getConfig().formulation.hasExecutionRule(term::kPhaseResetting) && !simReportsGroundTruthContacts) {
-    LOG(WARNING) << "contact_planning lists the phase_resetting execution rule but simReportsGroundTruthContacts is off: the simulator "
-                    "reports every "
-                    "contact point as touching, so phase resetting would end every swing at its scuffing window. Set "
-                    "simReportsGroundTruthContacts: true in "
+      plannerModule && plannerModule->getConfig().formulation.hasExecutionRule(term::kPhaseResetting) &&
+      robot::model::ContactEstimatorRegistry::canonicalName(contactEstimatorName) ==
+          robot::model::ContactEstimatorRegistry::kAlwaysInContact) {
+    LOG(WARNING) << "contact_planning lists the phase_resetting execution rule but the contact estimator is always_in_contact: every "
+                    "contact point reads as touching, so phase resetting would end every swing at its scuffing window. Select "
+                    "contactEstimator: cheater_sim in "
                  << taskFile << ".";
   }
 
@@ -219,6 +220,13 @@ int main(int argc, char** argv) {
       robotInterface.getRobotDescription(), interface.modelSettings(), interface.getMpcRobotModel(), mpc, interface.getPinocchioInterface(),
       interface.mpcSettings().mpcDesiredFrequency_, humanoidVisualizer, pdGainsFile, &interface.getEffectiveMpcRobotModel());
   mpcJointController.subscribePdGains(nodeHandle);
+  // Measured contact state of the controller, by name (task file `contactEstimator`; an unknown name is fatal at start-up
+  // and the message lists the available ones). The name is hot-reloadable through the parameter updater (GUI checkbox,
+  // task file edit): the loop below swaps the estimator on the control thread, the only thread that uses it.
+  robot::model::ContactEstimatorRegistry contactEstimators;
+  robot::mujoco_sim_interface::registerCheaterSimContactEstimator(contactEstimators, robotInterface);
+  mpcJointController.setContactEstimator(contactEstimators.create(contactEstimatorName));
+  contactEstimatorName = robot::model::ContactEstimatorRegistry::canonicalName(contactEstimatorName);
   fsmBridge.subscribeJointTargets(nodeHandle);
 
   // Read gravity-comp feedforward fallback flag from task.yaml
@@ -381,6 +389,21 @@ int main(int argc, char** argv) {
     }
 
     rclcpp::spin_some(nodeHandle);
+
+    // Contact estimator selected through the parameter updater since the last cycle.
+    if (const std::optional<std::string> requested = mpcParameterUpdater->takeContactEstimatorUpdate()) {
+      const std::string canonical = robot::model::ContactEstimatorRegistry::canonicalName(*requested);
+      if (canonical != contactEstimatorName) {
+        if (contactEstimators.has(canonical)) {
+          mpcJointController.setContactEstimator(contactEstimators.create(canonical));
+          contactEstimatorName = canonical;
+        } else {
+          LOG_EVERY_N(ERROR, 100) << "Unknown contactEstimator '" << *requested << "' in the parameter update; keeping '"
+                                  << contactEstimatorName << "'. Available: " << contactEstimators.availableNames() << ".";
+        }
+      }
+    }
+
     bool gantryBefore = robotInterface.isGantryLocked();
     fsmBridge.processCommands(currentModeName, robotInterface);
     bool gantryAfter = robotInterface.isGantryLocked();
