@@ -170,6 +170,19 @@ int main(int argc, char** argv) {
     robot::mujoco_sim_interface::registerCheaterSimContactEstimator(contactEstimators, robotInterface);
     mpcJointController.setContactEstimator(contactEstimators.create(contactEstimatorName));
   }
+  try {
+    YAML::Node taskYaml = YAML::LoadFile(taskFile);
+    // Touch-down shaping of the planned contact wrenches in the inverse dynamics (contact_wrench_gate, default: instant).
+    if (taskYaml["contact_wrench_gate"]) {
+      ContactWrenchGate::Config gate;
+      const YAML::Node block = taskYaml["contact_wrench_gate"];
+      if (block["debounceTime"]) gate.debounceTime = block["debounceTime"].as<double>();
+      if (block["rampTime"]) gate.rampTime = block["rampTime"].as<double>();
+      mpcJointController.setContactWrenchGateConfig(gate);
+    }
+  } catch (const std::exception& e) {
+    LOG(WARNING) << "Failed to read the controller settings from " << taskFile << ": " << e.what();
+  }
   fsmBridge.subscribeJointTargets(nodeHandle);
   bool enableTelemetry = true;
   std::vector<std::string> telemetryFrames;

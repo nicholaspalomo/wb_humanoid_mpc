@@ -77,7 +77,8 @@ const std::vector<std::string>& knownTermNames(TermKind kind) {
   static const std::vector<std::string> costs{term::kRegularization,    term::kPreviousFootholdConsistency, term::kVelocityTracking,
                                               term::kStepWidth,         term::kHeadingRateTracking,         term::kHeadingTracking,
                                               term::kFootYawTracking,   term::kYawTorqueRegularization,     term::kFootYawRegularization,
-                                              term::kZmpRegularization, term::kFootholdRegularization,      term::kTerminalDcm};
+                                              term::kZmpRegularization, term::kFootholdRegularization,      term::kStepLength,
+                                              term::kTerminalDcm};
   static const std::vector<std::string> soft{term::kZmpSupportRegion, term::kReachability, term::kFootSeparation, term::kHipYawRange};
   static const std::vector<std::string> hard{term::kNoFlight, term::kFootMotionInSwingOnly, term::kYawTorqueBudget,
                                              term::kFootYawPinnedInContact};

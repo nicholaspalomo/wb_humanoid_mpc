@@ -243,7 +243,16 @@ int main(int argc, char** argv) {
       mpcJointController.setMpcEntryBlendTime(taskYaml["mpcEntryBlendTime"].as<double>());
       LOG(INFO) << "WB_MPC entry blend time: " << mpcJointController.getMpcEntryBlendTime() << " s (mpcEntryBlendTime).";
     }
-  } catch (...) {
+    // Touch-down shaping of the planned contact wrenches in the inverse dynamics (contact_wrench_gate, default: instant).
+    if (taskYaml["contact_wrench_gate"]) {
+      ContactWrenchGate::Config gate;
+      const YAML::Node block = taskYaml["contact_wrench_gate"];
+      if (block["debounceTime"]) gate.debounceTime = block["debounceTime"].as<double>();
+      if (block["rampTime"]) gate.rampTime = block["rampTime"].as<double>();
+      mpcJointController.setContactWrenchGateConfig(gate);
+    }
+  } catch (const std::exception& e) {
+    LOG(WARNING) << "Failed to read the controller settings from " << taskFile << ": " << e.what();
   }
 
   bool enableTelemetry = true;
@@ -389,6 +398,14 @@ int main(int argc, char** argv) {
     }
 
     rclcpp::spin_some(nodeHandle);
+
+    // Touch-down shaping of the contact wrenches, hot-reloaded through the parameter updater.
+    if (const std::optional<ContactWrenchGate::Config> gate = mpcParameterUpdater->takeContactWrenchGateUpdate()) {
+      const ContactWrenchGate::Config& current = mpcJointController.getContactWrenchGate().getConfig();
+      if (gate->debounceTime != current.debounceTime || gate->rampTime != current.rampTime) {
+        mpcJointController.setContactWrenchGateConfig(*gate);
+      }
+    }
 
     // Contact estimator selected through the parameter updater since the last cycle.
     if (const std::optional<std::string> requested = mpcParameterUpdater->takeContactEstimatorUpdate()) {

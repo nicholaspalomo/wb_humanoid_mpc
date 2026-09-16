@@ -24,6 +24,9 @@ contact_planning:
     runInBackgroundThread: true       # false: plan synchronously in the MPC pre-solve hook
     planningFrequency: 10.0           # [Hz] upper bound on the background planning rate
     verbose: false
+    logPlans: true                    # one log line per plan: objective, relaxations, solve time, NODE-LIMIT / TIME-LIMIT when the
+                                      # search was cut short, CoM velocity at both ends of the horizon, and per foot the phase
+                                      # sequence with durations and every step (dx, dy). Set false once the gait is understood.
 
   shared:                             # parameters read by more than one term
     gravity: 9.81                     # [m/s^2]
@@ -71,6 +74,7 @@ contact_planning:
     - foot_yaw_regularization
     - zmp_regularization
     - foothold_regularization
+    - step_length                     # cyclic step length: a swinging foot advances what the commanded speed needs per node
     - terminal_dcm
   soft_constraints:
     - zmp_support_region
@@ -130,8 +134,18 @@ contact_planning:
     weight: 0.1                       # ||zmp - p_com||^2 per node
   foothold_regularization:
     weight: 0.2                       # ||foot displacement||^2 per node
+  # The velocity tracking alone is indifferent between a few long steps and many short ones at the same average speed,
+  # and from rest it favours the short quick steps that accelerate the pendulum fastest. This term draws every swing to
+  # the displacement a cyclic gait at the commanded speed needs, d_nom = v_cmd * dt * T_stride / T_swing at the nominal
+  # cadence of the gait limits (T_swing = minSwingDuration, T_stride = 2 (minSwingDuration + minDoubleSupportDuration)),
+  # and a standing foot to stay put. With the acceleration limit of reference.yaml (maxLinearAcceleration) the steps
+  # then lengthen progressively with the ramped command.
+  step_length:
+    weight: 20.0                      # ||dp_swing - d_nom||^2 per running node and foot
   terminal_dcm:
     weight: 50.0                      # ||DCM_N - zmp_(N-1)||^2 (terminal capturability)
+    trackCommandedVelocity: true      # true: the DCM is drawn to zmp + v_cmd / omega, i.e. the plan is asked to keep walking at
+                                      # the end of the horizon; false: onto the ZMP, a stop, which shortens the steps at speed
   zmp_support_region:
     halfWidthX: 0.08                  # [m] ZMP box half-width around a supporting foot along the heading (0 = from the footprint)
     halfWidthY: 0.04                  # [m] ZMP box half-width laterally

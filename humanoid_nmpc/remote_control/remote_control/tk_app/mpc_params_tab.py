@@ -1435,6 +1435,7 @@ class MpcParamsTab(ttk.Frame):
         "planner.numNodes",
         "planner.runInBackgroundThread",
         "planner.verbose",
+        "planner.logPlans",
         "heading_relinearisation.passes",
     }
     # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/contact_planning/ContactPlanningConfig.cpp:contact_planning_keys)
@@ -1603,6 +1604,36 @@ class MpcParamsTab(ttk.Frame):
                         )
                         row.pack(fill="x", padx=4, pady=1)
                         self.slider_rows[f"multiple_shooting.{k}"] = row
+
+        # Touch-down shaping of the contact wrenches in the inverse dynamics (contact_wrench_gate, hot-reloadable)
+        gate_cfg = self.raw_data.get("contact_wrench_gate", {})
+        if isinstance(gate_cfg, dict) and gate_cfg:
+            gate_frame = ttk.LabelFrame(
+                self.scroll_container.scrollable_content,
+                text="• Inverse Dynamics Contact Wrench Gate (after measured touch-down)",
+            )
+            gate_frame.pack(fill="x", padx=6, pady=4)
+            for k, label in [
+                (
+                    "debounceTime",
+                    "debounceTime (s)  contact must persist before the wrench applies",
+                ),
+                ("rampTime", "rampTime (s)  wrench rises from zero over this time"),
+            ]:
+                if k in gate_cfg:
+                    val = self._to_float(gate_cfg[k])
+                    if val is not None:
+                        row = SliderRow(
+                            gate_frame,
+                            name=label,
+                            initial_value=val,
+                            min_val=0.0,
+                            max_val=max(val * 3.0, 0.2),
+                            label_width=28,
+                            on_change=self._on_any_slider_change,
+                        )
+                        row.pack(fill="x", padx=4, pady=1)
+                        self.slider_rows[f"contact_wrench_gate.{k}"] = row
 
         # Model & Rollout Timing
         rollout_cfg = self.raw_data.get("rollout", {})

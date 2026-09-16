@@ -103,6 +103,7 @@ cc_library(
     name = "humanoid_common_mpc",
     srcs = [
         "src/contact/ContactCenterPoint.cpp",
+        "src/contact/ContactWrenchGate.cpp",
         "src/contact/ContactPolygon.cpp",
         "src/contact/ContactRectangle.cpp",
         "src/contact/ContactWrenchConeBasisMatrix.cpp",
@@ -219,6 +220,28 @@ cc_test(
     name = "testContactWrenchConeBasisMatrix",
     size = "small",
     srcs = ["test/testContactWrenchConeBasisMatrix.cpp"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "testContactWrenchGate",
+    size = "small",
+    srcs = ["test/testContactWrenchGate.cpp"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "testVelocityCommandRamp",
+    size = "small",
+    srcs = ["test/testVelocityCommandRamp.cpp"],
     copts = _COMMON_COPTS,
     deps = [
         ":humanoid_common_mpc",

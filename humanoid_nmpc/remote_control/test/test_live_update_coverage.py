@@ -180,6 +180,17 @@ class TestLiveUpdateCoverage(unittest.TestCase):
             [l for l in self.lines if not l.startswith("contactEstimator:")],
         )
 
+    def test_contact_wrench_gate_roundtrip(self):
+        for slider_key, new_val in [
+            ("contact_wrench_gate.debounceTime", 0.015),
+            ("contact_wrench_gate.rampTime", 0.045),
+        ]:
+            actual = self._roundtrip(slider_key, new_val)
+            self.assertIsNotNone(actual, f"{slider_key} not found")
+            self.assertAlmostEqual(
+                actual, new_val, places=4, msg=f"{slider_key} roundtrip failed"
+            )
+
     def test_boolean_roundtrip(self):
         self.assertEqual(self._roundtrip("useContactPlanning", False), False)
         self.assertEqual(self._roundtrip("useContactPlanning", True), True)

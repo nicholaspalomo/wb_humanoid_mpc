@@ -292,6 +292,19 @@ under 0.1 s. With the default budget of 200 relaxations / 0.1 s the receding-hor
 
 ### 2.7 Tuning notes
 
+* Cyclic gait at speed. `velocity_tracking` penalises the CoM velocity error at every node and is indifferent between a
+  few long steps and many short ones at the same average speed; from rest it favours the short, quick steps that
+  accelerate the pendulum fastest, and a step change in the command (the joypad filter is 5 Hz) makes every replan
+  re-decide the pattern. Three pieces make the gait progressive and cyclic instead: `maxLinearAcceleration` /
+  `maxAngularAcceleration` in `command/reference.yaml` rate-limit the velocity reference the MPC target and the planner
+  follow (0 = off); the `step_length` cost draws every swing to the displacement a cyclic gait at the commanded speed
+  needs, `d_nom = v_cmd dt T_stride / T_swing` at the nominal cadence of the gait limits, with the residual affine in
+  the foot displacement and the relaxed contact binary; and `terminal_dcm.trackCommandedVelocity` moves the terminal
+  target of the DCM from the last ZMP (a stop at the end of the horizon, which shortens the steps at speed) to
+  `zmp + v_cmd / omega`, a CoM over the foot that keeps walking. `planner.logPlans` prints one line per plan with the
+  phase durations, the step lengths and whether the branch-and-bound hit its node or time limit, which is the first
+  thing to check when steps come out irregular: a truncated search hands out a different near-optimal plan each time.
+
 * `dt`/`numNodes`: the horizon must cover `mpc.timeHorizon`; coarser nodes make the search cheaper but quantise the
   switching times.
 * `commitTime`: at least the planner latency (solve time plus one planning period) plus the time the NMPC needs to
@@ -369,7 +382,14 @@ registers `cheater_sim`. A controller built without an estimator uses `robot_sta
 name is hot-reloadable like the rest of the task file (the parameter updater hands it to the simulator loop, which
 swaps the estimator on the control thread); the GUI's Base Controller tab has a checkbox for it, `cheater_sim` on and
 `always_in_contact` off. The whole-body simulator reads the name at start-up only. The measured flags are compared
-with the schedule at the start of every solve. Per foot the
+with the schedule at the start of every solve.
+
+The gate itself can shape the load onset (`ContactWrenchGate`, task file block `contact_wrench_gate`, sliders under
+"Solver & Horizon"): `debounceTime` withholds a foot's planned wrench until its measured contact has persisted that
+long, a bounce across the detection threshold restarting it, and `rampTime` then raises the wrench linearly from zero
+to the planned value. Both default to zero, the instantaneous gate, in which the full planned wrench is projected
+from the first cycle a heel or toe strike trips the contact detection. Lift-off is never shaped. The shaping acts only
+on the feedforward torques; the MPC observation mode still switches at the first measured contact. Per foot the
 manager keeps a small latch of the swing currently in flight (its lift-off, its nominal touch-down, and any re-timing
 applied so far).
 
@@ -609,10 +629,10 @@ The block of `contact_planning.yaml` mirrors that structure:
 
 | Key | What it holds |
 | --- | --- |
-| `planner` | properties of the planner itself: grid (`dt`, `numNodes`), `commitTime`, solver budget, threading |
+| `planner` | properties of the planner itself: grid (`dt`, `numNodes`), `commitTime`, solver budget, threading, `logPlans` (one line per plan: search statistics, phase durations, step lengths) |
 | `shared` | parameters read by more than one term: `gravity`, `comHeight`, `bigM`, the default `slack_penalty` of the soft constraints, the `gait_limits` |
 | `dynamics` | model blocks, in the order that fixes the variable layout: `lip_com`, `foothold_integrator` (mandatory, always first), `heading_double_integrator` |
-| `costs` | in the accumulation order of the stage matrices: `regularization`, `previous_foothold_consistency`, `velocity_tracking`, `step_width`, the heading costs, `zmp_regularization`, `foothold_regularization`, `terminal_dcm` |
+| `costs` | in the accumulation order of the stage matrices: `regularization`, `previous_foothold_consistency`, `velocity_tracking`, `step_width`, the heading costs, `zmp_regularization`, `foothold_regularization`, `step_length`, `terminal_dcm` |
 | `soft_constraints` | `zmp_support_region`, `reachability`, `foot_separation`, `hip_yaw_range`; each may carry a `slack` block that overrides the shared penalty |
 | `hard_constraints` | `no_flight`, `foot_motion_in_swing_only`, `yaw_torque_budget`, `foot_yaw_pinned_in_contact` |
 | `logic_rules` | propagation on the binaries: `phase_durations`, `no_flight`, `minimum_double_support`, `alternating_feet` |

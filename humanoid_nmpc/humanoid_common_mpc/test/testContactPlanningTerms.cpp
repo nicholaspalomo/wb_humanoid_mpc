@@ -25,12 +25,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <gtest/gtest.h>
 
+#include <cmath>
+
 #include <stdexcept>
 #include <string>
 
 #include "humanoid_common_mpc/contact_planning/ContactPlanningTermFactory.h"
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
 #include "humanoid_common_mpc/contact_planning/LipContactPlanner.h"
+#include "humanoid_common_mpc/contact_planning/cost/StepLengthCost.h"
+#include "humanoid_common_mpc/contact_planning/cost/TerminalDcmCost.h"
 #include "humanoid_common_mpc/contact_planning/cost/VelocityTrackingCost.h"
 #include "humanoid_common_mpc/contact_planning/execution/ExecutionContext.h"
 #include "humanoid_common_mpc/contact_planning/execution/ScheduleAdaptationPipeline.h"
@@ -147,6 +151,110 @@ TEST(ContactPlanningTerms, TermsAreAssembledInListOrderAndOnTheirNodeSets) {
   // The velocity tracking cost acts on the terminal node too: q_N carries -2 w v_cmd on the velocity entries.
   EXPECT_NEAR(qp.stages.back().q(LIP_VX), -2.0 * config.velocityTracking.weight * 0.4, 1e-12);
   EXPECT_NEAR(qp.stages.back().Q(LIP_CX, LIP_CX), config.regularization.state, 1e-15) << "only the regularisation touches the CoM";
+}
+
+// step_length: w ||dp - d_nom (1 - c)||^2 per foot and axis on the running nodes. The residual is affine in dp and the
+// relaxed binary c, so the stage carries the cross terms of the two: R(dp, dp) = 2w, R(dp, c) = 2w d, R(c, c) = 2w d^2,
+// r(dp) = -2w d, r(c) = -2w d^2 (0.5 u'Ru + r'u convention), summed over both axes for the c entries.
+TEST(ContactPlanningTerms, StepLengthCostTiesTheSwingDisplacementToTheCommandedSpeed) {
+  ContactPlanningConfig config = makeConfig();
+  config.formulation.costs = {term::kStepLength};
+  config.formulation.softConstraints = {};
+  config.formulation.hardConstraints = {};
+  config.stepLength.weight = 20.0;
+  config.validate();
+  LipContactPlanner planner(config);
+  const auto& cost = planner.getProblem().costs.get<StepLengthCost>(term::kStepLength);
+  EXPECT_EQ(cost.nodeSet(), NodeSet::RUNNING);
+  // T_stride / T_swing = 2 (0.3 + 0.1) / 0.3
+  EXPECT_NEAR(cost.strideToSwingRatio(), 8.0 / 3.0, 1e-12);
+  const vector2_t d = cost.nominalDisplacementPerNode(vector2_t(0.4, 0.0), 0.1);
+  EXPECT_NEAR(d.x(), 0.4 * 0.1 * 8.0 / 3.0, 1e-12);
+  EXPECT_NEAR(d.y(), 0.0, 1e-12);
+
+  const scalar_t w = config.stepLength.weight;
+  const OcpQpProblem qp = planner.buildProblem(makeWalkingInput());
+  const OcpQpStage& stage = qp.stages.front();
+  EXPECT_NEAR(stage.R(LIP_DLX, LIP_DLX), 2.0 * w, 1e-12);
+  EXPECT_NEAR(stage.R(LIP_DLY, LIP_DLY), 2.0 * w, 1e-12);
+  EXPECT_NEAR(stage.R(LIP_DLX, LIP_CL), 2.0 * w * d.x(), 1e-12);
+  EXPECT_NEAR(stage.R(LIP_CL, LIP_DLX), 2.0 * w * d.x(), 1e-12);
+  EXPECT_NEAR(stage.R(LIP_DLY, LIP_CL), 0.0, 1e-12) << "no lateral command, no lateral nominal";
+  EXPECT_NEAR(stage.R(LIP_CL, LIP_CL), 2.0 * w * d.squaredNorm(), 1e-12);
+  EXPECT_NEAR(stage.r(LIP_DLX), -2.0 * w * d.x(), 1e-12);
+  EXPECT_NEAR(stage.r(LIP_CL), -2.0 * w * d.squaredNorm(), 1e-12);
+  EXPECT_NEAR(stage.R(LIP_DRX, LIP_CR), 2.0 * w * d.x(), 1e-12) << "both feet";
+  EXPECT_NEAR(stage.R(LIP_DLX, LIP_CR), 0.0, 1e-12) << "no coupling across feet";
+  EXPECT_TRUE(stage.Q.isZero()) << "the term touches no state";
+  EXPECT_EQ(qp.stages.back().numInputs(), 0) << "not on the terminal node";
+
+  // Standing still: the nominal is zero and the term is a plain regulariser of the foot displacement.
+  const OcpQpProblem standing = planner.buildProblem(makeStandingInput());
+  EXPECT_NEAR(standing.stages.front().R(LIP_DLX, LIP_DLX), 2.0 * w, 1e-12);
+  EXPECT_NEAR(standing.stages.front().R(LIP_DLX, LIP_CL), 0.0, 1e-12);
+  EXPECT_NEAR(standing.stages.front().r(LIP_CL), 0.0, 1e-12);
+  EXPECT_NE(cost.describe().find("d_nom = v_cmd dt T_stride / T_swing"), std::string::npos);
+}
+
+// terminal_dcm.trackCommandedVelocity moves the target of the DCM from the last ZMP (rest) to zmp + v_cmd / omega (a CoM
+// over the foot that keeps moving at the commanded velocity): only the linear term of the last running node changes.
+TEST(ContactPlanningTerms, TerminalDcmCanTrackTheCommandedVelocityInsteadOfComingToRest) {
+  ContactPlanningConfig rest = makeConfig();
+  rest.formulation.costs = {term::kTerminalDcm};
+  rest.formulation.softConstraints = {};
+  rest.formulation.hardConstraints = {};
+  rest.validate();
+  ContactPlanningConfig walking = rest;
+  walking.terminalDcm.trackCommandedVelocity = true;
+  LipContactPlanner restPlanner(rest);
+  LipContactPlanner walkingPlanner(walking);
+  EXPECT_FALSE(restPlanner.getProblem().costs.get<TerminalDcmCost>(term::kTerminalDcm).tracksCommandedVelocity());
+  EXPECT_TRUE(walkingPlanner.getProblem().costs.get<TerminalDcmCost>(term::kTerminalDcm).tracksCommandedVelocity());
+  EXPECT_NE(walkingPlanner.getProblem().costs.get(term::kTerminalDcm).describe().find("v_cmd / omega"), std::string::npos);
+
+  const ContactPlannerInput input = makeWalkingInput();  // v_cmd = (0.4, 0)
+  const OcpQpProblem qpRest = restPlanner.buildProblem(input);
+  const OcpQpProblem qpWalking = walkingPlanner.buildProblem(input);
+  const size_t last = static_cast<size_t>(rest.planner.numNodes - 1);
+  const scalar_t omega = std::sqrt(rest.shared.gravity / rest.shared.comHeight);
+  const scalar_t gain = std::exp(2.0 * omega * rest.planner.dt);
+  const scalar_t w = rest.terminalDcm.weight;
+  // Quadratic terms are identical, the linear ones differ by 2 w gain offset per coefficient, offset = -v_cmd / omega.
+  EXPECT_TRUE(qpWalking.stages[last].Q.isApprox(qpRest.stages[last].Q));
+  EXPECT_TRUE(qpWalking.stages[last].R.isApprox(qpRest.stages[last].R));
+  EXPECT_TRUE(qpRest.stages[last].q.isZero());
+  EXPECT_NEAR(qpWalking.stages[last].q(LIP_CX), -2.0 * w * gain * 0.4 / omega, 1e-9);
+  EXPECT_NEAR(qpWalking.stages[last].q(LIP_VX), -2.0 * w * gain * 0.4 / omega / omega, 1e-9);
+  EXPECT_NEAR(qpWalking.stages[last].r(LIP_ZX), 2.0 * w * gain * 0.4 / omega, 1e-9);
+  EXPECT_NEAR(qpWalking.stages[last].q(LIP_CY), 0.0, 1e-12);
+  for (size_t k = 0; k + 1 < last; ++k) EXPECT_TRUE(qpWalking.stages[k].q.isZero()) << "only the last running node";
+}
+
+// planner.logPlans prints one line per plan: search statistics, phase sequence with durations, step lengths.
+TEST(ContactPlanningTerms, APlanDescribesItsPhasesAndSteps) {
+  ContactPlan plan;
+  plan.valid = true;
+  plan.startTime = 2.0;
+  plan.dt = 0.1;
+  plan.objective = 1.5;
+  plan.numBranchAndBoundNodes = 7;
+  plan.solveTime = 0.012;
+  plan.optimal = true;
+  // Left: contact 0.2 s, swing 0.3 s (a 0.4 m step forward), contact 0.1 s. Right: contact throughout.
+  plan.contacts = {{true, true}, {true, true}, {false, true}, {false, true}, {false, true}, {true, true}};
+  plan.footholds.assign(7, {vector2_t(0.0, 0.1), vector2_t(0.0, -0.1)});
+  for (size_t k = 5; k < 7; ++k) plan.footholds[k][0] = vector2_t(0.4, 0.1);
+  plan.comVelocity = {vector2_t(0.3, 0.0), vector2_t(0.5, 0.0)};
+  const std::string line = plan.describe();
+  EXPECT_NE(line.find("plan t=2.000 valid J=1.500 relaxations=7 solve=12.000ms optimal"), std::string::npos) << line;
+  EXPECT_NE(line.find("v0=[0.300 0.000] vN=[0.500 0.000]"), std::string::npos) << line;
+  EXPECT_NE(line.find("| L: C0.200 S0.300(0.400,0.000) C0.100"), std::string::npos) << line;
+  EXPECT_NE(line.find("| R: C0.600"), std::string::npos) << line;
+  plan.valid = false;
+  plan.timeLimitHit = true;
+  plan.optimal = false;
+  EXPECT_NE(plan.describe().find("INVALID"), std::string::npos);
+  EXPECT_NE(plan.describe().find("TIME-LIMIT"), std::string::npos);
 }
 
 /*============================================ required blocks and names ==================================*/

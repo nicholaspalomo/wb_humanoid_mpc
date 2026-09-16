@@ -71,7 +71,7 @@ void ContactPlanningConfig::validate() const {
   if (planConsistency.cost < 0.0 || previousFootholdConsistency.weight < 0.0) fail("plan consistency terms must be non-negative");
   if (contactSwitch.cost < 0.0) fail("contact_switch.cost must be non-negative");
   if (velocityTracking.weight < 0.0 || stepWidth.weight < 0.0 || zmpRegularization.weight < 0.0 || footholdRegularization.weight < 0.0 ||
-      terminalDcm.weight < 0.0) {
+      stepLength.weight < 0.0 || terminalDcm.weight < 0.0) {
     fail("cost weights must be non-negative");
   }
   if (p.maxBranchAndBoundNodes < 1 || p.maxSolveTime <= 0.0 || p.maxQpIterations < 1) fail("invalid solver limits");
@@ -234,6 +234,7 @@ void loadStructured(const ptree& pt, const ptree& block, const std::string& pref
   load(p.runInBackgroundThread, "planner.runInBackgroundThread");
   load(p.planningFrequency, "planner.planningFrequency");
   load(p.verbose, "planner.verbose");
+  load(p.logPlans, "planner.logPlans");
 
   SharedParameters& s = config.shared;
   load(s.gravity, "shared.gravity");
@@ -275,7 +276,9 @@ void loadStructured(const ptree& pt, const ptree& block, const std::string& pref
   load(config.footYawRegularization.weight, std::string(term::kFootYawRegularization) + ".weight");
   load(config.zmpRegularization.weight, std::string(term::kZmpRegularization) + ".weight");
   load(config.footholdRegularization.weight, std::string(term::kFootholdRegularization) + ".weight");
+  load(config.stepLength.weight, std::string(term::kStepLength) + ".weight");
   load(config.terminalDcm.weight, std::string(term::kTerminalDcm) + ".weight");
+  load(config.terminalDcm.trackCommandedVelocity, std::string(term::kTerminalDcm) + ".trackCommandedVelocity");
   load(config.zmpSupportRegion.halfWidthX, std::string(term::kZmpSupportRegion) + ".halfWidthX");
   load(config.zmpSupportRegion.halfWidthY, std::string(term::kZmpSupportRegion) + ".halfWidthY");
   readSlack(pt, prefix + term::kZmpSupportRegion + ".", config.zmpSupportRegion.slack, verbose);

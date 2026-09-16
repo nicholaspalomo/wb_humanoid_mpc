@@ -54,6 +54,7 @@ inline constexpr const char* kYawTorqueRegularization = "yaw_torque_regularizati
 inline constexpr const char* kFootYawRegularization = "foot_yaw_regularization";
 inline constexpr const char* kZmpRegularization = "zmp_regularization";
 inline constexpr const char* kFootholdRegularization = "foothold_regularization";
+inline constexpr const char* kStepLength = "step_length";
 inline constexpr const char* kTerminalDcm = "terminal_dcm";
 // Soft constraints.
 inline constexpr const char* kZmpSupportRegion = "zmp_support_region";

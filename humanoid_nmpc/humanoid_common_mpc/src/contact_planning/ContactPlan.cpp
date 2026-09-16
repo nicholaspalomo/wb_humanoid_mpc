@@ -28,10 +28,43 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <cmath>
 
+#include <sstream>
+
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 
 namespace ocs2::humanoid {
+
+std::string ContactPlan::describe() const {
+  std::ostringstream out;
+  out.setf(std::ios::fixed);
+  out.precision(3);
+  out << "plan t=" << startTime << (valid ? " valid" : " INVALID") << " J=" << objective << " relaxations=" << numBranchAndBoundNodes
+      << " solve=" << solveTime * 1e3 << "ms" << (optimal ? " optimal" : "") << (nodeLimitHit ? " NODE-LIMIT" : "")
+      << (timeLimitHit ? " TIME-LIMIT" : "");
+  if (!comVelocity.empty()) {
+    out << " v0=[" << comVelocity.front().x() << " " << comVelocity.front().y() << "] vN=[" << comVelocity.back().x() << " "
+        << comVelocity.back().y() << "]";
+  }
+  const int N = numIntervals();
+  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    out << " | " << (foot == 0 ? "L" : "R") << ":";
+    int k = 0;
+    while (k < N) {
+      const bool inContact = contacts[static_cast<size_t>(k)][foot];
+      int end = k;
+      while (end < N && contacts[static_cast<size_t>(end)][foot] == inContact) ++end;
+      out << " " << (inContact ? "C" : "S") << dt * static_cast<scalar_t>(end - k);
+      // The step of a swing: the foothold at its touch-down node against the one at its lift-off node.
+      if (!inContact && static_cast<size_t>(end) < footholds.size() && static_cast<size_t>(k) < footholds.size()) {
+        const vector2_t step = footholds[static_cast<size_t>(end)][foot] - footholds[static_cast<size_t>(k)][foot];
+        out << "(" << step.x() << "," << step.y() << ")";
+      }
+      k = end;
+    }
+  }
+  return out.str();
+}
 
 int ContactPlan::intervalIndex(scalar_t time) const {
   if (contacts.empty()) return 0;

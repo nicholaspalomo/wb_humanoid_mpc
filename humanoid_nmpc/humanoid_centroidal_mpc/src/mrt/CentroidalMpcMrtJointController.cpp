@@ -260,6 +260,17 @@ void CentroidalMpcMrtJointController::updateMpcObservation(ocs2::SystemObservati
   }
   std::copy(measuredContacts.begin(), measuredContacts.end(), measuredContactFlags_.begin());
   mpcObservation.mode = stanceLeg2ModeNumber(measuredContactFlags_);
+  contactWrenchGate_.update(mpcObservation.time, measuredContactFlags_);
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+void CentroidalMpcMrtJointController::setContactWrenchGateConfig(const ContactWrenchGate::Config& config) {
+  contactWrenchGate_.setConfig(config);
+  LOG(INFO) << "[CentroidalMpcMrtJointController] contact wrench gate: debounceTime=" << config.debounceTime
+            << " s, rampTime=" << config.rampTime << " s.";
 }
 
 /******************************************************************************************************/
@@ -398,11 +409,10 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
     const vector_t& wrenchFrameState = mpcPolicyState.allFinite() ? mpcPolicyState : currentMpcObservation_.state;
     // The policy carries a wrench wherever its own schedule expects contact. Whether a foot can actually transmit it is
     // decided by the measured contact state of this cycle, not by the plan: the wrench of a foot that is not touching is
-    // dropped (gateContactWrenchesByMeasuredContacts).
+    // dropped, and after touch-down it is debounced and ramped in as configured (ContactWrenchGate).
     const std::array<vector6_t, 2> footWrenches =
-        gateContactWrenchesByMeasuredContacts({effectiveModelPtr_->getContactWrenchInWorldFrame(wrenchFrameState, mpcPolicyInput, 0),
-                                               effectiveModelPtr_->getContactWrenchInWorldFrame(wrenchFrameState, mpcPolicyInput, 1)},
-                                              measuredContactFlags_);
+        contactWrenchGate_.apply({effectiveModelPtr_->getContactWrenchInWorldFrame(wrenchFrameState, mpcPolicyInput, 0),
+                                  effectiveModelPtr_->getContactWrenchInWorldFrame(wrenchFrameState, mpcPolicyInput, 1)});
 
     // Evaluate inverse dynamics using measured robot state for physical consistency
     vector_t q = effectiveModelPtr_->getGeneralizedCoordinates(currentMpcObservation_.state);

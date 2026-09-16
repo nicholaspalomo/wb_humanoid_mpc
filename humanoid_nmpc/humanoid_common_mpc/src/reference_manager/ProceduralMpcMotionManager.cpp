@@ -30,6 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 
+#include <stdexcept>
+
 #include <ocs2_core/misc/LoadData.h>
 
 #include <cmath>
@@ -55,8 +57,42 @@ ProceduralMpcMotionManager::ProceduralMpcMotionManager(const std::string& gaitFi
   loadData::loadCppDataType(referenceFile, "maxDisplacementVelocityY", maxDisplacementVelocityY_);
   loadData::loadCppDataType(referenceFile, "maxDeltaPelvisHeight", maxDeltaPelvisHeight_);
   loadData::loadCppDataType(referenceFile, "maxRotationVelocity", maxRotationVelocity_);
+  {
+    // Optional: absent keys keep the limits off (the historical behaviour, an unramped reference).
+    boost::property_tree::ptree pt;
+    loadData::readPropertyTree(referenceFile, pt);
+    setVelocityCommandAccelerationLimits(pt.get<scalar_t>("maxLinearAcceleration", 0.0), pt.get<scalar_t>("maxAngularAcceleration", 0.0));
+  }
 
   gaitMap_ = getGaitMap(gaitFile);
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+void ProceduralMpcMotionManager::setVelocityCommandAccelerationLimits(scalar_t maxLinearAcceleration, scalar_t maxAngularAcceleration) {
+  if (std::isnan(maxLinearAcceleration) || std::isnan(maxAngularAcceleration)) {
+    throw std::invalid_argument("[ProceduralMpcMotionManager] the velocity command acceleration limits must be numbers");
+  }
+  maxLinearAcceleration_ = maxLinearAcceleration;
+  maxAngularAcceleration_ = maxAngularAcceleration;
+}
+
+vector4_t ProceduralMpcMotionManager::rateLimitVelocityCommand(
+    const vector4_t& target, const vector4_t& current, scalar_t dt, scalar_t maxLinearAcceleration, scalar_t maxAngularAcceleration) {
+  vector4_t limited = target;
+  if (dt <= 0.0) return current;
+  if (maxLinearAcceleration > 0.0) {
+    const vector2_t delta = target.head<2>() - current.head<2>();
+    const scalar_t maxDelta = maxLinearAcceleration * dt;
+    limited.head<2>() = delta.norm() > maxDelta ? vector2_t(current.head<2>() + delta * (maxDelta / delta.norm())) : target.head<2>();
+  }
+  if (maxAngularAcceleration > 0.0) {
+    const scalar_t maxDelta = maxAngularAcceleration * dt;
+    limited(3) = current(3) + std::clamp(target(3) - current(3), -maxDelta, maxDelta);
+  }
+  return limited;
 }
 
 /******************************************************************************************************/
@@ -122,6 +158,17 @@ void ProceduralMpcMotionManager::preSolverRun(scalar_t initTime,
                                               const ReferenceManagerInterface& referenceManager) {
   WalkingVelocityCommand incommingVelCommand = getScaledWalkingVelocityCommand();
   vector4_t filteredVelCommand = velocityCommandFilter.getFilteredVector(incommingVelCommand.toVector());
+  // Acceleration limit on the reference (off by default). The first solve, and a solve after time ran backwards (a
+  // reset), starts the ramp at the filtered command itself.
+  if (!rampInitialised_ || initTime < lastRampTime_) {
+    rampedVelocityCommand_ = filteredVelCommand;
+    rampInitialised_ = true;
+  } else {
+    rampedVelocityCommand_ = rateLimitVelocityCommand(filteredVelCommand, rampedVelocityCommand_, initTime - lastRampTime_,
+                                                      maxLinearAcceleration_, maxAngularAcceleration_);
+  }
+  lastRampTime_ = initTime;
+  filteredVelCommand = rampedVelocityCommand_;
 
   // Update TargetTrajectories
   TargetTrajectories targetTrajectories = velocityTargetToTargetTrajectoriesFun_(filteredVelCommand, initTime, finalTime, initState);

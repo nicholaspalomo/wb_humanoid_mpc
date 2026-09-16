@@ -648,6 +648,8 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
             self.assertIn("mpc.timeHorizon", tab.slider_rows)
             self.assertIn("mpc.mpcDesiredFrequency", tab.slider_rows)
             self.assertIn("mpc.mrtDesiredFrequency", tab.slider_rows)
+            self.assertIn("contact_wrench_gate.debounceTime", tab.slider_rows)
+            self.assertIn("contact_wrench_gate.rampTime", tab.slider_rows)
             for k in [
                 "sqpIteration",
                 "dt",

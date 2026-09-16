@@ -217,6 +217,17 @@ void WBMpcMrtJointController::updateMpcObservation(ocs2::SystemObservation& mpcO
   }
   std::copy(measuredContacts.begin(), measuredContacts.end(), measuredContactFlags_.begin());
   mpcObservation.mode = stanceLeg2ModeNumber(measuredContactFlags_);
+  contactWrenchGate_.update(mpcObservation.time, measuredContactFlags_);
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+void WBMpcMrtJointController::setContactWrenchGateConfig(const ContactWrenchGate::Config& config) {
+  contactWrenchGate_.setConfig(config);
+  LOG(INFO) << "[WBMpcMrtJointController] contact wrench gate: debounceTime=" << config.debounceTime << " s, rampTime=" << config.rampTime
+            << " s.";
 }
 
 /******************************************************************************************************/
@@ -287,11 +298,11 @@ void WBMpcMrtJointController::computeJointControlAction(scalar_t time,
 
     // The policy carries a wrench wherever its own schedule expects contact. Whether a foot can actually transmit it is
     // decided by the measured contact state of this cycle, not by the plan: the wrench of a foot that is not touching is
-    // dropped (gateContactWrenchesByMeasuredContacts). World-frame wrenches for the LOCAL_WORLD_ALIGNED Jacobians.
+    // dropped, and after touch-down it is debounced and ramped in as configured (ContactWrenchGate). World-frame
+    // wrenches for the LOCAL_WORLD_ALIGNED Jacobians.
     const std::array<vector6_t, 2> footWrenches =
-        gateContactWrenchesByMeasuredContacts({mpcRobotModel_.getContactWrenchInWorldFrame(mpcPolicyState, mpcPolicyInput, 0),
-                                               mpcRobotModel_.getContactWrenchInWorldFrame(mpcPolicyState, mpcPolicyInput, 1)},
-                                              measuredContactFlags_);
+        contactWrenchGate_.apply({mpcRobotModel_.getContactWrenchInWorldFrame(mpcPolicyState, mpcPolicyInput, 0),
+                                  mpcRobotModel_.getContactWrenchInWorldFrame(mpcPolicyState, mpcPolicyInput, 1)});
     vector_t mpcJointTorques = computeJointTorques<scalar_t>(
         mpcRobotModel_.getGeneralizedCoordinates(mpcPolicyState), mpcRobotModel_.getGeneralizedVelocities(mpcPolicyState, mpcPolicyInput),
         mpcRobotModel_.getJointAccelerations(mpcPolicyInput), footWrenches, pinocchioInterface_);

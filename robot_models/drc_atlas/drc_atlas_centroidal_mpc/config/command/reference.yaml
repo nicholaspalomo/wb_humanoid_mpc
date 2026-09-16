@@ -5,6 +5,11 @@ maxDisplacementVelocityX: 1.2
 maxDisplacementVelocityY: 0.8
 maxDeltaPelvisHeight: 0.4
 maxRotationVelocity: 1.0
+# Acceleration limits of the velocity reference the MPC target and the contact planner follow (0 = off, an unramped
+# reference). A stick jump becomes a ramp, so the planner lengthens the steps progressively instead of answering a step
+# change in the command with short quick steps.
+maxLinearAcceleration: 1.0    # [m/s^2] 0 to 1.6 m/s in 1.6 s, about two strides
+maxAngularAcceleration: 2.0   # [rad/s^2]
 targetJointStateInterpolationTimeConstant: 2.0
 
 defaultBaseHeight: 0.8952

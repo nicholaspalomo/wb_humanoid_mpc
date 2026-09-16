@@ -105,6 +105,26 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
 
   static bool transitionToSlowerGait(const vector4_t& velCommandVec, const vector6_t& baseVelocity, const GaitModeStateConfig& cfg);
 
+  /**
+   * Acceleration limits of the velocity reference (reference.yaml `maxLinearAcceleration` [m/s^2] and
+   * `maxAngularAcceleration` [rad/s^2]; 0 disables the limit, the default). The filtered joypad command is rate-limited
+   * toward its value at every solve, so a stick jump becomes a ramp the MPC target and the contact planner both follow:
+   * the planner then lengthens the steps progressively instead of answering a step change in the command.
+   */
+  void setVelocityCommandAccelerationLimits(scalar_t maxLinearAcceleration, scalar_t maxAngularAcceleration);
+  scalar_t getMaxLinearAcceleration() const { return maxLinearAcceleration_; }
+  scalar_t getMaxAngularAcceleration() const { return maxAngularAcceleration_; }
+  /** The rate-limited reference of the last solve, [v_x, v_y, pelvis height, yaw rate]. */
+  const vector4_t& getRampedVelocityCommand() const { return rampedVelocityCommand_; }
+
+  /**
+   * Moves `current` toward `target` by at most maxLinearAcceleration * dt in the (v_x, v_y) plane (as a vector, so the
+   * direction of the change is preserved) and maxAngularAcceleration * dt in the yaw rate; the pelvis height passes
+   * through. A limit <= 0 lets that part jump to the target. Exposed for the unit test.
+   */
+  static vector4_t rateLimitVelocityCommand(
+      const vector4_t& target, const vector4_t& current, scalar_t dt, scalar_t maxLinearAcceleration, scalar_t maxAngularAcceleration);
+
  protected:
   // clang-format off
   const std::vector<GaitModeStateConfig> gaitModeStates_ {
@@ -141,6 +161,13 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
 
   BreakFrequencyAlphaFilter velocityCommandFilter;
   WalkingVelocityCommand velocityCommand_;
+
+  // Acceleration-limited velocity reference (setVelocityCommandAccelerationLimits)
+  scalar_t maxLinearAcceleration_ = 0.0;   // [m/s^2] <= 0: off
+  scalar_t maxAngularAcceleration_ = 0.0;  // [rad/s^2] <= 0: off
+  vector4_t rampedVelocityCommand_ = vector4_t::Zero();
+  scalar_t lastRampTime_ = 0.0;
+  bool rampInitialised_ = false;
 
   std::string currentGaitCommand_{"stance"};
   std::string lastGaitCommand_{"stance"};

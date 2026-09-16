@@ -102,6 +102,18 @@ useGravityCompFeedforward: false
 # the pre-reset policy until then), and targets, gains and feedforward torques are then ramped linearly into the MPC
 # action over this duration. Try 0.3 to 0.5 once validated in MuJoCo.
 mpcEntryBlendTime: 2.0
+# Touch-down shaping of the planned contact wrenches in the inverse dynamics of the MRT joint controller. A foot's planned
+# wrench is projected into feedforward torques only while the foot is measured in contact (contactEstimator above). By
+# default it is applied in full from the first control cycle of measured contact, i.e. as a step at the first heel or toe
+# strike; both times at 0 keep that. debounceTime: measured contact must persist this long before the wrench is applied
+# (a bounce across the detection threshold restarts it). rampTime: the wrench then rises linearly from zero to the
+# planned value over this time. Lift-off is never shaped. Hot-reloadable (GUI: Solver & Horizon). The 10 ms debounce
+# rides out a heel or toe bounce across the 5 N detection threshold (simContactForceThreshold), and the 40 ms ramp brings
+# the wrench in over the first half of the 0.1 s double support, when the other foot still carries the weight; the whole
+# onset stays well inside the phase_resetting debounce of the schedule (earlyTouchdownMinContactDuration) plus one node.
+contact_wrench_gate:
+  debounceTime: 0.01  # [s]
+  rampTime: 0.04      # [s]
 
 interface:
   verbose: true  # show the loaded parameters

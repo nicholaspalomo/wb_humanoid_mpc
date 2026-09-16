@@ -76,6 +76,7 @@ struct PlannerSettings {
   bool runInBackgroundThread = true;  // false: plan synchronously inside the MPC's pre-solve hook
   scalar_t planningFrequency = 10.0;  // [Hz] upper bound on the background planning rate
   bool verbose = false;
+  bool logPlans = false;  // one line per plan: search statistics, phase durations, step lengths (describeContactPlan)
 };
 
 /** Parameters read by more than one term. */
@@ -124,8 +125,15 @@ struct ZmpRegularizationParameters {
 struct FootholdRegularizationParameters {
   scalar_t weight = 5.0;  // ||foot displacement||^2 per node, prefers short steps
 };
+struct StepLengthParameters {
+  scalar_t weight = 0.0;  // ||dp_swing - d_nom||^2 per running node, d_nom from v_cmd at the nominal cadence (StepLengthCost)
+};
 struct TerminalDcmParameters {
   scalar_t weight = 200.0;  // ||DCM_N - zmp_{N-1}||^2, terminal capturability
+  // false: the DCM is drawn onto the last ZMP, i.e. the plan comes to rest at the end of the horizon, which shortens
+  // the steps in the horizon at speed. true: the DCM is drawn to zmp + v_cmd / omega, the offset of a CoM over the foot
+  // that keeps moving at the commanded velocity, so the plan is asked to keep walking, not to stop.
+  bool trackCommandedVelocity = false;
 };
 struct ZmpSupportRegionParameters {
   // ZMP support region half-widths. Single support: a box of these half-widths around the stance foot. Double support:
@@ -206,6 +214,7 @@ struct ContactPlanningConfig {
   FootYawRegularizationParameters footYawRegularization;
   ZmpRegularizationParameters zmpRegularization;
   FootholdRegularizationParameters footholdRegularization;
+  StepLengthParameters stepLength;
   TerminalDcmParameters terminalDcm;
   ZmpSupportRegionParameters zmpSupportRegion;
   ReachabilityParameters reachability;
