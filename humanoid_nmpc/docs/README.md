@@ -108,6 +108,14 @@ like the task file, and the tuning GUI edits it in place.
                                                               SQP NMPC (unchanged)
 ```
 
+The planner is not written as one problem. `LipContactPlanner` owns a `ContactPlanningProblem` that
+`ContactPlanningTermFactory` assembles from the term lists of `contact_planning.yaml`, in the way `WBMpcInterface`
+assembles the OCS2 `OptimalControlProblem` from the `costs` / `soft_constraints` / `hard_constraints` lists of the task
+file: model blocks that compose the variable layout, costs, soft and hard constraints, logic rules on the contact
+binaries and assignment costs, each a named term with its own parameter block, plus the search stages around the
+branch-and-bound and the execution rules the reference manager applies between plans (section 2.10). Everything below
+describes the terms of the shipped formulation.
+
 The NMPC itself is unchanged: it still sees a mode schedule (which feet are in contact when) and constraints derived from
 it. What changes is who produces the schedule. Without contact planning the `GaitSchedule` tiles a periodic template
 selected by the velocity-based gait state machine. With contact planning the schedule is the output of a mixed-integer
@@ -277,8 +285,10 @@ under 0.1 s. With the default budget of 200 relaxations / 0.1 s the receding-hor
 * `CentroidalMpcEndEffectorFootCost` tracks that reference through `task_space_foot_cost_weights.pos_x / pos_y`. Without a
   plan the xy position error is switched off inside the cost, so the weights are harmless when planning is disabled.
 * Until the first valid plan arrives (or if the planner stalls) the gait schedule / the last applied schedule is used.
-* The whole `contact_planning` section is hot-reloadable through the parameter updater (GUI tab "Contact Planning");
-  structural keys (`numNodes`, threading) are applied by the planner on its next run.
+* The whole `contact_planning` section is hot-reloadable through the parameter updater (GUI tab "Contact Planning"):
+  every term re-reads its parameter block, and a changed term list re-assembles the problem, the search stages and the
+  execution rules before the planner's next run (the warm start survives unless the grid or the variable layout
+  changed). The assembled formulation is logged at start-up and after every such reload.
 
 ### 2.7 Tuning notes
 
@@ -294,9 +304,11 @@ under 0.1 s. With the default budget of 200 relaxations / 0.1 s the receding-hor
 * `contactSwitchCost` trades stepping against ankle strategy; `terminalDcmWeight` makes plans end capturable.
 * Raise `constraintSlackWeight` if plans exploit the soft support region.
 
-Implementation: `humanoid_common_mpc/contact_planning/` (`OcpQpHpipm`, `MixedIntegerOcpQp`, `LipContactPlanner`,
-`ContactPlan`, `ContactPlanningReferenceManager`, `ContactPlannerModule`); tests in `humanoid_common_mpc/test/` and
-`humanoid_centroidal_mpc/test/testContactPlanningIntegration.cpp`.
+Implementation: `humanoid_common_mpc/contact_planning/` (`OcpQpHpipm`, `MixedIntegerOcpQp`, the terms under
+`problem/`, `model/`, `cost/`, `constraint/`, `logic/`, `search/`, `execution/`, `ContactPlanningTermFactory`,
+`LipContactPlanner`, `ContactPlan`, `ContactPlanningReferenceManager`, `ContactPlannerModule`), the Bazel target
+`contact_planning_core` for everything that needs no robot model; tests in `humanoid_common_mpc/test/` (including the
+fixture-based regression tests of the assembled formulation) and `humanoid_centroidal_mpc/test/testContactPlanningIntegration.cpp`.
 
 ### 2.8 Adaptive execution between plans
 
@@ -306,26 +318,36 @@ exactly the moments that matter for disturbance rejection: a swing foot that hit
 fly (zero-wrench constraint against the ground), a foot that misses the ground is switched to stance in mid-air, and a
 push during a swing cannot move the landing target before the next plan arrives. The reference manager therefore adapts
 the schedule it executes between plans, using only the measured contact state and the closed-form LIP. The features are
-implemented in `humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.{h,cpp}` as pure functions of a
-`ModeSchedule`, written for any number of feet (`N_CONTACTS`), and driven from `ContactPlanningReferenceManager`.
+implemented as `ExecutionRule` terms under `humanoid_common_mpc/contact_planning/execution/` (`PhaseResettingRule`,
+`EnergyCadenceModulationRule`, `DcmStepAdjustmentRule`, plus the `PlannedHeadingOverride` of the heading model) over the
+pure schedule queries and edits of `ContactScheduleAdaptation.{h,cpp}`, written for any number of feet (`N_CONTACTS`),
+and driven from `ContactPlanningReferenceManager` through the pipeline of `ScheduleAdaptationPipeline.h`.
 
-**All three are disabled by default.** Each changes the closed loop, and with them off the reference manager merges
+**All three are disabled by default.** Each changes the closed loop, and with none listed the reference manager merges
 plans exactly as it did before they existed, which is the behaviour every gait is tuned against. Enable one at a time
-and validate it in simulation. They are configured in the `contact_planning` block of `contact_planning.yaml`:
+and validate it in simulation. They are the execution rules of the `execution` list of `contact_planning.yaml`, each
+with a parameter block of its own (`phase_resetting` must precede `energy_cadence_modulation` when both are listed,
+because an early touch-down ends a swing before the cadence rule may re-time it):
 
 ```yaml
 contact_planning:
-  # ... planner keys ...
-  enablePhaseResetting: false           # early touch-down: switch the foot to contact at once; late: extend the swing
-  earlyTouchdownMinSwingRatio: 0.25     # contact during this initial fraction of the nominal swing is ignored (scuffing)
-  maxLateTouchdownExtension: 0.15       # [s] total extension budget of a swing past its planned touch-down
-  lateTouchdownExtensionStep: 0.05      # [s] the touch-down is pushed this far ahead of the current time per cycle
-  lateTouchdownSearchVelocity: 0.05     # [m/s] descent rate of the foot height target while searching for the ground
-  enableDcmStepAdjustment: false        # move the landing target by the DCM error propagated to touch-down
-  dcmAdjustmentGain: 0.5                # 1 = exact LIP compensation of the DCM error at touch-down
-  dcmAdjustmentMaxOffset: 0.05          # [m] bound on the landing target offset (also clipped to reachX / reachY*)
-  enableEnergyCadenceModulation: false  # re-time the touch-down of the swing in flight by the LIP orbital energy error
-  energyCadenceGain: 0.01               # [s/J] touch-down shift = -gain * (E - E_plan)
+  # ... planner, shared, term lists ...
+  execution:
+    - phase_resetting                 # early touch-down: switch the foot to contact at once; late: extend the swing
+    # - energy_cadence_modulation     # re-time the touch-down of the swing in flight by the LIP orbital energy error
+    # - dcm_step_adjustment           # move the landing target by the DCM error propagated to touch-down
+  phase_resetting:
+    earlyTouchdownMinSwingRatio: 0.25       # contact during this initial fraction of the nominal swing is ignored (scuffing)
+    earlyTouchdownMinContactDuration: 0.02  # [s] contact must persist this long before the swing is ended (debounce)
+    maxLateTouchdownExtension: 0.15         # [s] total extension budget of a swing past its planned touch-down
+    lateTouchdownExtensionStep: 0.05        # [s] the touch-down is pushed this far ahead of the current time per cycle
+    lateTouchdownSearchVelocity: 0.05       # [m/s] descent rate of the foot height target while searching for the ground
+  energy_cadence_modulation:
+    gain: 0.01                              # [s/J] touch-down shift = -gain * (E - E_pred)
+    deadband: 0.0                           # [J]
+  dcm_step_adjustment:
+    gain: 0.5                               # 1 = exact LIP compensation of the DCM error at touch-down
+    maxOffset: 0.05                         # [m] bound on the landing target offset (also clipped to the reachable region)
 ```
 
 Every query of the schedule in this layer treats an event at exactly the query time as already passed. That is the
@@ -333,7 +355,7 @@ convention of the SQP (after a post-event node the first interval starts an epsi
 `ocs2::ModeSchedule::modeAtTime`, so the two must not be mixed; the helpers `modeIndexAtTime` / `contactFlagsAtTime` are
 used throughout the reference manager for this reason.
 
-#### 2.8.1 Phase resetting on measured contact events (`enablePhaseResetting`)
+#### 2.8.1 Phase resetting on measured contact events (`phase_resetting`)
 
 The measured contact flags reach the MPC as the observation mode (`RobotState::getContactFlags()` in the MRT controller,
 MuJoCo contact sensors in simulation) and are compared with the schedule at the start of every solve. Per foot the
@@ -392,7 +414,7 @@ start time and commit boundary), which keeps the merge consistent, and the shift
 being computed from the pre-shift schedule is shifted too when it arrives (a plan is shifted by every logged shift that
 is younger than its start time; the planner snapshot is taken after the reference manager ran in the same cycle).
 
-#### 2.8.2 DCM step adjustment (`enableDcmStepAdjustment`)
+#### 2.8.2 DCM step adjustment (`dcm_step_adjustment`)
 
 Between plans the landing target of every swing foot is corrected with the capture point. The reference the correction
 is measured against is the whole-body NMPC's **own predicted trajectory**: after every solve `ContactPlannerModule`
@@ -433,7 +455,7 @@ offset to its bound on every step and, with a forward velocity command, pulled t
 controller's own prediction that term is absent. The feature remains opt-in like the others: enable it in simulation
 first and check that the offset is not sitting at its bound.
 
-#### 2.8.3 Energy-based cadence modulation (`enableEnergyCadenceModulation`, off by default)
+#### 2.8.3 Energy-based cadence modulation (`energy_cadence_modulation`, off by default)
 
 The orbital energy of the LIP along the planned heading at the current time (with the heading model the plan turns over
 its horizon; without it this is the plan's yaw), relative to the planned ZMP,
@@ -487,11 +509,16 @@ covers the ground-search reference of the swing trajectory planner, `testContact
 and `testLipContactPlanner.cpp` / `testContactPlan.cpp` the committed-node sampling and merge at a grid-aligned commit
 boundary, the warm start surviving a hot reload, and the alternation rule not judging the committed prefix.
 
-### 2.9 Heading model: ACoM dynamics in the planner (`useAcomDynamics`)
+### 2.9 Heading model: ACoM dynamics in the planner (`heading_double_integrator`)
 
 The point-mass LIP has no notion of heading. Its foothold frame is the base yaw at planning time, held fixed over the
 horizon, and the planner only receives the commanded linear velocity, so a pure yaw command produces no step at all
-and the robot cannot turn. The heading model adds the missing coordinate as a reduced dynamics of its own, expressed
+and the robot cannot turn. The heading model is the `heading_double_integrator` block of the `dynamics` list together
+with its costs (`heading_rate_tracking`, `heading_tracking`, `foot_yaw_tracking`, `yaw_torque_regularization`,
+`foot_yaw_regularization`), its constraints (`hip_yaw_range`, `yaw_torque_budget`, `foot_yaw_pinned_in_contact`), the
+`heading_relinearisation` search stage and the `planned_heading_override` execution rule;
+`ContactPlanningFormulation::setHeadingModel()` adds or removes them as a whole. It adds the missing coordinate as a
+reduced dynamics of its own, expressed
 in the angular centre of mass (ACoM): the whole-body heading `theta` (the ACoM yaw when the robot has an ACoM network,
 the base yaw otherwise) and its rate `omega = L_z / I_zz`, the angular momentum about the vertical through the centre
 of mass over the whole-body yaw inertia (taken from the model at every plan, `yawInertia` overrides it).
@@ -558,3 +585,42 @@ planner configuration, including the hot reloads of `contact_planning.yaml`, and
 box stay tunable, with 0 meaning "from the model": the centre of mass height above the feet at `initialState`, and the
 sole's footprint from the wrench cone. The friction and footprint come from `contactWrenchConeSoftConstraint`, so the
 planner cannot assume more yaw torque than the whole-body constraint would ever allow.
+
+### 2.10 Assembling the planner from terms (`contact_planning.yaml`)
+
+The planner is assembled the way the whole-body NMPC is: `ContactPlanningProblem` holds named collections of terms
+(the analogue of OCS2's `OptimalControlProblem`), `ContactPlanningTermFactory` fills them from the term lists of the
+configuration (the analogue of `HumanoidCostConstraintFactory` with the `costs` / `soft_constraints` /
+`hard_constraints` lists of the task file), and every term reads its own parameter block, which is the hot-reload path.
+The block of `contact_planning.yaml` mirrors that structure:
+
+| Key | What it holds |
+| --- | --- |
+| `planner` | properties of the planner itself: grid (`dt`, `numNodes`), `commitTime`, solver budget, threading |
+| `shared` | parameters read by more than one term: `gravity`, `comHeight`, `bigM`, the default `slack_penalty` of the soft constraints, the `gait_limits` |
+| `dynamics` | model blocks, in the order that fixes the variable layout: `lip_com`, `foothold_integrator` (mandatory, always first), `heading_double_integrator` |
+| `costs` | in the accumulation order of the stage matrices: `regularization`, `previous_foothold_consistency`, `velocity_tracking`, `step_width`, the heading costs, `zmp_regularization`, `foothold_regularization`, `terminal_dcm` |
+| `soft_constraints` | `zmp_support_region`, `reachability`, `foot_separation`, `hip_yaw_range`; each may carry a `slack` block that overrides the shared penalty |
+| `hard_constraints` | `no_flight`, `foot_motion_in_swing_only`, `yaw_torque_budget`, `foot_yaw_pinned_in_contact` |
+| `logic_rules` | propagation on the binaries: `phase_durations`, `no_flight`, `minimum_double_support`, `alternating_feet` |
+| `assignment_costs` | `contact_switch`, `plan_consistency` |
+| `search` | `warm_start_previous_plan`, `diving`, `event_shift_local_search`, `heading_relinearisation` |
+| `execution` | the reference manager's rules of section 2.8 and `planned_heading_override` |
+| one block per term | its parameters, named as the term (`velocity_tracking: {weight: 50.0}`, ...) |
+
+A term listed without the block it needs (a heading cost without `heading_double_integrator`), an unknown name, a
+duplicate, or an execution order the rules cannot honour is rejected at load time with a message that lists the
+supported names. `hip_yaw_range` and `yaw_torque_budget` take their values from the robot model
+(`ContactPlanningModelParameters`), not from the file. The planner logs the assembled formulation (the variable layout,
+every term with a one-line description of its math and current values, the rows per stage) at start-up and after every
+reload that changed a list; `LipContactPlanner::formulationSummary()` returns the same text.
+
+The flat layout of the previous planner (every key directly under `contact_planning`, `useAcomDynamics`,
+`enablePhaseResetting`, ... as booleans) is no longer read: the loader recognises it by its keys and rejects the file
+with a message that says how to migrate it (the flags became list entries, every weight a term block). The shipped DRC
+Atlas file (`robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/contact_planning.yaml`) is the structured layout
+with the values and the formulation of the previous planner. `testContactPlanningRegression.cpp` pins the assembled
+problems, the propagation and receding-horizon plans to fixtures under `test/data/contact_planning/`, recorded at the
+point where the term-assembled planner had been shown equivalent to the previous one; re-record them with
+`REGENERATE_CONTACT_PLANNING_FIXTURES` after an intended change of the formulation and review the diff.
+The refactor is described in [contact_planner_ocp_refactor/README.md](contact_planner_ocp_refactor/README.md).

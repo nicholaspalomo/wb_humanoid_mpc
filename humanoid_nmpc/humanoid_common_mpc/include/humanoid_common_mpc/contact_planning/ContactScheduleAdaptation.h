@@ -185,16 +185,17 @@ struct ContactEventReport {
 };
 
 /**
- * Adapts `schedule` to the measured contact state at `time` and applies the cadence shifts. One call per control cycle.
+ * Adapts `schedule` to the measured contact state at `time` and applies the cadence shifts, one call per control cycle:
+ * the schedule rules the configuration lists in `execution` (phase_resetting, energy_cadence_modulation), run through
+ * the pipeline of execution/ScheduleAdaptationPipeline.h with the given cadence shifts. The reference manager runs the
+ * same pipeline with the rules it owns; this entry point exists for the tests of the rules.
  *
  * @param schedule              the schedule the controller executes, modified in place
  * @param time                  current time
  * @param measuredContact       measured contact flags
  * @param cadenceTouchDownShift [s] per foot, desired touch-down shift relative to the nominal touch-down of the swing in
- *                              flight (ignored unless config.enableEnergyCadenceModulation)
- * @param config                thresholds and limits (enablePhaseResetting, earlyTouchdownMinSwingRatio,
- *                              earlyTouchdownMinContactDuration, maxLateTouchdownExtension,
- *                              lateTouchdownExtensionStep, min/maxSwingDuration)
+ *                              flight (used by the energy_cadence_modulation rule when listed)
+ * @param config                the configuration: the execution list and the rules' parameter blocks
  * @param latches               per-foot swing memory, owned by the caller
  * @return what happened to every foot
  */
@@ -234,9 +235,10 @@ vector2_t dcmStepAdjustment(const vector2_t& dcmError, scalar_t omega, scalar_t 
 
 /**
  * Clips `foothold` to the planner's reachable region of foot `contactIndex` around `comAtTouchDown` in the yaw frame:
- * |x| <= reachX and reachYInner <= side * y <= reachYOuter, with side +1 for the left foot (index 0) and -1 for the right
- * foot, as in the planner's reachability rows, so that the clipping never moves a foot across the body. `yaw` is the
- * planned heading at touch-down (the frame those rows were written in).
+ * |x| <= reachX and reachYInner <= side * y <= reachYOuter (the `reachability` term's block of the configuration), with
+ * side +1 for the left foot (index 0) and -1 for the right foot, as in the planner's reachability rows, so that the
+ * clipping never moves a foot across the body. `yaw` is the planned heading at touch-down (the frame those rows were
+ * written in).
  */
 vector2_t clipFootholdToReach(
     const vector2_t& foothold, size_t contactIndex, const vector2_t& comAtTouchDown, scalar_t yaw, const ContactPlanningConfig& config);

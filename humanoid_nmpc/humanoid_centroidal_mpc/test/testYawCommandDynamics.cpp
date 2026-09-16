@@ -118,13 +118,13 @@ class YawCommandDynamicsTest : public ::testing::Test {
   /** A contact-planning reference manager with the heading model, built the way the interface builds it. */
   std::unique_ptr<ContactPlanningReferenceManager> makeHeadingReferenceManager() {
     ContactPlanningConfig config = loadContactPlanningConfig(resolveContactPlanningConfigFile(taskFile_), "contact_planning.", false);
-    config.useAcomDynamics = true;
+    config.setHeadingModel(true);
     ContactPlanningGroundParameters ground;
     ground.frictionCoefficient = 0.5;
     ground.torsionalFrictionCoefficient = 0.05;
     PinocchioInterface pinocchioForDerivation(*pinocchioInterface_);
     deriveContactPlanningModelParameters(pinocchioForDerivation, *robotModel_, initialState_, modelSettings_->contactParentJointNames,
-                                         ground, config.gravity, config.nominalStepWidth)
+                                         ground, config.shared.gravity, config.stepWidth.nominalStepWidth)
         .applyTo(config);
     config.validate();
     std::unique_ptr<SwingTrajectoryPlanner> swingPlanner(

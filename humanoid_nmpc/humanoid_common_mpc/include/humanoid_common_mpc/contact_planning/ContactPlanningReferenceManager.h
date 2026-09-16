@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <limits>
 #include <mutex>
 #include <optional>
+#include <string>
 #include <utility>
 
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
@@ -37,6 +38,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
 #include "humanoid_common_mpc/contact_planning/TargetContactPose.h"
+#include "humanoid_common_mpc/contact_planning/execution/ExecutionContext.h"
+#include "humanoid_common_mpc/contact_planning/execution/ExecutionRule.h"
+#include "humanoid_common_mpc/contact_planning/problem/TermCollection.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
 namespace ocs2::humanoid {
@@ -49,16 +53,16 @@ namespace ocs2::humanoid {
  * the MPC is already executing are not rewritten under its feet), later modes follow the plan, and the swing trajectory
  * planner is updated with the merged schedule. While no valid plan is available the gait schedule is used as before.
  *
- * Between plans the applied schedule is adapted to the measured contact state (ContactScheduleAdaptation.h): a swing foot
- * that touches down early is switched to contact at once, a foot that misses the ground keeps searching for it for a
- * bounded time, and (optionally) the touch-down of the swing in flight is re-timed from the LIP orbital energy error.
- * Whenever such an adaptation moves later events, the active plan is shifted by the same amount so that the merge stays
- * consistent, and an immediate re-plan is requested from the planner module.
+ * Between plans the heuristics listed in the configuration's `execution` list are applied, as ExecutionRule terms built
+ * by ContactPlanningTermFactory (phase_resetting, energy_cadence_modulation, dcm_step_adjustment) plus the
+ * planned_heading_override this manager provides itself: they adapt the applied schedule to the measured contact state,
+ * correct the landing targets and rewrite the target trajectory. Whenever an adaptation moves later events, the active
+ * plan is shifted by the same amount so that the merge stays consistent, and an immediate re-plan is requested. The
+ * core of this manager (activation, merge, swing trajectories, references, target poses) is not a rule.
  *
  * The planned footholds are exposed to the foot tracking cost through getSwingFootReference(): during a swing phase the
- * xy reference interpolates smoothly from the lift-off position to the planned landing spot, corrected by the DCM error
- * propagated to touch-down (closed-form capture point step adjustment, clipped to the reachable region); the height
- * follows the swing trajectory planner.
+ * xy reference interpolates smoothly from the lift-off position to the planned landing spot, corrected by the listed
+ * foothold rules; the height follows the swing trajectory planner.
  */
 class ContactPlanningReferenceManager final : public SwitchedModelReferenceManager {
  public:
@@ -102,7 +106,7 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
    *
    * The target's base yaw is not used. Its first stretch integrates the average of the measured and the commanded yaw
    * rate, so differentiating it (as an earlier version did) commanded half the rate at the start of a turn and fed the
-   * measured rate back in; and once applyPlannedHeading() has rewritten it, it carries the previous plan's rate, so any
+   * measured rate back in; and once the override has rewritten it, it carries the previous plan's rate, so any
    * shortfall of the plan against the command was re-issued as the next command and the turn decayed. Solver thread only.
    */
   scalar_t commandedYawRate() const { return commandedYawRate_; }
@@ -119,8 +123,17 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
   size_t numStalePlansDropped() const { return stalePlanCount_.load(); }
   size_t numInconsistentPlansDropped() const { return inconsistentPlanCount_.load(); }
 
+  /**
+   * Replaces the configuration (validated) and re-assembles the execution rules from its `execution` list. Called on
+   * the solver thread (the parameter updater's pre-solve hook) or before the solver runs.
+   */
   void setConfig(const ContactPlanningConfig& config);
   ContactPlanningConfig getConfig() const;
+
+  /** The listed execution rules, in order (solver thread only). */
+  const TermCollection<ExecutionRule>& getExecutionRules() const { return executionRules_; }
+  /** One line per rule with its description, for the start-up print. */
+  std::string executionSummary() const;
 
   /**
    * Time up to which the applied schedule is treated as fixed when planning from / merging at `time`: at least
@@ -130,9 +143,9 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
   scalar_t commitBoundary(scalar_t time) const;
 
   /**
-   * Hands the NMPC's latest predicted trajectory over (thread-safe). The closed-form corrections (DCM step adjustment,
-   * cadence modulation) measure the deviation of the measured centre of mass from this prediction, interpolated at the
-   * start of the next solve, rather than from the planner's reduced model. Empty arrays clear the prediction.
+   * Hands the NMPC's latest predicted trajectory over (thread-safe). The rules that compare the measured centre of mass
+   * with the prediction (cadence modulation, DCM step adjustment) read it, interpolated at the start of the next solve.
+   * Empty arrays clear the prediction.
    */
   void setPredictedTrajectory(const scalar_array_t& times, const vector_array_t& states);
 
@@ -166,6 +179,10 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
                         ModeSchedule& modeSchedule) override;
 
  private:
+  /** Builds the execution rules of the configuration's list (the heading override with this manager's model). */
+  void rebuildExecutionRules(const ContactPlanningConfig& config);
+  bool rulesNeedPredictedTrajectory() const;
+
   /** Foot positions from the state; latches the lift-off position of every foot while it is in contact. */
   void updateFootBookkeeping(scalar_t initTime, const vector_t& initState);
   feet_array_t<vector3_t> computeFootPositions(const vector_t& state);
@@ -173,8 +190,6 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
   feet_array_t<scalar_t> readFootYaws() const;
   /** Whole-body inertia about the vertical through the centre of mass at `state`. */
   scalar_t computeYawInertia(const vector_t& state);
-  /** Heading model: the plan's heading replaces the commanded base yaw of the target trajectory. */
-  void applyPlannedHeading(TargetTrajectories& targetTrajectories) const;
   /** Refreshes commandedYawRate_ from the momentum channel of the target at `initTime`, with the yaw inertia at `initState`. */
   void captureCommandedYawRate(scalar_t initTime, const vector_t& initState, const TargetTrajectories& targetTrajectories);
 
@@ -193,26 +208,21 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
   /** Interpolates the NMPC prediction at `initTime` and evaluates its CoM state; clears the flag if none covers it. */
   void updatePredictedComState(scalar_t initTime);
 
-  /** Per-foot touch-down shift from the LIP orbital energy error (zero unless enabled and a plan is active). */
-  feet_array_t<scalar_t> computeCadenceTouchDownShifts(scalar_t initTime, const ContactPlanningConfig& config);
+  /** Runs the schedule rules on the applied schedule; shifts the plan and requests a re-plan as needed. */
+  void handleContactEvents(ExecutionContext& ctx);
 
-  /** Adapts the applied schedule to the measured contact state; shifts the plan and requests a re-plan as needed. */
-  void handleContactEvents(scalar_t initTime, size_t initMode, const ContactPlanningConfig& config);
+  /** Updates the swing trajectory planner; a foot searching for the ground (a rule's ground search) gets a descending target. */
+  void updateSwingTrajectories(const ModeSchedule& schedule, const ExecutionContext& ctx, scalar_t terrainHeight);
 
-  /** Updates the swing trajectory planner; a foot searching for the ground gets a descending touch-down height. */
-  void updateSwingTrajectories(const ModeSchedule& schedule,
-                               scalar_t initTime,
-                               scalar_t terrainHeight,
-                               const ContactPlanningConfig& config);
-
-  /** DCM step adjustment of every swing foot from the DCM error with respect to the plan (zero unless enabled). */
-  void updateDcmStepAdjustment(scalar_t initTime, const ContactPlanningConfig& config);
+  /** Landing target offsets of the swings in flight from the foothold rules (zero without them). */
+  void updateDcmStepAdjustment(const ExecutionContext& ctx);
 
   /** Snapshot of the target contact poses for getTargetContactPoses(), from the state of the current solver run. */
   void updateTargetContactPoses(scalar_t initTime, scalar_t terrainHeight);
 
   mutable std::mutex configMutex_;
   ContactPlanningConfig config_;
+  TermCollection<ExecutionRule> executionRules_;  // solver thread
 
   mutable std::mutex planMutex_;
   std::optional<ContactPlan> pendingPlan_;  // written by the planner thread

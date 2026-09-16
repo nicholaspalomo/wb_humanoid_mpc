@@ -17,6 +17,88 @@ _COMMON_COPTS = [
     "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
 ]
 
+# Headers shared by the planner core and the rest of the library (types and the mode-number conventions, header only).
+_COMMON_TYPES_HDRS = [
+    "include/humanoid_common_mpc/common/Types.h",
+    "include/humanoid_common_mpc/gait/MotionPhaseDefinition.h",
+]
+
+cc_library(
+    name = "humanoid_common_mpc_types",
+    hdrs = _COMMON_TYPES_HDRS,
+    includes = ["include"],
+    copts = _COMMON_COPTS,
+    deps = [
+        "//lib/ocs2:ocs2_core",
+        "@eigen",
+    ],
+)
+
+# The contact planner's core: the problem assembled from terms (problem/, model/, cost/, constraint/, logic/), the
+# search stages, the execution rules that need no robot model, the mixed-integer solver and the HPIPM wrapper, the
+# configuration and the plan. No Pinocchio, no reference manager: the planner's unit tests build against this target.
+_CONTACT_PLANNING_CORE_HDRS = [
+    "include/humanoid_common_mpc/contact_planning/ContactPlan.h",
+    "include/humanoid_common_mpc/contact_planning/ContactPlanningConfig.h",
+    "include/humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h",
+    "include/humanoid_common_mpc/contact_planning/ContactPlanningTermFactory.h",
+    "include/humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h",
+    "include/humanoid_common_mpc/contact_planning/LipContactPlanner.h",
+    "include/humanoid_common_mpc/contact_planning/MixedIntegerOcpQp.h",
+    "include/humanoid_common_mpc/contact_planning/OcpQpHpipm.h",
+    "include/humanoid_common_mpc/contact_planning/TargetContactPose.h",
+] + glob(
+    [
+        "include/humanoid_common_mpc/contact_planning/problem/*.h",
+        "include/humanoid_common_mpc/contact_planning/model/*.h",
+        "include/humanoid_common_mpc/contact_planning/cost/*.h",
+        "include/humanoid_common_mpc/contact_planning/constraint/*.h",
+        "include/humanoid_common_mpc/contact_planning/logic/*.h",
+        "include/humanoid_common_mpc/contact_planning/search/*.h",
+        "include/humanoid_common_mpc/contact_planning/execution/*.h",
+    ],
+    exclude = ["include/humanoid_common_mpc/contact_planning/execution/PlannedHeadingOverride.h"],
+)
+
+cc_library(
+    name = "contact_planning_core",
+    srcs = [
+        "src/contact_planning/ContactPlan.cpp",
+        "src/contact_planning/ContactPlanningConfig.cpp",
+        "src/contact_planning/ContactPlanningFormulation.cpp",
+        "src/contact_planning/ContactPlanningTermFactory.cpp",
+        "src/contact_planning/ContactScheduleAdaptation.cpp",
+        "src/contact_planning/LipContactPlanner.cpp",
+        "src/contact_planning/MixedIntegerOcpQp.cpp",
+        "src/contact_planning/OcpQpHpipm.cpp",
+        "src/contact_planning/TargetContactPose.cpp",
+    ] + glob(
+        [
+            "src/contact_planning/problem/*.cpp",
+            "src/contact_planning/model/*.cpp",
+            "src/contact_planning/cost/*.cpp",
+            "src/contact_planning/constraint/*.cpp",
+            "src/contact_planning/logic/*.cpp",
+            "src/contact_planning/search/*.cpp",
+            "src/contact_planning/execution/*.cpp",
+        ],
+        exclude = ["src/contact_planning/execution/PlannedHeadingOverride.cpp"],
+    ),
+    hdrs = _CONTACT_PLANNING_CORE_HDRS,
+    includes = ["include"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_robotic_tools",
+        "@blasfeo",
+        "@hpipm",
+        "@eigen",
+        "@boost",
+        "@yaml_cpp",
+    ],
+)
+
 cc_library(
     name = "humanoid_common_mpc",
     srcs = [
@@ -59,18 +141,17 @@ cc_library(
         "src/HumanoidPreComputation.cpp",
         "src/acom/AngularCenterOfMass.cpp",
         "src/initialization/WeightCompInitializer.cpp",
-        "src/contact_planning/OcpQpHpipm.cpp",
-        "src/contact_planning/MixedIntegerOcpQp.cpp",
-        "src/contact_planning/ContactPlanningConfig.cpp",
+        # The contact planner's core (problem, terms, solver) is :contact_planning_core; these need the robot model.
         "src/contact_planning/ContactPlanningModelParameters.cpp",
-        "src/contact_planning/ContactPlan.cpp",
-        "src/contact_planning/LipContactPlanner.cpp",
         "src/contact_planning/ContactPlanningReferenceManager.cpp",
-        "src/contact_planning/ContactScheduleAdaptation.cpp",
         "src/contact_planning/ContactPlannerModule.cpp",
-        "src/contact_planning/TargetContactPose.cpp",
+        "src/contact_planning/execution/PlannedHeadingOverride.cpp",
     ],
-    hdrs = glob(["include/**"], allow_empty = True),
+    hdrs = glob(
+        ["include/**"],
+        exclude = _CONTACT_PLANNING_CORE_HDRS + _COMMON_TYPES_HDRS,
+        allow_empty = True,
+    ),
     includes = ["include"],
     copts = [
         "-std=c++20",
@@ -84,6 +165,8 @@ cc_library(
         "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     deps = [
+        ":contact_planning_core",
+        ":humanoid_common_mpc_types",
         "//humanoid_nmpc/humanoid_mpc_msgs",
         "//lib/ocs2:ocs2_centroidal_model",
         "//lib/ocs2:ocs2_core",
@@ -163,7 +246,7 @@ cc_test(
     srcs = ["test/testOcpQpHpipm.cpp"],
     copts = _COMMON_COPTS,
     deps = [
-        ":humanoid_common_mpc",
+        ":contact_planning_core",
         "@googletest//:gtest_main",
     ],
 )
@@ -174,7 +257,7 @@ cc_test(
     srcs = ["test/testMixedIntegerOcpQp.cpp"],
     copts = _COMMON_COPTS,
     deps = [
-        ":humanoid_common_mpc",
+        ":contact_planning_core",
         "@googletest//:gtest_main",
     ],
 )
@@ -185,7 +268,7 @@ cc_test(
     srcs = ["test/testLipContactPlanner.cpp"],
     copts = _COMMON_COPTS,
     deps = [
-        ":humanoid_common_mpc",
+        ":contact_planning_core",
         "@googletest//:gtest_main",
     ],
 )
@@ -238,7 +321,7 @@ cc_test(
     srcs = ["test/testContactPhaseResetting.cpp"],
     copts = _COMMON_COPTS,
     deps = [
-        ":humanoid_common_mpc",
+        ":contact_planning_core",
         "@googletest//:gtest_main",
     ],
 )
@@ -249,7 +332,7 @@ cc_test(
     srcs = ["test/testContactPlan.cpp"],
     copts = _COMMON_COPTS,
     deps = [
-        ":humanoid_common_mpc",
+        ":contact_planning_core",
         "@googletest//:gtest_main",
     ],
 )
@@ -271,7 +354,42 @@ cc_test(
     srcs = ["test/testTargetContactPose.cpp"],
     copts = _COMMON_COPTS,
     deps = [
-        ":humanoid_common_mpc",
+        ":contact_planning_core",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "testContactPlanningFormulation",
+    size = "small",
+    srcs = ["test/testContactPlanningFormulation.cpp"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":contact_planning_core",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "testContactPlanningTerms",
+    size = "small",
+    srcs = ["test/testContactPlanningTerms.cpp"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":contact_planning_core",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# Regression of the term-assembled planner against recorded fixtures (see the test for how to re-record them).
+cc_test(
+    name = "testContactPlanningRegression",
+    size = "medium",
+    srcs = ["test/testContactPlanningRegression.cpp"],
+    copts = _COMMON_COPTS,
+    data = glob(["test/data/contact_planning/*.txt"], allow_empty = True),
+    deps = [
+        ":contact_planning_core",
         "@googletest//:gtest_main",
     ],
 )

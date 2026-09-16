@@ -1340,24 +1340,23 @@ class MpcParamsTab(ttk.Frame):
     }
     # LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/src/cost/DcmTerminalCost.cpp:dcm_terminal_cost_keys)
 
-    # Contact planning keys that are not tunable online (they change the problem structure or the threading).
+    # Contact planning keys that are not tunable online (they change the problem structure or the threading). Keys are
+    # paths inside the contact_planning block (planner / shared / term lists / one block per term).
+    # LINT.IfChange(contact_planning_gui_keys)
     CONTACT_PLANNING_STATIC_KEYS = {
-        "numNodes",
-        "runInBackgroundThread",
-        "verbose",
-        "enforceAlternatingFeet",
-        # Booleans of the adaptive execution block: toggled in the task file, not with a slider.
-        "enablePhaseResetting",
-        "enableDcmStepAdjustment",
-        "enableEnergyCadenceModulation",
-        # Heading model: the layout of the planner and the ACoM evaluator are fixed at construction.
-        "useAcomDynamics",
-        "planHeadingOverridesTarget",
-        "headingLinearizationPasses",
+        "planner.numNodes",
+        "planner.runInBackgroundThread",
+        "planner.verbose",
+        "heading_relinearisation.passes",
     }
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/contact_planning/ContactPlanningConfig.cpp:contact_planning_keys)
 
     def _render_contact_planning(self):
-        """Render the mixed-integer contact planner parameters (contact_planning block)."""
+        """Render the mixed-integer contact planner parameters (contact_planning block).
+
+        The block (planner / shared / term lists / one block per term) is rendered from the file itself: the term lists
+        as read-only text, every parameter block as a group of sliders.
+        """
         cp_data = self.raw_data.get("contact_planning", {})
         use_cp = bool(self.raw_data.get("useContactPlanning", False))
         header = ttk.LabelFrame(
@@ -1372,107 +1371,71 @@ class MpcParamsTab(ttk.Frame):
                 text="No contact_planning section (contact_planning.yaml next to the task file, or a block in it).",
             ).pack(anchor="w", padx=6, pady=4)
             return
-        groups = [
-            (
-                "Timing & Model",
-                [
-                    "dt",
-                    "commitTime",
-                    "comHeight",
-                    "gravity",
-                    "minSwingDuration",
-                    "maxSwingDuration",
-                    "minContactDuration",
-                    "maxContactDuration",
-                ],
-            ),
-            (
-                "Support & Reachability Geometry",
-                [
-                    "zmpHalfWidthX",
-                    "zmpHalfWidthY",
-                    "nominalStepWidth",
-                    "minStepWidth",
-                    "maxStepWidth",
-                    "maxStepLength",
-                    "reachX",
-                    "reachYInner",
-                    "reachYOuter",
-                    "bigM",
-                ],
-            ),
-            (
-                "Objective Weights",
-                [
-                    "velocityTrackingWeight",
-                    "zmpRegularizationWeight",
-                    "footholdRegularizationWeight",
-                    "stepWidthWeight",
-                    "contactSwitchCost",
-                    "terminalDcmWeight",
-                    "constraintSlackWeight",
-                    "constraintSlackLinearWeight",
-                ],
-            ),
-            (
-                "Solver Budget",
-                [
-                    "maxBranchAndBoundNodes",
-                    "maxSolveTime",
-                    "maxQpIterations",
-                    "localSearchIterations",
-                    "localSearchMaxTime",
-                    "planningFrequency",
-                ],
-            ),
-            # LINT.IfChange(contact_planning_adaptive_gui_keys)
-            (
-                "Adaptive Execution (phase resetting, DCM step adjustment, cadence)",
-                [
-                    "earlyTouchdownMinSwingRatio",
-                    "earlyTouchdownMinContactDuration",
-                    "maxLateTouchdownExtension",
-                    "lateTouchdownExtensionStep",
-                    "lateTouchdownSearchVelocity",
-                    "dcmAdjustmentGain",
-                    "dcmAdjustmentMaxOffset",
-                    "energyCadenceGain",
-                ],
-            ),
-            (
-                "Heading model (ACoM dynamics)",
-                [
-                    "headingRateTrackingWeight",
-                    "headingTrackingWeight",
-                    "yawTorqueWeight",
-                    "footYawTrackingWeight",
-                    "footYawRegularizationWeight",
-                ],
-            ),
-            # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/contact_planning/ContactPlanningConfig.cpp:contact_planning_keys)
+        structured = "planner" in cp_data or any(
+            isinstance(v, list) for v in cp_data.values()
+        )
+        if not structured:
+            ttk.Label(
+                header,
+                text="This contact_planning block uses the flat layout of the previous planner, which the controller no longer "
+                "reads. Migrate it to the structured layout (planner / shared / term lists / one block per term), see the "
+                "DRC Atlas contact_planning.yaml.",
+                wraplength=900,
+                justify="left",
+            ).pack(anchor="w", padx=6, pady=4)
+            return
+        self._render_contact_planning_structured(cp_data)
+
+    def _render_contact_planning_structured(self, cp_data):
+        """One read-only frame for the term lists, then one slider group per parameter block, in file order."""
+        lists = [
+            (key, value) for key, value in cp_data.items() if isinstance(value, list)
         ]
-        for title, keys in groups:
+        if lists:
             frame = ttk.LabelFrame(
-                self.scroll_container.scrollable_content, text=f"• {title}"
+                self.scroll_container.scrollable_content,
+                text="• Formulation (term lists; edit the file and save to change what the planner is assembled from)",
             )
             frame.pack(fill="x", padx=6, pady=4)
-            for key in keys:
-                if key not in cp_data or key in self.CONTACT_PLANNING_STATIC_KEYS:
-                    continue
-                val = self._to_float(cp_data[key])
-                if val is None:
-                    continue
-                row = SliderRow(
-                    frame,
-                    name=key,
-                    initial_value=val,
-                    min_val=0.0,
-                    max_val=max(val * 4.0, 1.0),
-                    label_width=30,
-                    on_change=self._on_any_slider_change,
+            for key, value in lists:
+                text = f"{key}: " + (
+                    ", ".join(str(v) for v in value) if value else "(none)"
                 )
-                row.pack(fill="x", padx=4, pady=1)
-                self.slider_rows[f"contact_planning.{key}"] = row
+                ttk.Label(frame, text=text, wraplength=900, justify="left").pack(
+                    anchor="w", padx=6, pady=1
+                )
+        for key, value in cp_data.items():
+            if not isinstance(value, dict):
+                continue
+            frame = ttk.LabelFrame(
+                self.scroll_container.scrollable_content, text=f"• {key}"
+            )
+            frame.pack(fill="x", padx=6, pady=4)
+            self._render_contact_planning_block(frame, key, value)
+
+    def _render_contact_planning_block(self, frame, path, block):
+        """Sliders for the numeric scalars of a block; nested blocks (gait_limits, slack_penalty, slack) recurse."""
+        for key, value in block.items():
+            key_path = f"{path}.{key}"
+            if isinstance(value, dict):
+                self._render_contact_planning_block(frame, key_path, value)
+                continue
+            if isinstance(value, bool) or key_path in self.CONTACT_PLANNING_STATIC_KEYS:
+                continue
+            val = self._to_float(value)
+            if val is None:
+                continue
+            row = SliderRow(
+                frame,
+                name=key_path.split(".", 1)[1] if "." in key_path else key_path,
+                initial_value=val,
+                min_val=0.0,
+                max_val=max(val * 4.0, 1.0),
+                label_width=34,
+                on_change=self._on_any_slider_change,
+            )
+            row.pack(fill="x", padx=4, pady=1)
+            self.slider_rows[f"contact_planning.{key_path}"] = row
 
     def _render_solver_and_horizon(self):
         """Render MPC loop frequencies, horizon, SQP multiple shooting, and rollout settings."""

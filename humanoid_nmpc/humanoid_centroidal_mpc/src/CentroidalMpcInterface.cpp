@@ -243,7 +243,7 @@ CentroidalMpcInterface::CentroidalMpcInterface(const std::string& taskFile,
       }
       contactPlanningModelParameters_ = deriveContactPlanningModelParameters(
           *pinocchioInterfacePtr_, *effectiveMpcRobotModelPtr_, nominalState, modelSettings_.contactParentJointNames, ground,
-          contactPlanningConfig.gravity, contactPlanningConfig.nominalStepWidth);
+          contactPlanningConfig.shared.gravity, contactPlanningConfig.stepWidth.nominalStepWidth);
       contactPlanningModelParameters_->applyTo(contactPlanningConfig);
       LOG(INFO) << "[CentroidalMpcInterface] contact planner model parameters: " << contactPlanningModelParameters_->summary();
     }
@@ -256,7 +256,7 @@ CentroidalMpcInterface::CentroidalMpcInterface(const std::string& taskFile,
     auto planningReferenceManager = std::make_shared<ContactPlanningReferenceManager>(
         GaitSchedule::loadGaitSchedule(referenceFile, modelSettings_, verbose_), std::move(swingTrajectoryPlanner), *pinocchioInterfacePtr_,
         *effectiveMpcRobotModelPtr_, contactPlanningConfig);
-    if (contactPlanningConfig.useAcomDynamics) {
+    if (contactPlanningConfig.usesHeadingModel()) {
       try {
         planningReferenceManager->setAngularCenterOfMass(AngularCenterOfMass::createForRobot(modelSettings_.robotName));
         LOG(INFO) << "[CentroidalMpcInterface] contact planner heading model: angular centre of mass of '" << modelSettings_.robotName
@@ -269,9 +269,9 @@ CentroidalMpcInterface::CentroidalMpcInterface(const std::string& taskFile,
     contactPlannerModulePtr_ = std::make_shared<ContactPlannerModule>(planningReferenceManager, contactPlanningConfig);
     contactPlannerModulePtr_->setModelParameters(*contactPlanningModelParameters_);
     referenceManagerPtr_ = planningReferenceManager;
-    LOG(INFO) << "[CentroidalMpcInterface] Using mixed-integer contact planning (" << contactPlanningConfig.numNodes << " nodes x "
-              << contactPlanningConfig.dt << " s, " << (contactPlanningConfig.runInBackgroundThread ? "background thread" : "synchronous")
-              << ").";
+    LOG(INFO) << "[CentroidalMpcInterface] Using mixed-integer contact planning (" << contactPlanningConfig.planner.numNodes << " nodes x "
+              << contactPlanningConfig.planner.dt << " s, "
+              << (contactPlanningConfig.planner.runInBackgroundThread ? "background thread" : "synchronous") << ").";
   } else {
     referenceManagerPtr_ = std::make_shared<SwitchedModelReferenceManager>(
         GaitSchedule::loadGaitSchedule(referenceFile, modelSettings_, verbose_), std::move(swingTrajectoryPlanner), *pinocchioInterfacePtr_,

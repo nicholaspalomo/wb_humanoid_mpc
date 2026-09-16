@@ -29,6 +29,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <limits>
 
+#include "humanoid_common_mpc/contact_planning/ContactPlanningTermFactory.h"
+#include "humanoid_common_mpc/contact_planning/execution/ExecutionContext.h"
+#include "humanoid_common_mpc/contact_planning/execution/ScheduleAdaptationPipeline.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 
 namespace ocs2::humanoid {
@@ -36,7 +39,6 @@ namespace ocs2::humanoid {
 namespace {
 constexpr scalar_t kSameSwingTolerance = 1e-6;  // [s] lift-off times closer than this identify the same swing
 constexpr scalar_t kMinTimeShift = 1e-6;        // [s] smaller event shifts are not applied
-constexpr scalar_t kMinRemainingSwing = 0.02;   // [s] a re-timed touch-down stays at least this far in the future
 
 bool footInContact(const ModeSchedule& schedule, size_t phaseIndex, size_t foot) {
   return modeNumber2StanceLeg(schedule.modeSequence[phaseIndex])[foot];
@@ -256,108 +258,22 @@ feet_array_t<ContactEventReport> adaptScheduleToContactEvents(ModeSchedule& sche
                                                               const feet_array_t<scalar_t>& cadenceTouchDownShift,
                                                               const ContactPlanningConfig& config,
                                                               feet_array_t<SwingTimingLatch>& latches) {
-  feet_array_t<ContactEventReport> reports = makeFeetArray(ContactEventReport{});
-  if (schedule.modeSequence.empty()) return reports;
-
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-    SwingTimingLatch& latch = latches[foot];
-    ContactEventReport& report = reports[foot];
-
-    const auto phase = swingPhaseAtTime(schedule, foot, time);
-    if (phase.has_value()) {
-      // ---- the foot is scheduled to swing at `time` ----
-      const auto [liftOff, touchDown] = *phase;
-      if (!latch.active || std::abs(latch.liftOffTime - liftOff) > kSameSwingTolerance) {
-        latch = SwingTimingLatch{};
-        latch.active = true;
-        latch.liftOffTime = liftOff;
-        latch.nominalTouchDownTime = touchDown;
-      }
-
-      // Early touch-down: contact measured after the initial fraction of the nominal swing that is ignored as scuffing,
-      // and persisting for the debounce duration so that a single chattering sample does not end the swing.
-      const scalar_t nominalDuration = latch.nominalTouchDownTime - liftOff;
-      const bool pastScuffingWindow = nominalDuration > 0.0 && (time - liftOff) >= config.earlyTouchdownMinSwingRatio * nominalDuration;
-      if (config.enablePhaseResetting && measuredContact[foot] && pastScuffingWindow) {
-        if (!latch.contactObserved) {
-          latch.contactObserved = true;
-          latch.contactObservedSince = time;
-        }
-        if (time - latch.contactObservedSince >= config.earlyTouchdownMinContactDuration - kMinTimeShift &&
-            truncateSwingPhase(schedule, foot, time).has_value()) {
-          report.type = ContactEventReport::Type::EARLY_TOUCH_DOWN;
-          report.touchDownTime = time;
-          report.timeShift = 0.0;
-          latch = SwingTimingLatch{};
-          continue;
-        }
-      } else {
-        latch.contactObserved = false;
-      }
-
-      // Cadence modulation of the touch-down, relative to the nominal touch-down and within the swing duration limits.
-      // Not applied while the swing is being extended past its planned touch-down (late touch-down search).
-      if (config.enableEnergyCadenceModulation && latch.lateExtension <= 0.0) {
-        const auto tdIndex = touchDownEventIndex(schedule, foot, time);
-        if (tdIndex.has_value()) {
-          scalar_t target = latch.nominalTouchDownTime + cadenceTouchDownShift[foot];
-          target = std::clamp(target, liftOff + config.minSwingDuration, liftOff + config.maxSwingDuration);
-          const scalar_t previousEvent = (*tdIndex > 0) ? schedule.eventTimes[*tdIndex - 1] : time;
-          const scalar_t earliest = std::max(time, previousEvent) + kMinRemainingSwing;
-          // A request earlier than what is still feasible brings the touch-down forward as far as allowed, but never
-          // pushes a touch-down that is already imminent further out: flooring at "now + margin" on every cycle would
-          // drag the touch-down along with the clock and the foot would never land.
-          if (target < earliest) target = std::min(earliest, touchDown);
-          const scalar_t shift = target - touchDown;
-          if (std::abs(shift) > kMinTimeShift && shiftEventsFrom(schedule, *tdIndex, shift)) {
-            latch.cadenceShift = target - latch.nominalTouchDownTime;
-            report.type = ContactEventReport::Type::CADENCE_SHIFT;
-            report.touchDownTime = target;
-            report.timeShift = shift;
-          }
-        }
-      }
-      continue;
-    }
-
-    // ---- the foot is scheduled to be in contact at `time` ----
-    if (!latch.active) continue;
-    // The latched swing must be the one that ended at the last event before `time`; otherwise the latch is stale.
-    const size_t index = modeIndexAtTime(schedule, time);
-    const bool justLanded = index > 0 && !footInContact(schedule, index - 1, foot);
-    if (!justLanded) {
-      latch = SwingTimingLatch{};
-      continue;
-    }
-    const size_t first = firstSwingPhase(schedule, foot, index - 1);
-    const scalar_t liftOff = (first > 0) ? schedule.eventTimes[first - 1] : -std::numeric_limits<scalar_t>::infinity();
-    if (std::abs(liftOff - latch.liftOffTime) > kSameSwingTolerance) {
-      latch = SwingTimingLatch{};
-      continue;
-    }
-    if (measuredContact[foot] || !config.enablePhaseResetting) {
-      latch = SwingTimingLatch{};  // landed as scheduled (possibly within an extension), nothing to adapt
-      continue;
-    }
-
-    // Late touch-down: extend the swing in small steps up to the total extension budget, measured from the planned touch-down.
-    const scalar_t touchDown = schedule.eventTimes[index - 1];
-    const scalar_t plannedTouchDown = latch.plannedTouchDownTime();
-    const scalar_t latestTouchDown = plannedTouchDown + config.maxLateTouchdownExtension;
-    const scalar_t target = std::min(time + config.lateTouchdownExtensionStep, latestTouchDown);
-    if (target <= time + kMinTimeShift) {
-      latch = SwingTimingLatch{};  // budget used up: the contact phase proceeds as scheduled
-      continue;
-    }
-    const scalar_t shift = target - touchDown;
-    if (shift > kMinTimeShift && shiftEventsFrom(schedule, index - 1, shift)) {
-      latch.lateExtension = target - plannedTouchDown;
-      report.type = ContactEventReport::Type::LATE_TOUCH_DOWN;
-      report.touchDownTime = target;
-      report.timeShift = shift;
+  // The schedule rules of the configuration's execution list, in list order (the heading override and the foothold
+  // rules do not touch the schedule); the cadence shifts are given, so the cadence rule's own computation is skipped.
+  TermCollection<ExecutionRule> rules;
+  for (const std::string& name : config.formulation.execution) {
+    const std::string canonical = canonicalTermName(TermKind::EXECUTION_RULE, name);
+    if (canonical == term::kPhaseResetting || canonical == term::kEnergyCadenceModulation) {
+      rules.add(canonical, ContactPlanningTermFactory::makeExecutionRule(canonical));
+      rules.get(canonical).configure(config);
     }
   }
-  return reports;
+  ExecutionContext ctx;
+  ctx.time = time;
+  ctx.measuredContact = measuredContact;
+  ctx.config = &config;
+  ctx.cadenceTouchDownShift = cadenceTouchDownShift;
+  return adaptScheduleWithRules(schedule, ctx, rules, latches);
 }
 
 /*============================================ LIP helpers =================================================*/
@@ -400,8 +316,9 @@ vector2_t clipFootholdToReach(
   // side of the planned CoM (a soft-row violation, or the CoM ahead of the feet in a tight turn) and clipped the foot
   // into the other foot's region.
   const scalar_t side = (contactIndex == 0) ? 1.0 : -1.0;
-  const scalar_t x = std::clamp(ex.dot(relative), -config.reachX, config.reachX);
-  const scalar_t y = side * std::clamp(side * ey.dot(relative), config.reachYInner, config.reachYOuter);
+  const ReachabilityParameters& reach = config.reachability;
+  const scalar_t x = std::clamp(ex.dot(relative), -reach.reachX, reach.reachX);
+  const scalar_t y = side * std::clamp(side * ey.dot(relative), reach.reachYInner, reach.reachYOuter);
   return comAtTouchDown + x * ex + y * ey;
 }
 
