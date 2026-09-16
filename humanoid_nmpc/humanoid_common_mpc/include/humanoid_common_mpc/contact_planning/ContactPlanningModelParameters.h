@@ -65,8 +65,8 @@ struct ContactPlanningModelParameters {
   std::vector<std::string> hipYawJoints;  // per foot, empty where none was found (fallback bounds then)
 
   /**
-   * Writes the derived values into `config`: the torque limits and foot yaw bounds always; comHeight and the ZMP box only
-   * where the task file left them at 0 ("from the model").
+   * Writes the derived values into the term blocks of `config`: yaw_torque_budget and hip_yaw_range always; shared.comHeight
+   * and the zmp_support_region box only where the file left them at 0 ("from the model").
    */
   void applyTo(ContactPlanningConfig& config) const;
   std::string summary() const;

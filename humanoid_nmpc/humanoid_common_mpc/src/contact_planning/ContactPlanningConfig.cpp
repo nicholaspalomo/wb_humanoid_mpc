@@ -25,6 +25,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 
+#include <array>
 #include <filesystem>
 #include <iostream>
 #include <stdexcept>
@@ -37,46 +38,68 @@ namespace ocs2::humanoid {
 
 void ContactPlanningConfig::validate() const {
   const auto fail = [](const std::string& what) { throw std::invalid_argument("[ContactPlanningConfig] " + what); };
-  if (dt <= 0.0) fail("dt must be positive");
-  if (numNodes < 2) fail("numNodes must be at least 2");
-  if (comHeight <= 0.0 || gravity <= 0.0) fail("comHeight and gravity must be positive");
-  if (minSwingDuration <= 0.0 || maxSwingDuration < minSwingDuration) fail("need 0 < minSwingDuration <= maxSwingDuration");
-  if (minContactDuration <= 0.0) fail("minContactDuration must be positive");
-  if (maxContactDuration > 0.0 && maxContactDuration < minContactDuration) fail("maxContactDuration must be >= minContactDuration");
-  if (zmpHalfWidthX <= 0.0 || zmpHalfWidthY <= 0.0) fail("ZMP half widths must be positive");
-  if (minStepWidth <= 0.0 || maxStepWidth < minStepWidth) fail("need 0 < minStepWidth <= maxStepWidth");
-  if (nominalStepWidth < minStepWidth || nominalStepWidth > maxStepWidth) fail("nominalStepWidth must lie within the step width bounds");
-  if (maxStepLength <= 0.0 || reachX <= 0.0) fail("maxStepLength and reachX must be positive");
-  if (reachYOuter <= reachYInner) fail("reachYOuter must exceed reachYInner");
-  if (bigM <= maxStepLength) fail("bigM must exceed maxStepLength");
-  if (commitTime < 0.0) fail("commitTime must be non-negative");
-  if (minDoubleSupportDuration < 0.0) fail("minDoubleSupportDuration must be non-negative");
-  if (planConsistencyCost < 0.0 || previousFootholdWeight < 0.0) fail("plan consistency terms must be non-negative");
-  if (maxBranchAndBoundNodes < 1 || maxSolveTime <= 0.0 || maxQpIterations < 1) fail("invalid solver limits");
-  if (localSearchIterations < 0 || localSearchMaxTime < 0.0) fail("invalid local search limits");
-  if (planningFrequency <= 0.0) fail("planningFrequency must be positive");
-  if (commitNodes() >= numNodes) fail("commitTime must be shorter than the planning horizon");
-  if (earlyTouchdownMinSwingRatio < 0.0 || earlyTouchdownMinSwingRatio > 1.0) fail("earlyTouchdownMinSwingRatio must be in [0, 1]");
-  if (earlyTouchdownMinContactDuration < 0.0) fail("earlyTouchdownMinContactDuration must be non-negative");
-  if (maxLateTouchdownExtension < 0.0) fail("maxLateTouchdownExtension must be non-negative");
-  if (lateTouchdownExtensionStep <= 0.0) fail("lateTouchdownExtensionStep must be positive");
-  if (lateTouchdownSearchVelocity < 0.0) fail("lateTouchdownSearchVelocity must be non-negative");
-  if (dcmAdjustmentGain < 0.0) fail("dcmAdjustmentGain must be non-negative");
-  if (dcmAdjustmentMaxOffset < 0.0) fail("dcmAdjustmentMaxOffset must be non-negative");
-  if (energyCadenceGain < 0.0) fail("energyCadenceGain must be non-negative");
-  if (energyCadenceDeadband < 0.0) fail("energyCadenceDeadband must be non-negative");
-  if (torsionalFrictionTorque < 0.0 || doubleSupportYawCouple < 0.0) fail("yaw torque limits must be >= 0");
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-    const bool unset = footYawOffsetLower[foot] == 0.0 && footYawOffsetUpper[foot] == 0.0;
-    if (!unset && !(footYawOffsetLower[foot] < 0.0 && footYawOffsetUpper[foot] > 0.0)) {
-      fail("foot yaw bounds must be lower < 0 < upper");
-    }
+  const PlannerSettings& p = planner;
+  const SharedParameters& s = shared;
+  const GaitLimits& g = s.gaitLimits;
+  if (p.dt <= 0.0) fail("planner.dt must be positive");
+  if (p.numNodes < 2) fail("planner.numNodes must be at least 2");
+  if (s.comHeight <= 0.0 || s.gravity <= 0.0) fail("shared.comHeight and shared.gravity must be positive");
+  if (g.minSwingDuration <= 0.0 || g.maxSwingDuration < g.minSwingDuration) fail("need 0 < minSwingDuration <= maxSwingDuration");
+  if (g.minContactDuration <= 0.0) fail("minContactDuration must be positive");
+  if (g.maxContactDuration > 0.0 && g.maxContactDuration < g.minContactDuration) fail("maxContactDuration must be >= minContactDuration");
+  if (g.minDoubleSupportDuration < 0.0) fail("minDoubleSupportDuration must be non-negative");
+  if (zmpSupportRegion.halfWidthX <= 0.0 || zmpSupportRegion.halfWidthY <= 0.0) fail("ZMP half widths must be positive");
+  if (footSeparation.minStepWidth <= 0.0 || footSeparation.maxStepWidth < footSeparation.minStepWidth) {
+    fail("need 0 < minStepWidth <= maxStepWidth");
   }
-  if (headingRateTrackingWeight < 0.0 || headingTrackingWeight < 0.0 || yawTorqueWeight < 0.0 || footYawTrackingWeight < 0.0 ||
-      footYawRegularizationWeight < 0.0) {
+  if (stepWidth.nominalStepWidth < footSeparation.minStepWidth || stepWidth.nominalStepWidth > footSeparation.maxStepWidth) {
+    fail("nominalStepWidth must lie within the step width bounds");
+  }
+  if (footSeparation.maxStepLength <= 0.0 || reachability.reachX <= 0.0) fail("maxStepLength and reachX must be positive");
+  if (reachability.reachYOuter <= reachability.reachYInner) fail("reachYOuter must exceed reachYInner");
+  if (s.bigM <= footSeparation.maxStepLength) fail("shared.bigM must exceed foot_separation.maxStepLength");
+  if (p.commitTime < 0.0) fail("planner.commitTime must be non-negative");
+  if (s.slackPenalty.quadratic < 0.0 || s.slackPenalty.linear < 0.0) fail("shared.slack_penalty must be non-negative");
+  const auto checkSlack = [&](const std::optional<SlackPenalty>& slack, const char* term) {
+    if (slack.has_value() && (slack->quadratic < 0.0 || slack->linear < 0.0)) fail(std::string(term) + ".slack must be non-negative");
+  };
+  checkSlack(zmpSupportRegion.slack, "zmp_support_region");
+  checkSlack(reachability.slack, "reachability");
+  checkSlack(footSeparation.slack, "foot_separation");
+  checkSlack(hipYawRange.slack, "hip_yaw_range");
+  if (regularization.state < 0.0 || regularization.input < 0.0) fail("regularization terms must be non-negative");
+  if (planConsistency.cost < 0.0 || previousFootholdConsistency.weight < 0.0) fail("plan consistency terms must be non-negative");
+  if (contactSwitch.cost < 0.0) fail("contact_switch.cost must be non-negative");
+  if (velocityTracking.weight < 0.0 || stepWidth.weight < 0.0 || zmpRegularization.weight < 0.0 || footholdRegularization.weight < 0.0 ||
+      terminalDcm.weight < 0.0) {
+    fail("cost weights must be non-negative");
+  }
+  if (p.maxBranchAndBoundNodes < 1 || p.maxSolveTime <= 0.0 || p.maxQpIterations < 1) fail("invalid solver limits");
+  if (eventShiftLocalSearch.iterations < 0 || eventShiftLocalSearch.maxTime < 0.0) fail("invalid local search limits");
+  if (diving.maxDiveIterations < 1) fail("diving.maxDiveIterations must be at least 1");
+  if (p.planningFrequency <= 0.0) fail("planner.planningFrequency must be positive");
+  if (commitNodes() >= p.numNodes) fail("planner.commitTime must be shorter than the planning horizon");
+  const PhaseResettingParameters& r = phaseResetting;
+  if (r.earlyTouchdownMinSwingRatio < 0.0 || r.earlyTouchdownMinSwingRatio > 1.0) fail("earlyTouchdownMinSwingRatio must be in [0, 1]");
+  if (r.earlyTouchdownMinContactDuration < 0.0) fail("earlyTouchdownMinContactDuration must be non-negative");
+  if (r.maxLateTouchdownExtension < 0.0) fail("maxLateTouchdownExtension must be non-negative");
+  if (r.lateTouchdownExtensionStep <= 0.0) fail("lateTouchdownExtensionStep must be positive");
+  if (r.lateTouchdownSearchVelocity < 0.0) fail("lateTouchdownSearchVelocity must be non-negative");
+  if (dcmStepAdjustment.gain < 0.0) fail("dcm_step_adjustment.gain must be non-negative");
+  if (dcmStepAdjustment.maxOffset < 0.0) fail("dcm_step_adjustment.maxOffset must be non-negative");
+  if (energyCadenceModulation.gain < 0.0) fail("energy_cadence_modulation.gain must be non-negative");
+  if (energyCadenceModulation.deadband < 0.0) fail("energy_cadence_modulation.deadband must be non-negative");
+  if (yawTorqueBudget.torsionalFrictionTorque < 0.0 || yawTorqueBudget.doubleSupportYawCouple < 0.0) fail("yaw torque limits must be >= 0");
+  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    const bool unset = hipYawRange.lower[foot] == 0.0 && hipYawRange.upper[foot] == 0.0;
+    if (!unset && !(hipYawRange.lower[foot] < 0.0 && hipYawRange.upper[foot] > 0.0)) fail("foot yaw bounds must be lower < 0 < upper");
+  }
+  if (headingRateTracking.weight < 0.0 || headingTracking.weight < 0.0 || yawTorqueRegularization.weight < 0.0 ||
+      footYawTracking.weight < 0.0 || footYawRegularization.weight < 0.0) {
     fail("heading model weights must be >= 0");
   }
-  if (headingLinearizationPasses < 0 || headingLinearizationPasses > 5) fail("headingLinearizationPasses must be in [0, 5]");
+  if (headingRelinearisation.passes < 0 || headingRelinearisation.passes > 5) fail("heading_relinearisation.passes must be in [0, 5]");
+  formulation.validate();
 }
 
 std::string resolveContactPlanningConfigFile(const std::string& taskFile) {
@@ -86,75 +109,237 @@ std::string resolveContactPlanningConfigFile(const std::string& taskFile) {
   return taskFile;
 }
 
+namespace {
+
+using boost::property_tree::ptree;
+
+/** Keys of the previous, flat layout: their presence directly under the block identifies a file that was not migrated. */
+constexpr std::array<const char*, 61> kLegacyKeys{"dt",
+                                                  "numNodes",
+                                                  "commitTime",
+                                                  "comHeight",
+                                                  "gravity",
+                                                  "minSwingDuration",
+                                                  "maxSwingDuration",
+                                                  "minContactDuration",
+                                                  "maxContactDuration",
+                                                  "enforceAlternatingFeet",
+                                                  "minDoubleSupportDuration",
+                                                  "zmpHalfWidthX",
+                                                  "zmpHalfWidthY",
+                                                  "nominalStepWidth",
+                                                  "minStepWidth",
+                                                  "maxStepWidth",
+                                                  "maxStepLength",
+                                                  "reachX",
+                                                  "reachYInner",
+                                                  "reachYOuter",
+                                                  "bigM",
+                                                  "velocityTrackingWeight",
+                                                  "zmpRegularizationWeight",
+                                                  "footholdRegularizationWeight",
+                                                  "stepWidthWeight",
+                                                  "contactSwitchCost",
+                                                  "planConsistencyCost",
+                                                  "previousFootholdWeight",
+                                                  "terminalDcmWeight",
+                                                  "constraintSlackWeight",
+                                                  "constraintSlackLinearWeight",
+                                                  "maxBranchAndBoundNodes",
+                                                  "maxSolveTime",
+                                                  "maxQpIterations",
+                                                  "localSearchIterations",
+                                                  "localSearchMaxTime",
+                                                  "verbose",
+                                                  "runInBackgroundThread",
+                                                  "planningFrequency",
+                                                  "enablePhaseResetting",
+                                                  "earlyTouchdownMinSwingRatio",
+                                                  "earlyTouchdownMinContactDuration",
+                                                  "maxLateTouchdownExtension",
+                                                  "lateTouchdownExtensionStep",
+                                                  "lateTouchdownSearchVelocity",
+                                                  "enableDcmStepAdjustment",
+                                                  "dcmAdjustmentGain",
+                                                  "dcmAdjustmentMaxOffset",
+                                                  "enableEnergyCadenceModulation",
+                                                  "energyCadenceGain",
+                                                  "energyCadenceDeadband",
+                                                  "useAcomDynamics",
+                                                  "headingRateTrackingWeight",
+                                                  "headingTrackingWeight",
+                                                  "yawTorqueWeight",
+                                                  "footYawTrackingWeight",
+                                                  "footYawRegularizationWeight",
+                                                  "headingLinearizationPasses",
+                                                  "planHeadingOverridesTarget",
+                                                  "torsionalFrictionTorque",
+                                                  "doubleSupportYawCouple"};
+
+/** Keys of the structured layout that identify it (the block names besides the term blocks). */
+constexpr std::array<const char*, 10> kStructuredKeys{"planner",          "shared",      "dynamics",         "costs",  "soft_constraints",
+                                                      "hard_constraints", "logic_rules", "assignment_costs", "search", "execution"};
+
+bool hasAnyKey(const ptree& block, const char* const* keys, size_t count) {
+  for (size_t i = 0; i < count; ++i) {
+    if (block.get_child_optional(keys[i])) return true;
+  }
+  return false;
+}
+
+bool hasAnyTermBlock(const ptree& block) {
+  static const std::array<TermKind, 8> kinds{TermKind::MODEL_BLOCK,     TermKind::COST,          TermKind::SOFT_CONSTRAINT,
+                                             TermKind::HARD_CONSTRAINT, TermKind::LOGIC_RULE,    TermKind::ASSIGNMENT_COST,
+                                             TermKind::SEARCH_STAGE,    TermKind::EXECUTION_RULE};
+  for (const TermKind kind : kinds) {
+    for (const std::string& name : knownTermNames(kind)) {
+      if (block.get_child_optional(name)) return true;
+    }
+  }
+  return false;
+}
+
+/** A YAML sequence under `key`, or empty when the key is absent (`present` tells the two apart). */
+std::vector<std::string> readList(const ptree& block, const char* key, bool& present) {
+  std::vector<std::string> list;
+  const auto child = block.get_child_optional(key);
+  present = child.has_value();
+  if (!present) return list;
+  for (const auto& item : *child) {
+    const std::string value = item.second.data();
+    if (!value.empty()) list.push_back(value);
+  }
+  return list;
+}
+
+void readSlack(const ptree& pt, const std::string& prefix, std::optional<SlackPenalty>& slack, bool verbose) {
+  const auto child = pt.get_child_optional(prefix + "slack");
+  if (!child) return;
+  SlackPenalty penalty;
+  loadData::loadPtreeValue(pt, penalty.quadratic, prefix + "slack.quadratic", verbose);
+  loadData::loadPtreeValue(pt, penalty.linear, prefix + "slack.linear", verbose);
+  slack = penalty;
+}
+
+void loadStructured(const ptree& pt, const ptree& block, const std::string& prefix, ContactPlanningConfig& config, bool verbose) {
+  const auto load = [&](auto& value, const std::string& key) { loadData::loadPtreeValue(pt, value, prefix + key, verbose); };
+  // LINT.IfChange(contact_planning_keys)
+  PlannerSettings& p = config.planner;
+  load(p.dt, "planner.dt");
+  load(p.numNodes, "planner.numNodes");
+  load(p.commitTime, "planner.commitTime");
+  load(p.maxBranchAndBoundNodes, "planner.maxBranchAndBoundNodes");
+  load(p.maxSolveTime, "planner.maxSolveTime");
+  load(p.maxQpIterations, "planner.maxQpIterations");
+  load(p.runInBackgroundThread, "planner.runInBackgroundThread");
+  load(p.planningFrequency, "planner.planningFrequency");
+  load(p.verbose, "planner.verbose");
+
+  SharedParameters& s = config.shared;
+  load(s.gravity, "shared.gravity");
+  load(s.comHeight, "shared.comHeight");
+  load(s.bigM, "shared.bigM");
+  load(s.slackPenalty.quadratic, "shared.slack_penalty.quadratic");
+  load(s.slackPenalty.linear, "shared.slack_penalty.linear");
+  load(s.gaitLimits.minSwingDuration, "shared.gait_limits.minSwingDuration");
+  load(s.gaitLimits.maxSwingDuration, "shared.gait_limits.maxSwingDuration");
+  load(s.gaitLimits.minContactDuration, "shared.gait_limits.minContactDuration");
+  load(s.gaitLimits.maxContactDuration, "shared.gait_limits.maxContactDuration");
+  load(s.gaitLimits.minDoubleSupportDuration, "shared.gait_limits.minDoubleSupportDuration");
+
+  ContactPlanningFormulation& f = config.formulation;
+  bool present = false;
+  const auto list = [&](const char* key, std::vector<std::string>& target) {
+    std::vector<std::string> values = readList(block, key, present);
+    if (present) target = std::move(values);
+  };
+  list("dynamics", f.dynamics);
+  list("costs", f.costs);
+  list("soft_constraints", f.softConstraints);
+  list("hard_constraints", f.hardConstraints);
+  list("logic_rules", f.logicRules);
+  list("assignment_costs", f.assignmentCosts);
+  list("search", f.search);
+  list("execution", f.execution);
+
+  load(config.regularization.state, std::string(term::kRegularization) + ".state");
+  load(config.regularization.input, std::string(term::kRegularization) + ".input");
+  load(config.previousFootholdConsistency.weight, std::string(term::kPreviousFootholdConsistency) + ".weight");
+  load(config.velocityTracking.weight, std::string(term::kVelocityTracking) + ".weight");
+  load(config.stepWidth.weight, std::string(term::kStepWidth) + ".weight");
+  load(config.stepWidth.nominalStepWidth, std::string(term::kStepWidth) + ".nominalStepWidth");
+  load(config.headingRateTracking.weight, std::string(term::kHeadingRateTracking) + ".weight");
+  load(config.headingTracking.weight, std::string(term::kHeadingTracking) + ".weight");
+  load(config.footYawTracking.weight, std::string(term::kFootYawTracking) + ".weight");
+  load(config.yawTorqueRegularization.weight, std::string(term::kYawTorqueRegularization) + ".weight");
+  load(config.footYawRegularization.weight, std::string(term::kFootYawRegularization) + ".weight");
+  load(config.zmpRegularization.weight, std::string(term::kZmpRegularization) + ".weight");
+  load(config.footholdRegularization.weight, std::string(term::kFootholdRegularization) + ".weight");
+  load(config.terminalDcm.weight, std::string(term::kTerminalDcm) + ".weight");
+  load(config.zmpSupportRegion.halfWidthX, std::string(term::kZmpSupportRegion) + ".halfWidthX");
+  load(config.zmpSupportRegion.halfWidthY, std::string(term::kZmpSupportRegion) + ".halfWidthY");
+  readSlack(pt, prefix + term::kZmpSupportRegion + ".", config.zmpSupportRegion.slack, verbose);
+  load(config.reachability.reachX, std::string(term::kReachability) + ".reachX");
+  load(config.reachability.reachYInner, std::string(term::kReachability) + ".reachYInner");
+  load(config.reachability.reachYOuter, std::string(term::kReachability) + ".reachYOuter");
+  readSlack(pt, prefix + term::kReachability + ".", config.reachability.slack, verbose);
+  load(config.footSeparation.maxStepLength, std::string(term::kFootSeparation) + ".maxStepLength");
+  load(config.footSeparation.minStepWidth, std::string(term::kFootSeparation) + ".minStepWidth");
+  load(config.footSeparation.maxStepWidth, std::string(term::kFootSeparation) + ".maxStepWidth");
+  readSlack(pt, prefix + term::kFootSeparation + ".", config.footSeparation.slack, verbose);
+  readSlack(pt, prefix + term::kHipYawRange + ".", config.hipYawRange.slack, verbose);
+  load(config.contactSwitch.cost, std::string(term::kContactSwitch) + ".cost");
+  load(config.planConsistency.cost, std::string(term::kPlanConsistency) + ".cost");
+  load(config.diving.maxDiveIterations, std::string(term::kDiving) + ".maxDiveIterations");
+  load(config.eventShiftLocalSearch.iterations, std::string(term::kEventShiftLocalSearch) + ".iterations");
+  load(config.eventShiftLocalSearch.maxTime, std::string(term::kEventShiftLocalSearch) + ".maxTime");
+  load(config.headingRelinearisation.passes, std::string(term::kHeadingRelinearisation) + ".passes");
+  load(config.phaseResetting.earlyTouchdownMinSwingRatio, std::string(term::kPhaseResetting) + ".earlyTouchdownMinSwingRatio");
+  load(config.phaseResetting.earlyTouchdownMinContactDuration, std::string(term::kPhaseResetting) + ".earlyTouchdownMinContactDuration");
+  load(config.phaseResetting.maxLateTouchdownExtension, std::string(term::kPhaseResetting) + ".maxLateTouchdownExtension");
+  load(config.phaseResetting.lateTouchdownExtensionStep, std::string(term::kPhaseResetting) + ".lateTouchdownExtensionStep");
+  load(config.phaseResetting.lateTouchdownSearchVelocity, std::string(term::kPhaseResetting) + ".lateTouchdownSearchVelocity");
+  load(config.energyCadenceModulation.gain, std::string(term::kEnergyCadenceModulation) + ".gain");
+  load(config.energyCadenceModulation.deadband, std::string(term::kEnergyCadenceModulation) + ".deadband");
+  load(config.dcmStepAdjustment.gain, std::string(term::kDcmStepAdjustment) + ".gain");
+  load(config.dcmStepAdjustment.maxOffset, std::string(term::kDcmStepAdjustment) + ".maxOffset");
+  // clang-format off
+  // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/contact_planning.yaml:contact_planning_config, //humanoid_nmpc/remote_control/remote_control/tk_app/mpc_params_tab.py:contact_planning_gui_keys)
+  // clang-format on
+}
+
+}  // namespace
+
 ContactPlanningConfig loadContactPlanningConfig(const std::string& yamlFile, const std::string& prefix, bool verbose, bool validate) {
-  boost::property_tree::ptree pt;
+  ptree pt;
   loadData::readPropertyTree(yamlFile, pt);
   ContactPlanningConfig config;
   if (verbose) {
     std::cerr << "\n #### Contact Planning Config:";
     std::cerr << "\n #### =============================================================================\n";
   }
-  // LINT.IfChange(contact_planning_keys)
-  loadData::loadPtreeValue(pt, config.dt, prefix + "dt", verbose);
-  loadData::loadPtreeValue(pt, config.numNodes, prefix + "numNodes", verbose);
-  loadData::loadPtreeValue(pt, config.commitTime, prefix + "commitTime", verbose);
-  loadData::loadPtreeValue(pt, config.comHeight, prefix + "comHeight", verbose);
-  loadData::loadPtreeValue(pt, config.gravity, prefix + "gravity", verbose);
-  loadData::loadPtreeValue(pt, config.minSwingDuration, prefix + "minSwingDuration", verbose);
-  loadData::loadPtreeValue(pt, config.maxSwingDuration, prefix + "maxSwingDuration", verbose);
-  loadData::loadPtreeValue(pt, config.minContactDuration, prefix + "minContactDuration", verbose);
-  loadData::loadPtreeValue(pt, config.maxContactDuration, prefix + "maxContactDuration", verbose);
-  loadData::loadPtreeValue(pt, config.enforceAlternatingFeet, prefix + "enforceAlternatingFeet", verbose);
-  loadData::loadPtreeValue(pt, config.minDoubleSupportDuration, prefix + "minDoubleSupportDuration", verbose);
-  loadData::loadPtreeValue(pt, config.zmpHalfWidthX, prefix + "zmpHalfWidthX", verbose);
-  loadData::loadPtreeValue(pt, config.zmpHalfWidthY, prefix + "zmpHalfWidthY", verbose);
-  loadData::loadPtreeValue(pt, config.nominalStepWidth, prefix + "nominalStepWidth", verbose);
-  loadData::loadPtreeValue(pt, config.minStepWidth, prefix + "minStepWidth", verbose);
-  loadData::loadPtreeValue(pt, config.maxStepWidth, prefix + "maxStepWidth", verbose);
-  loadData::loadPtreeValue(pt, config.maxStepLength, prefix + "maxStepLength", verbose);
-  loadData::loadPtreeValue(pt, config.reachX, prefix + "reachX", verbose);
-  loadData::loadPtreeValue(pt, config.reachYInner, prefix + "reachYInner", verbose);
-  loadData::loadPtreeValue(pt, config.reachYOuter, prefix + "reachYOuter", verbose);
-  loadData::loadPtreeValue(pt, config.bigM, prefix + "bigM", verbose);
-  loadData::loadPtreeValue(pt, config.velocityTrackingWeight, prefix + "velocityTrackingWeight", verbose);
-  loadData::loadPtreeValue(pt, config.zmpRegularizationWeight, prefix + "zmpRegularizationWeight", verbose);
-  loadData::loadPtreeValue(pt, config.footholdRegularizationWeight, prefix + "footholdRegularizationWeight", verbose);
-  loadData::loadPtreeValue(pt, config.stepWidthWeight, prefix + "stepWidthWeight", verbose);
-  loadData::loadPtreeValue(pt, config.contactSwitchCost, prefix + "contactSwitchCost", verbose);
-  loadData::loadPtreeValue(pt, config.planConsistencyCost, prefix + "planConsistencyCost", verbose);
-  loadData::loadPtreeValue(pt, config.previousFootholdWeight, prefix + "previousFootholdWeight", verbose);
-  loadData::loadPtreeValue(pt, config.terminalDcmWeight, prefix + "terminalDcmWeight", verbose);
-  loadData::loadPtreeValue(pt, config.constraintSlackWeight, prefix + "constraintSlackWeight", verbose);
-  loadData::loadPtreeValue(pt, config.constraintSlackLinearWeight, prefix + "constraintSlackLinearWeight", verbose);
-  loadData::loadPtreeValue(pt, config.maxBranchAndBoundNodes, prefix + "maxBranchAndBoundNodes", verbose);
-  loadData::loadPtreeValue(pt, config.maxSolveTime, prefix + "maxSolveTime", verbose);
-  loadData::loadPtreeValue(pt, config.maxQpIterations, prefix + "maxQpIterations", verbose);
-  loadData::loadPtreeValue(pt, config.localSearchIterations, prefix + "localSearchIterations", verbose);
-  loadData::loadPtreeValue(pt, config.localSearchMaxTime, prefix + "localSearchMaxTime", verbose);
-  loadData::loadPtreeValue(pt, config.verbose, prefix + "verbose", verbose);
-  loadData::loadPtreeValue(pt, config.runInBackgroundThread, prefix + "runInBackgroundThread", verbose);
-  loadData::loadPtreeValue(pt, config.planningFrequency, prefix + "planningFrequency", verbose);
-  loadData::loadPtreeValue(pt, config.enablePhaseResetting, prefix + "enablePhaseResetting", verbose);
-  loadData::loadPtreeValue(pt, config.earlyTouchdownMinSwingRatio, prefix + "earlyTouchdownMinSwingRatio", verbose);
-  loadData::loadPtreeValue(pt, config.earlyTouchdownMinContactDuration, prefix + "earlyTouchdownMinContactDuration", verbose);
-  loadData::loadPtreeValue(pt, config.maxLateTouchdownExtension, prefix + "maxLateTouchdownExtension", verbose);
-  loadData::loadPtreeValue(pt, config.lateTouchdownExtensionStep, prefix + "lateTouchdownExtensionStep", verbose);
-  loadData::loadPtreeValue(pt, config.lateTouchdownSearchVelocity, prefix + "lateTouchdownSearchVelocity", verbose);
-  loadData::loadPtreeValue(pt, config.enableDcmStepAdjustment, prefix + "enableDcmStepAdjustment", verbose);
-  loadData::loadPtreeValue(pt, config.dcmAdjustmentGain, prefix + "dcmAdjustmentGain", verbose);
-  loadData::loadPtreeValue(pt, config.dcmAdjustmentMaxOffset, prefix + "dcmAdjustmentMaxOffset", verbose);
-  loadData::loadPtreeValue(pt, config.enableEnergyCadenceModulation, prefix + "enableEnergyCadenceModulation", verbose);
-  loadData::loadPtreeValue(pt, config.energyCadenceGain, prefix + "energyCadenceGain", verbose);
-  loadData::loadPtreeValue(pt, config.energyCadenceDeadband, prefix + "energyCadenceDeadband", verbose);
-  loadData::loadPtreeValue(pt, config.useAcomDynamics, prefix + "useAcomDynamics", verbose);
-  loadData::loadPtreeValue(pt, config.headingRateTrackingWeight, prefix + "headingRateTrackingWeight", verbose);
-  loadData::loadPtreeValue(pt, config.headingTrackingWeight, prefix + "headingTrackingWeight", verbose);
-  loadData::loadPtreeValue(pt, config.yawTorqueWeight, prefix + "yawTorqueWeight", verbose);
-  loadData::loadPtreeValue(pt, config.footYawTrackingWeight, prefix + "footYawTrackingWeight", verbose);
-  loadData::loadPtreeValue(pt, config.footYawRegularizationWeight, prefix + "footYawRegularizationWeight", verbose);
-  loadData::loadPtreeValue(pt, config.headingLinearizationPasses, prefix + "headingLinearizationPasses", verbose);
-  loadData::loadPtreeValue(pt, config.planHeadingOverridesTarget, prefix + "planHeadingOverridesTarget", verbose);
-  // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/contact_planning.yaml:contact_planning_config)
+  const std::string blockKey =
+      prefix.empty() ? std::string() : prefix.substr(0, prefix.size() - 1);  // "contact_planning." -> "contact_planning"
+  boost::optional<const ptree&> block;
+  if (blockKey.empty()) {
+    block = pt;
+  } else if (const auto child = pt.get_child_optional(blockKey)) {
+    block = *child;
+  }
+  if (block) {
+    const bool structured = hasAnyKey(*block, kStructuredKeys.data(), kStructuredKeys.size()) || hasAnyTermBlock(*block);
+    const bool legacy = hasAnyKey(*block, kLegacyKeys.data(), kLegacyKeys.size());
+    if (legacy) {
+      throw std::invalid_argument(
+          "[ContactPlanningConfig] " + yamlFile + (structured ? " mixes the structured contact_planning layout with" : " uses") +
+          " keys of the flat layout of the previous planner (dt, velocityTrackingWeight, useAcomDynamics, ...), which is no longer read. "
+          "Migrate the block to the structured layout: `planner` / `shared` blocks, the term lists (dynamics, costs, soft_constraints, "
+          "hard_constraints, logic_rules, assignment_costs, search, execution) and one parameter block per term, as in the DRC Atlas "
+          "contact_planning.yaml; the flags became list entries (useAcomDynamics -> heading_double_integrator and its terms, "
+          "enablePhaseResetting -> phase_resetting, ...).");
+    }
+    loadStructured(pt, *block, prefix, config, verbose);
+  }
   if (verbose) {
     std::cerr << " #### =============================================================================" << std::endl;
   }

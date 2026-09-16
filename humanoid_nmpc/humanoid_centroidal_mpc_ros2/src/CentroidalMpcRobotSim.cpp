@@ -204,8 +204,9 @@ int main(int argc, char** argv) {
   robot::mujoco_sim_interface::MujocoSimInterface robotInterface(config, urdfFile);
 
   if (auto plannerModule = interface.getContactPlannerModulePtr();
-      plannerModule && plannerModule->getConfig().enablePhaseResetting && !simReportsGroundTruthContacts) {
-    LOG(WARNING) << "contact_planning.enablePhaseResetting is on but simReportsGroundTruthContacts is off: the simulator reports every "
+      plannerModule && plannerModule->getConfig().formulation.hasExecutionRule(term::kPhaseResetting) && !simReportsGroundTruthContacts) {
+    LOG(WARNING) << "contact_planning lists the phase_resetting execution rule but simReportsGroundTruthContacts is off: the simulator "
+                    "reports every "
                     "contact point as touching, so phase resetting would end every swing at its scuffing window. Set "
                     "simReportsGroundTruthContacts: true in "
                  << taskFile << ".";

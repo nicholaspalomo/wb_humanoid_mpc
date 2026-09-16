@@ -44,19 +44,19 @@ constexpr scalar_t kTol = 1e-6;
 
 ContactPlanningConfig makeConfig() {
   ContactPlanningConfig config;
-  config.dt = 0.1;
-  config.numNodes = 12;
-  config.commitTime = 0.25;
-  config.comHeight = 0.85;
-  config.minSwingDuration = 0.3;
-  config.maxSwingDuration = 0.5;
-  config.minContactDuration = 0.15;
-  config.maxContactDuration = 0.0;
-  config.minDoubleSupportDuration = 0.1;
-  config.maxBranchAndBoundNodes = 3000;
-  config.maxSolveTime = 10.0;
-  config.localSearchMaxTime = 2.0;
-  config.verbose = false;
+  config.planner.dt = 0.1;
+  config.planner.numNodes = 12;
+  config.planner.commitTime = 0.25;
+  config.shared.comHeight = 0.85;
+  config.shared.gaitLimits.minSwingDuration = 0.3;
+  config.shared.gaitLimits.maxSwingDuration = 0.5;
+  config.shared.gaitLimits.minContactDuration = 0.15;
+  config.shared.gaitLimits.maxContactDuration = 0.0;
+  config.shared.gaitLimits.minDoubleSupportDuration = 0.1;
+  config.planner.maxBranchAndBoundNodes = 3000;
+  config.planner.maxSolveTime = 10.0;
+  config.eventShiftLocalSearch.maxTime = 2.0;
+  config.planner.verbose = false;
   config.validate();
   return config;
 }
@@ -79,10 +79,10 @@ ContactPlannerInput makeInput(const ModeSchedule& schedule, scalar_t time, const
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
     input.phaseElapsedTime[foot] = std::isfinite(phaseStarts[foot]) ? time - phaseStarts[foot] : 10.0;
   }
-  input.committedUntil = commitBoundaryForSchedule(schedule, time, config.commitTime);
-  const int maxCommitted = config.numNodes - 1;
-  input.committedContacts = committedContactsForPlanner(schedule, time, config.dt, maxCommitted, input.committedUntil);
-  input.committedPhaseStartTimes = committedPhaseStartsForPlanner(schedule, time, config.dt, maxCommitted, input.committedUntil);
+  input.committedUntil = commitBoundaryForSchedule(schedule, time, config.planner.commitTime);
+  const int maxCommitted = config.planner.numNodes - 1;
+  input.committedContacts = committedContactsForPlanner(schedule, time, config.planner.dt, maxCommitted, input.committedUntil);
+  input.committedPhaseStartTimes = committedPhaseStartsForPlanner(schedule, time, config.planner.dt, maxCommitted, input.committedUntil);
   return input;
 }
 
@@ -153,16 +153,16 @@ ModeSchedule expectMergedScheduleHonoursMinimumDurations(const ModeSchedule& app
   for (const Phase& phase : phasesInside(merged, time, plan.endTime())) {
     const scalar_t duration = phase.end - phase.start;
     if (phase.inContact) {
-      EXPECT_GE(duration, config.minContactDuration - kTol) << "foot " << phase.foot << " contact from " << phase.start;
+      EXPECT_GE(duration, config.shared.gaitLimits.minContactDuration - kTol) << "foot " << phase.foot << " contact from " << phase.start;
     } else {
-      EXPECT_GE(duration, config.minSwingDuration - kTol) << "foot " << phase.foot << " swing from " << phase.start;
-      EXPECT_LE(duration, config.maxSwingDuration + kTol) << "foot " << phase.foot << " swing from " << phase.start;
+      EXPECT_GE(duration, config.shared.gaitLimits.minSwingDuration - kTol) << "foot " << phase.foot << " swing from " << phase.start;
+      EXPECT_LE(duration, config.shared.gaitLimits.maxSwingDuration + kTol) << "foot " << phase.foot << " swing from " << phase.start;
     }
   }
   const auto supports = doubleSupportsInside(merged, time, plan.endTime());
   EXPECT_FALSE(supports.empty()) << "a walking plan transfers the weight at least once inside the horizon";
   for (const auto& [start, end] : supports) {
-    EXPECT_GE(end - start, config.minDoubleSupportDuration - kTol) << "double support from " << start << " to " << end;
+    EXPECT_GE(end - start, config.shared.gaitLimits.minDoubleSupportDuration - kTol) << "double support from " << start << " to " << end;
   }
   return merged;
 }
@@ -216,14 +216,14 @@ TEST(ContactPlanMerge, GridAlignedTouchDownIsUnchanged) {
 TEST(ContactPlanMerge, TouchDownJustBeforeAGridAlignedBoundaryIsNotReLifted) {
   if (N_CONTACTS < 2) GTEST_SKIP() << "needs a second foot";
   ContactPlanningConfig config = makeConfig();
-  config.commitTime = 0.3;
+  config.planner.commitTime = 0.3;
   config.validate();
   const ModeSchedule applied({0.57, 0.97}, {ModeNumber::STANCE, modeWithSwinging(1), ModeNumber::STANCE});
-  EXPECT_NEAR(commitBoundaryForSchedule(applied, 0.7, config.commitTime), 1.0, kTol) << "the boundary lies on the grid";
+  EXPECT_NEAR(commitBoundaryForSchedule(applied, 0.7, config.planner.commitTime), 1.0, kTol) << "the boundary lies on the grid";
   const ModeSchedule merged = expectMergedScheduleHonoursMinimumDurations(applied, 0.7, config);
   EXPECT_FALSE(contactFlagsAtTime(merged, 0.969)[1]);
   EXPECT_TRUE(contactFlagsAtTime(merged, 0.971)[1]) << "the executed touch-down is kept";
-  for (scalar_t t = 0.97; t < 0.97 + config.minContactDuration; t += 0.005) {
+  for (scalar_t t = 0.97; t < 0.97 + config.shared.gaitLimits.minContactDuration; t += 0.005) {
     EXPECT_TRUE(contactFlagsAtTime(merged, t)[1]) << "phantom re-lift at " << t;
   }
 }
@@ -231,14 +231,14 @@ TEST(ContactPlanMerge, TouchDownJustBeforeAGridAlignedBoundaryIsNotReLifted) {
 TEST(ContactPlanMerge, TouchDownExactlyOnAGridAlignedBoundaryIsKept) {
   if (N_CONTACTS < 2) GTEST_SKIP() << "needs a second foot";
   ContactPlanningConfig config = makeConfig();
-  config.commitTime = 0.3;
+  config.planner.commitTime = 0.3;
   config.validate();
   const ModeSchedule applied({0.6, 1.0}, {ModeNumber::STANCE, modeWithSwinging(1), ModeNumber::STANCE});
-  EXPECT_NEAR(commitBoundaryForSchedule(applied, 0.7, config.commitTime), 1.0, kTol);
+  EXPECT_NEAR(commitBoundaryForSchedule(applied, 0.7, config.planner.commitTime), 1.0, kTol);
   const ModeSchedule merged = expectMergedScheduleHonoursMinimumDurations(applied, 0.7, config);
   EXPECT_FALSE(contactFlagsAtTime(merged, 0.999)[1]);
   EXPECT_TRUE(contactFlagsAtTime(merged, 1.0)[1]) << "the touch-down on the boundary is neither delayed nor dropped";
-  for (scalar_t t = 1.0; t < 1.0 + config.minContactDuration; t += 0.005) {
+  for (scalar_t t = 1.0; t < 1.0 + config.shared.gaitLimits.minContactDuration; t += 0.005) {
     EXPECT_TRUE(contactFlagsAtTime(merged, t)[1]) << "phantom re-lift at " << t;
   }
 }

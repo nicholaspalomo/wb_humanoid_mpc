@@ -38,7 +38,8 @@ ContactPlannerModule::ContactPlannerModule(std::shared_ptr<ContactPlanningRefere
     throw std::invalid_argument("[ContactPlannerModule] reference manager must not be null");
   }
   referenceManagerPtr_->setConfig(config_);
-  if (config_.runInBackgroundThread) {
+  LOG(INFO) << "[ContactPlannerModule] contact planner formulation:\n" << planner_.getFormulationSummary();
+  if (config_.planner.runInBackgroundThread) {
     startWorker();
   }
 }
@@ -91,18 +92,24 @@ void ContactPlannerModule::setConfig(const ContactPlanningConfig& configIn) {
 
   bool startWorkerThread = false;
   bool stopWorkerThread = false;
+  bool structuralChange = false;
 
   {
     std::lock_guard<std::mutex> lock(configMutex_);
-    if (config_.runInBackgroundThread != config.runInBackgroundThread) {
-      if (config.runInBackgroundThread) {
+    if (config_.planner.runInBackgroundThread != config.planner.runInBackgroundThread) {
+      if (config.planner.runInBackgroundThread) {
         startWorkerThread = true;
       } else {
         stopWorkerThread = true;
       }
     }
+    structuralChange = config_.formulation != config.formulation || config_.planner.numNodes != config.planner.numNodes ||
+                       config_.planner.dt != config.planner.dt;
     config_ = config;
     configChanged_ = true;
+  }
+  if (structuralChange) {
+    LOG(INFO) << "[ContactPlannerModule] contact planner formulation reloaded:\n" << LipContactPlanner::formulationSummary(config);
   }
 
   if (startWorkerThread) {
@@ -187,7 +194,7 @@ void ContactPlannerModule::workerLoop() {
 
 void ContactPlannerModule::postSolverRun(const PrimalSolution& primalSolution) {
   const ContactPlanningConfig config = getConfig();
-  if (!config.enableDcmStepAdjustment && !config.enableEnergyCadenceModulation) return;
+  if (!config.formulation.needsPredictedTrajectory()) return;
   referenceManagerPtr_->setPredictedTrajectory(primalSolution.timeTrajectory_, primalSolution.stateTrajectory_);
 }
 
@@ -211,7 +218,7 @@ void ContactPlannerModule::preSolverRun(scalar_t initTime,
   const bool replanRequested = referenceManagerPtr_->consumeReplanRequest();
 
   const ContactPlanningConfig config = getConfig();
-  if (!config.runInBackgroundThread) {
+  if (!config.planner.runInBackgroundThread) {
     runPlanner(input);
     return;
   }
@@ -225,7 +232,7 @@ void ContactPlannerModule::preSolverRun(scalar_t initTime,
   }
 
   const auto now = std::chrono::steady_clock::now();
-  const std::chrono::duration<scalar_t> minPeriod(1.0 / config.planningFrequency);
+  const std::chrono::duration<scalar_t> minPeriod(1.0 / config.planner.planningFrequency);
   {
     std::lock_guard<std::mutex> lock(inputMutex_);
     if (!replanRequested && !throttle_.allows(now, minPeriod)) {

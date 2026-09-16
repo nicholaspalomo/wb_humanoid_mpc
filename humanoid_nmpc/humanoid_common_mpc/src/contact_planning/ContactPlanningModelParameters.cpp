@@ -59,13 +59,13 @@ bool isRevoluteAboutVertical(const pinocchio::Model& model, pinocchio::JointInde
 }  // namespace
 
 void ContactPlanningModelParameters::applyTo(ContactPlanningConfig& config) const {
-  config.torsionalFrictionTorque = torsionalFrictionTorque;
-  config.doubleSupportYawCouple = doubleSupportYawCouple;
-  config.footYawOffsetLower = footYawOffsetLower;
-  config.footYawOffsetUpper = footYawOffsetUpper;
-  if (config.comHeight <= 0.0 && comHeight > 0.0) config.comHeight = comHeight;
-  if (config.zmpHalfWidthX <= 0.0 && zmpHalfWidthX > 0.0) config.zmpHalfWidthX = zmpHalfWidthX;
-  if (config.zmpHalfWidthY <= 0.0 && zmpHalfWidthY > 0.0) config.zmpHalfWidthY = zmpHalfWidthY;
+  config.yawTorqueBudget.torsionalFrictionTorque = torsionalFrictionTorque;
+  config.yawTorqueBudget.doubleSupportYawCouple = doubleSupportYawCouple;
+  config.hipYawRange.lower = footYawOffsetLower;
+  config.hipYawRange.upper = footYawOffsetUpper;
+  if (config.shared.comHeight <= 0.0 && comHeight > 0.0) config.shared.comHeight = comHeight;
+  if (config.zmpSupportRegion.halfWidthX <= 0.0 && zmpHalfWidthX > 0.0) config.zmpSupportRegion.halfWidthX = zmpHalfWidthX;
+  if (config.zmpSupportRegion.halfWidthY <= 0.0 && zmpHalfWidthY > 0.0) config.zmpSupportRegion.halfWidthY = zmpHalfWidthY;
 }
 
 std::string ContactPlanningModelParameters::summary() const {
