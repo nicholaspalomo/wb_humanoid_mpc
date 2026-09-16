@@ -17,6 +17,7 @@ py_test(
     ],
     deps = [
         "//humanoid_learning/acom:acom_lib",
+        "//humanoid_learning/acom:train_main",  # the test imports train_main (the C++ evaluator's layer count)
         requirement("jax"),
         requirement("jaxlib"),
         requirement("mujoco"),
