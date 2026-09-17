@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -25,34 +29,31 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
-#include "humanoid_common_mpc/contact_planning/constraint/LipConstraintBase.h"
+#include "humanoid_common_mpc/contact_planning/problem/ContactLogicRule.h"
 
 namespace ocs2::humanoid {
 
 /**
- * `yaw_torque_budget` (hard, running nodes): the yaw torque of a foot is the torsional friction of the weight it
- * carries plus its half of the friction couple in double support. Alone a foot carries the whole weight, T_t; with
- * both feet down each carries half of it and half of the couple, (T_t + T_c) / 2, so that the pair has T_t + T_c:
- * +-tau_i - T_t c_i - (T_c - T_t) (c_L + c_R - 1) / 2 <= 0.
+ * `flight_durations`: a flight (no foot in contact) lasts between minFlightDuration and maxFlightDuration, counted in
+ * nodes like the other phases, and never starts so late that it cannot end before the horizon does. With
+ * maxFlightDuration at 0 no flight is allowed and the rule is `no_flight`. A hop request (ContactPlannerInput) raises
+ * the minimum to the requested flight. Replaces `no_flight` in the logic list when the flight model is on; the QP row
+ * of `no_flight` must then be dropped as well.
  *
- * That form reads the double-support share off c_L + c_R - 1, which is -1 with no foot down: the budget would be
- * negative and every flight node infeasible. Where the formulation allows flight the share is taken from min(c_L, c_R)
- * instead, as one row per foot: identical wherever a foot is down (the two forms agree at every integer point with at
- * least one contact) and zero in flight, which is the physical budget of a foot in the air.
+ * Flight also has to be worth its search: below `allowedAboveSpeed` the rule keeps a foot on the ground at every node,
+ * so a robot that lists the flight model walks exactly as it does without it and only turns into a runner once the
+ * command asks for a speed its cadence cannot reach on the ground. A hop request opens the gate at any speed.
  */
-class YawTorqueBudgetConstraint final : public LipConstraintBase {
+class FlightDurationsRule final : public ContactLogicRule {
  public:
   std::string describe() const override;
-  std::vector<std::string> requiredBlocks() const override { return {term::kHeadingDoubleIntegrator}; }
   void configure(const ContactPlanningConfig& config) override;
-  NodeSet nodeSet() const override { return NodeSet::RUNNING; }
-  Softness softness() const override { return Softness::HARD; }
-  void addRows(const ContactPlanningContext& ctx, int node, RowBuilder& rows) const override;
+  bool propagate(const ContactLogicState& state, const ContactLogicScan& scan, MiqpAssignment& a, bool& changed) const override;
 
  private:
-  YawTorqueBudgetParameters params_;
-  bool flightPossible_ = false;
+  scalar_t minFlightDuration_ = 0.0;
+  scalar_t maxFlightDuration_ = 0.0;
+  scalar_t allowedAboveSpeed_ = 0.0;
 };
 
 }  // namespace ocs2::humanoid

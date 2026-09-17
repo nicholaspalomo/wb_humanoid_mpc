@@ -63,6 +63,13 @@ struct GaitLimits {
   scalar_t minContactDuration = 0.15;
   scalar_t maxContactDuration = 0.0;        // <= 0 disables the limit (standing is allowed indefinitely)
   scalar_t minDoubleSupportDuration = 0.1;  // after a touch-down the other foot stays down at least this long (0 disables)
+  // While a velocity is commanded (|v_cmd| > walkingSpeedThreshold) this cap on a stance replaces maxContactDuration, so
+  // that standing keeps its own (unlimited) one; <= 0 disables.
+  scalar_t maxContactDurationWalking = 0.0;
+  scalar_t walkingSpeedThreshold = 0.1;  // [m/s]
+  // Flight (no foot in contact), read by flight_durations: <= 0 maxFlightDuration forbids it.
+  scalar_t minFlightDuration = 0.1;
+  scalar_t maxFlightDuration = 0.0;
 };
 
 /** Properties of the planner, not of a term. */
@@ -90,6 +97,31 @@ struct SharedParameters {
 
 // ---- per-term parameter blocks, named as the terms ----
 
+struct VerticalDoubleIntegratorParameters {
+  scalar_t maxContactAcceleration = 24.5;  // [m/s^2] per stance foot, upward, gravity included: F_max / m (2.5 g)
+};
+struct HeightTrackingParameters {
+  scalar_t weight = 100.0;  // (z - z_nom)^2 per node
+};
+struct VerticalInputRegularizationParameters {
+  scalar_t weight = 0.01;  // az^2 per running node
+};
+struct ContactHeightParameters {
+  scalar_t tolerance = 0.05;  // [m] |z - z_nom| allowed while a foot is in contact
+  std::optional<SlackPenalty> slack;
+};
+struct FlightDurationsParameters {
+  // [m/s] commanded speed at which the planner may start leaving the ground. Below it every node keeps a foot down, so
+  // the walking gait and the size of the search are exactly what they are without the flight model, and the gait turns
+  // into a run only once the command asks for a speed the cadence cannot reach on the ground. A hop request (the jump
+  // button) allows a flight at any speed. 0 allows flight at every speed; a value above the robot's top speed reserves
+  // flight for hops.
+  scalar_t allowedAboveSpeed = 0.0;
+};
+struct HopOnRequestParameters {
+  scalar_t triggerBaseHeight = 1.0;  // [m] a commanded base height above this requests hops
+  scalar_t flightDuration = 0.2;     // [s] of every requested hop (capped by shared.gait_limits.maxFlightDuration)
+};
 struct RegularizationParameters {
   scalar_t state = 1.0e-8;  // added to the diagonal of Q at every node
   scalar_t input = 1.0e-6;  // added to the diagonal of R at every running node
@@ -216,6 +248,12 @@ struct ContactPlanningConfig {
   FootholdRegularizationParameters footholdRegularization;
   StepLengthParameters stepLength;
   TerminalDcmParameters terminalDcm;
+  VerticalDoubleIntegratorParameters verticalDoubleIntegrator;
+  HeightTrackingParameters heightTracking;
+  VerticalInputRegularizationParameters verticalInputRegularization;
+  ContactHeightParameters contactHeight;
+  FlightDurationsParameters flightDurations;
+  HopOnRequestParameters hopOnRequest;
   ZmpSupportRegionParameters zmpSupportRegion;
   ReachabilityParameters reachability;
   FootSeparationParameters footSeparation;
@@ -235,6 +273,8 @@ struct ContactPlanningConfig {
   // ---- conveniences over the blocks ----
   bool usesHeadingModel() const { return formulation.usesHeadingModel(); }
   void setHeadingModel(bool on) { formulation.setHeadingModel(on); }
+  bool usesFlightModel() const { return formulation.hasFlightModel(); }
+  void setFlightModel(bool on) { formulation.setFlightModel(on); }
 
   scalar_t omega() const { return std::sqrt(shared.gravity / shared.comHeight); }
   scalar_t horizon() const { return planner.dt * static_cast<scalar_t>(planner.numNodes); }
@@ -270,6 +310,15 @@ struct ContactPlanningConfig {
   int maxContactNodes() const {
     if (shared.gaitLimits.maxContactDuration <= 0.0) return 0;
     return std::max(minContactNodes(), static_cast<int>(std::floor(shared.gaitLimits.maxContactDuration / planner.dt + 1e-9)));
+  }
+  int maxContactNodesWalking() const {
+    if (shared.gaitLimits.maxContactDurationWalking <= 0.0) return 0;
+    return std::max(minContactNodes(), static_cast<int>(std::floor(shared.gaitLimits.maxContactDurationWalking / planner.dt + 1e-9)));
+  }
+  int minFlightNodes() const { return std::max(1, static_cast<int>(std::ceil(shared.gaitLimits.minFlightDuration / planner.dt - 1e-9))); }
+  int maxFlightNodes() const {
+    if (shared.gaitLimits.maxFlightDuration <= 0.0) return 0;
+    return std::max(minFlightNodes(), static_cast<int>(std::floor(shared.gaitLimits.maxFlightDuration / planner.dt + 1e-9)));
   }
   int commitNodes() const { return std::max(0, static_cast<int>(std::ceil(planner.commitTime / planner.dt - 1e-9))); }
 

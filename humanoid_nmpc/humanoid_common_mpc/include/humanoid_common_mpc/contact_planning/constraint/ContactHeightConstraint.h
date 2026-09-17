@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -23,31 +27,33 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include "humanoid_common_mpc/contact_planning/problem/LipIndices.h"
+#pragma once
+
+#include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
+#include "humanoid_common_mpc/contact_planning/constraint/LipConstraintBase.h"
 
 namespace ocs2::humanoid {
 
-void LipIndices::bind(const Layout& layout) {
-  com = {layout.state(var::kComX), layout.state(var::kComY)};
-  vel = {layout.state(var::kVelX), layout.state(var::kVelY)};
-  zmp = {layout.input(var::kZmpX), layout.input(var::kZmpY)};
-  for (size_t i = 0; i < N_CONTACTS; ++i) {
-    foot[i] = {layout.state(var::footX(i)), layout.state(var::footY(i))};
-    footDelta[i] = {layout.input(var::footDeltaX(i)), layout.input(var::footDeltaY(i))};
-    contact[i] = layout.input(var::contact(i));
-  }
-  hasHeading = layout.hasHeading;
-  heading = layout.heading;
-  headingRate = layout.headingRate;
-  for (size_t i = 0; i < N_CONTACTS; ++i) {
-    footYaw[i] = hasHeading ? layout.footYaw(i) : -1;
-    yawTorque[i] = hasHeading ? layout.yawTorque(i) : -1;
-    footYawDelta[i] = hasHeading ? layout.footYawDelta(i) : -1;
-  }
-  hasHeight = layout.hasHeight;
-  height = layout.height;
-  heightRate = layout.heightRate;
-  heightAccel = layout.heightAccel;
-}
+/**
+ * `contact_height` (soft): |z - z_nom| <= tol + M_z (1 - c_i) per foot on the running nodes. A foot on the ground puts
+ * the centre of mass near the pendulum height z_nom, so a landing is where the ballistic arc returns to it and a
+ * take-off starts from it. The terminal node has no contact binaries of its own and carries no row; `flight_durations`
+ * keeps the plan from ending in flight instead, so the horizon never closes in free fall.
+ */
+class ContactHeightConstraint final : public LipConstraintBase {
+ public:
+  std::string describe() const override;
+  std::vector<std::string> requiredBlocks() const override { return {term::kVerticalDoubleIntegrator}; }
+  void configure(const ContactPlanningConfig& config) override;
+  NodeSet nodeSet() const override { return NodeSet::RUNNING; }
+  Softness softness() const override { return Softness::SOFT; }
+  void addRows(const ContactPlanningContext& ctx, int node, RowBuilder& rows) const override;
+
+  static constexpr scalar_t kHeightBigM = 1.0;  // [m] more than any flight apex above the pendulum height
+
+ private:
+  scalar_t tolerance_ = 0.0;
+  scalar_t nominalHeight_ = 0.0;
+};
 
 }  // namespace ocs2::humanoid

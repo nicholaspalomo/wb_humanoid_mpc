@@ -49,8 +49,17 @@ contact_planning:
       maxSwingDuration: 0.5           # [s] a long swing at speed is dead time the planner would otherwise spend
       minContactDuration: 0.1         # [s]
       maxContactDuration: 0.0         # [s] <= 0: no limit (standing allowed)
+      maxContactDurationWalking: 0.0  # [s] <= 0: off. A cap on a stance that applies only while a velocity is commanded
+                                      #     (|v_cmd| > walkingSpeedThreshold), so that standing keeps the unlimited one above.
+                                      #     Try 0.5 when the robot keeps both feet down too long at speed.
+      walkingSpeedThreshold: 0.15     # [m/s]
       minDoubleSupportDuration: 0.05  # [s] after a touch-down the other foot stays down at least this long.
                                       # NOTE: quantised up to one node, so at dt: 0.1 this still behaves as 0.1 s.
+                                      # 0 lets a foot lift on the node the other lands (no double support at all).
+      # Flight (no foot in contact): the running gait and the hop, read by the flight_durations rule. maxFlightDuration 0
+      # forbids flight, which is what the lists below do anyway; see the running block at the end of this file.
+      minFlightDuration: 0.1          # [s]
+      maxFlightDuration: 0.0          # [s] 0: no flight
 
   # ---- the formulation: what the planner is assembled from ----
   dynamics:                           # model blocks; order fixes the variable layout, the first two are mandatory
@@ -146,6 +155,31 @@ contact_planning:
     weight: 50.0                      # ||DCM_N - zmp_(N-1)||^2 (terminal capturability)
     trackCommandedVelocity: true      # true: the DCM is drawn to zmp + v_cmd / omega, i.e. the plan is asked to keep walking at
                                       # the end of the horizon; false: onto the ZMP, a stop, which shortens the steps at speed
+  # ---- flight (running and hopping), OFF in the lists above ----
+  # The planner can leave the ground; see docs/README.md 2.11 and docs/running_flight_phase/README.md. The parameters are
+  # here so that turning it on is a change of the lists only. It is NOT validated in MuJoCo, and at dt: 0.1 with these
+  # gait limits the branch-and-bound did not find feasible plans inside planner.maxSolveTime, so read the plan log
+  # (planner.logPlans) for TIME-LIMIT before trusting it. To enable:
+  #   shared.gait_limits: maxFlightDuration: 0.2, minDoubleSupportDuration: 0.0, maxSwingDuration: 0.6
+  #   dynamics:         + vertical_double_integrator
+  #   costs:            + height_tracking, vertical_input_regularization
+  #   soft_constraints: + contact_height
+  #   hard_constraints: - no_flight, + vertical_thrust_limit, + zmp_pinned_in_flight
+  #   logic_rules:      no_flight -> flight_durations, + hop_on_request
+  #   execution:        + planned_height_override
+  #   foot_separation.maxStepLength and shared.bigM up to a running stride (about 1.2 m and 1.5 m)
+  # and raise planner.maxSolveTime / maxBranchAndBoundNodes, or halve planner.dt to resolve the phases.
+  vertical_double_integrator:
+    maxContactAcceleration: 24.5      # [m/s^2] upward, gravity included, per stance foot: F_max / m, here 2.5 g (2.5 x body weight)
+  height_tracking:
+    weight: 100.0                     # (z - z_nom)^2 per node, z_nom = shared.comHeight
+  vertical_input_regularization:
+    weight: 0.01                      # az^2 per running node
+  contact_height:
+    tolerance: 0.05                   # [m] |z - z_nom| while a foot is in contact (soft)
+  hop_on_request:
+    triggerBaseHeight: 1.0            # [m] the joypad's root height above this makes the planner hop (Atlas stands at 0.895)
+    flightDuration: 0.2               # [s] of every hop, capped by shared.gait_limits.maxFlightDuration
   zmp_support_region:
     halfWidthX: 0.08                  # [m] ZMP box half-width around a supporting foot along the heading (0 = from the footprint)
     halfWidthY: 0.04                  # [m] ZMP box half-width laterally

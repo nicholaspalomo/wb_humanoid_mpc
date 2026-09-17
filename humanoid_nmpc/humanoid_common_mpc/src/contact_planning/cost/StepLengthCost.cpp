@@ -47,7 +47,13 @@ void StepLengthCost::configure(const ContactPlanningConfig& config) {
   const GaitLimits& limits = config.shared.gaitLimits;
   if (limits.minSwingDuration <= 0.0) throw std::invalid_argument("step_length: shared.gait_limits.minSwingDuration must be positive");
   const scalar_t doubleSupport = std::max(0.0, limits.minDoubleSupportDuration);
-  strideToSwingRatio_ = 2.0 * (limits.minSwingDuration + doubleSupport) / limits.minSwingDuration;
+  // T_stride / T_swing of the nominal cadence. Walking: a stride is the two swings plus the two double supports between
+  // them, T_stride = 2 (T_swing + T_ds). Running: the other foot's stance is shortened at both ends by a flight, and a
+  // foot's own air time already contains those two flights, so T_stance = T_swing - 2 T_f and
+  // T_stride = 2 (T_stance + T_f) = 2 (T_swing - T_f). One expression covers both, with the flight counted only where
+  // the gait limits allow one; otherwise a running gait would be given the walking ratio and its steps planned too long.
+  const scalar_t flight = limits.maxFlightDuration > 0.0 ? std::max(0.0, limits.minFlightDuration) : 0.0;
+  strideToSwingRatio_ = std::max(0.0, 2.0 * (limits.minSwingDuration + doubleSupport - flight) / limits.minSwingDuration);
 }
 
 vector2_t StepLengthCost::nominalDisplacementPerNode(const vector2_t& velocityCommand, scalar_t dt) const {

@@ -91,6 +91,8 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
    * from the applied schedule, and the committed contacts of the commit window. Solver thread only.
    */
   ContactPlannerInput makePlannerInput(scalar_t initTime, const vector_t& initState, const vector2_t& velocityCommand);
+  /** Base height of the MPC target at `time` (the height the joypad commands), 0 without a target. */
+  scalar_t desiredBaseHeight(const TargetTrajectories& targetTrajectories, scalar_t time) const;
   /**
    * Heading model: the whole-body heading handed to the planner is the angular centre of mass yaw when an evaluator is
    * given here, the base yaw otherwise. Solver thread only (set once at construction of the interface).
@@ -195,6 +197,8 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
 
   /** CoM position and velocity (xy) of the full model at `state`. */
   std::pair<vector2_t, vector2_t> computeComState(const vector_t& state);
+  /** CoM height above the ground and its rate. */
+  std::pair<scalar_t, scalar_t> computeComHeightState(const vector_t& state);
 
   /** Swing phase [liftOff, touchDown] of a foot around `time` in the applied schedule, empty if the foot is in contact. */
   std::optional<std::pair<scalar_t, scalar_t>> swingPhase(size_t contactIndex, scalar_t time) const;

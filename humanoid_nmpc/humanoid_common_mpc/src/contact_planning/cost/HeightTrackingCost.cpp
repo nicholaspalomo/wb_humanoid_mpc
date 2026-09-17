@@ -11,6 +11,10 @@ modification, are permitted provided that the following conditions are met:
   this list of conditions and the following disclaimer in the documentation
   and/or other materials provided with the distribution.
 
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
 IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -23,31 +27,28 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include "humanoid_common_mpc/contact_planning/problem/LipIndices.h"
+#include "humanoid_common_mpc/contact_planning/cost/HeightTrackingCost.h"
+
+#include <sstream>
+
+#include "humanoid_common_mpc/contact_planning/problem/StageAccumulator.h"
 
 namespace ocs2::humanoid {
 
-void LipIndices::bind(const Layout& layout) {
-  com = {layout.state(var::kComX), layout.state(var::kComY)};
-  vel = {layout.state(var::kVelX), layout.state(var::kVelY)};
-  zmp = {layout.input(var::kZmpX), layout.input(var::kZmpY)};
-  for (size_t i = 0; i < N_CONTACTS; ++i) {
-    foot[i] = {layout.state(var::footX(i)), layout.state(var::footY(i))};
-    footDelta[i] = {layout.input(var::footDeltaX(i)), layout.input(var::footDeltaY(i))};
-    contact[i] = layout.input(var::contact(i));
-  }
-  hasHeading = layout.hasHeading;
-  heading = layout.heading;
-  headingRate = layout.headingRate;
-  for (size_t i = 0; i < N_CONTACTS; ++i) {
-    footYaw[i] = hasHeading ? layout.footYaw(i) : -1;
-    yawTorque[i] = hasHeading ? layout.yawTorque(i) : -1;
-    footYawDelta[i] = hasHeading ? layout.footYawDelta(i) : -1;
-  }
-  hasHeight = layout.hasHeight;
-  height = layout.height;
-  heightRate = layout.heightRate;
-  heightAccel = layout.heightAccel;
+std::string HeightTrackingCost::describe() const {
+  std::ostringstream out;
+  out << weightLine("w (z_k - z_nom)^2 at every node") << ", z_nom = " << nominalHeight_ << " m";
+  return out.str();
+}
+
+void HeightTrackingCost::configure(const ContactPlanningConfig& config) {
+  checkWeight("height_tracking", config.heightTracking.weight);
+  weight_ = config.heightTracking.weight;
+  nominalHeight_ = config.shared.comHeight;
+}
+
+void HeightTrackingCost::addToStage(const ContactPlanningContext& /*ctx*/, int /*node*/, StageAccumulator& stage) const {
+  stage.addQuadraticResidual({{idx_.height, 1.0}}, {}, -nominalHeight_, weight_);
 }
 
 }  // namespace ocs2::humanoid

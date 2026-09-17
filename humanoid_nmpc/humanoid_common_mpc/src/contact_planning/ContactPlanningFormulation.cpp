@@ -73,21 +73,38 @@ std::string termKindName(TermKind kind) {
 
 const std::vector<std::string>& knownTermNames(TermKind kind) {
   // LINT.IfChange(known_term_names)
-  static const std::vector<std::string> blocks{term::kLipCom, term::kFootholdIntegrator, term::kHeadingDoubleIntegrator};
-  static const std::vector<std::string> costs{term::kRegularization,    term::kPreviousFootholdConsistency, term::kVelocityTracking,
-                                              term::kStepWidth,         term::kHeadingRateTracking,         term::kHeadingTracking,
-                                              term::kFootYawTracking,   term::kYawTorqueRegularization,     term::kFootYawRegularization,
-                                              term::kZmpRegularization, term::kFootholdRegularization,      term::kStepLength,
-                                              term::kTerminalDcm};
-  static const std::vector<std::string> soft{term::kZmpSupportRegion, term::kReachability, term::kFootSeparation, term::kHipYawRange};
-  static const std::vector<std::string> hard{term::kNoFlight, term::kFootMotionInSwingOnly, term::kYawTorqueBudget,
-                                             term::kFootYawPinnedInContact};
-  static const std::vector<std::string> logic{term::kPhaseDurations, term::kNoFlight, term::kMinimumDoubleSupport, term::kAlternatingFeet};
+  static const std::vector<std::string> blocks{term::kLipCom, term::kFootholdIntegrator, term::kHeadingDoubleIntegrator,
+                                               term::kVerticalDoubleIntegrator};
+  static const std::vector<std::string> costs{term::kRegularization,
+                                              term::kPreviousFootholdConsistency,
+                                              term::kVelocityTracking,
+                                              term::kStepWidth,
+                                              term::kHeadingRateTracking,
+                                              term::kHeadingTracking,
+                                              term::kFootYawTracking,
+                                              term::kYawTorqueRegularization,
+                                              term::kFootYawRegularization,
+                                              term::kZmpRegularization,
+                                              term::kFootholdRegularization,
+                                              term::kStepLength,
+                                              term::kTerminalDcm,
+                                              term::kHeightTracking,
+                                              term::kVerticalInputRegularization};
+  static const std::vector<std::string> soft{term::kZmpSupportRegion, term::kReachability, term::kFootSeparation, term::kHipYawRange,
+                                             term::kContactHeight};
+  static const std::vector<std::string> hard{term::kNoFlight,
+                                             term::kFootMotionInSwingOnly,
+                                             term::kYawTorqueBudget,
+                                             term::kFootYawPinnedInContact,
+                                             term::kVerticalThrustLimit,
+                                             term::kZmpPinnedInFlight};
+  static const std::vector<std::string> logic{term::kPhaseDurations,  term::kNoFlight,        term::kMinimumDoubleSupport,
+                                              term::kAlternatingFeet, term::kFlightDurations, term::kHopOnRequest};
   static const std::vector<std::string> assignment{term::kContactSwitch, term::kPlanConsistency};
   static const std::vector<std::string> search{term::kWarmStartPreviousPlan, term::kDiving, term::kEventShiftLocalSearch,
                                                term::kHeadingRelinearisation};
   static const std::vector<std::string> execution{term::kPhaseResetting, term::kEnergyCadenceModulation, term::kDcmStepAdjustment,
-                                                  term::kPlannedHeadingOverride};
+                                                  term::kPlannedHeadingOverride, term::kPlannedHeightOverride};
   // clang-format off
   // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/contact_planning/ContactPlanningTermFactory.cpp:term_factory, //robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/contact_planning.yaml:contact_planning_config)
   // clang-format on
@@ -136,8 +153,12 @@ std::string requiredBlockOf(TermKind kind, const std::string& canonical) {
                                              term::kYawTorqueRegularization, term::kFootYawRegularization,  term::kHipYawRange,
                                              term::kYawTorqueBudget,         term::kFootYawPinnedInContact, term::kHeadingRelinearisation,
                                              term::kPlannedHeadingOverride};
+  static const std::set<std::string> vertical{term::kHeightTracking,      term::kVerticalInputRegularization, term::kContactHeight,
+                                              term::kVerticalThrustLimit, term::kZmpPinnedInFlight,           term::kPlannedHeightOverride};
   if (kind == TermKind::MODEL_BLOCK) return std::string();
-  return heading.count(canonical) ? term::kHeadingDoubleIntegrator : std::string();
+  if (heading.count(canonical)) return term::kHeadingDoubleIntegrator;
+  if (vertical.count(canonical)) return term::kVerticalDoubleIntegrator;
+  return std::string();
 }
 
 }  // namespace
@@ -205,6 +226,43 @@ void ContactPlanningFormulation::setHeadingModel(bool on) {
   }
 }
 
+void ContactPlanningFormulation::setFlightModel(bool on) {
+  // `no_flight` forbids exactly what the flight model allows, so it is swapped in place with its counterpart: the row
+  // with vertical_thrust_limit, the rule with flight_durations. In place, so that the accumulation order of the rows and
+  // the propagation order of the rules do not depend on which model is listed, and so that the toggle is its own
+  // inverse. An `after` entry is inserted right behind the replacement.
+  const auto swapInPlace = [](std::vector<std::string>& list, const char* from, const char* to, const char* after = nullptr) {
+    auto position = std::find_if(list.begin(), list.end(), [&](const std::string& entry) { return sameTermName(entry, from); });
+    if (position == list.end()) {
+      setListed(list, to, true);
+      if (after != nullptr) setListed(list, after, true);
+      return;
+    }
+    *position = to;
+    if (after != nullptr && !listed(list, after)) list.insert(position + 1, after);
+  };
+  if (on) {
+    setListed(dynamics, term::kVerticalDoubleIntegrator, true);
+    setListed(costs, term::kHeightTracking, true);
+    setListed(costs, term::kVerticalInputRegularization, true);
+    setListed(softConstraints, term::kContactHeight, true);
+    swapInPlace(hardConstraints, term::kNoFlight, term::kVerticalThrustLimit, term::kZmpPinnedInFlight);
+    swapInPlace(logicRules, term::kNoFlight, term::kFlightDurations);
+    setListed(logicRules, term::kHopOnRequest, true);
+    setListed(execution, term::kPlannedHeightOverride, true);
+  } else {
+    setListed(dynamics, term::kVerticalDoubleIntegrator, false);
+    setListed(costs, term::kHeightTracking, false);
+    setListed(costs, term::kVerticalInputRegularization, false);
+    setListed(softConstraints, term::kContactHeight, false);
+    setListed(hardConstraints, term::kZmpPinnedInFlight, false);
+    swapInPlace(hardConstraints, term::kVerticalThrustLimit, term::kNoFlight);
+    setListed(logicRules, term::kHopOnRequest, false);
+    swapInPlace(logicRules, term::kFlightDurations, term::kNoFlight);
+    setListed(execution, term::kPlannedHeightOverride, false);
+  }
+}
+
 void ContactPlanningFormulation::validate() const {
   const auto fail = [](const std::string& what) { throw std::invalid_argument("[ContactPlanningFormulation] " + what); };
   static const std::array<TermKind, 8> kinds{TermKind::MODEL_BLOCK,     TermKind::COST,          TermKind::SOFT_CONSTRAINT,
@@ -223,6 +281,13 @@ void ContactPlanningFormulation::validate() const {
         fail(termKindName(kind) + " term '" + canonical + "' needs the '" + required + "' block in the dynamics list");
       }
     }
+  }
+  if (listed(logicRules, term::kFlightDurations) && (listed(logicRules, term::kNoFlight) || listed(hardConstraints, term::kNoFlight))) {
+    fail(std::string("'") + term::kFlightDurations + "' allows flight; remove '" + term::kNoFlight +
+         "' from logic_rules and hard_constraints (they forbid it)");
+  }
+  if (hasFlightModel() && !listed(logicRules, term::kFlightDurations)) {
+    fail(std::string("the '") + term::kVerticalDoubleIntegrator + "' block needs '" + term::kFlightDurations + "' in logic_rules");
   }
   if (dynamics.size() < 2 || !sameTermName(dynamics[0], term::kLipCom) || !sameTermName(dynamics[1], term::kFootholdIntegrator)) {
     fail(std::string("the dynamics list must start with '") + term::kLipCom + "', '" + term::kFootholdIntegrator +

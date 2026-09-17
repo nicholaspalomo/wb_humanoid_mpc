@@ -51,6 +51,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/ContactPlannerModule.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h"
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
+#include "humanoid_common_mpc/contact_planning/execution/PlannedHeightOverride.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 
 namespace ocs2::humanoid {
@@ -109,6 +110,104 @@ class ContactPlanningIntegrationTest : public ::testing::Test {
   std::string referenceFile_, urdfFile_, tmpTaskFile_, tmpContactPlanningFile_;
   std::unique_ptr<CentroidalMpcInterface> interface_;
 };
+
+// The flight model is off in the shipped planner file, and the recipe its comment gives turns it on: the lists change,
+// the configuration validates, and the terms that need the vertical block are the ones the recipe adds. This pins the
+// documented recipe against the code, so the comment cannot rot (docs/README.md 2.11).
+TEST_F(ContactPlanningIntegrationTest, TheShippedFileWalksAndItsDocumentedRecipeTurnsFlightOn) {
+  ContactPlanningConfig config = loadContactPlanningConfig(tmpContactPlanningFile_, "contact_planning.", false);
+  EXPECT_FALSE(config.usesFlightModel()) << "the shipped configuration walks";
+  EXPECT_TRUE(config.formulation.hasHardConstraint(term::kNoFlight));
+  EXPECT_TRUE(config.formulation.hasLogicRule(term::kNoFlight));
+  EXPECT_DOUBLE_EQ(config.shared.gaitLimits.maxFlightDuration, 0.0);
+  EXPECT_NO_THROW(config.validate());
+
+  // The recipe of the file: the gait limits, then setFlightModel for the lists.
+  config.shared.gaitLimits.maxFlightDuration = 0.2;
+  config.shared.gaitLimits.minDoubleSupportDuration = 0.0;
+  config.shared.gaitLimits.maxSwingDuration = 0.6;
+  config.setFlightModel(true);
+  EXPECT_NO_THROW(config.validate());
+  EXPECT_TRUE(config.usesFlightModel());
+  EXPECT_TRUE(config.formulation.hasDynamics(term::kVerticalDoubleIntegrator));
+  EXPECT_TRUE(config.formulation.hasLogicRule(term::kFlightDurations));
+  EXPECT_TRUE(config.formulation.hasLogicRule(term::kHopOnRequest));
+  EXPECT_TRUE(config.formulation.hasExecutionRule(term::kPlannedHeightOverride));
+  EXPECT_FALSE(config.formulation.hasLogicRule(term::kNoFlight)) << "no_flight forbids what flight_durations allows";
+  EXPECT_FALSE(config.formulation.hasHardConstraint(term::kNoFlight));
+  // And back: the walking formulation returns, no_flight included.
+  config.setFlightModel(false);
+  config.shared.gaitLimits.maxFlightDuration = 0.0;
+  EXPECT_NO_THROW(config.validate());
+  EXPECT_FALSE(config.usesFlightModel());
+  EXPECT_TRUE(config.formulation.hasLogicRule(term::kNoFlight));
+  EXPECT_TRUE(config.formulation.hasHardConstraint(term::kNoFlight));
+  EXPECT_FALSE(config.formulation.hasCost(term::kHeightTracking));
+}
+
+// planned_height_override: the plan's vertical trajectory raises the base height of the MPC target by z_plan - z_nom, so
+// the whole-body controller is asked for the push-off, the arc and the landing of a hop.
+TEST_F(ContactPlanningIntegrationTest, PlannedHeightOverrideRaisesTheTargetByThePlansDeviation) {
+  ContactPlanningConfig config = loadContactPlanningConfig(tmpContactPlanningFile_, "contact_planning.", false);
+  const scalar_t nominalHeight = config.shared.comHeight;
+  const MpcRobotModelBase<scalar_t>& model = interface_->getMpcRobotModel();
+  PlannedHeightOverride rule(model);
+  rule.configure(config);
+  EXPECT_NE(rule.describe().find("z_plan"), std::string::npos);
+
+  // A hop: level, 5 cm up at the apex, back down.
+  ContactPlan plan;
+  plan.valid = true;
+  plan.startTime = 1.0;
+  plan.dt = 0.1;
+  plan.contacts = {{true, true}, {false, false}, {false, false}, {true, true}};
+  plan.comHeight = {nominalHeight, nominalHeight + 0.05, nominalHeight + 0.05, nominalHeight, nominalHeight};
+  plan.comHeightRate = {1.0, 0.0, -1.0, 0.0, 0.0};
+  plan.comHeightAccel = {-9.81, -9.81, 9.81, 0.0};
+  ExecutionContext ctx;
+  ctx.time = plan.startTime;
+  ctx.config = &config;
+  ctx.activePlan = &plan;
+
+  const vector_t state = interface_->getInitialState();
+  const size_t inputDim = interface_->getEffectiveMpcRobotModel().getInputDim();
+  const scalar_array_t times{1.0, 1.1, 1.3};
+  TargetTrajectories targets(times, {state, state, state}, {vector_t::Zero(inputDim), vector_t::Zero(inputDim), vector_t::Zero(inputDim)});
+  const scalar_t baseHeight = model.getBasePosition(state)(2);
+  rule.overrideTarget(ctx, targets);
+  EXPECT_NEAR(model.getBasePosition(targets.stateTrajectory[0])(2), baseHeight, 1e-9) << "on the ground the target is unchanged";
+  EXPECT_NEAR(model.getBasePosition(targets.stateTrajectory[1])(2), baseHeight + 0.05, 1e-9) << "the apex raises it";
+  EXPECT_NEAR(model.getBasePosition(targets.stateTrajectory[2])(2), baseHeight, 1e-9) << "and the landing brings it back";
+
+  // Applying it again to the same trajectory writes the same reference, not a second hop on top of the first. The
+  // reference manager hands out the same object on every solve that brought no new command, and the model adds to the
+  // height rather than setting it, so without this the reference would climb at the solver rate.
+  for (int solve = 0; solve < 5; ++solve) rule.overrideTarget(ctx, targets);
+  EXPECT_NEAR(model.getBasePosition(targets.stateTrajectory[0])(2), baseHeight, 1e-9);
+  EXPECT_NEAR(model.getBasePosition(targets.stateTrajectory[1])(2), baseHeight + 0.05, 1e-9) << "one hop, not five";
+  EXPECT_NEAR(model.getBasePosition(targets.stateTrajectory[2])(2), baseHeight, 1e-9);
+
+  // A plan that stops carrying a height takes its offset back out of the trajectory it is still holding.
+  ContactPlan walking = plan;
+  walking.comHeight.clear();
+  walking.comHeightRate.clear();
+  ctx.activePlan = &walking;
+  rule.overrideTarget(ctx, targets);
+  for (const vector_t& target : targets.stateTrajectory) EXPECT_NEAR(model.getBasePosition(target)(2), baseHeight, 1e-9);
+
+  // And a fresh trajectory is raised once, not against the offsets of the one before it.
+  ctx.activePlan = &plan;
+  TargetTrajectories fresh(times, {state, state, state}, {vector_t::Zero(inputDim), vector_t::Zero(inputDim), vector_t::Zero(inputDim)});
+  rule.overrideTarget(ctx, fresh);
+  EXPECT_NEAR(model.getBasePosition(fresh.stateTrajectory[1])(2), baseHeight + 0.05, 1e-9);
+
+  // Without the vertical model the rule never touches a trajectory.
+  ctx.activePlan = &walking;
+  TargetTrajectories untouched(times, {state, state, state},
+                               {vector_t::Zero(inputDim), vector_t::Zero(inputDim), vector_t::Zero(inputDim)});
+  rule.overrideTarget(ctx, untouched);
+  for (const vector_t& target : untouched.stateTrajectory) EXPECT_NEAR(model.getBasePosition(target)(2), baseHeight, 1e-12);
+}
 
 TEST_F(ContactPlanningIntegrationTest, PlansStandingAndWalkingSchedules) {
   ASSERT_TRUE(interface_->usesContactPlanning());

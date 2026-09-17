@@ -58,10 +58,15 @@ bool PhaseDurationsRule::propagate(const ContactLogicState& s, const ContactLogi
     // phase switched inside the horizon both counts are exact and coincide.
     int tauMin = s.initialPhaseNodes(foot, false);
     int tauMax = s.initialPhaseNodes(foot, true);
+    const size_t other = 1 - foot;
+    // Whether the air phase of this foot has, so far, been a flight: the other foot in the air at every node of it (and
+    // at planning time when the phase began before the horizon). A pure flight is bounded by flight_durations, not by
+    // the swing minimum, which would keep a hop in the air for a whole swing.
+    bool airPhaseIsFlight = kappa == 0 && !s.input->contacts[other];
     for (int k = 0; k < N; ++k) {
       const int index = S::contactBinaryIndex(k, foot);
       if (k >= s.numCommitted) {
-        bool mustStay = (kappa == 1 && tauMin < s.nContactMin) || (kappa == 0 && tauMin < s.nSwingMin);
+        bool mustStay = (kappa == 1 && tauMin < s.nContactMin) || (kappa == 0 && tauMin < s.nSwingMin && !airPhaseIsFlight);
         bool mustSwitch = (kappa == 0 && tauMax >= s.nSwingMax) || (kappa == 1 && s.nContactMax > 0 && tauMax >= s.nContactMax);
         // A swing that starts this late cannot reach its minimum duration before the horizon ends. Letting it start
         // leaves the plan ending mid-swing, and ContactPlan::toModeSchedule() then closes the schedule with a
@@ -108,13 +113,16 @@ bool PhaseDurationsRule::propagate(const ContactLogicState& s, const ContactLogi
       }
       const std::int8_t value = a[static_cast<size_t>(index)];
       if (value == kMiqpFree) break;
+      const std::int8_t otherValue = a[static_cast<size_t>(S::contactBinaryIndex(k, other))];
       if (value == kappa) {
         ++tauMin;
         ++tauMax;
+        if (kappa == 0 && otherValue != 0) airPhaseIsFlight = false;
       } else {
         tauMin = s.switchedPhaseNodes(k, foot, false);
         tauMax = s.switchedPhaseNodes(k, foot, true);
         kappa = value;
+        airPhaseIsFlight = kappa == 0 && otherValue == 0;
       }
     }
   }

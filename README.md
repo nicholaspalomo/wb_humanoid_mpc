@@ -243,6 +243,7 @@ The joystick GUI (`base_velocity_controller_gui`) features a dark-themed tabbed 
    - Adjust root pelvis height and virtual gantry suspension.
    - Switch supervisory FSM modes (`ZERO_TORQUE`, `JOINT_PD`, `GRAVITY_COMP`, `WB_MPC`, `SAFETY`).
    - Checkbox selecting the simulator's cheater contact estimator (task file `contactEstimator: cheater_sim` on, `always_in_contact` off), applied live through the parameter topic.
+   - **Jump** button under the root height slider: commands a root height just past the contact planner's hop trigger for a moment, which is what makes the planner leave the ground (`hop_on_request` in `contact_planning.yaml`). The label above it says where that trigger is; both are inert while the planner has no hop rule.
    - Instant-launch **PlotJuggler** pre-configured with telemetry stream tabs.
 
 2. **⚙️ Joint PD Gains Tuning (`joint_pd_gains.yaml`):**

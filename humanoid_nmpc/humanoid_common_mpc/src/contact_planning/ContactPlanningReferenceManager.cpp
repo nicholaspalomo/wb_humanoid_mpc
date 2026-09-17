@@ -44,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/ContactPlanningTermFactory.h"
 #include "humanoid_common_mpc/contact_planning/execution/PlannedHeadingOverride.h"
+#include "humanoid_common_mpc/contact_planning/execution/PlannedHeightOverride.h"
 #include "humanoid_common_mpc/contact_planning/execution/ScheduleAdaptationPipeline.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
@@ -73,6 +74,7 @@ void ContactPlanningReferenceManager::rebuildExecutionRules(const ContactPlannin
   executionRules_ =
       ContactPlanningTermFactory::buildExecutionRules(config, [this](const std::string& name) -> std::unique_ptr<ExecutionRule> {
         if (name == term::kPlannedHeadingOverride) return std::make_unique<PlannedHeadingOverride>(*mpcRobotModelPtr_, &acom_);
+        if (name == term::kPlannedHeightOverride) return std::make_unique<PlannedHeightOverride>(*mpcRobotModelPtr_);
         return nullptr;
       });
 }
@@ -149,6 +151,7 @@ void ContactPlanningReferenceManager::setConfig(const ContactPlanningConfig& con
   TermCollection<ExecutionRule> rules =
       ContactPlanningTermFactory::buildExecutionRules(config, [this](const std::string& name) -> std::unique_ptr<ExecutionRule> {
         if (name == term::kPlannedHeadingOverride) return std::make_unique<PlannedHeadingOverride>(*mpcRobotModelPtr_, &acom_);
+        if (name == term::kPlannedHeightOverride) return std::make_unique<PlannedHeightOverride>(*mpcRobotModelPtr_);
         return nullptr;
       });
   std::lock_guard<std::mutex> lock(configMutex_);
@@ -169,6 +172,21 @@ feet_array_t<vector3_t> ContactPlanningReferenceManager::computeFootPositions(co
     feet[i] = positions[i];
   }
   return feet;
+}
+
+std::pair<scalar_t, scalar_t> ContactPlanningReferenceManager::computeComHeightState(const vector_t& state) {
+  const auto& model = pinocchioInterface_.getModel();
+  auto& data = pinocchioInterface_.getData();
+  const vector_t q = mpcRobotModelPtr_->getGeneralizedCoordinates(state);
+  pinocchio::centerOfMass(model, data, q, false);
+  return {data.com[0](2), mpcRobotModelPtr_->getBaseComLinearVelocity(state)(2)};
+}
+
+scalar_t ContactPlanningReferenceManager::desiredBaseHeight(const TargetTrajectories& targetTrajectories, scalar_t time) const {
+  if (targetTrajectories.empty()) return 0.0;
+  const vector_t desiredState = targetTrajectories.getDesiredState(time);
+  if (desiredState.size() < static_cast<Eigen::Index>(mpcRobotModelPtr_->getStateDim())) return 0.0;
+  return mpcRobotModelPtr_->getBasePosition(desiredState)(2);
 }
 
 std::pair<vector2_t, vector2_t> ContactPlanningReferenceManager::computeComState(const vector_t& state) {
@@ -515,6 +533,7 @@ ContactPlannerInput ContactPlanningReferenceManager::makePlannerInput(scalar_t i
   input.velocityCommand = velocityCommand;
 
   std::tie(input.comPosition, input.comVelocity) = computeComState(initState);
+  std::tie(input.comHeight, input.comHeightRate) = computeComHeightState(initState);
   input.yaw = mpcRobotModelPtr_->getBaseOrientationEulerZYX(initState)(0);
 
   const feet_array_t<vector3_t> feet = computeFootPositions(initState);

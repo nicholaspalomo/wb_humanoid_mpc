@@ -37,18 +37,41 @@ std::string AlternatingFeetRule::describe() const {
 
 bool AlternatingFeetRule::propagate(const ContactLogicState& s, const ContactLogicScan& /*scan*/, MiqpAssignment& a, bool& changed) const {
   using S = ContactLogicState;
+  // The foot that swung most recently. A single foot in the air at the planning instant is that foot; with both in the
+  // air (a flight, once the flight model is listed) neither is, and the input's own value, which the reference manager
+  // reads off the executed schedule, stands. Taking the last airborne index there named the same foot after every
+  // flight and rejected the other foot's next swing as a repeat, which made replanning in flight infeasible.
   int lastSwung = s.input->lastSwungFoot;
+  int feetInAir = 0;
+  int footInAir = -1;
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-    if (!s.input->contacts[foot]) lastSwung = static_cast<int>(foot);
+    if (!s.input->contacts[foot]) {
+      ++feetInAir;
+      footInAir = static_cast<int>(foot);
+    }
   }
+  if (feetInAir == 1) lastSwung = footInAir;
   std::array<std::int8_t, N_CONTACTS> kappa{s.input->contacts[0] ? std::int8_t(1) : std::int8_t(0),
                                             s.input->contacts[1] ? std::int8_t(1) : std::int8_t(0)};
   for (int k = 0; k < s.numNodes; ++k) {
+    // A take-off that lifts every foot at once is a hop: no foot swings past another, the alternation has nothing to
+    // say about it, and it leaves no single foot as the one that swung last. Without this a hop right after a step was
+    // rejected as that foot swinging twice, and the jump button could never produce a plan.
+    int feetDown = 0;
+    int liftingFeet = 0;
+    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+      const std::int8_t value = a[static_cast<size_t>(S::contactBinaryIndex(k, foot))];
+      if (value == 1) ++feetDown;
+      if (kappa[foot] == 1 && value == 0) ++liftingFeet;
+    }
+    const bool hopTakeOff = feetDown == 0 && liftingFeet == static_cast<int>(N_CONTACTS);
+    if (hopTakeOff) lastSwung = -1;
+
     bool allFixed = true;
     for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
       const int index = S::contactBinaryIndex(k, foot);
       const std::int8_t value = a[static_cast<size_t>(index)];
-      if (kappa[foot] == 1) {
+      if (kappa[foot] == 1 && !hopTakeOff) {
         if (value == 0) {
           // The rule constrains the free nodes: along the committed prefix the executed schedule is what it is (a
           // repeated lift-off there came from an earlier plan or a re-timed event), and refusing it made every plan

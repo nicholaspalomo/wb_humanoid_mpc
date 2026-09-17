@@ -57,7 +57,10 @@ _CONTACT_PLANNING_CORE_HDRS = [
         "include/humanoid_common_mpc/contact_planning/search/*.h",
         "include/humanoid_common_mpc/contact_planning/execution/*.h",
     ],
-    exclude = ["include/humanoid_common_mpc/contact_planning/execution/PlannedHeadingOverride.h"],
+    exclude = [
+        "include/humanoid_common_mpc/contact_planning/execution/PlannedHeadingOverride.h",
+        "include/humanoid_common_mpc/contact_planning/execution/PlannedHeightOverride.h",
+    ],
 )
 
 cc_library(
@@ -82,7 +85,10 @@ cc_library(
             "src/contact_planning/search/*.cpp",
             "src/contact_planning/execution/*.cpp",
         ],
-        exclude = ["src/contact_planning/execution/PlannedHeadingOverride.cpp"],
+        exclude = [
+            "src/contact_planning/execution/PlannedHeadingOverride.cpp",
+            "src/contact_planning/execution/PlannedHeightOverride.cpp",
+        ],
     ),
     hdrs = _CONTACT_PLANNING_CORE_HDRS,
     includes = ["include"],
@@ -147,6 +153,7 @@ cc_library(
         "src/contact_planning/ContactPlanningReferenceManager.cpp",
         "src/contact_planning/ContactPlannerModule.cpp",
         "src/contact_planning/execution/PlannedHeadingOverride.cpp",
+        "src/contact_planning/execution/PlannedHeightOverride.cpp",
     ],
     hdrs = glob(
         ["include/**"],
@@ -397,6 +404,17 @@ cc_test(
     name = "testContactPlanningTerms",
     size = "small",
     srcs = ["test/testContactPlanningTerms.cpp"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":contact_planning_core",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "testContactPlanningFlight",
+    size = "small",
+    srcs = ["test/testContactPlanningFlight.cpp"],
     copts = _COMMON_COPTS,
     deps = [
         ":contact_planning_core",

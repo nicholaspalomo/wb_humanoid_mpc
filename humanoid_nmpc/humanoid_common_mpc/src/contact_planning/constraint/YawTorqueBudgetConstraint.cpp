@@ -26,6 +26,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/constraint/YawTorqueBudgetConstraint.h"
 
 #include <cmath>
+#include <algorithm>
 #include <sstream>
 #include <stdexcept>
 
@@ -45,19 +46,30 @@ void YawTorqueBudgetConstraint::configure(const ContactPlanningConfig& config) {
     throw std::invalid_argument("[yaw_torque_budget] yaw torque limits must be >= 0");
   }
   params_ = config.yawTorqueBudget;
+  flightPossible_ = config.formulation.hasFlightModel();
 }
 
 void YawTorqueBudgetConstraint::addRows(const ContactPlanningContext& /*ctx*/, int /*node*/, RowBuilder& rows) const {
   const scalar_t torsion = params_.torsionalFrictionTorque;
-  const scalar_t doubleSupportShare = 0.5 * (params_.doubleSupportYawCouple - torsion);
+  // A pair of feet never carries less torsion than one of them alone; a couple below the torsion is no bonus.
+  const scalar_t doubleSupportShare = std::max(0.0, 0.5 * (params_.doubleSupportYawCouple - torsion));
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
     for (const scalar_t sign : {1.0, -1.0}) {
-      rows.addHard({},
-                   {{idx_.yawTorque[foot], sign},
-                    {idx_.contact[foot], -torsion},
-                    {idx_.contact[0], -doubleSupportShare},
-                    {idx_.contact[1], -doubleSupportShare}},
-                   -kLipLooseBound, -doubleSupportShare);
+      if (!flightPossible_) {
+        rows.addHard({},
+                     {{idx_.yawTorque[foot], sign},
+                      {idx_.contact[foot], -torsion},
+                      {idx_.contact[0], -doubleSupportShare},
+                      {idx_.contact[1], -doubleSupportShare}},
+                     -kLipLooseBound, -doubleSupportShare);
+        continue;
+      }
+      // +-tau_i <= T_t c_i + share min_j c_j, as one row per j: the intersection is the minimum, which is the product
+      // c_L c_R at every integer point and therefore the same budget as above wherever a foot is down.
+      for (size_t other = 0; other < N_CONTACTS; ++other) {
+        rows.addHard({}, {{idx_.yawTorque[foot], sign}, {idx_.contact[foot], -torsion}, {idx_.contact[other], -doubleSupportShare}},
+                     -kLipLooseBound, 0.0);
+      }
     }
   }
 }

@@ -52,7 +52,13 @@ struct ContactPlannerInput {
   // start instead of from the node start. Empty, or shorter than committedContacts: the remaining nodes count from
   // their node start.
   std::vector<feet_array_t<scalar_t>> committedPhaseStartTimes;
-  int lastSwungFoot = -1;         // foot that swung most recently (-1 unknown), for alternation
+  int lastSwungFoot = -1;  // foot that swung most recently (-1 unknown), for alternation
+  // Vertical model (vertical_double_integrator): the CoM height above the ground and its rate at planning time.
+  scalar_t comHeight = 0.0;
+  scalar_t comHeightRate = 0.0;
+  // Hop request (hop_on_request): the commanded base height exceeds the trigger; flight of `hopFlightDuration` [s].
+  bool hopRequested = false;
+  scalar_t hopFlightDuration = 0.0;
   scalar_t committedUntil = 0.0;  // [s] the applied schedule is treated as fixed up to this time
 
   // Heading model (ContactPlanningConfig::useAcomDynamics). `yaw` then equals `heading`.
@@ -79,6 +85,10 @@ struct ContactPlan {
   std::vector<scalar_t> heading;                 // [rad] whole-body heading
   std::vector<scalar_t> headingRate;             // [rad/s]
   std::vector<feet_array_t<scalar_t>> footYaws;  // [rad] planned foot yaw (the landing yaw while the foot swings)
+  // Vertical model only (empty otherwise): per node k = 0..N, and the acceleration per interval.
+  std::vector<scalar_t> comHeight;       // [m]
+  std::vector<scalar_t> comHeightRate;   // [m/s]
+  std::vector<scalar_t> comHeightAccel;  // [m/s^2]
 
   // Solver statistics
   scalar_t objective = 0.0;
@@ -107,6 +117,12 @@ struct ContactPlan {
    */
   std::string describe() const;
   bool hasHeading() const { return valid && !heading.empty(); }
+  bool hasHeight() const { return valid && !comHeight.empty(); }
+  /** Planned CoM height / vertical velocity at `time` (linear between nodes, clamped); empty without the vertical model. */
+  std::optional<scalar_t> heightAtTime(scalar_t time) const;
+  std::optional<scalar_t> heightRateAtTime(scalar_t time) const;
+  /** Number of intervals with no foot in contact. */
+  int numFlightIntervals() const;
   /** Planned heading / heading rate at `time`, linearly interpolated between nodes and clamped to the plan; empty without the heading
    * model. */
   std::optional<scalar_t> headingAtTime(scalar_t time) const;

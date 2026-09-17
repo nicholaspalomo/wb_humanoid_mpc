@@ -53,6 +53,12 @@ Layout LayoutBuilder::build() const {
     layout.yawTorque0 = layout.input(var::yawTorque(0));
     layout.footYawDelta0 = layout.input(var::footYawDelta(0));
   }
+  layout.hasHeight = layout.hasState(var::kHeight);
+  if (layout.hasHeight) {
+    layout.height = layout.state(var::kHeight);
+    layout.heightRate = layout.state(var::kHeightRate);
+    layout.heightAccel = layout.input(var::kHeightAccel);
+  }
   return layout;
 }
 

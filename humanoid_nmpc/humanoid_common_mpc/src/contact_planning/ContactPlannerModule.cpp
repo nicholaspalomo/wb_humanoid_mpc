@@ -214,7 +214,18 @@ void ContactPlannerModule::preSolverRun(scalar_t initTime,
       velocityCommand = desiredState.head<2>();
     }
   }
-  const ContactPlannerInput input = referenceManagerPtr_->makePlannerInput(initTime, initState, velocityCommand);
+  ContactPlannerInput input = referenceManagerPtr_->makePlannerInput(initTime, initState, velocityCommand);
+  // A commanded base height above the trigger asks for hops (hop_on_request): the joypad's height slider pushed up.
+  {
+    const ContactPlanningConfig config = getConfig();
+    if (config.usesFlightModel() && config.formulation.hasLogicRule(term::kHopOnRequest)) {
+      const scalar_t commandedHeight = referenceManagerPtr_->desiredBaseHeight(targetTrajectories, initTime);
+      if (commandedHeight > config.hopOnRequest.triggerBaseHeight) {
+        input.hopRequested = true;
+        input.hopFlightDuration = config.hopOnRequest.flightDuration;
+      }
+    }
+  }
 
   // A contact event (early / late touch-down) invalidates the timing the last plan was built on: plan again right away
   // instead of waiting for the next planning period.

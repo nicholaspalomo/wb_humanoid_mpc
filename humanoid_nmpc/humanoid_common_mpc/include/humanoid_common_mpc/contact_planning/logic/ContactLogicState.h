@@ -49,6 +49,7 @@ struct ContactLogicState {
   int numNodes = 0;
   scalar_t dt = 0.1;
   int nSwingMin = 1, nSwingMax = 1, nContactMin = 1, nContactMax = 0, nDoubleSupportHold = 0;
+  int nFlightMin = 1, nFlightMax = 0;    // flight limits in nodes; nFlightMax 0: no flight (a hop request raises nFlightMin)
   scalar_t minDoubleSupportNodes = 0.0;  // fractional, minDoubleSupportDuration / dt
   int numCommitted = 0;
   scalar_t initialTouchDownNode = -1000.0;  // touch-down node of a double support already in progress at planning time

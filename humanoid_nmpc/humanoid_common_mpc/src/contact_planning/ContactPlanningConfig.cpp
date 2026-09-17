@@ -71,9 +71,31 @@ void ContactPlanningConfig::validate() const {
   if (planConsistency.cost < 0.0 || previousFootholdConsistency.weight < 0.0) fail("plan consistency terms must be non-negative");
   if (contactSwitch.cost < 0.0) fail("contact_switch.cost must be non-negative");
   if (velocityTracking.weight < 0.0 || stepWidth.weight < 0.0 || zmpRegularization.weight < 0.0 || footholdRegularization.weight < 0.0 ||
-      stepLength.weight < 0.0 || terminalDcm.weight < 0.0) {
+      stepLength.weight < 0.0 || terminalDcm.weight < 0.0 || heightTracking.weight < 0.0 || verticalInputRegularization.weight < 0.0) {
     fail("cost weights must be non-negative");
   }
+  if (s.gaitLimits.maxFlightDuration > 0.0 && s.gaitLimits.minFlightDuration > s.gaitLimits.maxFlightDuration) {
+    fail("shared.gait_limits.minFlightDuration must not exceed maxFlightDuration");
+  }
+  if (s.gaitLimits.maxContactDurationWalking > 0.0 && s.gaitLimits.maxContactDurationWalking < s.gaitLimits.minContactDuration) {
+    fail("shared.gait_limits.maxContactDurationWalking must not be shorter than minContactDuration");
+  }
+  if (s.gaitLimits.walkingSpeedThreshold < 0.0) fail("shared.gait_limits.walkingSpeedThreshold must be non-negative");
+  if (flightDurations.allowedAboveSpeed < 0.0) fail("flight_durations.allowedAboveSpeed must be non-negative");
+  if (formulation.hasFlightModel()) {
+    if (s.gaitLimits.maxFlightDuration <= 0.0) fail("the flight model needs shared.gait_limits.maxFlightDuration > 0");
+    if (!(verticalDoubleIntegrator.maxContactAcceleration > s.gravity)) {
+      fail("vertical_double_integrator.maxContactAcceleration must exceed gravity");
+    }
+    if (contactHeight.tolerance < 0.0) fail("contact_height.tolerance must be non-negative");
+    if (hopOnRequest.flightDuration <= 0.0) fail("hop_on_request.flightDuration must be positive");
+    // The thrust of two feet over one contact node must be able to launch the shortest flight: vz = g T_f / 2.
+    const scalar_t launch = (2.0 * verticalDoubleIntegrator.maxContactAcceleration - s.gravity) * p.dt;
+    if (launch < 0.5 * s.gravity * s.gaitLimits.minFlightDuration) {
+      fail("vertical_double_integrator.maxContactAcceleration cannot launch a flight of minFlightDuration within one node");
+    }
+  }
+  checkSlack(contactHeight.slack, "contact_height");
   if (p.maxBranchAndBoundNodes < 1 || p.maxSolveTime <= 0.0 || p.maxQpIterations < 1) fail("invalid solver limits");
   if (eventShiftLocalSearch.iterations < 0 || eventShiftLocalSearch.maxTime < 0.0) fail("invalid local search limits");
   if (diving.maxDiveIterations < 1) fail("diving.maxDiveIterations must be at least 1");
@@ -247,6 +269,10 @@ void loadStructured(const ptree& pt, const ptree& block, const std::string& pref
   load(s.gaitLimits.minContactDuration, "shared.gait_limits.minContactDuration");
   load(s.gaitLimits.maxContactDuration, "shared.gait_limits.maxContactDuration");
   load(s.gaitLimits.minDoubleSupportDuration, "shared.gait_limits.minDoubleSupportDuration");
+  load(s.gaitLimits.maxContactDurationWalking, "shared.gait_limits.maxContactDurationWalking");
+  load(s.gaitLimits.walkingSpeedThreshold, "shared.gait_limits.walkingSpeedThreshold");
+  load(s.gaitLimits.minFlightDuration, "shared.gait_limits.minFlightDuration");
+  load(s.gaitLimits.maxFlightDuration, "shared.gait_limits.maxFlightDuration");
 
   ContactPlanningFormulation& f = config.formulation;
   bool present = false;
@@ -279,6 +305,14 @@ void loadStructured(const ptree& pt, const ptree& block, const std::string& pref
   load(config.stepLength.weight, std::string(term::kStepLength) + ".weight");
   load(config.terminalDcm.weight, std::string(term::kTerminalDcm) + ".weight");
   load(config.terminalDcm.trackCommandedVelocity, std::string(term::kTerminalDcm) + ".trackCommandedVelocity");
+  load(config.verticalDoubleIntegrator.maxContactAcceleration, std::string(term::kVerticalDoubleIntegrator) + ".maxContactAcceleration");
+  load(config.heightTracking.weight, std::string(term::kHeightTracking) + ".weight");
+  load(config.verticalInputRegularization.weight, std::string(term::kVerticalInputRegularization) + ".weight");
+  load(config.contactHeight.tolerance, std::string(term::kContactHeight) + ".tolerance");
+  readSlack(pt, prefix + term::kContactHeight + ".", config.contactHeight.slack, verbose);
+  load(config.flightDurations.allowedAboveSpeed, std::string(term::kFlightDurations) + ".allowedAboveSpeed");
+  load(config.hopOnRequest.triggerBaseHeight, std::string(term::kHopOnRequest) + ".triggerBaseHeight");
+  load(config.hopOnRequest.flightDuration, std::string(term::kHopOnRequest) + ".flightDuration");
   load(config.zmpSupportRegion.halfWidthX, std::string(term::kZmpSupportRegion) + ".halfWidthX");
   load(config.zmpSupportRegion.halfWidthY, std::string(term::kZmpSupportRegion) + ".halfWidthY");
   readSlack(pt, prefix + term::kZmpSupportRegion + ".", config.zmpSupportRegion.slack, verbose);

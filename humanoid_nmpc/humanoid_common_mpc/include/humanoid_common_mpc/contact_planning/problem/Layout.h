@@ -54,6 +54,10 @@ inline constexpr const char* kHeadingRate = "omega";
 std::string footYaw(size_t foot);
 std::string yawTorque(size_t foot);
 std::string footYawDelta(size_t foot);
+// Vertical block (vertical_double_integrator): states z vz, input az.
+inline constexpr const char* kHeight = "z";
+inline constexpr const char* kHeightRate = "vz";
+inline constexpr const char* kHeightAccel = "az";
 }  // namespace var
 
 /**
@@ -79,6 +83,11 @@ struct Layout {
   int footYaw(size_t foot) const { return footYaw0 + static_cast<int>(foot); }
   int yawTorque(size_t foot) const { return yawTorque0 + static_cast<int>(foot); }
   int footYawDelta(size_t foot) const { return footYawDelta0 + static_cast<int>(foot); }
+  // Vertical block, -1 without it.
+  bool hasHeight = false;
+  int height = -1;       // state: CoM height [m]
+  int heightRate = -1;   // state: CoM vertical velocity [m/s]
+  int heightAccel = -1;  // input: CoM vertical acceleration [m/s^2]
 
   /** Index of a state / input by name; throws std::out_of_range for an unknown name. */
   int state(const std::string& name) const;

@@ -41,7 +41,16 @@ ContactLogicState ContactLogicState::make(const ContactPlannerInput& input,
   s.nSwingMin = config.minSwingNodes();
   s.nSwingMax = config.maxSwingNodes();
   s.nContactMin = config.minContactNodes();
-  s.nContactMax = config.maxContactNodes();
+  // The walking cap on a stance replaces the standing one while a velocity is commanded.
+  s.nContactMax = input.velocityCommand.norm() > config.shared.gaitLimits.walkingSpeedThreshold && config.maxContactNodesWalking() > 0
+                      ? config.maxContactNodesWalking()
+                      : config.maxContactNodes();
+  s.nFlightMin = config.minFlightNodes();
+  s.nFlightMax = config.maxFlightNodes();
+  if (input.hopRequested && s.nFlightMax > 0) {
+    const int hop = static_cast<int>(std::ceil(input.hopFlightDuration / config.planner.dt - 1e-9));
+    s.nFlightMin = std::clamp(hop, s.nFlightMin, s.nFlightMax);
+  }
   s.nDoubleSupportHold = config.minDoubleSupportNodes();
   // Minimum double support, in (fractional) nodes: after a touch-down at node time t_td the other foot may not lift at a
   // node that starts before t_td + minDoubleSupportDuration.

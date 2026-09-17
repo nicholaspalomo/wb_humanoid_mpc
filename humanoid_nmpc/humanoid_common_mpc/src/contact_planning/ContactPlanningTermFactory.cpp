@@ -28,25 +28,30 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <stdexcept>
 
 #include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
+#include "humanoid_common_mpc/contact_planning/constraint/ContactHeightConstraint.h"
 #include "humanoid_common_mpc/contact_planning/constraint/FootMotionInSwingOnlyConstraint.h"
 #include "humanoid_common_mpc/contact_planning/constraint/FootSeparationConstraint.h"
 #include "humanoid_common_mpc/contact_planning/constraint/FootYawPinnedInContactConstraint.h"
 #include "humanoid_common_mpc/contact_planning/constraint/HipYawRangeConstraint.h"
 #include "humanoid_common_mpc/contact_planning/constraint/NoFlightConstraint.h"
 #include "humanoid_common_mpc/contact_planning/constraint/ReachabilityConstraint.h"
+#include "humanoid_common_mpc/contact_planning/constraint/VerticalThrustLimitConstraint.h"
 #include "humanoid_common_mpc/contact_planning/constraint/YawTorqueBudgetConstraint.h"
+#include "humanoid_common_mpc/contact_planning/constraint/ZmpPinnedInFlightConstraint.h"
 #include "humanoid_common_mpc/contact_planning/constraint/ZmpSupportRegionConstraint.h"
 #include "humanoid_common_mpc/contact_planning/cost/FootYawRegularizationCost.h"
 #include "humanoid_common_mpc/contact_planning/cost/FootYawTrackingCost.h"
 #include "humanoid_common_mpc/contact_planning/cost/FootholdRegularizationCost.h"
 #include "humanoid_common_mpc/contact_planning/cost/HeadingRateTrackingCost.h"
 #include "humanoid_common_mpc/contact_planning/cost/HeadingTrackingCost.h"
+#include "humanoid_common_mpc/contact_planning/cost/HeightTrackingCost.h"
 #include "humanoid_common_mpc/contact_planning/cost/PreviousFootholdConsistencyCost.h"
 #include "humanoid_common_mpc/contact_planning/cost/RegularizationCost.h"
 #include "humanoid_common_mpc/contact_planning/cost/StepLengthCost.h"
 #include "humanoid_common_mpc/contact_planning/cost/StepWidthCost.h"
 #include "humanoid_common_mpc/contact_planning/cost/TerminalDcmCost.h"
 #include "humanoid_common_mpc/contact_planning/cost/VelocityTrackingCost.h"
+#include "humanoid_common_mpc/contact_planning/cost/VerticalInputRegularizationCost.h"
 #include "humanoid_common_mpc/contact_planning/cost/YawTorqueRegularizationCost.h"
 #include "humanoid_common_mpc/contact_planning/cost/ZmpRegularizationCost.h"
 #include "humanoid_common_mpc/contact_planning/execution/DcmStepAdjustmentRule.h"
@@ -54,6 +59,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/execution/PhaseResettingRule.h"
 #include "humanoid_common_mpc/contact_planning/logic/AlternatingFeetRule.h"
 #include "humanoid_common_mpc/contact_planning/logic/ContactSwitchCost.h"
+#include "humanoid_common_mpc/contact_planning/logic/FlightDurationsRule.h"
+#include "humanoid_common_mpc/contact_planning/logic/HopOnRequestRule.h"
 #include "humanoid_common_mpc/contact_planning/logic/MinimumDoubleSupportRule.h"
 #include "humanoid_common_mpc/contact_planning/logic/NoFlightRule.h"
 #include "humanoid_common_mpc/contact_planning/logic/PhaseDurationsRule.h"
@@ -61,6 +68,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/model/FootholdIntegrator.h"
 #include "humanoid_common_mpc/contact_planning/model/HeadingDoubleIntegrator.h"
 #include "humanoid_common_mpc/contact_planning/model/LipComDynamics.h"
+#include "humanoid_common_mpc/contact_planning/model/VerticalDoubleIntegrator.h"
 #include "humanoid_common_mpc/contact_planning/search/DivingStage.h"
 #include "humanoid_common_mpc/contact_planning/search/EventShiftLocalSearchStage.h"
 #include "humanoid_common_mpc/contact_planning/search/HeadingRelinearisationStage.h"
@@ -95,6 +103,7 @@ std::unique_ptr<LipModelBlock> ContactPlanningTermFactory::makeModelBlock(const 
   if (canonical == term::kLipCom) return std::make_unique<LipComDynamics>();
   if (canonical == term::kFootholdIntegrator) return std::make_unique<FootholdIntegrator>();
   if (canonical == term::kHeadingDoubleIntegrator) return std::make_unique<HeadingDoubleIntegrator>();
+  if (canonical == term::kVerticalDoubleIntegrator) return std::make_unique<VerticalDoubleIntegrator>();
   unknown(TermKind::MODEL_BLOCK, name);
 }
 
@@ -113,6 +122,8 @@ std::unique_ptr<LipCost> ContactPlanningTermFactory::makeCost(const std::string&
   if (canonical == term::kFootholdRegularization) return std::make_unique<FootholdRegularizationCost>();
   if (canonical == term::kStepLength) return std::make_unique<StepLengthCost>();
   if (canonical == term::kTerminalDcm) return std::make_unique<TerminalDcmCost>();
+  if (canonical == term::kHeightTracking) return std::make_unique<HeightTrackingCost>();
+  if (canonical == term::kVerticalInputRegularization) return std::make_unique<VerticalInputRegularizationCost>();
   unknown(TermKind::COST, name);
 }
 
@@ -122,6 +133,7 @@ std::unique_ptr<LipConstraint> ContactPlanningTermFactory::makeSoftConstraint(co
   if (canonical == term::kReachability) return std::make_unique<ReachabilityConstraint>();
   if (canonical == term::kFootSeparation) return std::make_unique<FootSeparationConstraint>();
   if (canonical == term::kHipYawRange) return std::make_unique<HipYawRangeConstraint>();
+  if (canonical == term::kContactHeight) return std::make_unique<ContactHeightConstraint>();
   unknown(TermKind::SOFT_CONSTRAINT, name);
 }
 
@@ -131,6 +143,8 @@ std::unique_ptr<LipConstraint> ContactPlanningTermFactory::makeHardConstraint(co
   if (canonical == term::kFootMotionInSwingOnly) return std::make_unique<FootMotionInSwingOnlyConstraint>();
   if (canonical == term::kYawTorqueBudget) return std::make_unique<YawTorqueBudgetConstraint>();
   if (canonical == term::kFootYawPinnedInContact) return std::make_unique<FootYawPinnedInContactConstraint>();
+  if (canonical == term::kVerticalThrustLimit) return std::make_unique<VerticalThrustLimitConstraint>();
+  if (canonical == term::kZmpPinnedInFlight) return std::make_unique<ZmpPinnedInFlightConstraint>();
   unknown(TermKind::HARD_CONSTRAINT, name);
 }
 
@@ -138,6 +152,8 @@ std::unique_ptr<ContactLogicRule> ContactPlanningTermFactory::makeLogicRule(cons
   const std::string canonical = canonicalOrThrow(TermKind::LOGIC_RULE, name);
   if (canonical == term::kPhaseDurations) return std::make_unique<PhaseDurationsRule>();
   if (canonical == term::kNoFlight) return std::make_unique<NoFlightRule>();
+  if (canonical == term::kFlightDurations) return std::make_unique<FlightDurationsRule>();
+  if (canonical == term::kHopOnRequest) return std::make_unique<HopOnRequestRule>();
   if (canonical == term::kMinimumDoubleSupport) return std::make_unique<MinimumDoubleSupportRule>();
   if (canonical == term::kAlternatingFeet) return std::make_unique<AlternatingFeetRule>();
   unknown(TermKind::LOGIC_RULE, name);

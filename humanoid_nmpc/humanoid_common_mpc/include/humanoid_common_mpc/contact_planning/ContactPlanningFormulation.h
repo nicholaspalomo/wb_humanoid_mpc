@@ -42,6 +42,7 @@ namespace term {
 inline constexpr const char* kLipCom = "lip_com";
 inline constexpr const char* kFootholdIntegrator = "foothold_integrator";
 inline constexpr const char* kHeadingDoubleIntegrator = "heading_double_integrator";
+inline constexpr const char* kVerticalDoubleIntegrator = "vertical_double_integrator";
 // Costs.
 inline constexpr const char* kRegularization = "regularization";
 inline constexpr const char* kPreviousFootholdConsistency = "previous_foothold_consistency";
@@ -56,20 +57,27 @@ inline constexpr const char* kZmpRegularization = "zmp_regularization";
 inline constexpr const char* kFootholdRegularization = "foothold_regularization";
 inline constexpr const char* kStepLength = "step_length";
 inline constexpr const char* kTerminalDcm = "terminal_dcm";
+inline constexpr const char* kHeightTracking = "height_tracking";
+inline constexpr const char* kVerticalInputRegularization = "vertical_input_regularization";
 // Soft constraints.
 inline constexpr const char* kZmpSupportRegion = "zmp_support_region";
 inline constexpr const char* kReachability = "reachability";
 inline constexpr const char* kFootSeparation = "foot_separation";
 inline constexpr const char* kHipYawRange = "hip_yaw_range";
+inline constexpr const char* kContactHeight = "contact_height";
 // Hard constraints.
 inline constexpr const char* kNoFlight = "no_flight";
 inline constexpr const char* kFootMotionInSwingOnly = "foot_motion_in_swing_only";
 inline constexpr const char* kYawTorqueBudget = "yaw_torque_budget";
 inline constexpr const char* kFootYawPinnedInContact = "foot_yaw_pinned_in_contact";
+inline constexpr const char* kVerticalThrustLimit = "vertical_thrust_limit";
+inline constexpr const char* kZmpPinnedInFlight = "zmp_pinned_in_flight";
 // Logic rules on the contact binaries (`no_flight` is both a QP row and a logic rule, under the same name).
 inline constexpr const char* kPhaseDurations = "phase_durations";
 inline constexpr const char* kMinimumDoubleSupport = "minimum_double_support";
 inline constexpr const char* kAlternatingFeet = "alternating_feet";
+inline constexpr const char* kFlightDurations = "flight_durations";
+inline constexpr const char* kHopOnRequest = "hop_on_request";
 // Assignment costs on the binaries.
 inline constexpr const char* kContactSwitch = "contact_switch";
 inline constexpr const char* kPlanConsistency = "plan_consistency";
@@ -83,6 +91,7 @@ inline constexpr const char* kPhaseResetting = "phase_resetting";
 inline constexpr const char* kEnergyCadenceModulation = "energy_cadence_modulation";
 inline constexpr const char* kDcmStepAdjustment = "dcm_step_adjustment";
 inline constexpr const char* kPlannedHeadingOverride = "planned_heading_override";
+inline constexpr const char* kPlannedHeightOverride = "planned_height_override";
 }  // namespace term
 
 /** Normalises a term name for comparison: lower case, `_`, `-` and spaces removed. */
@@ -148,6 +157,12 @@ struct ContactPlanningFormulation {
    * planned-heading override of the reference manager. This is what `useAcomDynamics: true` meant.
    */
   void setHeadingModel(bool on);
+  /**
+   * Lists (or removes) the flight model: the vertical block, its costs and constraints, `flight_durations` in place of
+   * `no_flight` (both the logic rule and the QP row), `hop_on_request` and `planned_height_override`.
+   */
+  void setFlightModel(bool on);
+  bool hasFlightModel() const { return listed(dynamics, term::kVerticalDoubleIntegrator); }
 
   /** True when a listed execution rule compares the measured centre of mass with the NMPC's prediction. */
   bool needsPredictedTrajectory() const {

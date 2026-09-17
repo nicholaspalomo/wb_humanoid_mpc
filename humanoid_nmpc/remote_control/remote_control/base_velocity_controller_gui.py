@@ -244,6 +244,14 @@ class App(tk.Tk):
         # Slider frame
         self.min_height = 0.2
         self.max_height = 1.3
+        # The jump button raises the commanded root height this far past the planner's hop trigger, for this long. The
+        # margin is small on purpose: the planned vertical trajectory drives the motion (planned_height_override), the
+        # commanded height only asks for the hop. The duration covers a few planning cycles at 10 Hz.
+        self.JUMP_TRIGGER_MARGIN = 0.02  # [m]
+        self.JUMP_COMMAND_DURATION = 0.4  # [s]
+        self.HOP_MESSAGE_DURATION_MS = (
+            5000  # how long a message replaces the label under the slider
+        )
         self.height_scale = (self.max_height - self.min_height) / 100.0
         self.slider_default_value = (0.8 - self.min_height) / self.height_scale
         self.slider_frame = ttk.Frame(main_frame)
@@ -262,6 +270,18 @@ class App(tk.Tk):
         self.slider.set(self.slider_default_value)
         self.slider.pack(expand=True, fill="y")
         self.slider.bind("<ButtonRelease-1>", self.on_slider_release)
+        # The contact planner hops while the commanded root height is above hop_on_request.triggerBaseHeight
+        # (contact_planning.yaml); the label says where that is, and the button commands one jump by raising the height
+        # past it for JUMP_COMMAND_DURATION. Both are inert while the planner has no hop rule.
+        self.hop_label = ttk.Label(self.slider_frame, text="", font=("Helvetica", 8))
+        self.hop_label.pack(pady=(5, 0))
+        self.jump_button = ttk.Button(
+            self.slider_frame, text="⤒ Jump", command=self.jump
+        )
+        self.jump_button.pack(pady=(3, 0))
+        self._jump_restore_value = None
+        self._jump_after_id = None
+        self._hop_message_after_id = None
 
         # Control frame
         control_frame = ttk.Frame(main_frame)
@@ -359,6 +379,7 @@ class App(tk.Tk):
             self._sync_cheater_contacts_checkbox
         )
         self._sync_cheater_contacts_checkbox()
+        self._sync_hop_label()
 
         main_frame.rowconfigure(0, weight=1)
         main_frame.columnconfigure(0, weight=1)
@@ -435,6 +456,81 @@ class App(tk.Tk):
         # Notify Joint Targets tab of mode change
         if hasattr(self, "joint_targets_tab"):
             self.joint_targets_tab.on_mode_changed()
+
+    def hop_trigger_height(self):
+        """Root height above which the contact planner hops, from the loaded contact_planning block; None when not configured."""
+        planning = self.mpc_params_tab.raw_data.get("contact_planning", {})
+        if not isinstance(planning, dict):
+            return None
+        rules = planning.get("logic_rules", [])
+        hop = planning.get("hop_on_request", {})
+        if (
+            "hop_on_request" not in rules
+            or not isinstance(hop, dict)
+            or "triggerBaseHeight" not in hop
+        ):
+            return None
+        try:
+            return float(hop["triggerBaseHeight"])
+        except (TypeError, ValueError):
+            return None
+
+    def jump(self):
+        """One jump: commands a root height just above the planner's hop trigger for JUMP_COMMAND_DURATION seconds, then
+        restores the height that was commanded before. The planner turns the request into a flight (hop_on_request), and
+        its commit window keeps that flight once it is planned, so the short pulse gives one hop rather than a series.
+        """
+        if self._jump_after_id is not None:
+            return  # a jump is already running
+        trigger = self.hop_trigger_height()
+        if trigger is None:
+            # The planner walks: nothing watches the commanded height, so the press would do nothing at all. Say so
+            # rather than leave a button that looks alive and is not.
+            self._say_under_the_slider(
+                "no hop: list hop_on_request in contact_planning.yaml"
+            )
+            return
+        commanded = min(trigger + self.JUMP_TRIGGER_MARGIN, self.max_height)
+        if commanded <= trigger:
+            self._say_under_the_slider(
+                f"the slider stops at {self.max_height:.2f} m, below the {trigger:.2f} m trigger"
+            )
+            return
+        self._jump_restore_value = self.slider.get()
+        self.slider.set((commanded - self.min_height) / self.height_scale)
+        self.jump_button.configure(state="disabled", text="⤒ Jumping…")
+        self._jump_after_id = self.after(
+            int(self.JUMP_COMMAND_DURATION * 1000), self.end_jump
+        )
+
+    def end_jump(self):
+        """Restores the commanded height the jump replaced and re-arms the button."""
+        self._jump_after_id = None
+        if self._jump_restore_value is not None:
+            self.slider.set(self._jump_restore_value)
+            self._jump_restore_value = None
+        self.jump_button.configure(state="normal", text="⤒ Jump")
+        self._sync_hop_label()
+
+    def _say_under_the_slider(self, message: str):
+        """Puts a message where the hop label sits and restores the label after a few seconds."""
+        if self._hop_message_after_id is not None:
+            self.after_cancel(self._hop_message_after_id)
+        self.hop_label.configure(text=message)
+        self._hop_message_after_id = self.after(
+            self.HOP_MESSAGE_DURATION_MS, self._sync_hop_label
+        )
+
+    def _sync_hop_label(self):
+        """The steady-state text under the height slider: where the planner's hop trigger is, or that it has none."""
+        self._hop_message_after_id = None
+        height = self.hop_trigger_height()
+        if height is None:
+            self.hop_label.configure(text="no hop in contact_planning.yaml")
+        elif self.max_height > height:
+            self.hop_label.configure(text=f"hop above {height:.2f} m")
+        else:
+            self.hop_label.configure(text=f"hop above {height:.2f} m, past the slider")
 
     def _on_cheater_contacts_toggle(self):
         """Selects the contact estimator through the MPC Parameters tab, which publishes it live."""
@@ -541,6 +637,7 @@ class App(tk.Tk):
         self.height_scale = (self.max_height - self.min_height) / 100.0
         self.slider_default_value = (height - self.min_height) / self.height_scale
         self.slider.set(self.slider_default_value)
+        self._sync_hop_label()  # the slider range decides whether the jump button can reach the hop trigger
 
     def set_knob_positions(self, msg: WalkingVelocityCommand):
         self.joystick_left.set_position(msg.linear_velocity_x, msg.linear_velocity_y)

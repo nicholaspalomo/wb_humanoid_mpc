@@ -1431,6 +1431,9 @@ class MpcParamsTab(ttk.Frame):
     # Contact planning keys that are not tunable online (they change the problem structure or the threading). Keys are
     # paths inside the contact_planning block (planner / shared / term lists / one block per term).
     # LINT.IfChange(contact_planning_gui_keys)
+    # Keys of the contact_planning block that are no sliders (structural, or booleans, which the renderer skips anyway).
+    # The flight model's keys (vertical_double_integrator, height_tracking, contact_height, hop_on_request, the flight
+    # gait limits) are ordinary sliders.
     CONTACT_PLANNING_STATIC_KEYS = {
         "planner.numNodes",
         "planner.runInBackgroundThread",

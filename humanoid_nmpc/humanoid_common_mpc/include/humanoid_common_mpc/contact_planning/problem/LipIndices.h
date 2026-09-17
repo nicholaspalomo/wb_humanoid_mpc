@@ -49,6 +49,10 @@ struct LipIndices {
   feet_array_t<int> footYaw = makeFeetArray(-1);
   feet_array_t<int> yawTorque = makeFeetArray(-1);     // input
   feet_array_t<int> footYawDelta = makeFeetArray(-1);  // input
+  bool hasHeight = false;
+  int height = -1;       // z
+  int heightRate = -1;   // vz
+  int heightAccel = -1;  // az (input)
 
   void bind(const Layout& layout);
 };

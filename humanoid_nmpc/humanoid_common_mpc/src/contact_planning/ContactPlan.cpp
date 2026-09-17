@@ -63,6 +63,11 @@ std::string ContactPlan::describe() const {
       k = end;
     }
   }
+  if (const int flights = numFlightIntervals(); flights > 0) out << " | flight " << dt * static_cast<scalar_t>(flights) << "s total";
+  if (!comHeight.empty()) {
+    const auto [lo, hi] = std::minmax_element(comHeight.begin(), comHeight.end());
+    out << " z=[" << *lo << ".." << *hi << "]";
+  }
   return out.str();
 }
 
@@ -92,6 +97,24 @@ std::optional<scalar_t> interpolateNodes(const std::vector<scalar_t>& values, sc
   return (1.0 - a) * values[k] + a * values[k1];
 }
 }  // namespace
+
+std::optional<scalar_t> ContactPlan::heightAtTime(scalar_t time) const {
+  if (!hasHeight()) return std::nullopt;
+  return interpolateNodes(comHeight, startTime, dt, time);
+}
+
+std::optional<scalar_t> ContactPlan::heightRateAtTime(scalar_t time) const {
+  if (!hasHeight() || comHeightRate.empty()) return std::nullopt;
+  return interpolateNodes(comHeightRate, startTime, dt, time);
+}
+
+int ContactPlan::numFlightIntervals() const {
+  int flights = 0;
+  for (const contact_flag_t& c : contacts) {
+    if (!c[0] && !c[1]) ++flights;
+  }
+  return flights;
+}
 
 std::optional<scalar_t> ContactPlan::headingAtTime(scalar_t time) const {
   if (!hasHeading()) return std::nullopt;

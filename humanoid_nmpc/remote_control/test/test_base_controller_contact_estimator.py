@@ -98,6 +98,113 @@ class TestBaseControllerContactEstimatorCheckbox(unittest.TestCase):
         finally:
             app.destroy()
 
+    @staticmethod
+    def _list_the_hop_rule(app):
+        """Lists hop_on_request in the loaded planner block, as the comment of contact_planning.yaml describes."""
+        planning = app.mpc_params_tab.raw_data.get("contact_planning", {})
+        planning["logic_rules"] = list(planning.get("logic_rules", [])) + [
+            "hop_on_request"
+        ]
+        app._sync_hop_label()
+        return planning
+
+    def test_height_slider_shows_the_hop_trigger_only_when_the_planner_hops(self):
+        """The root height slider says where hops begin, but only while the planner lists the hop_on_request rule. The
+        shipped Atlas planner walks, so it says so and the jump button is dead; listing the rule arms both.
+        """
+        app = self._create_app()
+        try:
+            app.withdraw()
+            planning = app.mpc_params_tab.raw_data.get("contact_planning", {})
+            self.assertNotIn("hop_on_request", planning.get("logic_rules", []))
+            self.assertIsNone(app.hop_trigger_height())
+            self.assertEqual(
+                app.hop_label.cget("text"), "no hop in contact_planning.yaml"
+            )
+            # The button stays clickable and says why the press did nothing, instead of being a dead control.
+            app.jump()
+            self.assertIsNone(app._jump_after_id)
+            self.assertIn("hop_on_request", app.hop_label.cget("text"))
+            app.after_cancel(app._hop_message_after_id)
+            app._sync_hop_label()
+
+            planning = self._list_the_hop_rule(app)
+            self.assertEqual(planning["hop_on_request"]["triggerBaseHeight"], 1.0)
+            self.assertEqual(app.hop_trigger_height(), 1.0)
+            self.assertEqual(app.hop_label.cget("text"), "hop above 1.00 m")
+
+            # A planner block without the parameters gives no label rather than a wrong one.
+            del planning["hop_on_request"]
+            app._sync_hop_label()
+            self.assertIsNone(app.hop_trigger_height())
+            self.assertEqual(
+                app.hop_label.cget("text"), "no hop in contact_planning.yaml"
+            )
+        finally:
+            app.destroy()
+
+    def test_jump_button_commands_a_height_above_the_trigger_and_restores_it(self):
+        """The button is the whole jump command: it raises the commanded root height past the planner's hop trigger,
+        which is what hop_on_request watches, and puts the previous height back when the pulse is over.
+        """
+        app = self._create_app()
+        try:
+            app.withdraw()
+            self._list_the_hop_rule(app)
+            standing = app.get_walking_command_msg().desired_pelvis_height
+            self.assertLess(standing, 1.0, "the robot stands below the hop trigger")
+
+            app.jump()
+            commanded = app.get_walking_command_msg().desired_pelvis_height
+            self.assertGreater(commanded, 1.0, "the planner hops above the trigger")
+            self.assertAlmostEqual(commanded, 1.0 + app.JUMP_TRIGGER_MARGIN, places=3)
+            self.assertIn(
+                "disabled", app.jump_button.state(), "no second jump while one runs"
+            )
+            self.assertEqual(app.jump_button.cget("text"), "\u2912 Jumping\u2026")
+
+            # A second press while the jump runs changes nothing.
+            pending = app._jump_after_id
+            app.jump()
+            self.assertEqual(app._jump_after_id, pending)
+
+            app.after_cancel(pending)
+            app._jump_after_id = pending  # end_jump clears it
+            app.end_jump()
+            self.assertAlmostEqual(
+                app.get_walking_command_msg().desired_pelvis_height, standing, places=6
+            )
+            self.assertEqual(app.jump_button.cget("text"), "\u2912 Jump")
+            self.assertNotIn("disabled", app.jump_button.state())
+        finally:
+            app.destroy()
+
+    def test_jump_button_stays_dead_when_the_trigger_is_out_of_the_sliders_range(self):
+        """A trigger above the slider's maximum cannot be commanded: the label says so and the button stays disabled,
+        instead of sending a height that never reaches the planner's threshold.
+        """
+        app = self._create_app()
+        try:
+            app.withdraw()
+            planning = self._list_the_hop_rule(app)
+            planning["hop_on_request"]["triggerBaseHeight"] = app.max_height + 0.5
+            app._sync_hop_label()
+            self.assertIn("past the slider", app.hop_label.cget("text"))
+            before = app.get_walking_command_msg().desired_pelvis_height
+            app.jump()
+            self.assertIsNone(app._jump_after_id)
+            self.assertAlmostEqual(
+                app.get_walking_command_msg().desired_pelvis_height, before, places=6
+            )
+            self.assertIn(
+                "below the",
+                app.hop_label.cget("text"),
+                "the press says why it could not act",
+            )
+            app.after_cancel(app._hop_message_after_id)
+        finally:
+            app.destroy()
+
     def test_checkbox_is_disabled_without_online_tuning(self):
         app = self._create_app(enable_online_tuning=False)
         try:

@@ -101,6 +101,70 @@ TEST(ContactPlanningFormulation, HeadingModelIsAddedAndRemovedAsAWhole) {
   EXPECT_EQ(f, ContactPlanningFormulation{}) << "removing the heading model restores the default lists";
 }
 
+TEST(ContactPlanningFormulation, FlightModelIsAddedAndRemovedAsAWhole) {
+  ContactPlanningFormulation f;
+  const size_t logicRulesWhileWalking = f.logicRules.size();
+  f.setFlightModel(true);
+  EXPECT_NO_THROW(f.validate());
+  EXPECT_TRUE(f.hasFlightModel());
+  EXPECT_TRUE(f.hasDynamics(term::kVerticalDoubleIntegrator));
+  EXPECT_TRUE(f.hasCost(term::kHeightTracking));
+  EXPECT_TRUE(f.hasCost(term::kVerticalInputRegularization));
+  EXPECT_TRUE(f.hasSoftConstraint(term::kContactHeight));
+  EXPECT_TRUE(f.hasHardConstraint(term::kVerticalThrustLimit));
+  EXPECT_TRUE(f.hasHardConstraint(term::kZmpPinnedInFlight));
+  EXPECT_TRUE(f.hasLogicRule(term::kHopOnRequest));
+  EXPECT_TRUE(f.hasExecutionRule(term::kPlannedHeightOverride));
+  // no_flight forbids exactly what the flight model allows: it goes, and flight_durations takes its place in the list
+  // so that the propagation order of the other rules is unchanged.
+  EXPECT_FALSE(f.hasHardConstraint(term::kNoFlight));
+  EXPECT_FALSE(f.hasLogicRule(term::kNoFlight));
+  EXPECT_TRUE(f.hasLogicRule(term::kFlightDurations));
+  EXPECT_EQ(f.logicRules.size(), logicRulesWhileWalking + 1) << "flight_durations replaces no_flight, hop_on_request is added";
+  // The counterparts take the place of no_flight, so the order of the rows and of the propagation does not depend on
+  // which model is listed.
+  size_t phaseDurations = 0, flightDurations = 0;
+  for (size_t i = 0; i < f.logicRules.size(); ++i) {
+    if (sameTermName(f.logicRules[i], term::kPhaseDurations)) phaseDurations = i;
+    if (sameTermName(f.logicRules[i], term::kFlightDurations)) flightDurations = i;
+  }
+  EXPECT_EQ(flightDurations, phaseDurations + 1) << "where no_flight stood";
+  ASSERT_GE(f.hardConstraints.size(), 2u);
+  EXPECT_TRUE(sameTermName(f.hardConstraints[0], term::kVerticalThrustLimit)) << "where no_flight stood";
+  EXPECT_TRUE(sameTermName(f.hardConstraints[1], term::kZmpPinnedInFlight));
+
+  f.setFlightModel(false);
+  EXPECT_EQ(f, ContactPlanningFormulation{}) << "removing the flight model restores the default lists:\n" << f.summary();
+  // The two models are independent: with both on, both sets of terms are listed.
+  ContactPlanningFormulation both;
+  both.setHeadingModel(true);
+  both.setFlightModel(true);
+  EXPECT_NO_THROW(both.validate());
+  EXPECT_TRUE(both.usesHeadingModel());
+  EXPECT_TRUE(both.hasFlightModel());
+  both.setFlightModel(false);
+  both.setHeadingModel(false);
+  EXPECT_EQ(both, ContactPlanningFormulation{}) << both.summary();
+}
+
+// A term of the flight model without its block, and no_flight together with flight_durations, are rejected at load time.
+TEST(ContactPlanningFormulation, FlightTermsNeedTheirBlockAndExcludeNoFlight) {
+  ContactPlanningFormulation orphan;
+  orphan.costs.push_back(term::kHeightTracking);
+  EXPECT_THROW(orphan.validate(), std::invalid_argument);
+  ContactPlanningFormulation orphanConstraint;
+  orphanConstraint.hardConstraints.push_back(term::kZmpPinnedInFlight);
+  EXPECT_THROW(orphanConstraint.validate(), std::invalid_argument);
+  ContactPlanningFormulation contradiction;
+  contradiction.setFlightModel(true);
+  contradiction.logicRules.push_back(term::kNoFlight);
+  EXPECT_THROW(contradiction.validate(), std::invalid_argument);
+  ContactPlanningFormulation blockWithoutRule;
+  blockWithoutRule.setFlightModel(true);
+  ContactPlanningFormulation::setListed(blockWithoutRule.logicRules, term::kFlightDurations, false);
+  EXPECT_THROW(blockWithoutRule.validate(), std::invalid_argument);
+}
+
 TEST(ContactPlanningFormulation, ValidationRejectsUnknownDuplicateAndUnsupportedTerms) {
   ContactPlanningFormulation f;
   f.costs.push_back("no_such_cost");
