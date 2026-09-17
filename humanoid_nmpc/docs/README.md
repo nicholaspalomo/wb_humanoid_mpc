@@ -686,26 +686,43 @@ what is built:
   in free fall). `phase_durations` no longer holds a pure flight, both feet in the air from the same node, to the
   swing minimum; a foot's air phase that includes the other foot's stance is a swing as before, and in running it is
   the other foot's stance plus a flight at each end, which is why `maxSwingDuration` grows to 0.6 s.
-  `maxContactDurationWalking` caps a stance only while a velocity is commanded, so the planner cannot sit in double
-  support to accelerate while standing stays unlimited, and `minDoubleSupportDuration: 0` lets a foot lift on the node
-  the other lands.
-* **Hopping.** `hop_on_request` lifts both feet together as soon as a double support has lasted the minimum contact
-  duration, for a flight of `hop_on_request.flightDuration`, while the planner module sees a commanded base height
-  above `hop_on_request.triggerBaseHeight`. That height is the root height slider of the joypad GUI, which shows where
-  the trigger is, and the **Jump** button under it commands one: it raises the height past the trigger for a few
-  planning cycles and puts the previous one back. The commit window keeps the flight once it is planned, so the pulse
-  gives one hop rather than a series, and the motion itself comes from the plan through `planned_height_override`, not
-  from the commanded height. With no hop rule listed the label says so and the button is disabled.
-* **References.** `planned_height_override` raises the base height reference of the MPC target by the plan's
-  `z(t) - z_nom`, so the whole-body controller is asked for the push-off, the arc and the landing. The DCM terminal cost
-  of the MPC falls back to the centre of both feet while none is in contact. The plan log prints the total flight time
-  and the height range of every plan.
-* **Off in the shipped configuration, and not yet validated in MuJoCo.** `contact_planning.yaml` walks; the comment of
-  its flight block gives the recipe that turns the model on, and an integration test applies that recipe to the shipped
-  file so the comment cannot rot. It is off for a measured reason: with the flight terms listed at `planner.dt: 0.1`
-  and the walking gait limits, the branch-and-bound stopped finding feasible plans inside `planner.maxSolveTime`, so
-  the grid and the solver budget (phase 1 of the proposal) have to come first. The planner side itself is covered by
-  `testContactPlanningFlight.cpp`: a hop from standing that leaves the ground, keeps the ZMP under the centre of mass
-  while airborne and lands where it left; a running plan at 3 m/s with flight, no double support and alternating feet;
-  and the rules on a small grid. Whether the Atlas actuators produce the push-off is the open question of the proposal,
-  and the hop in place is the first thing to try, with `contact_wrench_gate` shortened to running values.
+  `alternating_feet` treats a take-off that lifts both feet as a hop rather than a foot swinging twice, without which
+  the jump button could never produce a plan. `maxContactDurationWalking` caps a stance only while a velocity is
+  commanded, so the planner cannot sit in double support to accelerate while standing stays unlimited.
+* **The gait follows the command.** `flight_durations.allowedAboveSpeed` is the speed at which the planner may start
+  leaving the ground: below it every node keeps a foot down, so the walking gait and the size of the search are the
+  ones the robot has without the flight model, and the gait turns into a run only when the command asks for a speed the
+  cadence cannot reach on the ground. The DRC Atlas file gates it at 1.3 m/s, just above the 1.2 m/s its 0.8 s stride
+  and 0.48 m step produce, and its joypad now commands up to 3 m/s so a run can be asked for at all.
+* **The yaw torque budget had to learn about flight first.** With the heading model the budget of a foot was
+  `T_t c_i + (T_c - T_t)(c_L + c_R - 1) / 2`, which is negative with no foot down: every flight node was infeasible,
+  and that, not the search budget, is why a first attempt at enabling flight produced no plans at all. The share now
+  comes from `min(c_L, c_R)`, written as one row per foot, which is the same budget wherever a foot is down and zero in
+  the air.
+* **Hopping.** `hop_on_request` holds both feet down for `pushOffTime` and then lifts them together, for a flight of
+  `hop_on_request.flightDuration`, while the planner module sees a commanded base height above
+  `hop_on_request.triggerBaseHeight`. The push-off window matters: a hop forced at the first node of the plan leaves the
+  ground with the vertical velocity the robot already had, which while standing is none, so the flight becomes a drop
+  instead of a rise. The trigger height is the root height slider of the joypad GUI, which shows where it sits, and the
+  **Jump** button under it commands one hop: it raises the height past the trigger for a few planning cycles and puts
+  the previous one back. The commit window keeps the flight once it is planned, so the pulse gives one hop rather than a
+  series, and the motion itself comes from the plan through `planned_height_override`, not from the commanded height.
+  With no hop rule listed the label says so and a press explains why it did nothing.
+* **References.** `planned_height_override` writes the rise and fall of the plan into the base height reference of the
+  MPC target, `z_plan(t) - z_plan(now)`, and only for a plan that leaves the ground. Both halves of that matter: the
+  pendulum height is a parameter of the reduced model, so writing the deviation from it would turn any standing
+  mismatch with the real centre of mass into a permanent command to change height, and a plan that keeps a foot down
+  says nothing about the height at all, so standing and walking keep the reference they have without the rule. The
+  rule is also idempotent, because the reference manager hands out the same target object on every solve that brought
+  no new command. The DCM terminal cost of the MPC falls back to the centre of both feet while none is in contact. The
+  plan log prints the total flight time and the height range of every plan.
+* **On for DRC Atlas, and not yet validated in MuJoCo.** `testContactPlanningFlight.cpp` plans the shipped gait at the
+  solver budget the robot actually uses and gets a usable plan at every speed: no flight while standing or walking at
+  0.8 m/s, a 0.1 s flight at 1.6 m/s, 0.1 to 0.2 s at 2.5 m/s, and a 0.2 s hop that rises about 9 cm on request. It
+  also covers the pieces on their own: the ballistic rows against the contact sum, the flight and hop rules on a small
+  grid, the yaw budget in flight, the alternation across a flight, and the height override. The solver budget was
+  raised to 400 relaxations and 0.2 s, longer than the 10 Hz planning period on purpose, because a plan is usable while
+  it arrives inside `commitTime` and at the shorter limit the search came back with a ground gait at running speed.
+  What no test can answer is whether the Atlas actuators produce the push-off the thrust limit assumes, 2.5 times body
+  weight or about 3.9 kN on one foot: that is the open question of the proposal, and the hop in place is the cheapest
+  way to ask it, with `contact_wrench_gate` shortened to running values first.

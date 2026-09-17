@@ -37,10 +37,15 @@ namespace ocs2::humanoid {
 
 /**
  * `planned_height_override`: the plan's vertical CoM trajectory (vertical_double_integrator) reaches the whole-body MPC
- * as a change of the base height reference: every state of the target trajectory is raised by z_plan(t) - z_nom, the
- * planned deviation from the pendulum height, so that a hop or a running flight has a push-off and a landing to track
- * instead of a constant height. The reference is left alone where the plan has no height (no vertical block, or a time
- * outside the plan). Lives with the reference manager, which owns the robot model it needs.
+ * as a change of the base height reference, so that a hop or a running flight has a push-off and a landing to track
+ * instead of a constant height.
+ *
+ * What it writes is the rise and fall the plan predicts from where the robot is now, z_plan(t) - z_plan(t_now), not the
+ * deviation from the pendulum height: the pendulum height is a parameter of the reduced model and any standing mismatch
+ * between it and the real centre of mass would otherwise become a permanent command to change height. And it writes
+ * nothing at all for a plan that keeps a foot on the ground throughout, so walking and standing keep exactly the height
+ * reference they have without this rule. The reference is left alone where the plan has no height (no vertical block,
+ * or a time outside the plan). Lives with the reference manager, which owns the robot model it needs.
  *
  * The rule is idempotent, which it has to be: the reference manager hands out the same TargetTrajectories object on
  * every solve that brought no new command (BufferedValue keeps the active value until one is published), and the model
@@ -54,7 +59,7 @@ class PlannedHeightOverride final : public ExecutionRule {
   explicit PlannedHeightOverride(const MpcRobotModelBase<scalar_t>& mpcRobotModel) : mpcRobotModel_(&mpcRobotModel) {}
   std::string describe() const override;
   std::vector<std::string> requiredBlocks() const override { return {term::kVerticalDoubleIntegrator}; }
-  void configure(const ContactPlanningConfig& config) override { nominalHeight_ = config.shared.comHeight; }
+  void configure(const ContactPlanningConfig& /*config*/) override {}
   void overrideTarget(const ExecutionContext& ctx, TargetTrajectories& targetTrajectories) const override;
 
   /** The offsets the last call wrote, for the test. */
@@ -62,7 +67,6 @@ class PlannedHeightOverride final : public ExecutionRule {
 
  private:
   const MpcRobotModelBase<scalar_t>* mpcRobotModel_;
-  scalar_t nominalHeight_ = 0.0;
   // What the last call left behind: the times it wrote at, the offset it added to each, and the base height that came
   // out. A trajectory that still matches all three is the one this rule wrote into and nothing has replaced since.
   mutable scalar_array_t appliedTimes_;

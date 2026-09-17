@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/logic/HopOnRequestRule.h"
 
+#include <algorithm>
+#include <cmath>
 #include <sstream>
 
 #include "humanoid_common_mpc/contact_planning/logic/ContactLogicHelpers.h"
@@ -40,13 +42,14 @@ static_assert(N_CONTACTS == 2, "the hop rule is written for a biped");
 std::string HopOnRequestRule::describe() const {
   std::ostringstream out;
   out << "commanded base height > " << triggerBaseHeight_ << " m: every double support of the minimum contact duration ends in a flight of "
-      << flightDuration_ << " s";
+      << flightDuration_ << " s, after a push-off of at least " << pushOffTime_ << " s";
   return out.str();
 }
 
 void HopOnRequestRule::configure(const ContactPlanningConfig& config) {
   triggerBaseHeight_ = config.hopOnRequest.triggerBaseHeight;
   flightDuration_ = config.hopOnRequest.flightDuration;
+  pushOffTime_ = config.hopOnRequest.pushOffTime;
 }
 
 bool HopOnRequestRule::propagate(const ContactLogicState& s, const ContactLogicScan& /*scan*/, MiqpAssignment& a, bool& changed) const {
@@ -55,7 +58,15 @@ bool HopOnRequestRule::propagate(const ContactLogicState& s, const ContactLogicS
   const int N = s.numNodes;
   // Both feet down for at least the minimum contact duration (rounded up, like a maximum-duration rule) and the flight
   // able to end before the horizon: lift both.
-  for (int k = std::max(0, s.numCommitted); k < N; ++k) {
+  // The feet stay down for the push-off: the plan starts from the measured vertical velocity, so a hop forced at the
+  // first node leaves the ground with whatever the robot already had, which while standing is nothing, and the flight
+  // becomes a drop instead of a rise. Holding both feet down over those nodes is also what lets the rule read the
+  // contact ages below: they are only known once the prefix is decided.
+  const int pushOffNodes = static_cast<int>(std::ceil(pushOffTime_ / s.dt - 1e-9));
+  for (int k = std::max(0, s.numCommitted); k < std::min(N, pushOffNodes); ++k) {
+    if (!fixBinary(a, S::contactBinaryIndex(k, 0), 1, changed) || !fixBinary(a, S::contactBinaryIndex(k, 1), 1, changed)) return false;
+  }
+  for (int k = std::max({0, s.numCommitted, pushOffNodes}); k < N; ++k) {
     if (k + s.nFlightMin > N) break;
     const int ageL = s.contactAge(a, 0, k);
     const int ageR = s.contactAge(a, 1, k);

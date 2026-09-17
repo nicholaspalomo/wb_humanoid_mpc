@@ -506,11 +506,14 @@ TEST(ContactPlanningFlight, AHopRequestLiftsBothFeetAsSoonAsAllowed) {
   EXPECT_EQ(state.nFlightMax, 2);
   MiqpAssignment a = planner.initialAssignment(input);
   ASSERT_TRUE(planner.propagate(input, a));
-  // Standing for 5 s already: the first free node starts the hop, the second continues it, the third lands.
-  EXPECT_EQ(a[static_cast<size_t>(LipContactPlanner::contactBinaryIndex(0, 0))], 0);
-  EXPECT_EQ(a[static_cast<size_t>(LipContactPlanner::contactBinaryIndex(0, 1))], 0);
-  EXPECT_EQ(a[static_cast<size_t>(LipContactPlanner::contactBinaryIndex(1, 0))], 0);
-  EXPECT_EQ(a[static_cast<size_t>(LipContactPlanner::contactBinaryIndex(1, 1))], 0);
+  // Both feet stay down for the push-off (one node at 0.1 s), then the hop: the requested flight, then the landing.
+  const int pushOff = 1;
+  EXPECT_EQ(a[static_cast<size_t>(LipContactPlanner::contactBinaryIndex(0, 0))], 1) << "the push-off";
+  EXPECT_EQ(a[static_cast<size_t>(LipContactPlanner::contactBinaryIndex(0, 1))], 1);
+  for (int k = pushOff; k < pushOff + 2; ++k) {
+    EXPECT_EQ(a[static_cast<size_t>(LipContactPlanner::contactBinaryIndex(k, 0))], 0) << "node " << k;
+    EXPECT_EQ(a[static_cast<size_t>(LipContactPlanner::contactBinaryIndex(k, 1))], 0) << "node " << k;
+  }
   // Without a request nothing lifts.
   ContactPlannerInput quiet = standingInput();
   MiqpAssignment b = planner.initialAssignment(quiet);
@@ -629,6 +632,69 @@ TEST(ContactPlanningFlight, RunningAtSpeedUsesFlightAndNoDoubleSupport) {
   EXPECT_GT(plan.comVelocity.back().x(), 2.0);
 }
 
+/*============================================ the running formulation ============================================*/
+
+// running.enabled keeps a second formulation with the flight model, which the planner module swaps in above the speed
+// gate or on a jump request. The walking lists are untouched by it: that is the whole point, because merely listing the
+// flight model changes the walk (see WhatTheFlightModelCostsTheWalkingGait).
+TEST(ContactPlanningFlight, TheRunningVariantCarriesTheFlightModelAndLeavesTheWalkingOneAlone) {
+  ContactPlanningConfig walking = atlasLikeConfig();
+  walking.setFlightModel(false);  // the shipped lists: a walk
+  walking.shared.gaitLimits.maxFlightDuration = 0.0;
+  walking.shared.gaitLimits.maxSwingDuration = 0.5;
+  walking.footSeparation.maxStepLength = 0.7;
+  walking.planner.maxBranchAndBoundNodes = 200;
+  walking.planner.maxSolveTime = 0.1;
+  walking.running.enabled = true;
+  walking.running.maxFlightDuration = 0.2;
+  walking.running.maxSwingDuration = 0.6;
+  walking.running.maxStepLength = 1.2;
+  walking.running.maxBranchAndBoundNodes = 400;
+  walking.running.maxSolveTime = 0.2;
+  walking.validate();
+  EXPECT_FALSE(walking.usesFlightModel());
+
+  const ContactPlanningConfig running = walking.runningVariant();
+  EXPECT_TRUE(running.usesFlightModel());
+  EXPECT_TRUE(running.formulation.hasLogicRule(term::kFlightDurations));
+  EXPECT_TRUE(running.formulation.hasLogicRule(term::kHopOnRequest));
+  EXPECT_TRUE(running.formulation.hasExecutionRule(term::kPlannedHeightOverride));
+  EXPECT_FALSE(running.formulation.hasHardConstraint(term::kNoFlight));
+  EXPECT_DOUBLE_EQ(running.shared.gaitLimits.maxFlightDuration, 0.2);
+  EXPECT_DOUBLE_EQ(running.shared.gaitLimits.maxSwingDuration, 0.6);
+  EXPECT_DOUBLE_EQ(running.footSeparation.maxStepLength, 1.2);
+  EXPECT_EQ(running.planner.maxBranchAndBoundNodes, 400);
+  EXPECT_DOUBLE_EQ(running.planner.maxSolveTime, 0.2);
+  EXPECT_FALSE(running.running.enabled) << "the variant is the destination of the switch, not a switch of its own";
+  // The walking configuration is untouched by asking for the variant.
+  EXPECT_FALSE(walking.usesFlightModel());
+  EXPECT_DOUBLE_EQ(walking.shared.gaitLimits.maxSwingDuration, 0.5);
+  EXPECT_DOUBLE_EQ(walking.footSeparation.maxStepLength, 0.7);
+  EXPECT_EQ(walking.planner.maxBranchAndBoundNodes, 200);
+
+  // Both formulations plan: the walk on the ground, the run with flight above the gate.
+  LipContactPlanner walkingPlanner(walking);
+  LipContactPlanner runningPlanner(running);
+  const ContactPlan walk = walkingPlanner.plan(movingInput(0.8));
+  ASSERT_TRUE(walk.valid);
+  EXPECT_EQ(analyse(walk).flightNodes, 0);
+  const ContactPlan run = runningPlanner.plan(movingInput(2.5));
+  ASSERT_TRUE(run.valid);
+  EXPECT_GT(analyse(run).flightNodes, 0);
+
+  // A configuration that both lists the flight model and asks for the switch is contradictory.
+  ContactPlanningConfig both = running;
+  both.running.enabled = true;
+  EXPECT_THROW(both.validate(), std::invalid_argument);
+  // And the running block is checked on its own terms.
+  ContactPlanningConfig shortStride = walking;
+  shortStride.running.maxStepLength = walking.shared.bigM + 0.1;
+  EXPECT_THROW(shortStride.validate(), std::invalid_argument);
+  ContactPlanningConfig noFlight = walking;
+  noFlight.running.maxFlightDuration = 0.0;
+  EXPECT_THROW(noFlight.validate(), std::invalid_argument);
+}
+
 /*============================================ the Atlas gait: walk, then run ============================================*/
 
 // The gait the shipped robot is meant to have: on the ground while the command is a walk, ballistic flight once the
@@ -653,6 +719,43 @@ TEST(ContactPlanningFlight, AtlasWalksBelowTheGateAndRunsAboveIt) {
   EXPECT_GT(phases.flightNodes, 0) << "above the gate the planner may leave the ground";
   EXPECT_LE(phases.longestFlight, config.maxFlightNodes());
   EXPECT_GT(running.comVelocity.back().x(), 1.5) << "and it keeps the speed up";
+}
+
+// What listing the flight model costs the walking gait, at the budget the robot plans with. The speed gate keeps every
+// node on the ground below it, so the contact pattern is the walking one either way; what changes is the size of every
+// QP, and with it how far the search gets inside maxSolveTime. This is the measurement that decides whether the model
+// can simply be listed or has to be switched in by speed.
+TEST(ContactPlanningFlight, WhatTheFlightModelCostsTheWalkingGait) {
+  ContactPlanningConfig running = atlasLikeConfig();
+  running.planner.maxBranchAndBoundNodes = 200;  // the shipped budget, for both
+  running.planner.maxSolveTime = 0.1;
+  running.validate();
+  ContactPlanningConfig walking = running;
+  walking.setFlightModel(false);
+  walking.shared.gaitLimits.maxFlightDuration = 0.0;
+  walking.validate();
+
+  LipContactPlanner runningPlanner(running);
+  LipContactPlanner walkingPlanner(walking);
+  for (const scalar_t speed : {0.0, 0.8}) {
+    const ContactPlannerInput input = speed > 0.0 ? movingInput(speed) : standingInput();
+    const ContactPlan withFlight = runningPlanner.plan(input);
+    const ContactPlan withoutFlight = walkingPlanner.plan(input);
+    std::cout << "  " << speed << " m/s without the flight model: " << withoutFlight.describe() << std::endl;
+    std::cout << "  " << speed << " m/s with    the flight model: " << withFlight.describe() << std::endl;
+    ASSERT_TRUE(withFlight.valid);
+    ASSERT_TRUE(withoutFlight.valid);
+    EXPECT_EQ(analyse(withFlight).flightNodes, 0) << "the gate keeps a walk on the ground";
+    // The gait itself: the same contact pattern node for node is what "the walking gait is untouched" means.
+    ASSERT_EQ(withFlight.contacts.size(), withoutFlight.contacts.size());
+    size_t differingIntervals = 0;
+    for (size_t k = 0; k < withFlight.contacts.size(); ++k) {
+      if (withFlight.contacts[k] != withoutFlight.contacts[k]) ++differingIntervals;
+    }
+    std::cout << "  " << speed << " m/s: " << differingIntervals << " of " << withFlight.contacts.size()
+              << " intervals differ, relaxations " << withoutFlight.numBranchAndBoundNodes << " -> " << withFlight.numBranchAndBoundNodes
+              << ", solve " << withoutFlight.solveTime * 1e3 << " -> " << withFlight.solveTime * 1e3 << " ms" << std::endl;
+  }
 }
 
 // The same gait at the solver budget the robot actually plans with. The search is an anytime one: it returns the best

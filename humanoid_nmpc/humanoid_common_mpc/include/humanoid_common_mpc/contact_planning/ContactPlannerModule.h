@@ -134,10 +134,19 @@ class ContactPlannerModule final : public SolverSynchronizedModule {
 
   std::shared_ptr<ContactPlanningReferenceManager> referenceManagerPtr_;
 
+  /** Chooses the walking or the running formulation for this cycle and swaps it in when the choice changed. */
+  void selectFormulation(const ContactPlannerInput& input);
+
   mutable std::mutex configMutex_;
-  ContactPlanningConfig config_;
+  ContactPlanningConfig config_;  // the formulation in force: walkingConfig_, or runningConfig_ while running
   std::optional<ContactPlanningModelParameters> modelParameters_;
   bool configChanged_ = false;
+  // The two formulations the planner switches between (running.enabled). Listing the flight model costs the walking
+  // gait even behind a speed gate, because the bigger QP cuts the branch-and-bound short somewhere else, so a walk
+  // solves the walking problem and only a run pays for the vertical model.
+  ContactPlanningConfig walkingConfig_;
+  std::optional<ContactPlanningConfig> runningConfig_;
+  bool runningFormulationActive_ = false;
 
   LipContactPlanner planner_;  // used by the worker thread, or by the solver thread in synchronous mode
 

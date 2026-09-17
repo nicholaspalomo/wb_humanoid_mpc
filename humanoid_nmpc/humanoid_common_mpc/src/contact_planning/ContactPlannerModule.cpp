@@ -34,6 +34,8 @@ namespace ocs2::humanoid {
 ContactPlannerModule::ContactPlannerModule(std::shared_ptr<ContactPlanningReferenceManager> referenceManagerPtr,
                                            ContactPlanningConfig config)
     : referenceManagerPtr_(std::move(referenceManagerPtr)), config_(std::move(config)), planner_(config_) {
+  walkingConfig_ = config_;
+  if (config_.running.enabled) runningConfig_ = config_.runningVariant();
   if (referenceManagerPtr_ == nullptr) {
     throw std::invalid_argument("[ContactPlannerModule] reference manager must not be null");
   }
@@ -106,7 +108,11 @@ void ContactPlannerModule::setConfig(const ContactPlanningConfig& configIn) {
     }
     structuralChange = config_.formulation != config.formulation || config_.planner.numNodes != config.planner.numNodes ||
                        config_.planner.dt != config.planner.dt;
-    config_ = config;
+    walkingConfig_ = config;
+    runningConfig_ = config.running.enabled ? std::optional<ContactPlanningConfig>(config.runningVariant()) : std::nullopt;
+    // A reload lands on the formulation in force; the next cycle switches again if the command asks for the other one.
+    runningFormulationActive_ = runningFormulationActive_ && runningConfig_.has_value();
+    config_ = runningFormulationActive_ ? *runningConfig_ : walkingConfig_;
     configChanged_ = true;
     logPlans_.store(config.planner.logPlans);
   }
@@ -118,6 +124,32 @@ void ContactPlannerModule::setConfig(const ContactPlanningConfig& configIn) {
     startWorker();
   } else if (stopWorkerThread) {
     stopWorker();
+  }
+}
+
+void ContactPlannerModule::selectFormulation(const ContactPlannerInput& input) {
+  ContactPlanningConfig chosen;
+  bool switched = false;
+  {
+    std::lock_guard<std::mutex> lock(configMutex_);
+    if (!runningConfig_.has_value()) return;
+    // Enter the running formulation above the gate or on a jump request, and leave it again a little below the gate, so
+    // that a command hovering at the gate does not reassemble the problem on every solve.
+    const scalar_t gate = walkingConfig_.flightDurations.allowedAboveSpeed;
+    const scalar_t leave = std::max(0.0, gate - walkingConfig_.running.speedHysteresis);
+    const scalar_t speed = input.velocityCommand.norm();
+    const bool wantsRunning = input.hopRequested || speed >= (runningFormulationActive_ ? leave : gate);
+    if (wantsRunning == runningFormulationActive_) return;
+    runningFormulationActive_ = wantsRunning;
+    config_ = wantsRunning ? *runningConfig_ : walkingConfig_;
+    configChanged_ = true;
+    chosen = config_;
+    switched = true;
+  }
+  if (switched) {
+    referenceManagerPtr_->setConfig(chosen);
+    LOG(INFO) << "[ContactPlannerModule] " << (runningFormulationActive_ ? "running" : "walking") << " formulation:\n"
+              << LipContactPlanner::formulationSummary(chosen);
   }
 }
 
@@ -215,6 +247,7 @@ void ContactPlannerModule::preSolverRun(scalar_t initTime,
     }
   }
   ContactPlannerInput input = referenceManagerPtr_->makePlannerInput(initTime, initState, velocityCommand);
+  input.velocityCommand = velocityCommand;
   // A commanded base height above the trigger asks for hops (hop_on_request): the joypad's height slider pushed up.
   {
     const ContactPlanningConfig config = getConfig();
@@ -226,6 +259,8 @@ void ContactPlannerModule::preSolverRun(scalar_t initTime,
       }
     }
   }
+
+  selectFormulation(input);
 
   // A contact event (early / late touch-down) invalidates the timing the last plan was built on: plan again right away
   // instead of waiting for the next planning period.

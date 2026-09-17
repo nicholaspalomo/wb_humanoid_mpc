@@ -56,9 +56,9 @@ contact_planning:
       minDoubleSupportDuration: 0.05  # [s] after a touch-down the other foot stays down at least this long.
                                       # NOTE: quantised up to one node, so at dt: 0.1 this still behaves as 0.1 s.
                                       # 0 lets a foot lift on the node the other lands (no double support at all).
-      # Flight (no foot in contact): the running gait and the hop, read by the flight_durations rule. maxFlightDuration 0
-      # forbids flight, which is what the lists below do anyway; see the running block at the end of this file.
-      minFlightDuration: 0.1          # [s]
+      # Flight (no foot in contact): the running gait and the hop, read by the flight_durations rule. 0 forbids flight,
+      # which is what the lists below do anyway; see the running block at the end of this file.
+      minFlightDuration: 0.1          # [s] one node
       maxFlightDuration: 0.0          # [s] 0: no flight
 
   # ---- the formulation: what the planner is assembled from ----
@@ -155,31 +155,46 @@ contact_planning:
     weight: 50.0                      # ||DCM_N - zmp_(N-1)||^2 (terminal capturability)
     trackCommandedVelocity: true      # true: the DCM is drawn to zmp + v_cmd / omega, i.e. the plan is asked to keep walking at
                                       # the end of the horizon; false: onto the ZMP, a stop, which shortens the steps at speed
-  # ---- flight (running and hopping), OFF in the lists above ----
-  # The planner can leave the ground; see docs/README.md 2.11 and docs/running_flight_phase/README.md. The parameters are
-  # here so that turning it on is a change of the lists only. It is NOT validated in MuJoCo, and at dt: 0.1 with these
-  # gait limits the branch-and-bound did not find feasible plans inside planner.maxSolveTime, so read the plan log
-  # (planner.logPlans) for TIME-LIMIT before trusting it. To enable:
-  #   shared.gait_limits: maxFlightDuration: 0.2, minDoubleSupportDuration: 0.0, maxSwingDuration: 0.6
-  #   dynamics:         + vertical_double_integrator
-  #   costs:            + height_tracking, vertical_input_regularization
-  #   soft_constraints: + contact_height
-  #   hard_constraints: - no_flight, + vertical_thrust_limit, + zmp_pinned_in_flight
-  #   logic_rules:      no_flight -> flight_durations, + hop_on_request
-  #   execution:        + planned_height_override
-  #   foot_separation.maxStepLength and shared.bigM up to a running stride (about 1.2 m and 1.5 m)
-  # and raise planner.maxSolveTime / maxBranchAndBoundNodes, or halve planner.dt to resolve the phases.
+  # ---- running and hopping ----
+  # The lists above are the WALKING formulation and nothing below changes them. When `running.enabled` is set, the
+  # planner keeps a second formulation with the flight model (vertical_double_integrator, its costs and rows,
+  # flight_durations in place of no_flight, hop_on_request, planned_height_override) and swaps the whole problem in
+  # while the commanded speed is above flight_durations.allowedAboveSpeed or the GUI's Jump button asks for a hop.
+  # It is swapped rather than merely gated because listing the flight model costs the walking gait on its own: the
+  # vertical block makes every QP bigger, the branch-and-bound gets less far inside maxSolveTime, and the walk it
+  # settles on changes (measured: 6 of 12 intervals differ at 0.8 m/s, and it picks a 0.6 s swing).
+  # NOT validated in MuJoCo. Set running.enabled: true to try it, and raise command/reference.yaml
+  # maxDisplacementVelocityX above allowedAboveSpeed so that a run can be commanded at all (note that the whole stick
+  # travel maps onto that number, so raising it also makes every stick position a faster walk).
+  # See docs/README.md 2.11 and docs/running_flight_phase/README.md.
+  running:
+    enabled: true                  # true: swap in the running formulation above the gate or on a jump request
+    maxFlightDuration: 0.2          # [s] of the running formulation
+    maxSwingDuration: 0.6           # [s] a foot's air phase spans the other's stance and a flight at each end
+    maxStepLength: 1.2              # [m] foot_separation while running; must stay below shared.bigM
+    maxBranchAndBoundNodes: 400     # the bigger problem needs a bigger budget to find its flight
+    maxSolveTime: 0.2               # [s] longer than the 10 Hz period on purpose: a plan is usable within commitTime
+    speedHysteresis: 0.2            # [m/s] the command drops this far below the gate before walking comes back
+  flight_durations:
+    allowedAboveSpeed: 1.3            # [m/s] above the fastest walk the cadence can produce on the ground (0.48 m at a 0.8 s
+                                      #       stride is 1.2 m/s); a jump request opens the gate at any speed
   vertical_double_integrator:
-    maxContactAcceleration: 24.5      # [m/s^2] upward, gravity included, per stance foot: F_max / m, here 2.5 g (2.5 x body weight)
+    maxContactAcceleration: 24.5      # [m/s^2] upward, gravity included, per stance foot: F_max / m, here 2.5 g (2.5 x body weight).
+                                      #         About 3.9 kN on one foot for a 160 kg Atlas: the number to check against the
+                                      #         actuators before trusting a running plan.
   height_tracking:
-    weight: 100.0                     # (z - z_nom)^2 per node, z_nom = shared.comHeight
+    weight: 400.0                     # (z - z_nom)^2 per node, z_nom = shared.comHeight
   vertical_input_regularization:
     weight: 0.01                      # az^2 per running node
   contact_height:
     tolerance: 0.05                   # [m] |z - z_nom| while a foot is in contact (soft)
+    slack:                            # stiffer than the shared penalty: at the shared one the planner bought a deep squat
+      quadratic: 100000.0             #   with it before a hop, which no leg would follow
+      linear: 1000.0
   hop_on_request:
-    triggerBaseHeight: 1.0            # [m] the joypad's root height above this makes the planner hop (Atlas stands at 0.895)
+    triggerBaseHeight: 1.0            # [m] the joypad's root height above this asks for hops; the GUI's Jump button pulses it
     flightDuration: 0.2               # [s] of every hop, capped by shared.gait_limits.maxFlightDuration
+    pushOffTime: 0.1                  # [s] both feet stay down this long first, to leave the ground with an upward velocity
   zmp_support_region:
     halfWidthX: 0.08                  # [m] ZMP box half-width around a supporting foot along the heading (0 = from the footprint)
     halfWidthY: 0.04                  # [m] ZMP box half-width laterally

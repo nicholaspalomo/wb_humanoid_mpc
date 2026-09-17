@@ -5,12 +5,13 @@ mixed-integer contact planner and executed by the centroidal whole-body MPC. Thi
 today, the reduced model that admits it, how a plan with flight reaches the MPC and the execution rules, the work in
 phases with what each phase proves, and the risks that decide whether the robot can run at all.
 
-Status: the planner side (sections 2 and 3, phases 2 and 3 of section 4) is implemented and unit-tested. It is **off in
-the shipped DRC Atlas configuration**, whose comment gives the recipe that turns it on; a test pins that recipe. It is
-off because enabling it at `planner.dt: 0.1` with the walking gait limits made the branch-and-bound miss feasible plans
-inside `planner.maxSolveTime`, which is phase 1 of section 4 (the 50 ms grid and the solver budget) coming due before
-anything can run. The hop in MuJoCo (phase 4) and running (phase 5) are open. What is built is summarised in
-[../README.md](../README.md) section 2.11.
+Status: the planner side (sections 2 and 3, phases 2 and 3 of section 4) is implemented, unit-tested and **on in the
+shipped DRC Atlas configuration**, gated on the commanded speed so that walking keeps its gait and its search. The
+first attempt at enabling it produced no plans at all, and the cause was not the solver budget of phase 1 but a real
+defect: with the heading model the yaw torque budget of a foot went negative with no foot down, which made every
+flight node infeasible. With that fixed the shipped budget returns a usable plan at every speed. The hop in MuJoCo
+(phase 4) and running on the robot (phase 5) are open, and the actuator question of section 5 is still unanswered.
+What is built is summarised in [../README.md](../README.md) section 2.11.
 
 ## 1. What forbids flight today
 

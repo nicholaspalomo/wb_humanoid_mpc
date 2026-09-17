@@ -36,6 +36,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
+ContactPlanningConfig ContactPlanningConfig::runningVariant() const {
+  ContactPlanningConfig variant = *this;
+  variant.shared.gaitLimits.maxFlightDuration = running.maxFlightDuration;
+  variant.shared.gaitLimits.maxSwingDuration = running.maxSwingDuration;
+  variant.footSeparation.maxStepLength = running.maxStepLength;
+  variant.planner.maxBranchAndBoundNodes = running.maxBranchAndBoundNodes;
+  variant.planner.maxSolveTime = running.maxSolveTime;
+  variant.running.enabled = false;  // the variant is the destination of the switch, not a switch of its own
+  variant.setFlightModel(true);
+  variant.validate();
+  return variant;
+}
+
 void ContactPlanningConfig::validate() const {
   const auto fail = [](const std::string& what) { throw std::invalid_argument("[ContactPlanningConfig] " + what); };
   const PlannerSettings& p = planner;
@@ -82,6 +95,15 @@ void ContactPlanningConfig::validate() const {
   }
   if (s.gaitLimits.walkingSpeedThreshold < 0.0) fail("shared.gait_limits.walkingSpeedThreshold must be non-negative");
   if (flightDurations.allowedAboveSpeed < 0.0) fail("flight_durations.allowedAboveSpeed must be non-negative");
+  if (running.enabled) {
+    if (running.maxFlightDuration <= 0.0) fail("running.maxFlightDuration must be positive");
+    if (running.maxSwingDuration < s.gaitLimits.minSwingDuration) fail("running.maxSwingDuration is shorter than minSwingDuration");
+    if (running.maxStepLength <= 0.0 || running.maxStepLength >= s.bigM)
+      fail("running.maxStepLength must be positive and below shared.bigM");
+    if (running.maxBranchAndBoundNodes < 1 || running.maxSolveTime <= 0.0) fail("invalid running solver limits");
+    if (running.speedHysteresis < 0.0) fail("running.speedHysteresis must be non-negative");
+    if (usesFlightModel()) fail("running.enabled swaps the flight model in by speed; do not list it in the term lists as well");
+  }
   if (formulation.hasFlightModel()) {
     if (s.gaitLimits.maxFlightDuration <= 0.0) fail("the flight model needs shared.gait_limits.maxFlightDuration > 0");
     if (!(verticalDoubleIntegrator.maxContactAcceleration > s.gravity)) {
@@ -89,6 +111,7 @@ void ContactPlanningConfig::validate() const {
     }
     if (contactHeight.tolerance < 0.0) fail("contact_height.tolerance must be non-negative");
     if (hopOnRequest.flightDuration <= 0.0) fail("hop_on_request.flightDuration must be positive");
+    if (hopOnRequest.pushOffTime < 0.0) fail("hop_on_request.pushOffTime must be non-negative");
     // The thrust of two feet over one contact node must be able to launch the shortest flight: vz = g T_f / 2.
     const scalar_t launch = (2.0 * verticalDoubleIntegrator.maxContactAcceleration - s.gravity) * p.dt;
     if (launch < 0.5 * s.gravity * s.gaitLimits.minFlightDuration) {
@@ -311,8 +334,16 @@ void loadStructured(const ptree& pt, const ptree& block, const std::string& pref
   load(config.contactHeight.tolerance, std::string(term::kContactHeight) + ".tolerance");
   readSlack(pt, prefix + term::kContactHeight + ".", config.contactHeight.slack, verbose);
   load(config.flightDurations.allowedAboveSpeed, std::string(term::kFlightDurations) + ".allowedAboveSpeed");
+  load(config.running.enabled, "running.enabled");
+  load(config.running.maxFlightDuration, "running.maxFlightDuration");
+  load(config.running.maxSwingDuration, "running.maxSwingDuration");
+  load(config.running.maxStepLength, "running.maxStepLength");
+  load(config.running.maxBranchAndBoundNodes, "running.maxBranchAndBoundNodes");
+  load(config.running.maxSolveTime, "running.maxSolveTime");
+  load(config.running.speedHysteresis, "running.speedHysteresis");
   load(config.hopOnRequest.triggerBaseHeight, std::string(term::kHopOnRequest) + ".triggerBaseHeight");
   load(config.hopOnRequest.flightDuration, std::string(term::kHopOnRequest) + ".flightDuration");
+  load(config.hopOnRequest.pushOffTime, std::string(term::kHopOnRequest) + ".pushOffTime");
   load(config.zmpSupportRegion.halfWidthX, std::string(term::kZmpSupportRegion) + ".halfWidthX");
   load(config.zmpSupportRegion.halfWidthY, std::string(term::kZmpSupportRegion) + ".halfWidthY");
   readSlack(pt, prefix + term::kZmpSupportRegion + ".", config.zmpSupportRegion.slack, verbose);

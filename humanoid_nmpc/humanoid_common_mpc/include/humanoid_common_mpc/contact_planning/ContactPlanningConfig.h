@@ -110,6 +110,25 @@ struct ContactHeightParameters {
   scalar_t tolerance = 0.05;  // [m] |z - z_nom| allowed while a foot is in contact
   std::optional<SlackPenalty> slack;
 };
+/**
+ * The formulation the planner switches to when the gait needs to leave the ground, and the gate that switches it.
+ *
+ * Listing the flight model is not free for the walking gait even when a speed gate keeps every node on the ground: the
+ * vertical block and its rows make every QP bigger, the branch-and-bound gets less far inside `planner.maxSolveTime`,
+ * and the walk it settles on changes. So the whole formulation is swapped instead, and a walk solves exactly the
+ * problem it solves without any of this.
+ */
+struct RunningParameters {
+  bool enabled = false;              // false: the planner only ever solves the walking formulation
+  scalar_t maxFlightDuration = 0.2;  // [s] of the running formulation's gait limits
+  scalar_t maxSwingDuration = 0.6;   // [s] a foot's air phase spans the other's stance and a flight at each end
+  scalar_t maxStepLength = 1.2;      // [m] foot_separation while running
+  int maxBranchAndBoundNodes = 400;  // the bigger problem needs a bigger budget to find its flight
+  scalar_t maxSolveTime = 0.2;       // [s]
+  // [m/s] the commanded speed drops this far below flight_durations.allowedAboveSpeed before the walking formulation
+  // comes back, so that a command hovering at the gate does not reassemble the problem every solve.
+  scalar_t speedHysteresis = 0.2;
+};
 struct FlightDurationsParameters {
   // [m/s] commanded speed at which the planner may start leaving the ground. Below it every node keeps a foot down, so
   // the walking gait and the size of the search are exactly what they are without the flight model, and the gait turns
@@ -121,6 +140,10 @@ struct FlightDurationsParameters {
 struct HopOnRequestParameters {
   scalar_t triggerBaseHeight = 1.0;  // [m] a commanded base height above this requests hops
   scalar_t flightDuration = 0.2;     // [s] of every requested hop (capped by shared.gait_limits.maxFlightDuration)
+  // [s] the feet stay down at least this long before a requested hop leaves the ground. The vertical velocity at
+  // lift-off is built during it: a hop forced at the first node of the plan starts from the measured vertical velocity,
+  // which while standing is zero, so the robot would drop through the flight instead of rising into it.
+  scalar_t pushOffTime = 0.1;
 };
 struct RegularizationParameters {
   scalar_t state = 1.0e-8;  // added to the diagonal of Q at every node
@@ -252,6 +275,7 @@ struct ContactPlanningConfig {
   HeightTrackingParameters heightTracking;
   VerticalInputRegularizationParameters verticalInputRegularization;
   ContactHeightParameters contactHeight;
+  RunningParameters running;
   FlightDurationsParameters flightDurations;
   HopOnRequestParameters hopOnRequest;
   ZmpSupportRegionParameters zmpSupportRegion;
@@ -275,6 +299,11 @@ struct ContactPlanningConfig {
   void setHeadingModel(bool on) { formulation.setHeadingModel(on); }
   bool usesFlightModel() const { return formulation.hasFlightModel(); }
   void setFlightModel(bool on) { formulation.setFlightModel(on); }
+  /**
+   * The same configuration with the running formulation: the flight model listed, the gait limits and the solver budget
+   * of the `running` block. Throws std::invalid_argument through validate() if the result is inconsistent.
+   */
+  ContactPlanningConfig runningVariant() const;
 
   scalar_t omega() const { return std::sqrt(shared.gravity / shared.comHeight); }
   scalar_t horizon() const { return planner.dt * static_cast<scalar_t>(planner.numNodes); }

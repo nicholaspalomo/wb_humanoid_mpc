@@ -49,6 +49,7 @@ class HopOnRequestRule final : public ContactLogicRule {
  private:
   scalar_t triggerBaseHeight_ = 0.0;
   scalar_t flightDuration_ = 0.0;
+  scalar_t pushOffTime_ = 0.0;
 };
 
 }  // namespace ocs2::humanoid

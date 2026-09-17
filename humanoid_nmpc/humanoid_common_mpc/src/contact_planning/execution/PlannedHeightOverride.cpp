@@ -35,15 +35,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 std::string PlannedHeightOverride::describe() const {
-  std::ostringstream out;
-  out << "the base height reference of the MPC target is raised by z_plan(t) - " << nominalHeight_ << " m (the plan's vertical trajectory)";
-  return out.str();
+  return "the base height reference of the MPC target follows the plan's rise and fall, z_plan(t) - z_plan(now), and only "
+         "for a plan that leaves the ground";
 }
 
 void PlannedHeightOverride::overrideTarget(const ExecutionContext& ctx, TargetTrajectories& targetTrajectories) const {
   const size_t n = targetTrajectories.timeTrajectory.size();
   if (n == 0 || targetTrajectories.stateTrajectory.size() != n) return;
-  const ContactPlan* plan = (ctx.hasPlan() && ctx.activePlan->hasHeight()) ? ctx.activePlan : nullptr;
+  // Only a plan that leaves the ground says anything about the height; a walk must not touch the reference at all.
+  const ContactPlan* plan =
+      (ctx.hasPlan() && ctx.activePlan->hasHeight() && ctx.activePlan->numFlightIntervals() > 0) ? ctx.activePlan : nullptr;
+  const std::optional<scalar_t> heightNow = plan != nullptr ? plan->heightAtTime(ctx.time) : std::nullopt;
   const auto readable = [this](const vector_t& state) { return state.size() >= static_cast<Eigen::Index>(mpcRobotModel_->getStateDim()); };
 
   // Is this the trajectory the last call wrote into, unchanged since? Then its heights still carry the offsets recorded
@@ -61,7 +63,7 @@ void PlannedHeightOverride::overrideTarget(const ExecutionContext& ctx, TargetTr
     if (!readable(targetTrajectories.stateTrajectory[i])) continue;
     if (plan != nullptr) {
       const std::optional<scalar_t> height = plan->heightAtTime(targetTrajectories.timeTrajectory[i]);
-      if (height.has_value()) offsets[i] = *height - nominalHeight_;
+      if (height.has_value() && heightNow.has_value()) offsets[i] = *height - *heightNow;
     }
     const scalar_t change = offsets[i] - (carriesTheLastOffsets ? appliedOffsets_[i] : 0.0);
     if (change != 0.0) mpcRobotModel_->adaptBasePoseHeight(targetTrajectories.stateTrajectory[i], change);

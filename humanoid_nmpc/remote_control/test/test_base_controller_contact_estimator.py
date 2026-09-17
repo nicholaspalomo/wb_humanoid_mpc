@@ -99,41 +99,39 @@ class TestBaseControllerContactEstimatorCheckbox(unittest.TestCase):
             app.destroy()
 
     @staticmethod
-    def _list_the_hop_rule(app):
-        """Lists hop_on_request in the loaded planner block, as the comment of contact_planning.yaml describes."""
+    def _set_the_hop_rule(app, listed):
+        """Lists or unlists hop_on_request in the loaded planner block, so the test covers a planner that hops and one
+        that only walks whichever way the shipped file happens to be configured."""
         planning = app.mpc_params_tab.raw_data.get("contact_planning", {})
-        planning["logic_rules"] = list(planning.get("logic_rules", [])) + [
-            "hop_on_request"
-        ]
+        rules = [r for r in planning.get("logic_rules", []) if r != "hop_on_request"]
+        planning["logic_rules"] = rules + (["hop_on_request"] if listed else [])
         app._sync_hop_label()
         return planning
 
     def test_height_slider_shows_the_hop_trigger_only_when_the_planner_hops(self):
-        """The root height slider says where hops begin, but only while the planner lists the hop_on_request rule. The
-        shipped Atlas planner walks, so it says so and the jump button is dead; listing the rule arms both.
+        """The root height slider says where hops begin while the planner lists the hop_on_request rule. A planner that
+        only walks says so instead, and a press explains itself rather than leaving a dead button.
         """
         app = self._create_app()
         try:
             app.withdraw()
-            planning = app.mpc_params_tab.raw_data.get("contact_planning", {})
-            self.assertNotIn("hop_on_request", planning.get("logic_rules", []))
-            self.assertIsNone(app.hop_trigger_height())
-            self.assertEqual(
-                app.hop_label.cget("text"), "no hop in contact_planning.yaml"
-            )
-            # The button stays clickable and says why the press did nothing, instead of being a dead control.
-            app.jump()
-            self.assertIsNone(app._jump_after_id)
-            self.assertIn("hop_on_request", app.hop_label.cget("text"))
-            app.after_cancel(app._hop_message_after_id)
-            app._sync_hop_label()
-
-            planning = self._list_the_hop_rule(app)
+            planning = self._set_the_hop_rule(app, listed=True)
             self.assertEqual(planning["hop_on_request"]["triggerBaseHeight"], 1.0)
             self.assertEqual(app.hop_trigger_height(), 1.0)
             self.assertEqual(app.hop_label.cget("text"), "hop above 1.00 m")
 
-            # A planner block without the parameters gives no label rather than a wrong one.
+            self._set_the_hop_rule(app, listed=False)
+            self.assertIsNone(app.hop_trigger_height())
+            self.assertEqual(
+                app.hop_label.cget("text"), "no hop in contact_planning.yaml"
+            )
+            app.jump()
+            self.assertIsNone(app._jump_after_id)
+            self.assertIn("hop_on_request", app.hop_label.cget("text"))
+            app.after_cancel(app._hop_message_after_id)
+
+            # A block without the parameters gives no label rather than a wrong one.
+            planning = self._set_the_hop_rule(app, listed=True)
             del planning["hop_on_request"]
             app._sync_hop_label()
             self.assertIsNone(app.hop_trigger_height())
@@ -150,7 +148,7 @@ class TestBaseControllerContactEstimatorCheckbox(unittest.TestCase):
         app = self._create_app()
         try:
             app.withdraw()
-            self._list_the_hop_rule(app)
+            self._set_the_hop_rule(app, listed=True)
             standing = app.get_walking_command_msg().desired_pelvis_height
             self.assertLess(standing, 1.0, "the robot stands below the hop trigger")
 
@@ -186,7 +184,7 @@ class TestBaseControllerContactEstimatorCheckbox(unittest.TestCase):
         app = self._create_app()
         try:
             app.withdraw()
-            planning = self._list_the_hop_rule(app)
+            planning = self._set_the_hop_rule(app, listed=True)
             planning["hop_on_request"]["triggerBaseHeight"] = app.max_height + 0.5
             app._sync_hop_label()
             self.assertIn("past the slider", app.hop_label.cget("text"))

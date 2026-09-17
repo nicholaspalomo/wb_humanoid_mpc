@@ -25,8 +25,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/constraint/YawTorqueBudgetConstraint.h"
 
-#include <cmath>
 #include <algorithm>
+#include <cmath>
 #include <sstream>
 #include <stdexcept>
 

@@ -1,6 +1,9 @@
 targetDisplacementVelocity: 0.5
 targetRotationVelocity: 0.5
 
+# The joypad's full-stick speed: the whole stick travel maps onto it, so raising it makes every stick position command
+# a faster walk. Running needs it above contact_planning.yaml's flight_durations.allowedAboveSpeed, which is what
+# decides whether the robot can be commanded into a run at all.
 maxDisplacementVelocityX: 1.2
 maxDisplacementVelocityY: 0.8
 maxDeltaPelvisHeight: 0.4
