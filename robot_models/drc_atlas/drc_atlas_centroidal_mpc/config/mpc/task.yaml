@@ -64,7 +64,7 @@ Q_com:
 # ACoM rows follow the centroidal state's ZYX Euler convention, the same ordering
 # as Q entries (9,9) through (11,11). Row 0 is yaw, not roll.
 Q_acom:
-  scaling: 85
+  scaling: 200.509
   "(0,0)": 25  # theta_acom_z / yaw (matches theta_base_z)
   "(1,1)": 15  # theta_acom_y / pitch (matches theta_base_y)
   "(2,2)": 15  # theta_acom_x / roll (matches theta_base_x)

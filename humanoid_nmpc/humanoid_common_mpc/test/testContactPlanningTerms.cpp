@@ -27,9 +27,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cmath>
 
+#include <limits>
 #include <stdexcept>
 #include <string>
 
+#include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningTermFactory.h"
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
 #include "humanoid_common_mpc/contact_planning/LipContactPlanner.h"
@@ -38,6 +40,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/cost/VelocityTrackingCost.h"
 #include "humanoid_common_mpc/contact_planning/execution/ExecutionContext.h"
 #include "humanoid_common_mpc/contact_planning/execution/ScheduleAdaptationPipeline.h"
+#include "humanoid_common_mpc/contact_planning/logic/DoubleSupportPenaltyCost.h"
 #include "humanoid_common_mpc/contact_planning/model/LipBlockIndices.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 
@@ -404,6 +407,139 @@ TEST(ContactPlanningTerms, WithoutRulesTheScheduleIsLeftAloneAndTheLatchTracksTh
   const auto late = adaptScheduleToContactEvents(schedule, 1.45, measured, noCadence, config, latches);
   EXPECT_EQ(late[0].type, ContactEventReport::Type::NONE);
   EXPECT_FALSE(latches[0].active) << "the contact phase proceeds and the latch is released";
+}
+
+/** The double support penalty, on a hand-built assignment of three nodes. Binaries are node-major: 2 * node + foot. */
+TEST(ContactPlanningTerms, DoubleSupportPenaltyChargesEveryNodeWithBothFeetDown) {
+  ContactPlanningConfig config = makeConfig();
+  config.formulation.assignmentCosts = {term::kDoubleSupportPenalty};
+  config.doubleSupportPenalty.cost = 5.0;
+  config.validate();
+  LipContactPlanner planner(config);
+  const auto& cost = planner.getProblem().assignmentCosts.get<DoubleSupportPenaltyCost>(term::kDoubleSupportPenalty);
+
+  ContactLogicState state;
+  state.numNodes = 3;
+  MiqpAssignment a(3 * N_CONTACTS);
+  const auto set = [&a](int node, std::int8_t left, std::int8_t right) {
+    a[static_cast<size_t>(ContactLogicState::contactBinaryIndex(node, 0))] = left;
+    a[static_cast<size_t>(ContactLogicState::contactBinaryIndex(node, 1))] = right;
+  };
+
+  set(0, 0, 1);  // left swinging, right in contact
+  set(1, 1, 1);  // double support
+  set(2, 1, 0);  // left in contact, right swinging
+  EXPECT_NEAR(cost.cost(state, a), 5.0, 1e-12) << "one double-support node out of three";
+
+  set(2, 1, 1);
+  EXPECT_NEAR(cost.cost(state, a), 10.0, 1e-12) << "two double-support nodes";
+
+  set(0, 1, 1);
+  set(1, 1, 1);
+  set(2, 1, 1);
+  EXPECT_NEAR(cost.cost(state, a), 15.0, 1e-12) << "standing costs the whole horizon";
+
+  config.doubleSupportPenalty.cost = 0.0;
+  LipContactPlanner disabled(config);
+  EXPECT_NEAR(disabled.getProblem().assignmentCosts.get<DoubleSupportPenaltyCost>(term::kDoubleSupportPenalty).cost(state, a), 0.0, 1e-12)
+      << "a zero cost is free whatever the assignment";
+}
+
+/**
+ * The branch-and-bound prunes on the assignment cost of a *partial* assignment, so the term has to be a lower bound
+ * there and exact only once every binary is decided. A free node may still become a double support, so charging it
+ * would overestimate the partial assignment and could discard the optimum.
+ */
+TEST(ContactPlanningTerms, DoubleSupportPenaltyIsALowerBoundOnAPartialAssignment) {
+  ContactPlanningConfig config = makeConfig();
+  config.formulation.assignmentCosts = {term::kDoubleSupportPenalty};
+  config.doubleSupportPenalty.cost = 5.0;
+  config.validate();
+  LipContactPlanner planner(config);
+  const auto& cost = planner.getProblem().assignmentCosts.get<DoubleSupportPenaltyCost>(term::kDoubleSupportPenalty);
+
+  ContactLogicState state;
+  state.numNodes = 3;
+  MiqpAssignment partial(3 * N_CONTACTS, kMiqpFree);
+  EXPECT_NEAR(cost.cost(state, partial), 0.0, 1e-12) << "nothing decided, nothing charged";
+
+  // One foot down at node 0, the other still free: not yet a double support.
+  partial[static_cast<size_t>(ContactLogicState::contactBinaryIndex(0, 0))] = 1;
+  EXPECT_NEAR(cost.cost(state, partial), 0.0, 1e-12) << "a half-decided node is not charged";
+
+  // Deciding the second foot completes the double support and the cost may only rise.
+  partial[static_cast<size_t>(ContactLogicState::contactBinaryIndex(0, 1))] = 1;
+  EXPECT_NEAR(cost.cost(state, partial), 5.0, 1e-12);
+
+  // Completing the rest of the horizon can only add to it, never take away.
+  MiqpAssignment complete = partial;
+  for (int k = 1; k < state.numNodes; ++k) {
+    complete[static_cast<size_t>(ContactLogicState::contactBinaryIndex(k, 0))] = 1;
+    complete[static_cast<size_t>(ContactLogicState::contactBinaryIndex(k, 1))] = 0;
+  }
+  EXPECT_GE(cost.cost(state, complete), cost.cost(state, partial)) << "the bound must not decrease when a node is decided";
+}
+
+/**
+ * In a zero-double-support gait the exchange is a single event: one foot lands at the very instant the other lifts.
+ * Ending a swing early holds the landing foot down from the measured contact until its scheduled touch-down, so an
+ * early touch-down there opens a double support exactly as long as the foot was early. Since a landing within a few
+ * milliseconds of the plan is the common case, that put a sliver of double support - shorter than the MPC's own time
+ * step - on nearly every step, at both ends of every swing (each exchange is one foot's touch-down and the other's
+ * lift-off). earlyTouchdownMinAdvance executes a near-on-time touch-down as planned instead.
+ */
+TEST(ContactPlanningTerms, ANearlyOnTimeTouchDownDoesNotSplitAZeroDoubleSupportExchange) {
+  // Left swings 1.0 -> 1.4 and lands at the instant the right lifts; right then swings 1.4 -> 1.8.
+  const ModeSchedule nominal({1.0, 1.4, 1.8}, {ModeNumber::STANCE, ModeNumber::RF, ModeNumber::LF, ModeNumber::STANCE});
+  ContactPlanningConfig config = makeConfig();
+  config.formulation.execution = {term::kPhaseResetting};
+  config.validate();
+  ASSERT_GT(config.phaseResetting.earlyTouchdownMinAdvance, config.phaseResetting.earlyTouchdownMinContactDuration)
+      << "otherwise the debounce alone pushes every truncation inside the guard window";
+  const feet_array_t<scalar_t> noCadence = makeFeetArray(0.0);
+  const contact_flag_t bothDown = {true, true};
+
+  // The shortest double support anywhere in the schedule, ignoring the leading and trailing stance phases.
+  const auto shortestDoubleSupport = [](const ModeSchedule& schedule) {
+    scalar_t shortest = std::numeric_limits<scalar_t>::infinity();
+    for (size_t i = 0; i + 1 < schedule.eventTimes.size(); ++i) {
+      if (schedule.modeSequence[i + 1] == ModeNumber::STANCE) {
+        shortest = std::min(shortest, schedule.eventTimes[i + 1] - schedule.eventTimes[i]);
+      }
+    }
+    return shortest;
+  };
+
+  {  // Landing 30 ms early: inside the guard, the exchange is left exactly as planned.
+    ModeSchedule schedule = nominal;
+    feet_array_t<SwingTimingLatch> latches = makeFeetArray(SwingTimingLatch{});
+    adaptScheduleToContactEvents(schedule, 1.37, bothDown, noCadence, config, latches);
+    const auto reports = adaptScheduleToContactEvents(schedule, 1.392, bothDown, noCadence, config, latches);
+    EXPECT_EQ(reports[0].type, ContactEventReport::Type::NONE) << "a near-on-time touch-down is not an early one";
+    EXPECT_EQ(schedule.eventTimes, nominal.eventTimes) << "the schedule was re-timed";
+    EXPECT_EQ(schedule.modeSequence, nominal.modeSequence) << "the exchange was split by a sliver of double support";
+  }
+  {  // Landing 200 ms early: a real early touch-down, still reset, and the double support it opens spans the guard.
+    ModeSchedule schedule = nominal;
+    feet_array_t<SwingTimingLatch> latches = makeFeetArray(SwingTimingLatch{});
+    adaptScheduleToContactEvents(schedule, 1.20, bothDown, noCadence, config, latches);
+    const auto reports = adaptScheduleToContactEvents(schedule, 1.222, bothDown, noCadence, config, latches);
+    EXPECT_EQ(reports[0].type, ContactEventReport::Type::EARLY_TOUCH_DOWN);
+    EXPECT_NEAR(reports[0].touchDownTime, 1.222, 1e-9);
+    EXPECT_GE(shortestDoubleSupport(schedule), config.phaseResetting.earlyTouchdownMinAdvance - 1e-9)
+        << "the rule may not create a double support shorter than its own guard";
+  }
+  {  // With the guard off the sliver comes back: this is the behaviour the guard exists to remove.
+    ContactPlanningConfig unguarded = config;
+    unguarded.phaseResetting.earlyTouchdownMinAdvance = 0.0;
+    unguarded.validate();
+    ModeSchedule schedule = nominal;
+    feet_array_t<SwingTimingLatch> latches = makeFeetArray(SwingTimingLatch{});
+    adaptScheduleToContactEvents(schedule, 1.37, bothDown, noCadence, unguarded, latches);
+    const auto reports = adaptScheduleToContactEvents(schedule, 1.392, bothDown, noCadence, unguarded, latches);
+    EXPECT_EQ(reports[0].type, ContactEventReport::Type::EARLY_TOUCH_DOWN);
+    EXPECT_NEAR(shortestDoubleSupport(schedule), 0.008, 1e-9) << "8 ms of double support, below the MPC time step";
+  }
 }
 
 }  // namespace ocs2::humanoid

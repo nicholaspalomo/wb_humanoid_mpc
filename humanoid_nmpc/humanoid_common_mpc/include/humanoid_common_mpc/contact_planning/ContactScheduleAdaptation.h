@@ -92,8 +92,16 @@ std::optional<scalar_t> currentOrNextLiftOffTime(const ModeSchedule& schedule, s
  * End of the window in which the executed `schedule` stays fixed: `time + commitTime`, extended to the touch-down of
  * every swing that overlaps the window, so that a swing in flight, or one that starts inside the window, is executed
  * to its end and never re-timed by a later plan.
+ *
+ * `maxCommitExtension` (<= 0: no cap) bounds that extension at `time + commitTime + maxCommitExtension`. The extension
+ * walks the phases overlapping the window, and each swing it reaches pushes the boundary to its touch-down, which
+ * brings the following phases into the walk. In a gait that exchanges support in a single instant every swing begins
+ * exactly where the previous one ends, so the walk never terminates early: the boundary reaches the end of the
+ * stepping region, no plan reaches past it, and the planner stops being able to publish (see PlannerSettings::
+ * maxCommitExtension). A double support of any length breaks the chain, which is why an uncapped extension only fails
+ * once the double supports are gone.
  */
-scalar_t commitBoundaryForSchedule(const ModeSchedule& schedule, scalar_t time, scalar_t commitTime);
+scalar_t commitBoundaryForSchedule(const ModeSchedule& schedule, scalar_t time, scalar_t commitTime, scalar_t maxCommitExtension = 0.0);
 
 /**
  * True if `plan` can be merged into the executed schedule `applied` at `time` without contradicting a swing that is

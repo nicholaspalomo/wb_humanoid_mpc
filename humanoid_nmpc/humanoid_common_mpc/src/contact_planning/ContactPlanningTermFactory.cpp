@@ -54,6 +54,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/execution/PhaseResettingRule.h"
 #include "humanoid_common_mpc/contact_planning/logic/AlternatingFeetRule.h"
 #include "humanoid_common_mpc/contact_planning/logic/ContactSwitchCost.h"
+#include "humanoid_common_mpc/contact_planning/logic/DoubleSupportPenaltyCost.h"
 #include "humanoid_common_mpc/contact_planning/logic/MinimumDoubleSupportRule.h"
 #include "humanoid_common_mpc/contact_planning/logic/NoFlightRule.h"
 #include "humanoid_common_mpc/contact_planning/logic/PhaseDurationsRule.h"
@@ -147,6 +148,7 @@ std::unique_ptr<AssignmentCost> ContactPlanningTermFactory::makeAssignmentCost(c
   const std::string canonical = canonicalOrThrow(TermKind::ASSIGNMENT_COST, name);
   if (canonical == term::kContactSwitch) return std::make_unique<ContactSwitchCost>();
   if (canonical == term::kPlanConsistency) return std::make_unique<PlanConsistencyCost>();
+  if (canonical == term::kDoubleSupportPenalty) return std::make_unique<DoubleSupportPenaltyCost>();
   unknown(TermKind::ASSIGNMENT_COST, name);
 }
 

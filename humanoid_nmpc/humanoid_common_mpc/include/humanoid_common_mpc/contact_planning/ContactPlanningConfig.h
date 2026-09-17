@@ -70,6 +70,18 @@ struct PlannerSettings {
   scalar_t dt = 0.1;           // [s] planner node duration
   int numNodes = 12;           // planning horizon = numNodes * dt, should cover the MPC horizon
   scalar_t commitTime = 0.25;  // [s] contacts within this window keep the applied schedule (must cover planner latency)
+  // [s] cap on how far past `commitTime` the commit boundary may be extended to reach a swing's touch-down.
+  // <= 0: no cap (the historical behaviour). The extension walks the phases that overlap the window, and a swing whose
+  // touch-down lies beyond it pushes the boundary out to that touch-down; the walk then covers the phases overlapping
+  // the extended boundary as well. In a gait that exchanges support in one instant every swing starts exactly where
+  // the previous one ends, so nothing stops that walk: the boundary runs to the end of the stepping region, the plan
+  // no longer reaches past it (ContactPlanningReferenceManager's planUsable needs endTime() > commitTime + dt), no plan
+  // is ever merged and the robot stops stepping. A double support of any length breaks the chain, which is why the
+  // failure only appears once the double supports are gone. Capping the extension keeps replanning alive; the cost is
+  // that a boundary cut short can land inside a swing that is already in flight, handing a later plan the authority to
+  // re-time it, which is exactly what the extension exists to prevent. Keep the cap above maxSwingDuration so that a
+  // single swing still fits inside it.
+  scalar_t maxCommitExtension = 0.0;
   int maxBranchAndBoundNodes = 200;
   scalar_t maxSolveTime = 0.1;  // [s]
   int maxQpIterations = 60;
@@ -172,6 +184,14 @@ struct ContactSwitchParameters {
 struct PlanConsistencyParameters {
   scalar_t cost = 0.5;  // cost per node whose contact differs from the previous plan (hysteresis)
 };
+struct DoubleSupportPenaltyParameters {
+  // Cost per node at which both feet are in contact, which buys the weight transfer of a step against the double
+  // support the ZMP terms would otherwise pay for. The term cannot tell a transfer apart from standing, so it also
+  // prices standing still (every node of it): above ~0.2 with the Atlas gait limits the planner would rather step in
+  // place than stand, and at 5.0 it marches continuously at a zero velocity command. Keep it well under that; 0.1
+  // removes the transition double support at walking speed and leaves standing alone.
+  scalar_t cost = 0.1;
+};
 struct DivingParameters {
   int maxDiveIterations = 64;
 };
@@ -185,9 +205,17 @@ struct HeadingRelinearisationParameters {
 struct PhaseResettingParameters {
   scalar_t earlyTouchdownMinSwingRatio = 0.25;       // contact during this initial fraction of the nominal swing is ignored (scuffing)
   scalar_t earlyTouchdownMinContactDuration = 0.02;  // [s] contact must persist this long before the swing is ended (debounce)
-  scalar_t maxLateTouchdownExtension = 0.15;         // [s] total extension budget of a swing past its planned touch-down
-  scalar_t lateTouchdownExtensionStep = 0.05;        // [s] the touch-down is pushed this far ahead of the current time per cycle
-  scalar_t lateTouchdownSearchVelocity = 0.05;       // [m/s] the foot height target descends at this rate during the extension
+  // [s] a touch-down closer than this to its scheduled time is executed as planned instead of ending the swing early.
+  // Ending it early puts the foot in contact from the measured contact until its scheduled touch-down, and when the
+  // gait exchanges support in a single instant (minDoubleSupportDuration: 0) that scheduled touch-down is the other
+  // foot's lift-off, so the truncation opens a double support exactly as long as the foot was early. Landing within a
+  // few milliseconds of the plan is the common case, not the exception, so this also bounds the shortest double
+  // support the rule can create. Keep it above earlyTouchdownMinContactDuration, or the debounce alone already pushes
+  // every truncation into that window. 0 restores the unguarded behaviour.
+  scalar_t earlyTouchdownMinAdvance = 0.04;
+  scalar_t maxLateTouchdownExtension = 0.15;    // [s] total extension budget of a swing past its planned touch-down
+  scalar_t lateTouchdownExtensionStep = 0.05;   // [s] the touch-down is pushed this far ahead of the current time per cycle
+  scalar_t lateTouchdownSearchVelocity = 0.05;  // [m/s] the foot height target descends at this rate during the extension
 };
 struct EnergyCadenceModulationParameters {
   scalar_t gain = 0.01;     // [s/J] touch-down shift = -gain * (E - E_pred), E = m (v^2 - w^2 x^2) / 2, full model mass
@@ -223,6 +251,7 @@ struct ContactPlanningConfig {
   YawTorqueBudgetParameters yawTorqueBudget;
   ContactSwitchParameters contactSwitch;
   PlanConsistencyParameters planConsistency;
+  DoubleSupportPenaltyParameters doubleSupportPenalty;
   DivingParameters diving;
   EventShiftLocalSearchParameters eventShiftLocalSearch;
   HeadingRelinearisationParameters headingRelinearisation;

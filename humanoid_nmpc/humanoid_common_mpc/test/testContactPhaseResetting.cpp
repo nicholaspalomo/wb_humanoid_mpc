@@ -826,6 +826,40 @@ TEST(CommitBoundary, CoversSwingsOfEveryFootThatStartOnAnExtendedBoundary) {
   EXPECT_NEAR(commitBoundaryForSchedule(ModeSchedule({}, {kAllInContact}), 0.2, 0.25), 0.45, kTol);
 }
 
+/**
+ * In a gait that exchanges support in one instant every swing begins exactly where the previous one ends, so the
+ * boundary extension chains from swing to swing and never terminates early: it reaches the end of the stepping region,
+ * the plan no longer reaches past it (ContactPlanningReferenceManager's planUsable needs endTime() > commitTime + dt),
+ * no plan is ever merged and the robot stops stepping. A double support of any length breaks the chain, which is why
+ * an uncapped extension only fails once the double supports are gone. planner.maxCommitExtension bounds it.
+ */
+TEST(CommitBoundary, TheExtensionChainsThroughAZeroDoubleSupportGaitUntilItIsCapped) {
+  if (N_CONTACTS < 2) GTEST_SKIP() << "needs a second foot";
+  // Alternating single supports abutting at every event: a perfect zero-double-support gait.
+  const ModeSchedule zeroDoubleSupport({1.0, 1.4, 1.8, 2.2, 2.6, 3.0},
+                                       {kAllInContact, modeWithSwinging({1}), modeWithSwinging({0}), modeWithSwinging({1}),
+                                        modeWithSwinging({0}), modeWithSwinging({1}), kAllInContact});
+  // Uncapped (the default): the walk runs all the way to the last event, 1.65 s past time + commitTime.
+  EXPECT_NEAR(commitBoundaryForSchedule(zeroDoubleSupport, 1.05, 0.3), 3.0, kTol) << "the chain runs to the end of the stepping region";
+  EXPECT_NEAR(commitBoundaryForSchedule(zeroDoubleSupport, 1.05, 0.3, 0.0), 3.0, kTol) << "0 means no cap";
+
+  // Capped at one maximum swing past the commit window: the boundary stays finite and close to the window.
+  const scalar_t capped = commitBoundaryForSchedule(zeroDoubleSupport, 1.05, 0.3, 0.5);
+  EXPECT_LE(capped, 1.05 + 0.3 + 0.5 + kTol);
+  EXPECT_GE(capped, 1.05 + 0.3 - kTol) << "the cap may never pull the boundary inside the commit window itself";
+
+  // A plan of the Atlas horizon (12 * 0.1 s) made at 1.05 reaches 2.25, so the uncapped boundary makes it unusable
+  // (planUsable needs endTime() > commitTime + dt) while the capped one leaves room to plan.
+  const scalar_t planEnd = 1.05 + 12 * 0.1;
+  EXPECT_FALSE(planEnd > commitBoundaryForSchedule(zeroDoubleSupport, 1.05, 0.3) + 0.1) << "uncapped: every plan is unusable";
+  EXPECT_TRUE(planEnd > capped + 0.1) << "capped: the plan still reaches past the boundary";
+
+  // One double support anywhere in the stretch is enough to stop the chain on its own - the historical behaviour.
+  const ModeSchedule withDoubleSupport({1.0, 1.4, 1.5, 1.9},
+                                       {kAllInContact, modeWithSwinging({1}), kAllInContact, modeWithSwinging({0}), kAllInContact});
+  EXPECT_NEAR(commitBoundaryForSchedule(withDoubleSupport, 1.05, 0.3), 1.4, kTol);
+}
+
 TEST(CommittedContacts, PhaseStartsAreTheExecutedEventTimes) {
   if (N_CONTACTS < 2) GTEST_SKIP() << "needs a second foot";
   // Right foot swings 0.57 -> 0.97. Planner grid from 0.7 with dt 0.1, boundary at the touch-down 0.97.

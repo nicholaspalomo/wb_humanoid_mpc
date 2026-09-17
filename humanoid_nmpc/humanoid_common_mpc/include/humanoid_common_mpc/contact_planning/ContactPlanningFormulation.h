@@ -73,6 +73,7 @@ inline constexpr const char* kAlternatingFeet = "alternating_feet";
 // Assignment costs on the binaries.
 inline constexpr const char* kContactSwitch = "contact_switch";
 inline constexpr const char* kPlanConsistency = "plan_consistency";
+inline constexpr const char* kDoubleSupportPenalty = "double_support_penalty";
 // Search stages around the branch-and-bound.
 inline constexpr const char* kWarmStartPreviousPlan = "warm_start_previous_plan";
 inline constexpr const char* kDiving = "diving";

@@ -59,6 +59,9 @@ void ContactPlanningConfig::validate() const {
   if (reachability.reachYOuter <= reachability.reachYInner) fail("reachYOuter must exceed reachYInner");
   if (s.bigM <= footSeparation.maxStepLength) fail("shared.bigM must exceed foot_separation.maxStepLength");
   if (p.commitTime < 0.0) fail("planner.commitTime must be non-negative");
+  if (p.maxCommitExtension > 0.0 && p.maxCommitExtension < g.maxSwingDuration) {
+    fail("planner.maxCommitExtension must be 0 (no cap) or at least maxSwingDuration, so a whole swing still fits in it");
+  }
   if (s.slackPenalty.quadratic < 0.0 || s.slackPenalty.linear < 0.0) fail("shared.slack_penalty must be non-negative");
   const auto checkSlack = [&](const std::optional<SlackPenalty>& slack, const char* term) {
     if (slack.has_value() && (slack->quadratic < 0.0 || slack->linear < 0.0)) fail(std::string(term) + ".slack must be non-negative");
@@ -70,6 +73,7 @@ void ContactPlanningConfig::validate() const {
   if (regularization.state < 0.0 || regularization.input < 0.0) fail("regularization terms must be non-negative");
   if (planConsistency.cost < 0.0 || previousFootholdConsistency.weight < 0.0) fail("plan consistency terms must be non-negative");
   if (contactSwitch.cost < 0.0) fail("contact_switch.cost must be non-negative");
+  if (doubleSupportPenalty.cost < 0.0) fail("double_support_penalty.cost must be non-negative");
   if (velocityTracking.weight < 0.0 || stepWidth.weight < 0.0 || zmpRegularization.weight < 0.0 || footholdRegularization.weight < 0.0 ||
       stepLength.weight < 0.0 || terminalDcm.weight < 0.0) {
     fail("cost weights must be non-negative");
@@ -82,6 +86,7 @@ void ContactPlanningConfig::validate() const {
   const PhaseResettingParameters& r = phaseResetting;
   if (r.earlyTouchdownMinSwingRatio < 0.0 || r.earlyTouchdownMinSwingRatio > 1.0) fail("earlyTouchdownMinSwingRatio must be in [0, 1]");
   if (r.earlyTouchdownMinContactDuration < 0.0) fail("earlyTouchdownMinContactDuration must be non-negative");
+  if (r.earlyTouchdownMinAdvance < 0.0) fail("earlyTouchdownMinAdvance must be non-negative");
   if (r.maxLateTouchdownExtension < 0.0) fail("maxLateTouchdownExtension must be non-negative");
   if (r.lateTouchdownExtensionStep <= 0.0) fail("lateTouchdownExtensionStep must be positive");
   if (r.lateTouchdownSearchVelocity < 0.0) fail("lateTouchdownSearchVelocity must be non-negative");
@@ -228,6 +233,7 @@ void loadStructured(const ptree& pt, const ptree& block, const std::string& pref
   load(p.dt, "planner.dt");
   load(p.numNodes, "planner.numNodes");
   load(p.commitTime, "planner.commitTime");
+  load(p.maxCommitExtension, "planner.maxCommitExtension");
   load(p.maxBranchAndBoundNodes, "planner.maxBranchAndBoundNodes");
   load(p.maxSolveTime, "planner.maxSolveTime");
   load(p.maxQpIterations, "planner.maxQpIterations");
@@ -292,6 +298,7 @@ void loadStructured(const ptree& pt, const ptree& block, const std::string& pref
   readSlack(pt, prefix + term::kFootSeparation + ".", config.footSeparation.slack, verbose);
   readSlack(pt, prefix + term::kHipYawRange + ".", config.hipYawRange.slack, verbose);
   load(config.contactSwitch.cost, std::string(term::kContactSwitch) + ".cost");
+  load(config.doubleSupportPenalty.cost, std::string(term::kDoubleSupportPenalty) + ".cost");
   load(config.planConsistency.cost, std::string(term::kPlanConsistency) + ".cost");
   load(config.diving.maxDiveIterations, std::string(term::kDiving) + ".maxDiveIterations");
   load(config.eventShiftLocalSearch.iterations, std::string(term::kEventShiftLocalSearch) + ".iterations");
@@ -301,6 +308,7 @@ void loadStructured(const ptree& pt, const ptree& block, const std::string& pref
   load(config.phaseResetting.earlyTouchdownMinContactDuration, std::string(term::kPhaseResetting) + ".earlyTouchdownMinContactDuration");
   load(config.phaseResetting.maxLateTouchdownExtension, std::string(term::kPhaseResetting) + ".maxLateTouchdownExtension");
   load(config.phaseResetting.lateTouchdownExtensionStep, std::string(term::kPhaseResetting) + ".lateTouchdownExtensionStep");
+  load(config.phaseResetting.earlyTouchdownMinAdvance, std::string(term::kPhaseResetting) + ".earlyTouchdownMinAdvance");
   load(config.phaseResetting.lateTouchdownSearchVelocity, std::string(term::kPhaseResetting) + ".lateTouchdownSearchVelocity");
   load(config.energyCadenceModulation.gain, std::string(term::kEnergyCadenceModulation) + ".gain");
   load(config.energyCadenceModulation.deadband, std::string(term::kEnergyCadenceModulation) + ".deadband");

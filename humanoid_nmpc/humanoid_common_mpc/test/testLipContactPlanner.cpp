@@ -1606,4 +1606,81 @@ TEST(LipContactPlannerTest, ARepeatedLiftOffInTheCommittedPrefixDoesNotMakeThePl
   }
 }
 
+/**
+ * `double_support_penalty` is the incentive that `minDoubleSupportDuration: 0` only permits. With the hold at zero and
+ * the term absent the planner still keeps a double support while walking, because it buys the ZMP the freedom the
+ * support-region rows charge for; the term prices that freedom and the plan exchanges support in a single node
+ * instead (a touch-down at the very node the other foot lifts).
+ */
+TEST(LipContactPlannerTest, DoubleSupportPenaltyRemovesTheTransitionDoubleSupport) {
+  const auto planAt = [](scalar_t doubleSupportCost) {
+    ContactPlanningConfig config = makeConfig();
+    config.shared.gaitLimits.minContactDuration = 0.1;
+    config.shared.gaitLimits.minDoubleSupportDuration = 0.0;  // the exchange is admissible
+    config.contactSwitch.cost = 0.3;
+    config.doubleSupportPenalty.cost = doubleSupportCost;
+    config.formulation.assignmentCosts = {term::kContactSwitch, term::kPlanConsistency, term::kDoubleSupportPenalty};
+    config.validate();
+    LipContactPlanner planner(config);
+    ContactPlannerInput input = makeStandingInput();
+    input.velocityCommand = vector2_t(0.6, 0.0);
+    input.comVelocity = vector2_t(0.6, 0.0);
+    return planner.plan(input);
+  };
+  // Double-support nodes, and exchanges of support that happen in a single node (single support on one foot becomes
+  // single support on the other with no double-support node between them).
+  const auto count = [](const ContactPlan& plan) {
+    int doubleSupportNodes = 0, exchanges = 0;
+    for (const contact_flag_t& c : plan.contacts) {
+      if (c[0] && c[1]) ++doubleSupportNodes;
+    }
+    for (int k = 1; k < plan.numIntervals(); ++k) {
+      const contact_flag_t& previous = plan.contacts[k - 1];
+      const contact_flag_t& current = plan.contacts[k];
+      const bool bothSingle = previous[0] != previous[1] && current[0] != current[1];
+      if (bothSingle && previous[0] != current[0]) ++exchanges;
+    }
+    return std::make_pair(doubleSupportNodes, exchanges);
+  };
+
+  const ContactPlan without = planAt(0.0);
+  ASSERT_TRUE(without.valid);
+  const auto [doubleSupportWithout, exchangesWithout] = count(without);
+  EXPECT_EQ(exchangesWithout, 0) << "permission alone does not buy the exchange: " << without.describe();
+  EXPECT_GE(doubleSupportWithout, 2) << without.describe();
+
+  const ContactPlan with = planAt(0.1);
+  ASSERT_TRUE(with.valid);
+  const auto [doubleSupportWith, exchangesWith] = count(with);
+  EXPECT_GT(exchangesWith, 0) << "the penalty should buy at least one single-node exchange: " << with.describe();
+  EXPECT_LT(doubleSupportWith, doubleSupportWithout) << with.describe();
+}
+
+/**
+ * The penalty cannot tell the weight transfer of a step apart from standing on two feet, so it prices standing too: a
+ * foot lifted and put back down costs only the switch cost, while standing pays the penalty at every node of the
+ * horizon. Above roughly 0.2 with these gait limits that trade flips and the robot marches at a zero velocity command
+ * (at 5.0 it never puts both feet down at all). This pins the shipped default on the right side of it; the cost is
+ * taken from the configuration default rather than written here, so that raising that default fails this test.
+ */
+TEST(LipContactPlannerTest, DoubleSupportPenaltyLeavesStandingAlone) {
+  ContactPlanningConfig config = makeConfig();
+  config.shared.gaitLimits.minContactDuration = 0.1;
+  config.shared.gaitLimits.minDoubleSupportDuration = 0.0;
+  config.contactSwitch.cost = 0.3;
+  config.formulation.assignmentCosts = {term::kContactSwitch, term::kPlanConsistency, term::kDoubleSupportPenalty};
+  config.validate();
+  ASSERT_LT(config.doubleSupportPenalty.cost, 0.2) << "the shipped default is above the measured marching threshold";
+
+  LipContactPlanner planner(config);
+  ContactPlannerInput input = makeStandingInput();  // both feet down for a long time, no velocity command
+  const ContactPlan plan = planner.plan(input);
+  ASSERT_TRUE(plan.valid);
+
+  for (int k = 0; k < plan.numIntervals(); ++k) {
+    EXPECT_TRUE(plan.contacts[k][0] && plan.contacts[k][1])
+        << "a standing robot stepped at node " << k << " to dodge the double support penalty: " << plan.describe();
+  }
+}
+
 }  // namespace ocs2::humanoid

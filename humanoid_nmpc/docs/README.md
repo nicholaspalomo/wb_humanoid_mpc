@@ -202,7 +202,14 @@ candidate incumbent:
 * foot alternation (`enforceAlternatingFeet`): a foot may not swing twice without the other foot swinging in between;
 * minimum double support (`minDoubleSupportDuration`): after a touch-down the other foot stays down for at least that
   long, so weight transfer is never asked to happen in a single node. This includes the node of the touch-down itself:
-  a lift-off at the very node the other foot lands would be an instantaneous switch with no double support at all;
+  a lift-off at the very node the other foot lands would be an instantaneous switch with no double support at all.
+  Set to exactly 0 the hold is disabled and that instantaneous exchange becomes admissible; any value above 0 is
+  quantised up to a whole node, so at `dt: 0.1` anything in (0, 0.1] still yields a 0.1 s double support. Permitting the
+  exchange is not the same as choosing it: with the hold at zero and no further incentive the planner still keeps a
+  double support at walking speed, because it buys the ZMP freedom the support-region rows charge for. The
+  `double_support_penalty` assignment cost is that incentive. Because it prices *every* double-support node it prices
+  standing on two feet as well, and above roughly 0.2 (Atlas gait limits) stepping in place becomes cheaper than
+  standing, so the robot marches at a zero velocity command; `testLipContactPlanner` pins both ends of that trade;
 * the committed window: contacts up to the *commit boundary* are fixed to the schedule the NMPC is already executing.
   The boundary is `commitTime` ahead of the planning instant, extended to the touch-down of any swing that has started or
   starts within that window. A swing in flight is therefore never re-timed or cut short by a later plan, and `commitTime`
@@ -644,7 +651,7 @@ The block of `contact_planning.yaml` mirrors that structure:
 | `soft_constraints` | `zmp_support_region`, `reachability`, `foot_separation`, `hip_yaw_range`; each may carry a `slack` block that overrides the shared penalty |
 | `hard_constraints` | `no_flight`, `foot_motion_in_swing_only`, `yaw_torque_budget`, `foot_yaw_pinned_in_contact` |
 | `logic_rules` | propagation on the binaries: `phase_durations`, `no_flight`, `minimum_double_support`, `alternating_feet` |
-| `assignment_costs` | `contact_switch`, `plan_consistency` |
+| `assignment_costs` | `contact_switch`, `plan_consistency`, `double_support_penalty` |
 | `search` | `warm_start_previous_plan`, `diving`, `event_shift_local_search`, `heading_relinearisation` |
 | `execution` | the reference manager's rules of section 2.8 and `planned_heading_override` |
 | one block per term | its parameters, named as the term (`velocity_tracking: {weight: 50.0}`, ...) |
