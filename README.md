@@ -344,6 +344,11 @@ When focused in the MuJoCo simulation viewport, use these keyboard shortcuts and
 | **`m`** | Toggle **Center of Mass (CoM)** | Displays CoM indicator spheres for kinematic bodies / links |
 | **`i`** | Toggle **Inertia Ellipsoids** | Renders equivalent inertia ellipsoids depicting principal moments of inertia |
 | **`h`** | Toggle **Convex Hulls** | Displays computed convex hulls enclosing the link meshes |
+| **`o`** | Toggle **Centre of Mass** | Whole-body CoM sphere, its vertical, and its shadow on the ground (`center_of_mass` in `simVisualizations`) |
+| **`z`** | Toggle **ZMP** | Zero moment point of the physical ground reaction, as a disc on the ground (`zmp`) |
+| **`d`** | Toggle **DCM** | Divergent component of motion (capture point) of the measured CoM, on the ground, with its offset from the CoM's shadow (`dcm`) |
+| **`b`** | Toggle **Contact Timeline** | Barcode of planned vs ground-truth contact per contact point (`contact_timeline`) |
+| **`g`** | Toggle **Target Contact Patches** | Contact patch of every foot at the planner's target position and yaw (`target_contact_patches`) |
 | **`p`** | **Print Cheatsheet** | Prints the hotkey and mouse control guide to the terminal |
 | **Left Click + Drag** | **Orbit Camera** | Rotates camera viewpoint around the robot or focal point |
 | **Right Click + Drag** | **Pan Camera** | Translates camera position horizontally and vertically |

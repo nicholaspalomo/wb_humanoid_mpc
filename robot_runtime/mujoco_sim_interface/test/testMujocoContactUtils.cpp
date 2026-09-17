@@ -28,7 +28,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <gtest/gtest.h>
+
 #include <mujoco/mujoco.h>
+#include <algorithm>
+#include <cmath>
 
 #include <fstream>
 #include <memory>
@@ -269,4 +272,77 @@ TEST(MujocoContactUtils, TimelineKeepsAWindowAndClearsOnReset) {
   EXPECT_DOUBLE_EQ(timeline.samples().front().time, 1.0);
 
   EXPECT_DOUBLE_EQ(ContactTimeline(-3.0).window(), 5.0) << "a non-positive window falls back to the default";
+}
+
+/*============================================ centroidal markers ==========================================*/
+
+TEST(MujocoContactUtils, CentroidalStateIsTheRootSubtreesCentreOfMassAndVelocity) {
+  Scene scene;
+  const int pelvis = scene.body("pelvis");
+  ASSERT_GE(pelvis, 0);
+  const RobotCentroidalState resting = robotCentroidalState(scene.model, scene.data);
+  ASSERT_TRUE(resting.valid);
+  EXPECT_EQ(resting.rootBodyId, pelvis) << "the first body on a free joint, not the crate";
+  EXPECT_NEAR(resting.mass, scene.model->body_subtreemass[pelvis], 1e-12);
+  EXPECT_NEAR(resting.mass, 10.0 + 1.0 + 0.01 + 0.1 + 1.0, 1e-9);
+  for (int axis = 0; axis < 3; ++axis) {
+    EXPECT_NEAR(resting.com[axis], scene.data->subtree_com[3 * pelvis + axis], 1e-12);
+    EXPECT_NEAR(resting.comVelocity[axis], 0.0, 1e-12);
+  }
+  // The whole robot translating at 1 m/s along x: so does its centre of mass.
+  scene.data->qvel[0] = 1.0;
+  mj_forward(scene.model, scene.data);
+  const RobotCentroidalState moving = robotCentroidalState(scene.model, scene.data);
+  ASSERT_TRUE(moving.valid);
+  EXPECT_NEAR(moving.comVelocity[0], 1.0, 1e-9);
+  EXPECT_NEAR(moving.comVelocity[1], 0.0, 1e-9);
+  EXPECT_NEAR(moving.comVelocity[2], 0.0, 1e-9);
+  EXPECT_FALSE(robotCentroidalState(nullptr, scene.data).valid);
+}
+
+TEST(MujocoContactUtils, GroundReactionZmpSitsUnderTheOnlyGroundContact) {
+  Scene scene;
+  const int pelvis = scene.body("pelvis");
+  // Only the left toe touches the floor; the strut-sole self-contact carries force but is not a ground reaction.
+  const GroundReaction reaction = groundReaction(scene.model, scene.data, pelvis, 0.0);
+  ASSERT_TRUE(reaction.valid);
+  EXPECT_GT(reaction.force[2], 0.0) << "the floor pushes the robot up";
+  // The centre of pressure lies in the convex hull of the ground contact points (the corners of the toe box).
+  double lo[2] = {1e9, 1e9};
+  double hi[2] = {-1e9, -1e9};
+  int groundContacts = 0;
+  for (int c = 0; c < scene.data->ncon; ++c) {
+    const mjContact& contact = scene.data->contact[c];
+    const int b1 = scene.model->geom_bodyid[contact.geom[0]];
+    const int b2 = scene.model->geom_bodyid[contact.geom[1]];
+    if (b1 != 0 && b2 != 0) continue;
+    ++groundContacts;
+    for (int axis = 0; axis < 2; ++axis) {
+      lo[axis] = std::min(lo[axis], contact.pos[axis]);
+      hi[axis] = std::max(hi[axis], contact.pos[axis]);
+    }
+  }
+  ASSERT_GT(groundContacts, 0);
+  for (int axis = 0; axis < 2; ++axis) {
+    EXPECT_GE(reaction.zmp[axis], lo[axis] - 1e-6);
+    EXPECT_LE(reaction.zmp[axis], hi[axis] + 1e-6);
+  }
+  EXPECT_NEAR(reaction.zmp[0], 0.14, 0.05) << "under the toe";
+  EXPECT_NEAR(reaction.zmp[1], 0.2, 0.06) << "under the toe";
+  // A threshold above the reaction hides the marker (the robot on the gantry).
+  EXPECT_FALSE(groundReaction(scene.model, scene.data, pelvis, reaction.force[2] + 1.0).valid);
+  EXPECT_FALSE(groundReaction(scene.model, scene.data, -1, 0.0).valid);
+}
+
+TEST(MujocoContactUtils, DivergentComponentOfMotionIsTheComPlusVelocityOverOmega) {
+  const double com[3] = {1.0, 2.0, 0.85};
+  const double velocity[3] = {0.34, -0.17, 0.5};
+  double dcm[2];
+  divergentComponentOfMotion(com, velocity, com[2], 9.81, dcm);
+  const double omega = std::sqrt(9.81 / 0.85);
+  EXPECT_NEAR(dcm[0], 1.0 + 0.34 / omega, 1e-12);
+  EXPECT_NEAR(dcm[1], 2.0 - 0.17 / omega, 1e-12);
+  // The height is clamped so that a CoM on the ground does not blow the DCM up.
+  divergentComponentOfMotion(com, velocity, 0.0, 9.81, dcm);
+  EXPECT_NEAR(dcm[0], 1.0 + 0.34 / std::sqrt(9.81 / 0.05), 1e-12);
 }

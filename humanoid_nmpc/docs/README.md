@@ -413,6 +413,14 @@ at its current placement. The arrow is the patch's x axis, i.e. its yaw: the pla
 last solve (`ContactPlanningReferenceManager::getTargetContactPoses`), so they move whenever a new plan or a contact
 event re-times the schedule.
 
+Three centroidal markers put the reduced model the planner reasons with next to the physics: `center_of_mass` (`o`)
+draws the whole-body centre of mass as a sphere with a vertical down to its shadow on the ground, `zmp` (`z`) the zero
+moment point of the physical ground reaction as a disc on the ground (hidden while the robot carries no weight, e.g. on
+the gantry), and `dcm` (`d`) the divergent component of motion of the measured centroidal state,
+`com_xy + v_xy / omega` with `omega = sqrt(g / z_com)`, with a line from the CoM's shadow to it. The DCM ahead of the
+support polygon is what the next step has to catch; the ZMP leaving the sole is what the wrench cone would not allow.
+They are on in the shipped DRC Atlas task file and listed, off, in the others.
+
 **Early touch-down.** A foot that is scheduled to swing but is measured in contact after the first
 `earlyTouchdownMinSwingRatio` of the *nominal* swing duration (scuffing right after lift-off is ignored), and whose
 contact persists for `earlyTouchdownMinContactDuration` (a debounce against a single chattering sensor sample), is

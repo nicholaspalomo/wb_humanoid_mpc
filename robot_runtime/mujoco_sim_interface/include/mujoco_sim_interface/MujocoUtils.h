@@ -135,4 +135,40 @@ std::vector<int> resolveContactBodies(const mjModel* model,
  */
 uint32_t groundTruthContactMask(const mjModel* model, const mjData* data, const std::vector<int>& contactBodyIds, double forceThreshold);
 
+/** Whole-body centroidal quantities of the floating-base robot of the scene, for the viewer's markers. */
+struct RobotCentroidalState {
+  bool valid{false};
+  int rootBodyId{-1};                    // the first body hanging on a free joint
+  double mass{0.0};                      // [kg] of the root's subtree
+  double com[3]{0.0, 0.0, 0.0};          // [m] world frame
+  double comVelocity[3]{0.0, 0.0, 0.0};  // [m/s] world frame, mass-weighted mean of the body velocities
+};
+
+/**
+ * Centre of mass and its velocity of the robot: the subtree of the first body on a free joint. Requires a state on which
+ * mj_forward() has run. `valid` is false without such a body or with zero mass.
+ */
+RobotCentroidalState robotCentroidalState(const mjModel* model, const mjData* data);
+
+/** Ground reaction of the physics contacts against the robot's root subtree, and the zero moment point it defines. */
+struct GroundReaction {
+  bool valid{false};                // a vertical force above `minNormalForce` was found
+  double force[3]{0.0, 0.0, 0.0};   // [N] total contact force on the robot, world frame
+  double moment[3]{0.0, 0.0, 0.0};  // [N m] of those forces about the world origin
+  double zmp[2]{0.0, 0.0};          // [m] point of the ground plane z = 0 about which the horizontal moment vanishes
+};
+
+/**
+ * Sums the active contact forces between the root subtree of `rootBodyId` and anything outside it (the ground, obstacles)
+ * and returns the zero moment point on the plane z = 0: zmp_x = -M_y / F_z, zmp_y = M_x / F_z. Requires the constraint
+ * forces of the current state (after mj_step() or mj_forward()). `valid` is false while F_z <= minNormalForce.
+ */
+GroundReaction groundReaction(const mjModel* model, const mjData* data, int rootBodyId, double minNormalForce);
+
+/**
+ * Divergent component of motion (capture point) of a linear inverted pendulum of natural frequency sqrt(gravity / height)
+ * on the ground plane: com_xy + v_xy / omega. `height` is clamped to at least 0.05 m.
+ */
+void divergentComponentOfMotion(const double com[3], const double comVelocity[3], double height, double gravity, double dcm[2]);
+
 }  // namespace robot::mujoco_sim_interface

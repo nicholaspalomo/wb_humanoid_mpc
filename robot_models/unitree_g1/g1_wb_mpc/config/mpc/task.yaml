@@ -24,6 +24,9 @@ simVisualizations:
   - base_velocity           # measured (red) vs commanded (green) base velocity and yaw rate at the CoM
   - contact_timeline        # [b] barcode of planned vs ground-truth contact per contact point
   - target_contact_patches  # [g] contact patch of every foot at the planner's target position and yaw
+  # - center_of_mass        # [o] whole-body centre of mass: sphere, vertical, and its shadow on the ground
+  # - zmp                   # [z] zero moment point of the physical ground reaction, on the ground
+  # - dcm                   # [d] divergent component of motion (capture point) of the measured CoM, on the ground
   # MuJoCo's own markers, off unless listed:
   # - mj_contact_points     # [c] markers at the physical contact points
   # - mj_contact_forces     # [f] MuJoCo's normal and friction force arrows at the contacts
