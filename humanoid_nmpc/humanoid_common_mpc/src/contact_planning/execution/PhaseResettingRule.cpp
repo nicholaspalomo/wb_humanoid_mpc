@@ -40,7 +40,8 @@ constexpr scalar_t kMinTimeShift = 1e-6;        // [s] smaller event shifts are 
 std::string PhaseResettingRule::describe() const {
   std::ostringstream out;
   out << "early touch-down after " << params_.earlyTouchdownMinSwingRatio << " of the swing, debounced "
-      << params_.earlyTouchdownMinContactDuration << " s, ends the swing in place; late touch-down extends the swing in steps of "
+      << params_.earlyTouchdownMinContactDuration << " s and at least " << params_.earlyTouchdownMinAdvance
+      << " s ahead of schedule, ends the swing in place; late touch-down extends the swing in steps of "
       << params_.lateTouchdownExtensionStep << " s up to " << params_.maxLateTouchdownExtension << " s, descending at "
       << params_.lateTouchdownSearchVelocity << " m/s";
   return out.str();
@@ -53,6 +54,7 @@ void PhaseResettingRule::configure(const ContactPlanningConfig& config) {
   }
   if (p.earlyTouchdownMinContactDuration < 0.0)
     throw std::invalid_argument("[phase_resetting] earlyTouchdownMinContactDuration must be >= 0");
+  if (p.earlyTouchdownMinAdvance < 0.0) throw std::invalid_argument("[phase_resetting] earlyTouchdownMinAdvance must be >= 0");
   if (p.maxLateTouchdownExtension < 0.0) throw std::invalid_argument("[phase_resetting] maxLateTouchdownExtension must be >= 0");
   if (p.lateTouchdownExtensionStep <= 0.0) throw std::invalid_argument("[phase_resetting] lateTouchdownExtensionStep must be positive");
   if (p.lateTouchdownSearchVelocity < 0.0) throw std::invalid_argument("[phase_resetting] lateTouchdownSearchVelocity must be >= 0");
@@ -62,7 +64,7 @@ void PhaseResettingRule::configure(const ContactPlanningConfig& config) {
 bool PhaseResettingRule::adaptSwingingFoot(const ExecutionContext& ctx,
                                            size_t foot,
                                            scalar_t liftOff,
-                                           scalar_t /*touchDown*/,
+                                           scalar_t touchDown,
                                            ModeSchedule& schedule,
                                            SwingTimingLatch& latch,
                                            ContactEventReport& report) const {
@@ -76,7 +78,19 @@ bool PhaseResettingRule::adaptSwingingFoot(const ExecutionContext& ctx,
       latch.contactObserved = true;
       latch.contactObservedSince = time;
     }
-    if (time - latch.contactObservedSince >= params_.earlyTouchdownMinContactDuration - kMinTimeShift &&
+    // A touch-down close enough to its scheduled time is executed as planned. Ending the swing here would put the foot
+    // in contact from `time` until `touchDown`, and when the gait exchanges support in a single instant that scheduled
+    // touch-down is the other foot's lift-off, so the truncation opens a double support exactly as long as the foot was
+    // early. Landing within a few milliseconds of the plan is the common case, so without this every step carried a
+    // sliver of double support shorter than the MPC's own time step. The test is against the time the truncation would
+    // take effect, not the first contact, because the debounce delays it by earlyTouchdownMinContactDuration.
+    //
+    // It applies only to a swing still running to its own schedule. Once the swing has been extended past its planned
+    // touch-down the foot is overdue and descending in search of the ground, and `touchDown` is that receding search
+    // target rather than a plan: a foot that has found the ground there has to land at once, however near the target is.
+    const bool onSchedule = latch.lateExtension <= 0.0;
+    const bool worthReTiming = !onSchedule || touchDown - time > params_.earlyTouchdownMinAdvance;
+    if (worthReTiming && time - latch.contactObservedSince >= params_.earlyTouchdownMinContactDuration - kMinTimeShift &&
         truncateSwingPhase(schedule, foot, time).has_value()) {
       report.type = ContactEventReport::Type::EARLY_TOUCH_DOWN;
       report.touchDownTime = time;

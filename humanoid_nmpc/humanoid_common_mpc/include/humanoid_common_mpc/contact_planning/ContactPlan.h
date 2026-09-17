@@ -26,6 +26,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <optional>
+#include <string>
 #include <vector>
 
 #include <ocs2_core/Types.h>
@@ -98,6 +99,13 @@ struct ContactPlan {
 
   /** Planned foot position of the node nearest to `time` (clamped). Empty when the plan is not valid. */
   std::optional<vector2_t> footholdAtTime(size_t contactIndex, scalar_t time) const;
+
+  /**
+   * One line for the log (planner.logPlans): validity, search statistics (objective, relaxations, solve time, whether
+   * the node or time limit cut the search), the CoM velocity at the start and end of the horizon, and per foot the
+   * phase sequence with its durations and the length of every step (foothold displacement over a swing, planning frame).
+   */
+  std::string describe() const;
   bool hasHeading() const { return valid && !heading.empty(); }
   /** Planned heading / heading rate at `time`, linearly interpolated between nodes and clamped to the plan; empty without the heading
    * model. */

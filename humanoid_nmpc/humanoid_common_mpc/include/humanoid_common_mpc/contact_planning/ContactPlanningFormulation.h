@@ -54,6 +54,7 @@ inline constexpr const char* kYawTorqueRegularization = "yaw_torque_regularizati
 inline constexpr const char* kFootYawRegularization = "foot_yaw_regularization";
 inline constexpr const char* kZmpRegularization = "zmp_regularization";
 inline constexpr const char* kFootholdRegularization = "foothold_regularization";
+inline constexpr const char* kStepLength = "step_length";
 inline constexpr const char* kTerminalDcm = "terminal_dcm";
 // Soft constraints.
 inline constexpr const char* kZmpSupportRegion = "zmp_support_region";
@@ -72,10 +73,12 @@ inline constexpr const char* kAlternatingFeet = "alternating_feet";
 // Assignment costs on the binaries.
 inline constexpr const char* kContactSwitch = "contact_switch";
 inline constexpr const char* kPlanConsistency = "plan_consistency";
+inline constexpr const char* kDoubleSupportPenalty = "double_support_penalty";
 // Search stages around the branch-and-bound.
 inline constexpr const char* kWarmStartPreviousPlan = "warm_start_previous_plan";
 inline constexpr const char* kDiving = "diving";
 inline constexpr const char* kEventShiftLocalSearch = "event_shift_local_search";
+inline constexpr const char* kCadenceStretch = "cadence_stretch";
 inline constexpr const char* kHeadingRelinearisation = "heading_relinearisation";
 // Execution rules of the reference manager, applied between plans.
 inline constexpr const char* kPhaseResetting = "phase_resetting";

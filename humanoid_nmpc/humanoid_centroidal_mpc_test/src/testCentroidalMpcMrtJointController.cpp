@@ -49,6 +49,23 @@ using namespace ocs2;
 using namespace ocs2::humanoid;
 
 #include <robot_model/RobotDescription.h>
+#include <robot_model/RobotStateContactEstimator.h>
+
+// A contact estimator that answers with a fixed contact state, whatever the RobotState says.
+class FixedContactEstimator final : public ::robot::model::ContactEstimator {
+ public:
+  explicit FixedContactEstimator(std::vector<bool> flags) : flags_(std::move(flags)) {}
+  std::vector<bool> estimateContactFlags(const ::robot::model::RobotState& /*robotState*/) override {
+    ++calls;
+    return flags_;
+  }
+  std::string getName() const override { return "FixedContactEstimator"; }
+  void set(std::vector<bool> flags) { flags_ = std::move(flags); }
+  size_t calls{0};
+
+ private:
+  std::vector<bool> flags_;
+};
 
 class MockMpc : public MPC_BASE {
  public:
@@ -242,4 +259,102 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testBasisVectorInputsUseWorldFrameWr
     EXPECT_TRUE(std::isfinite(feedforward)) << "joint " << mpcJointNames[i];
     EXPECT_NEAR(feedforward, expectedTorques[i], 1e-6) << "joint " << mpcJointNames[i];
   }
+}
+
+// The measured contact state of the controller comes from its contact estimator: the observation mode handed to the
+// MPC follows the estimator, not the contact flags of the RobotState. Without an estimator the RobotState flags are used
+// (RobotStateContactEstimator), which is the historical behaviour.
+TEST_F(CentroidalMpcMrtJointControllerTest, testObservationModeFollowsTheContactEstimator) {
+  MockMpc mockMpc;
+  ::robot::model::RobotDescription robotDesc(testingModelInterface.urdfFile);
+  robot::model::RobotState robotState(robotDesc);
+  robot::model::RobotJointAction jointAction(robotDesc);
+  CentroidalMpcMrtJointController controller(robotDesc, testingModelInterface.getModelSettings(), testingModelInterface.getMpcRobotModel(),
+                                             mockMpc, testingModelInterface.getPinocchioInterface(), 400.0, nullptr,
+                                             tempPdGainsFile_.string());
+  controller.setControlMode("JOINT_PD");
+
+  // Default: the RobotState flags.
+  EXPECT_EQ(controller.getContactEstimator().getName(), "RobotStateContactEstimator");
+  robotState.setContactFlag(1, false);
+  controller.computeJointControlAction(0.01, robotState, jointAction);
+  EXPECT_EQ(controller.getCurrentObservation().mode, stanceLeg2ModeNumber({true, false}));
+  EXPECT_EQ(controller.getMeasuredContactFlags(), (contact_flag_t{true, false}));
+
+  // An injected estimator overrides whatever the RobotState carries, and is asked once per control cycle.
+  auto estimator = std::make_shared<FixedContactEstimator>(std::vector<bool>{false, true});
+  controller.setContactEstimator(estimator);
+  EXPECT_EQ(controller.getContactEstimator().getName(), "FixedContactEstimator");
+  controller.computeJointControlAction(0.02, robotState, jointAction);
+  EXPECT_EQ(estimator->calls, 1u);
+  EXPECT_EQ(controller.getCurrentObservation().mode, stanceLeg2ModeNumber({false, true}));
+  EXPECT_EQ(controller.getMeasuredContactFlags(), (contact_flag_t{false, true}));
+  estimator->set({true, true});
+  controller.computeJointControlAction(0.03, robotState, jointAction);
+  EXPECT_EQ(estimator->calls, 2u);
+  EXPECT_EQ(controller.getCurrentObservation().mode, stanceLeg2ModeNumber({true, true}));
+
+  // An estimator that reports the wrong number of contact points is a configuration error, not a silent mode.
+  estimator->set({true});
+  EXPECT_THROW(controller.computeJointControlAction(0.04, robotState, jointAction), std::runtime_error);
+
+  // A null pointer restores the default.
+  controller.setContactEstimator(nullptr);
+  EXPECT_EQ(controller.getContactEstimator().getName(), "RobotStateContactEstimator");
+  controller.computeJointControlAction(0.05, robotState, jointAction);
+  EXPECT_EQ(controller.getCurrentObservation().mode, stanceLeg2ModeNumber({true, false}));
+}
+
+// The contact wrenches the inverse dynamics projects are gated by the measured contact state, not by the plan. Before a
+// policy arrives the controller compensates the weight through the feet measured in contact: with the right foot reported
+// in the air the whole weight goes through the left foot, and the feedforward torques match the inverse dynamics of that
+// single-support wrench (a two-foot distribution would give different torques).
+TEST_F(CentroidalMpcMrtJointControllerTest, testFeedforwardWrenchesFollowTheMeasuredContactState) {
+  MockMpc mockMpc;
+  ::robot::model::RobotDescription robotDesc(testingModelInterface.urdfFile);
+  robot::model::RobotState robotState(robotDesc);
+
+  // A generous torque limit keeps the controller's clamp from masking the torque comparison below.
+  const std::filesystem::path gainsFile = std::filesystem::temp_directory_path() / "test_pd_gains_measured_contacts.yaml";
+  {
+    std::ofstream ofs(gainsFile);
+    ofs << "default_gains:\n  kp: 100.0\n  kd: 10.0\n  torque_limit: 1000000.0\n";
+  }
+  CentroidalMpcMrtJointController controller(robotDesc, testingModelInterface.getModelSettings(), testingModelInterface.getMpcRobotModel(),
+                                             mockMpc, testingModelInterface.getPinocchioInterface(), 400.0, nullptr, gainsFile.string());
+  std::filesystem::remove(gainsFile);
+  auto estimator = std::make_shared<FixedContactEstimator>(std::vector<bool>{true, true});
+  controller.setContactEstimator(estimator);
+
+  const auto feedforward = [&](const std::vector<bool>& measured) {
+    estimator->set(measured);
+    robot::model::RobotJointAction action(robotDesc);
+    controller.computeJointControlAction(0.01, robotState, action);  // WB_MPC mode, no policy: weight-compensating branch
+    return action;
+  };
+  const robot::model::RobotJointAction bothFeet = feedforward({true, true});
+  const robot::model::RobotJointAction leftFootOnly = feedforward({true, false});
+
+  // Reference: the inverse dynamics of the controller with the measured single-support wrench.
+  std::unique_ptr<MpcRobotModelBase<scalar_t>> modelPtr(testingModelInterface.getMpcRobotModel().clone());
+  MpcRobotModelBase<scalar_t>& model = *modelPtr;
+  PinocchioInterface pinocchioInterface = testingModelInterface.getPinocchioInterface();
+  const SystemObservation& observation = controller.getCurrentObservation();
+  const vector_t weightInput = weightCompensatingInput(pinocchioInterface, {true, false}, model, observation.state);
+  const std::array<vector6_t, 2> wrenches{model.getContactWrenchInWorldFrame(observation.state, weightInput, 0),
+                                          model.getContactWrenchInWorldFrame(observation.state, weightInput, 1)};
+  ASSERT_TRUE(wrenches[1].isZero());
+  const vector_t expected = computeJointTorques<scalar_t>(model.getGeneralizedCoordinates(observation.state),
+                                                          model.getGeneralizedVelocities(observation.state, observation.input),
+                                                          vector_t::Zero(model.getJointDim()), wrenches, pinocchioInterface);
+
+  const std::vector<size_t> mpcJointIndices = robotDesc.getJointIndices(testingModelInterface.getModelSettings().mpcModelJointNames);
+  scalar_t maxDifferenceBetweenContactStates = 0.0;
+  for (size_t i = 0; i < mpcJointIndices.size(); ++i) {
+    const size_t index = mpcJointIndices[i];
+    EXPECT_NEAR(leftFootOnly.at(index)->feed_forward_effort, expected[i], 1e-6) << "joint " << index;
+    maxDifferenceBetweenContactStates = std::max(
+        maxDifferenceBetweenContactStates, std::abs(leftFootOnly.at(index)->feed_forward_effort - bothFeet.at(index)->feed_forward_effort));
+  }
+  EXPECT_GT(maxDifferenceBetweenContactStates, 1e-3);
 }

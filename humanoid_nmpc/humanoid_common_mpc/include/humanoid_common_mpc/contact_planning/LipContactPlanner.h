@@ -122,7 +122,12 @@ class LipContactPlanner {
   scalar_t assignmentCost(const ContactPlannerInput& input, const MiqpAssignment& assignment) const;
   static int contactBinaryIndex(int node, size_t foot) { return ContactLogicState::contactBinaryIndex(node, foot); }
   /** The per-plan context the terms read (public for the equivalence tests). */
-  ContactPlanningContext makeContext(const ContactPlannerInput& input, const HeadingNominal& nominal) const;
+  /**
+   * Per-plan pre-computation. `dtOverride > 0` builds the context on a grid of that node duration instead of
+   * planner.dt, which is how the cadence stretch re-times every phase of an incumbent together (the terms are all
+   * exact functions of the node duration).
+   */
+  ContactPlanningContext makeContext(const ContactPlannerInput& input, const HeadingNominal& nominal, scalar_t dtOverride = 0.0) const;
   ContactLogicState makeLogicState(const ContactPlannerInput& input) const;
 
  private:

@@ -33,7 +33,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <humanoid_wb_mpc/common/WBAccelMpcRobotModel.h>
 #include <ocs2_pinocchio_interface/PinocchioInterface.h>
 #include <ocs2_ros2_interfaces/mrt/DummyObserver.h>
+#include <robot_model/ContactEstimator.h>
 #include <robot_model/ControllerBase.h>
+#include "humanoid_common_mpc/contact/ContactWrenchGate.h"
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 #include "robot_model/RobotDescription.h"
 
@@ -94,6 +96,26 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
    * policy is not thread-safe.
    */
   std::optional<contact_flag_t> getPlannedContactFlags(scalar_t time) const;
+
+  /**
+   * Source of the measured contact state (robot_model/ContactEstimator.h). It is asked once per control cycle; its
+   * answer is the observation mode handed to the MPC and decides which planned contact wrenches the inverse dynamics
+   * projects into feedforward torques (gateContactWrenchesByMeasuredContacts). Defaults to the flags of the RobotState
+   * (RobotStateContactEstimator); in simulation the nodes install a CheaterSimContactEstimator. Set it before the
+   * control loop runs; a null pointer restores the default.
+   */
+  void setContactEstimator(std::shared_ptr<::robot::model::ContactEstimator> contactEstimator);
+  const ::robot::model::ContactEstimator& getContactEstimator() const { return *contactEstimator_; }
+  /** Measured contact flags of the last control cycle (updateMpcObservation), as reported by the contact estimator. */
+  const contact_flag_t& getMeasuredContactFlags() const { return measuredContactFlags_; }
+
+  /**
+   * Shaping of the planned contact wrenches at touch-down in the inverse dynamics (ContactWrenchGate: debounce and ramp
+   * after measured contact; task file `contact_wrench_gate`). Defaults to the instantaneous gate.
+   */
+  void setContactWrenchGateConfig(const ContactWrenchGate::Config& config);
+  const ContactWrenchGate& getContactWrenchGate() const { return contactWrenchGate_; }
+
   const vector_t& getLatestPolicyInput() const { return latestPolicyInput_; }
   const CommandData& getCommandData() const { return mcpMrtInterface_.getCommand(); }
 
@@ -115,6 +137,9 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
   void updateMpcObservation(ocs2::SystemObservation& mpcObservation, const ::robot::model::RobotState& robotState);
 
   MPC_MRT_Interface mcpMrtInterface_;
+  std::shared_ptr<::robot::model::ContactEstimator> contactEstimator_;
+  contact_flag_t measuredContactFlags_{};     // of the last control cycle, from contactEstimator_
+  ContactWrenchGate contactWrenchGate_;       // advanced with measuredContactFlags_ every cycle
   std::atomic<bool> policyActivated_{false};  // a policy has been swapped in since the last reset
 
   PinocchioInterface pinocchioInterface_;

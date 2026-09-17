@@ -202,7 +202,14 @@ candidate incumbent:
 * foot alternation (`enforceAlternatingFeet`): a foot may not swing twice without the other foot swinging in between;
 * minimum double support (`minDoubleSupportDuration`): after a touch-down the other foot stays down for at least that
   long, so weight transfer is never asked to happen in a single node. This includes the node of the touch-down itself:
-  a lift-off at the very node the other foot lands would be an instantaneous switch with no double support at all;
+  a lift-off at the very node the other foot lands would be an instantaneous switch with no double support at all.
+  Set to exactly 0 the hold is disabled and that instantaneous exchange becomes admissible; any value above 0 is
+  quantised up to a whole node, so at `dt: 0.1` anything in (0, 0.1] still yields a 0.1 s double support. Permitting the
+  exchange is not the same as choosing it: with the hold at zero and no further incentive the planner still keeps a
+  double support at walking speed, because it buys the ZMP freedom the support-region rows charge for. The
+  `double_support_penalty` assignment cost is that incentive. Because it prices *every* double-support node it prices
+  standing on two feet as well, and above roughly 0.2 (Atlas gait limits) stepping in place becomes cheaper than
+  standing, so the robot marches at a zero velocity command; `testLipContactPlanner` pins both ends of that trade;
 * the committed window: contacts up to the *commit boundary* are fixed to the schedule the NMPC is already executing.
   The boundary is `commitTime` ahead of the planning instant, extended to the touch-down of any swing that has started or
   starts within that window. A swing in flight is therefore never re-timed or cut short by a later plan, and `commitTime`
@@ -292,6 +299,19 @@ under 0.1 s. With the default budget of 200 relaxations / 0.1 s the receding-hor
 
 ### 2.7 Tuning notes
 
+* Cyclic gait at speed. `velocity_tracking` penalises the CoM velocity error at every node and is indifferent between a
+  few long steps and many short ones at the same average speed; from rest it favours the short, quick steps that
+  accelerate the pendulum fastest, and a step change in the command (the joypad filter is 5 Hz) makes every replan
+  re-decide the pattern. Three pieces make the gait progressive and cyclic instead: `maxLinearAcceleration` /
+  `maxAngularAcceleration` in `command/reference.yaml` rate-limit the velocity reference the MPC target and the planner
+  follow (0 = off); the `step_length` cost draws every swing to the displacement a cyclic gait at the commanded speed
+  needs, `d_nom = v_cmd dt T_stride / T_swing` at the nominal cadence of the gait limits, with the residual affine in
+  the foot displacement and the relaxed contact binary; and `terminal_dcm.trackCommandedVelocity` moves the terminal
+  target of the DCM from the last ZMP (a stop at the end of the horizon, which shortens the steps at speed) to
+  `zmp + v_cmd / omega`, a CoM over the foot that keeps walking. `planner.logPlans` prints one line per plan with the
+  phase durations, the step lengths and whether the branch-and-bound hit its node or time limit, which is the first
+  thing to check when steps come out irregular: a truncated search hands out a different near-optimal plan each time.
+
 * `dt`/`numNodes`: the horizon must cover `mpc.timeHorizon`; coarser nodes make the search cheaper but quantise the
   switching times.
 * `commitTime`: at least the planner latency (solve time plus one planning period) plus the time the NMPC needs to
@@ -357,16 +377,36 @@ used throughout the reference manager for this reason.
 
 #### 2.8.1 Phase resetting on measured contact events (`phase_resetting`)
 
-The measured contact flags reach the MPC as the observation mode (`RobotState::getContactFlags()` in the MRT controller,
-MuJoCo contact sensors in simulation) and are compared with the schedule at the start of every solve. Per foot the
+The measured contact flags reach the MPC as the observation mode. The MRT joint controller asks its contact estimator
+(`robot_model/ContactEstimator.h`) once per control cycle; the answer is the observation mode and, in the same cycle,
+the gate of the inverse dynamics: the feedforward torques project only the planned contact wrenches of the feet that are
+measured in contact (`gateContactWrenchesByMeasuredContacts`), since a foot in the air cannot transmit a wrench whatever
+the executed plan expects there. The estimator is selected by name in the task file, `contactEstimator: <name>`, the
+way the costs and constraints of the formulation are: the `ContactEstimatorRegistry` resolves the name and rejects an
+unknown one listing the available names. `robot_state` hands back the flags of the `RobotState`, `always_in_contact`
+reports every point as touching (the executed schedule then is the measured contact state), and the MuJoCo simulator
+registers `cheater_sim`. A controller built without an estimator uses `robot_state`. In the centroidal simulator the
+name is hot-reloadable like the rest of the task file (the parameter updater hands it to the simulator loop, which
+swaps the estimator on the control thread); the GUI's Base Controller tab has a checkbox for it, `cheater_sim` on and
+`always_in_contact` off. The whole-body simulator reads the name at start-up only. The measured flags are compared
+with the schedule at the start of every solve.
+
+The gate itself can shape the load onset (`ContactWrenchGate`, task file block `contact_wrench_gate`, sliders under
+"Solver & Horizon"): `debounceTime` withholds a foot's planned wrench until its measured contact has persisted that
+long, a bounce across the detection threshold restarting it, and `rampTime` then raises the wrench linearly from zero
+to the planned value. Both default to zero, the instantaneous gate, in which the full planned wrench is projected
+from the first cycle a heel or toe strike trips the contact detection. Lift-off is never shaped. The shaping acts only
+on the feedforward torques; the MPC observation mode still switches at the first measured contact. Per foot the
 manager keeps a small latch of the swing currently in flight (its lift-off, its nominal touch-down, and any re-timing
 applied so far).
 
-In the MuJoCo simulation those flags are `true` for every contact point unless `simReportsGroundTruthContacts: true` is
-set in the task file: the simulator then reports a contact point as touching when it carries more than
-`simContactForceThreshold` newtons of normal force against anything outside the robot. With the default, every swing
-reads as an early touch-down at its scuffing window, so phase resetting must not be enabled in simulation without it
-(the simulator logs a warning). The viewer's contact timeline (`b`, `contact_timeline` in `simVisualizations`) shows
+In the MuJoCo simulation `contactEstimator: cheater_sim` (the default when the key is absent) selects the
+`CheaterSimContactEstimator` (`mujoco_sim_interface/CheaterSimContactEstimator.h`), which reports a contact point as
+touching when the physics carries more than `simContactForceThreshold` newtons of normal force between it and anything
+outside the robot (a contact point without a resolvable MuJoCo body keeps reading as touching). With
+`always_in_contact` every swing reads as an early touch-down at its scuffing window, so phase resetting must not be
+enabled in simulation with it (the simulator logs a warning), and every planned contact wrench reaches the inverse
+dynamics as it historically did. The viewer's contact timeline (`b`, `contact_timeline` in `simVisualizations`) shows
 the contact state the executed policy plans against that ground truth, which is the quickest way to see early or late
 touch-downs and foot scuffing.
 
@@ -379,6 +419,14 @@ at its current placement. The arrow is the patch's x axis, i.e. its yaw: the pla
 (`useAcomDynamics`) and the measured foot yaw without it. The poses are the ones the reference manager computed at its
 last solve (`ContactPlanningReferenceManager::getTargetContactPoses`), so they move whenever a new plan or a contact
 event re-times the schedule.
+
+Three centroidal markers put the reduced model the planner reasons with next to the physics: `center_of_mass` (`o`)
+draws the whole-body centre of mass as a sphere with a vertical down to its shadow on the ground, `zmp` (`z`) the zero
+moment point of the physical ground reaction as a disc on the ground (hidden while the robot carries no weight, e.g. on
+the gantry), and `dcm` (`d`) the divergent component of motion of the measured centroidal state,
+`com_xy + v_xy / omega` with `omega = sqrt(g / z_com)`, with a line from the CoM's shadow to it. The DCM ahead of the
+support polygon is what the next step has to catch; the ZMP leaving the sole is what the wrench cone would not allow.
+They are on in the shipped DRC Atlas task file and listed, off, in the others.
 
 **Early touch-down.** A foot that is scheduled to swing but is measured in contact after the first
 `earlyTouchdownMinSwingRatio` of the *nominal* swing duration (scuffing right after lift-off is ignored), and whose
@@ -596,14 +644,14 @@ The block of `contact_planning.yaml` mirrors that structure:
 
 | Key | What it holds |
 | --- | --- |
-| `planner` | properties of the planner itself: grid (`dt`, `numNodes`), `commitTime`, solver budget, threading |
+| `planner` | properties of the planner itself: grid (`dt`, `numNodes`), `commitTime`, solver budget, threading, `logPlans` (one line per plan: search statistics, phase durations, step lengths) |
 | `shared` | parameters read by more than one term: `gravity`, `comHeight`, `bigM`, the default `slack_penalty` of the soft constraints, the `gait_limits` |
 | `dynamics` | model blocks, in the order that fixes the variable layout: `lip_com`, `foothold_integrator` (mandatory, always first), `heading_double_integrator` |
-| `costs` | in the accumulation order of the stage matrices: `regularization`, `previous_foothold_consistency`, `velocity_tracking`, `step_width`, the heading costs, `zmp_regularization`, `foothold_regularization`, `terminal_dcm` |
+| `costs` | in the accumulation order of the stage matrices: `regularization`, `previous_foothold_consistency`, `velocity_tracking`, `step_width`, the heading costs, `zmp_regularization`, `foothold_regularization`, `step_length`, `terminal_dcm` |
 | `soft_constraints` | `zmp_support_region`, `reachability`, `foot_separation`, `hip_yaw_range`; each may carry a `slack` block that overrides the shared penalty |
 | `hard_constraints` | `no_flight`, `foot_motion_in_swing_only`, `yaw_torque_budget`, `foot_yaw_pinned_in_contact` |
 | `logic_rules` | propagation on the binaries: `phase_durations`, `no_flight`, `minimum_double_support`, `alternating_feet` |
-| `assignment_costs` | `contact_switch`, `plan_consistency` |
+| `assignment_costs` | `contact_switch`, `plan_consistency`, `double_support_penalty` |
 | `search` | `warm_start_previous_plan`, `diving`, `event_shift_local_search`, `heading_relinearisation` |
 | `execution` | the reference manager's rules of section 2.8 and `planned_heading_override` |
 | one block per term | its parameters, named as the term (`velocity_tracking: {weight: 50.0}`, ...) |

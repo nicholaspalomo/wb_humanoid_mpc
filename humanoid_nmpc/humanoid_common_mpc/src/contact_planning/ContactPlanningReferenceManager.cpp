@@ -433,7 +433,7 @@ void ContactPlanningReferenceManager::updateDcmStepAdjustment(const ExecutionCon
 }
 
 scalar_t ContactPlanningReferenceManager::commitBoundary(scalar_t time) const {
-  return commitBoundaryForSchedule(appliedSchedule_, time, getConfig().planner.commitTime);
+  return commitBoundaryForSchedule(appliedSchedule_, time, getConfig().planner.commitTime, getConfig().planner.maxCommitExtension);
 }
 
 std::optional<std::pair<scalar_t, scalar_t>> ContactPlanningReferenceManager::swingPhase(size_t contactIndex, scalar_t time) const {

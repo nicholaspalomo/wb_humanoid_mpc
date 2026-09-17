@@ -38,6 +38,7 @@ ContactPlannerModule::ContactPlannerModule(std::shared_ptr<ContactPlanningRefere
     throw std::invalid_argument("[ContactPlannerModule] reference manager must not be null");
   }
   referenceManagerPtr_->setConfig(config_);
+  logPlans_.store(config_.planner.logPlans);
   LOG(INFO) << "[ContactPlannerModule] contact planner formulation:\n" << planner_.getFormulationSummary();
   if (config_.planner.runInBackgroundThread) {
     startWorker();
@@ -107,6 +108,7 @@ void ContactPlannerModule::setConfig(const ContactPlanningConfig& configIn) {
                        config_.planner.dt != config.planner.dt;
     config_ = config;
     configChanged_ = true;
+    logPlans_.store(config.planner.logPlans);
   }
   if (structuralChange) {
     LOG(INFO) << "[ContactPlannerModule] contact planner formulation reloaded:\n" << LipContactPlanner::formulationSummary(config);
@@ -150,6 +152,7 @@ void ContactPlannerModule::runPlanner(const ContactPlannerInput& input) {
     LOG(ERROR) << "[ContactPlannerModule] planning failed: " << e.what();
     plan.valid = false;
   }
+  if (logPlans_.load()) LOG(INFO) << "[ContactPlannerModule] " << plan.describe();
   if (plan.valid) {
     referenceManagerPtr_->setContactPlan(plan);
     // Drop any snapshot taken before this plan is applied: the next plan must start from the schedule that includes it,

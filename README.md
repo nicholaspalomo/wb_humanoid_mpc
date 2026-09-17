@@ -242,6 +242,7 @@ The joystick GUI (`base_velocity_controller_gui`) features a dark-themed tabbed 
    - Command planar velocities ($v_x, v_y, \omega_z$) via interactive virtual joysticks or physical Xbox gamepad.
    - Adjust root pelvis height and virtual gantry suspension.
    - Switch supervisory FSM modes (`ZERO_TORQUE`, `JOINT_PD`, `GRAVITY_COMP`, `WB_MPC`, `SAFETY`).
+   - Checkbox selecting the simulator's cheater contact estimator (task file `contactEstimator: cheater_sim` on, `always_in_contact` off), applied live through the parameter topic.
    - Instant-launch **PlotJuggler** pre-configured with telemetry stream tabs.
 
 2. **⚙️ Joint PD Gains Tuning (`joint_pd_gains.yaml`):**
@@ -253,7 +254,7 @@ The joystick GUI (`base_velocity_controller_gui`) features a dark-themed tabbed 
 
 3. **📈 MPC Parameters Tuning (`task.yaml`):**
    - Real-time sliders and numeric entry for diagonal state cost weights ($Q$), control input penalties ($R$), and terminal state weights ($Q_{\text{final}}$).
-   - Category filtering across **State Costs (Q)**, **Input Costs (R)**, **Terminal Costs (Q_final)**, **Task-Space Costs** (foot/torso tracking), and **Constraints & Barriers** (friction cone $\mu$, relaxed barrier parameters).
+   - Category filtering across **State Costs (Q)**, **Input Costs (R)**, **Terminal Costs (Q_final)**, **Task-Space Costs** (foot/torso tracking), **Constraints & Barriers** (friction cone $\mu$, relaxed barrier parameters), **Solver & Horizon** and **Contact Planning** (the contact planner's parameter blocks).
    - In-place YAML updater preserving all section headers, inline documentation, and matrix layouts with `.bak` safety backups.
 
 ---
@@ -343,6 +344,11 @@ When focused in the MuJoCo simulation viewport, use these keyboard shortcuts and
 | **`m`** | Toggle **Center of Mass (CoM)** | Displays CoM indicator spheres for kinematic bodies / links |
 | **`i`** | Toggle **Inertia Ellipsoids** | Renders equivalent inertia ellipsoids depicting principal moments of inertia |
 | **`h`** | Toggle **Convex Hulls** | Displays computed convex hulls enclosing the link meshes |
+| **`o`** | Toggle **Centre of Mass** | Whole-body CoM sphere, its vertical, and its shadow on the ground (`center_of_mass` in `simVisualizations`) |
+| **`z`** | Toggle **ZMP** | Zero moment point of the physical ground reaction, as a disc on the ground (`zmp`) |
+| **`d`** | Toggle **DCM** | Divergent component of motion (capture point) of the measured CoM, on the ground, with its offset from the CoM's shadow (`dcm`) |
+| **`b`** | Toggle **Contact Timeline** | Barcode of planned vs ground-truth contact per contact point (`contact_timeline`) |
+| **`g`** | Toggle **Target Contact Patches** | Contact patch of every foot at the planner's target position and yaw (`target_contact_patches`) |
 | **`p`** | **Print Cheatsheet** | Prints the hotkey and mouse control guide to the terminal |
 | **Left Click + Drag** | **Orbit Camera** | Rotates camera viewpoint around the robot or focal point |
 | **Right Click + Drag** | **Pan Camera** | Translates camera position horizontally and vertically |

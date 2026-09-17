@@ -14,40 +14,71 @@
 # LINT.IfChange(contact_planning_config)
 contact_planning:
   planner:                            # grid, commit window, solver budget, threading
-    dt: 0.1                           # [s] planner node duration
+    dt: 0.1  # [s] planner node duration
     numNodes: 12                      # planning horizon = numNodes * dt, should cover mpc.timeHorizon
-    commitTime: 0.3                   # [s] the applied schedule is fixed this far ahead; must cover the planner latency (a swing
+    commitTime: 0.3  # [s] the applied schedule is fixed this far ahead; must cover the planner latency (a swing
                                       #     that has started or starts within this window is always executed to its touch-down)
-    maxBranchAndBoundNodes: 200       # relaxations per plan
-    maxSolveTime: 0.1                 # [s] anytime limit, the best plan found so far is returned
+    # Enabled: with minDoubleSupportDuration 0 the swings abut and the boundary walk has nothing to terminate it,
+    # which stalls the planner silently (it falls back to a STANCE-only merge, so the foot that should lift never
+    # does and the robot is dragged sideways standing still). 0.6 is just above maxSwingDuration 0.5, so a whole
+    # swing still fits, and commitTime + 0.6 = 0.9 s leaves the 1.2 s plan reaching past the boundary.
+    maxCommitExtension: 0.6  # [s] <= 0: no cap (today's behaviour). Bounds how far past commitTime the boundary may be
+                                      # extended to reach a swing's touch-down. The extension walks the phases overlapping the
+                                      # window and each swing it reaches pushes the boundary to that swing's touch-down, which
+                                      # pulls the following phases into the walk. With minDoubleSupportDuration: 0 every swing
+                                      # starts exactly where the previous one ends, so nothing terminates the walk: the boundary
+                                      # runs to the end of the stepping region, no plan reaches past it (planUsable needs
+                                      # endTime() > commitTime + dt), and the planner stops publishing - the robot stops
+                                      # stepping. A double support of any length breaks the chain, which is why an uncapped
+                                      # extension only fails once the double supports are actually gone. Set it above
+                                      # maxSwingDuration (validated) so a whole swing still fits; a capped boundary can fall
+                                      # inside a swing in flight and let a later plan re-time it, which is what the extension
+                                      # exists to prevent, so validate in MuJoCo before hardware.
+    maxBranchAndBoundNodes: 200  # relaxations per plan
+    maxSolveTime: 0.1  # [s] anytime limit, the best plan found so far is returned
     maxQpIterations: 60
     runInBackgroundThread: true       # false: plan synchronously in the MPC pre-solve hook
-    planningFrequency: 10.0           # [Hz] upper bound on the background planning rate
+    planningFrequency: 10  # [Hz] upper bound on the background planning rate
     verbose: false
+    logPlans: true                    # one log line per plan: objective, relaxations, solve time, NODE-LIMIT / TIME-LIMIT when the
+                                      # search was cut short, CoM velocity at both ends of the horizon, and per foot the phase
+                                      # sequence with durations and every step (dx, dy). Set false once the gait is understood.
 
   shared:                             # parameters read by more than one term
-    gravity: 9.81                     # [m/s^2]
-    comHeight: 0.85                   # [m] LIP height, omega = sqrt(gravity / comHeight); 0 = CoM height above the feet at initialState
-    bigM: 1.5                         # [m] big-M of the contact disjunctions (must exceed foot_separation.maxStepLength). Kept just
+    gravity: 9.81  # [m/s^2]
+    comHeight: 0.85  # [m] LIP height, omega = sqrt(gravity / comHeight); 0 = CoM height above the feet at initialState
+    bigM: 1.5  # [m] big-M of the contact disjunctions (must exceed foot_separation.maxStepLength). Kept just
                                       #     above maxStepLength: a tighter big-M tightens the relaxations and speeds up the search.
     slack_penalty:                    # default penalty of every soft constraint without a `slack` block of its own
-      quadratic: 10000.0              # quadratic penalty on the ZMP / reachability slacks
-      linear: 100.0                   # linear penalty on the same slacks
+      quadratic: 10000  # quadratic penalty on the ZMP / reachability slacks
+      linear: 100  # linear penalty on the same slacks
     # Cadence. The stride period the planner can emit is bounded below by
     # 2 * (minSwingDuration + minDoubleSupportDuration), so these keys, not the reach limits, set the top speed:
     # at 0.4 / 0.1 the floor was a 1.0 s stride, which needs a 0.6 m step to track the joypad's full-stick 1.2 m/s.
     # At 0.3 / 0.1 it is 0.8 s, i.e. a 0.48 m step for the same command.
+    # With minDoubleSupportDuration at 0 the floor is 2 * minSwingDuration = 0.6 s, i.e. a 0.36 m step for that command,
+    # and step_length's nominal displacement follows the same ratio (T_stride / T_swing drops from 2.33 to 2.0).
     # Every duration is quantised to a whole number of `dt` nodes (ceil for a minimum, floor for a maximum), so at
     # dt: 0.1 nothing below 0.1 s is expressible.
     # task.yaml swing_trajectory_config.swingTimeScale must stay <= minSwingDuration or every swing is scaled down in
     # height and velocity by swingDuration / swingTimeScale and the foot lands short and low.
     gait_limits:
-      minSwingDuration: 0.3           # [s]
-      maxSwingDuration: 0.5           # [s] a long swing at speed is dead time the planner would otherwise spend
-      minContactDuration: 0.1         # [s]
-      maxContactDuration: 0.0         # [s] <= 0: no limit (standing allowed)
-      minDoubleSupportDuration: 0.05  # [s] after a touch-down the other foot stays down at least this long.
-                                      # NOTE: quantised up to one node, so at dt: 0.1 this still behaves as 0.1 s.
+      minSwingDuration: 0.4  # [s] must stay >= task.yaml swing_trajectory_config.swingTimeScale (0.25)
+      # [s] a long swing at speed is dead time the planner would otherwise spend. At 1.0 the planner chose 0.6-0.7 s
+      # swings even at low command, and with minDoubleSupportDuration 0 the whole of that is single support: the lateral
+      # LIP diverges as cosh(omega t), so a 0.7 s single support multiplies a lateral offset by cosh(2.38) = 5.4 with no
+      # double support in which to walk the ZMP across. It also caps the lateral speed, which needs a step of
+      # v_y * T_stride to fit inside maxStepWidth - minStepWidth = 0.30 m, so a long stride halves what the gait can
+      # deliver sideways. And a 1.0 s swing is most of the 1.2 s horizon, which leaves the planner nothing to plan with
+      # and makes maxCommitExtension unusable (the capped boundary would still outrun the plan).
+      maxSwingDuration: 0.5
+      minContactDuration: 0.3  # [s]
+      maxContactDuration: 0  # [s] <= 0: no limit (standing allowed)
+      minDoubleSupportDuration: 0  # [s] after a touch-down the other foot stays down at least this long. 0 disables the
+                                      # hold entirely and lets a foot lift at the very node the other lands (an
+                                      # instantaneous support exchange, which is what double_support_penalty then asks for).
+                                      # NOTE: any value above 0 is quantised up to a whole node, so at dt: 0.1 anything in
+                                      # (0, 0.1] behaves as 0.1 s; only exactly 0 gives a zero double support.
 
   # ---- the formulation: what the planner is assembled from ----
   dynamics:                           # model blocks; order fixes the variable layout, the first two are mandatory
@@ -71,6 +102,7 @@ contact_planning:
     - foot_yaw_regularization
     - zmp_regularization
     - foothold_regularization
+    - step_length                     # cyclic step length: a swinging foot advances what the commanded speed needs per node
     - terminal_dcm
   soft_constraints:
     - zmp_support_region
@@ -90,6 +122,7 @@ contact_planning:
   assignment_costs:                   # costs on the binaries, outside the QP
     - contact_switch
     - plan_consistency
+    - double_support_penalty
   search:                             # stages around the branch-and-bound
     - warm_start_previous_plan
     - diving
@@ -100,73 +133,100 @@ contact_planning:
   # before they existed, which is the behaviour the gait is tuned against. Enable one at a time and validate it in MuJoCo
   # before hardware. phase_resetting must precede energy_cadence_modulation when both are listed.
   execution:
-    - phase_resetting                 # early touch-down: switch the foot to contact at once; late: extend the swing
+    # - phase_resetting                 # early touch-down: switch the foot to contact at once; late: extend the swing
     - planned_heading_override        # the plan's heading replaces the commanded yaw in the MPC target trajectory
     # - energy_cadence_modulation     # re-time the touch-down of the swing in flight by the LIP orbital energy error
     # - dcm_step_adjustment           # move the landing target by the DCM error propagated to touch-down
 
   # ---- one parameter block per term, named as the term ----
   regularization:
-    state: 1.0e-8                     # added to the diagonal of Q at every node
-    input: 1.0e-6                     # added to the diagonal of R on the running nodes
+    state: 1.0e-08  # added to the diagonal of Q at every node
+    input: 1.0e-06  # added to the diagonal of R on the running nodes
   previous_foothold_consistency:
-    weight: 5.0                       # ||foot position - previous plan||^2 per node, damps landing-target jitter
+    weight: 5  # ||foot position - previous plan||^2 per node, damps landing-target jitter
   velocity_tracking:
-    weight: 50.0                      # ||v_com - v_cmd||^2 per node
+    weight: 100  # ||v_com - v_cmd||^2 per node
   step_width:
-    weight: 10.0                      # (step width - nominalStepWidth)^2 per node
-    nominalStepWidth: 0.25            # [m] preferred lateral distance between the feet
+    weight: 10  # (step width - nominalStepWidth)^2 per node
+    nominalStepWidth: 0.25  # [m] preferred lateral distance between the feet
   heading_rate_tracking:
-    weight: 20.0                      # (heading rate - commanded yaw rate)^2 per node
+    weight: 20  # (heading rate - commanded yaw rate)^2 per node
   heading_tracking:
-    weight: 5.0                       # (heading - commanded heading)^2 per node
+    weight: 5  # (heading - commanded heading)^2 per node
   foot_yaw_tracking:
-    weight: 5.0                       # (foot yaw - nominal heading)^2 per node
+    weight: 5  # (foot yaw - nominal heading)^2 per node
   yaw_torque_regularization:
-    weight: 0.001                     # yaw torque^2 per node
+    weight: 0.001  # yaw torque^2 per node
   foot_yaw_regularization:
-    weight: 1.0                       # (foot yaw displacement)^2 per node
+    weight: 1  # (foot yaw displacement)^2 per node
   zmp_regularization:
-    weight: 0.1                       # ||zmp - p_com||^2 per node
+    weight: 0.1  # ||zmp - p_com||^2 per node
   foothold_regularization:
-    weight: 0.2                       # ||foot displacement||^2 per node
+    weight: 0.2  # ||foot displacement||^2 per node
+  # The velocity tracking alone is indifferent between a few long steps and many short ones at the same average speed,
+  # and from rest it favours the short quick steps that accelerate the pendulum fastest. This term draws every swing to
+  # the displacement a cyclic gait at the commanded speed needs, d_nom = v_cmd * dt * T_stride / T_swing at the nominal
+  # cadence of the gait limits (T_swing = minSwingDuration, T_stride = 2 (minSwingDuration + minDoubleSupportDuration)),
+  # and a standing foot to stay put. With the acceleration limit of reference.yaml (maxLinearAcceleration) the steps
+  # then lengthen progressively with the ramped command.
+  step_length:
+    weight: 20  # ||dp_swing - d_nom||^2 per running node and foot
   terminal_dcm:
-    weight: 50.0                      # ||DCM_N - zmp_(N-1)||^2 (terminal capturability)
+    weight: 50  # ||DCM_N - zmp_(N-1)||^2 (terminal capturability)
+    trackCommandedVelocity: true      # true: the DCM is drawn to zmp + v_cmd / omega, i.e. the plan is asked to keep walking at
+                                      # the end of the horizon; false: onto the ZMP, a stop, which shortens the steps at speed
   zmp_support_region:
-    halfWidthX: 0.08                  # [m] ZMP box half-width around a supporting foot along the heading (0 = from the footprint)
-    halfWidthY: 0.04                  # [m] ZMP box half-width laterally
+    halfWidthX: 0.08  # [m] ZMP box half-width around a supporting foot along the heading (0 = from the footprint)
+    halfWidthY: 0.04  # [m] ZMP box half-width laterally
   # Reach. These were ~3x the header defaults, which let the planner buy velocity tracking with stride length the leg
   # cannot deliver: the landing target ran away from the foot and the swing never reached it. Tightened to something
   # the leg can actually reach, so the planner has to buy speed with cadence instead.
   reachability:
-    reachX: 0.6                       # [m] foot x offset from the CoM
-    reachYInner: 0.05                 # [m] left foot y - CoM y >= reachYInner (mirrored for the right foot)
-    reachYOuter: 0.45                 # [m]
+    reachX: 0.6  # [m] foot x offset from the CoM
+    reachYInner: 0.05  # [m] left foot y - CoM y >= reachYInner (mirrored for the right foot)
+    reachYOuter: 0.45  # [m]
   foot_separation:
-    maxStepLength: 0.7                # [m] |x_left - x_right| bound
-    minStepWidth: 0.15                # [m] self-collision margin
-    maxStepWidth: 0.45                # [m]
+    maxStepLength: 0.7  # [m] |x_left - x_right| bound
+    minStepWidth: 0.15  # [m] self-collision margin
+    maxStepWidth: 0.45  # [m]
   # hip_yaw_range and yaw_torque_budget take their values from the robot model: the yaw inertia, the yaw torque limits
   # (torsional friction coefficient * weight, friction coefficient * half the weight * nominalStepWidth, both from
   # contactWrenchConeSoftConstraint) and the per-leg hip yaw range are not keys here.
   contact_switch:
-    cost: 0.3                         # per lift-off / touch-down event. A faster cadence puts more events in the horizon,
+    cost: 0.02  # per lift-off / touch-down event. A faster cadence puts more events in the horizon,
                                       # so at 1.0 this term charged the planner for the very thing the cadence limits allow.
   plan_consistency:
-    cost: 0.5                         # per node whose contact differs from the previous plan (hysteresis between plans)
+    cost: 0.5  # per node whose contact differs from the previous plan (hysteresis between plans)
+  # The incentive for the zero double support that minDoubleSupportDuration: 0 only permits: with the duration at zero
+  # and this term absent the planner still keeps a double support while walking, because it is cheaper for the ZMP.
+  double_support_penalty:
+    cost: 0.1  # per node at which both feet are in contact. The term cannot tell the weight transfer
+                                      # of a step apart from standing on two feet, so it prices standing as well: measured
+                                      # against these gait limits, 0.1 removes the transition double support at 0.6 m/s
+                                      # (4 double-support nodes and no simultaneous exchange become 1 and 2) and leaves a
+                                      # zero velocity command standing; 0.3 already makes the robot step in place rather
+                                      # than stand, and 5.0 makes it march continuously. Raise it only with the standing
+                                      # regression test in front of you.
   diving:
     maxDiveIterations: 64
   event_shift_local_search:
-    iterations: 10                    # rounds of event-shift local search on the incumbent (0 disables)
-    maxTime: 0.05                     # [s]
+    iterations: 10  # rounds of event-shift local search on the incumbent (0 disables)
+    maxTime: 0.05  # [s]
   heading_relinearisation:
     passes: 1                         # re-linearisations of the heading frame at the incumbent (0 disables)
   phase_resetting:
-    earlyTouchdownMinSwingRatio: 0.25       # contact during this initial fraction of the nominal swing is ignored (scuffing)
+    earlyTouchdownMinSwingRatio: 0.25  # contact during this initial fraction of the nominal swing is ignored (scuffing)
     earlyTouchdownMinContactDuration: 0.02  # [s] contact must persist this long before the swing is ended (sensor debounce)
-    maxLateTouchdownExtension: 0.15         # [s] total extension budget of a swing past its planned touch-down
-    lateTouchdownExtensionStep: 0.05        # [s] the touch-down is pushed this far ahead of the current time per cycle
-    lateTouchdownSearchVelocity: 0.05       # [m/s] descent rate of the foot height target while searching for the ground
+    earlyTouchdownMinAdvance: 0.04  # [s] a touch-down closer than this to its scheduled time is executed as planned.
+                                            # Ending the swing early holds the foot down from the measured contact until its
+                                            # scheduled touch-down, which at minDoubleSupportDuration: 0 is the other foot's
+                                            # lift-off: the truncation then opens a double support as long as the foot was
+                                            # early, on nearly every step, and shorter than the MPC's own dt (0.02 s). This
+                                            # also bounds the shortest double support the rule can create. Must exceed
+                                            # earlyTouchdownMinContactDuration or the debounce alone defeats it. 0 = off.
+    maxLateTouchdownExtension: 0.15  # [s] total extension budget of a swing past its planned touch-down
+    lateTouchdownExtensionStep: 0.05  # [s] the touch-down is pushed this far ahead of the current time per cycle
+    lateTouchdownSearchVelocity: 0.05  # [m/s] descent rate of the foot height target while searching for the ground
   # The DCM step adjustment and the cadence modulation measure the deviation of the measured CoM from the NMPC's own
   # predicted trajectory, so they act only on real disturbances and are zero while the robot does what the controller
   # expects. That prediction is refreshed every solve, so each loop corrects the deviation that appeared over the last
@@ -174,9 +234,9 @@ contact_planning:
   # the measured state for that). dcm_step_adjustment.maxOffset is the safety bound; check in simulation that the offset
   # is not sitting at it.
   energy_cadence_modulation:
-    gain: 0.01                        # [s/J] touch-down shift = -gain * (E - E_pred), E of the full model mass
-    deadband: 0.0                     # [J] deviations within this band re-time nothing; a few joules absorb velocity noise
+    gain: 0.01  # [s/J] touch-down shift = -gain * (E - E_pred), E of the full model mass
+    deadband: 0  # [J] deviations within this band re-time nothing; a few joules absorb velocity noise
   dcm_step_adjustment:
-    gain: 0.5                         # 1 = exact LIP compensation of the DCM increment, propagated to touch-down
-    maxOffset: 0.05                   # [m] bound on the landing target offset (also clipped to the reachable region)
+    gain: 0.5  # 1 = exact LIP compensation of the DCM increment, propagated to touch-down
+    maxOffset: 0.05  # [m] bound on the landing target offset (also clipped to the reachable region)
 # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/contact_planning/ContactPlanningConfig.cpp:contact_planning_keys, //humanoid_nmpc/humanoid_common_mpc/src/contact_planning/ContactPlanningFormulation.cpp:known_term_names)

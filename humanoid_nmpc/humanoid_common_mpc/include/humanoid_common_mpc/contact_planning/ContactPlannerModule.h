@@ -151,6 +151,7 @@ class ContactPlannerModule final : public SolverSynchronizedModule {
 
   mutable std::mutex statisticsMutex_;
   Statistics statistics_;
+  std::atomic<bool> logPlans_{false};  // planner.logPlans, mirrored here so the worker needs no config lock per plan
 };
 
 }  // namespace ocs2::humanoid

@@ -25,15 +25,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <gtest/gtest.h>
 
+#include <cmath>
+
+#include <limits>
 #include <stdexcept>
 #include <string>
 
+#include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningTermFactory.h"
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
 #include "humanoid_common_mpc/contact_planning/LipContactPlanner.h"
+#include "humanoid_common_mpc/contact_planning/cost/StepLengthCost.h"
+#include "humanoid_common_mpc/contact_planning/cost/TerminalDcmCost.h"
 #include "humanoid_common_mpc/contact_planning/cost/VelocityTrackingCost.h"
 #include "humanoid_common_mpc/contact_planning/execution/ExecutionContext.h"
 #include "humanoid_common_mpc/contact_planning/execution/ScheduleAdaptationPipeline.h"
+#include "humanoid_common_mpc/contact_planning/logic/DoubleSupportPenaltyCost.h"
 #include "humanoid_common_mpc/contact_planning/model/LipBlockIndices.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 
@@ -147,6 +154,110 @@ TEST(ContactPlanningTerms, TermsAreAssembledInListOrderAndOnTheirNodeSets) {
   // The velocity tracking cost acts on the terminal node too: q_N carries -2 w v_cmd on the velocity entries.
   EXPECT_NEAR(qp.stages.back().q(LIP_VX), -2.0 * config.velocityTracking.weight * 0.4, 1e-12);
   EXPECT_NEAR(qp.stages.back().Q(LIP_CX, LIP_CX), config.regularization.state, 1e-15) << "only the regularisation touches the CoM";
+}
+
+// step_length: w ||dp - d_nom (1 - c)||^2 per foot and axis on the running nodes. The residual is affine in dp and the
+// relaxed binary c, so the stage carries the cross terms of the two: R(dp, dp) = 2w, R(dp, c) = 2w d, R(c, c) = 2w d^2,
+// r(dp) = -2w d, r(c) = -2w d^2 (0.5 u'Ru + r'u convention), summed over both axes for the c entries.
+TEST(ContactPlanningTerms, StepLengthCostTiesTheSwingDisplacementToTheCommandedSpeed) {
+  ContactPlanningConfig config = makeConfig();
+  config.formulation.costs = {term::kStepLength};
+  config.formulation.softConstraints = {};
+  config.formulation.hardConstraints = {};
+  config.stepLength.weight = 20.0;
+  config.validate();
+  LipContactPlanner planner(config);
+  const auto& cost = planner.getProblem().costs.get<StepLengthCost>(term::kStepLength);
+  EXPECT_EQ(cost.nodeSet(), NodeSet::RUNNING);
+  // T_stride / T_swing = 2 (0.3 + 0.1) / 0.3
+  EXPECT_NEAR(cost.strideToSwingRatio(), 8.0 / 3.0, 1e-12);
+  const vector2_t d = cost.nominalDisplacementPerNode(vector2_t(0.4, 0.0), 0.1);
+  EXPECT_NEAR(d.x(), 0.4 * 0.1 * 8.0 / 3.0, 1e-12);
+  EXPECT_NEAR(d.y(), 0.0, 1e-12);
+
+  const scalar_t w = config.stepLength.weight;
+  const OcpQpProblem qp = planner.buildProblem(makeWalkingInput());
+  const OcpQpStage& stage = qp.stages.front();
+  EXPECT_NEAR(stage.R(LIP_DLX, LIP_DLX), 2.0 * w, 1e-12);
+  EXPECT_NEAR(stage.R(LIP_DLY, LIP_DLY), 2.0 * w, 1e-12);
+  EXPECT_NEAR(stage.R(LIP_DLX, LIP_CL), 2.0 * w * d.x(), 1e-12);
+  EXPECT_NEAR(stage.R(LIP_CL, LIP_DLX), 2.0 * w * d.x(), 1e-12);
+  EXPECT_NEAR(stage.R(LIP_DLY, LIP_CL), 0.0, 1e-12) << "no lateral command, no lateral nominal";
+  EXPECT_NEAR(stage.R(LIP_CL, LIP_CL), 2.0 * w * d.squaredNorm(), 1e-12);
+  EXPECT_NEAR(stage.r(LIP_DLX), -2.0 * w * d.x(), 1e-12);
+  EXPECT_NEAR(stage.r(LIP_CL), -2.0 * w * d.squaredNorm(), 1e-12);
+  EXPECT_NEAR(stage.R(LIP_DRX, LIP_CR), 2.0 * w * d.x(), 1e-12) << "both feet";
+  EXPECT_NEAR(stage.R(LIP_DLX, LIP_CR), 0.0, 1e-12) << "no coupling across feet";
+  EXPECT_TRUE(stage.Q.isZero()) << "the term touches no state";
+  EXPECT_EQ(qp.stages.back().numInputs(), 0) << "not on the terminal node";
+
+  // Standing still: the nominal is zero and the term is a plain regulariser of the foot displacement.
+  const OcpQpProblem standing = planner.buildProblem(makeStandingInput());
+  EXPECT_NEAR(standing.stages.front().R(LIP_DLX, LIP_DLX), 2.0 * w, 1e-12);
+  EXPECT_NEAR(standing.stages.front().R(LIP_DLX, LIP_CL), 0.0, 1e-12);
+  EXPECT_NEAR(standing.stages.front().r(LIP_CL), 0.0, 1e-12);
+  EXPECT_NE(cost.describe().find("d_nom = v_cmd dt T_stride / T_swing"), std::string::npos);
+}
+
+// terminal_dcm.trackCommandedVelocity moves the target of the DCM from the last ZMP (rest) to zmp + v_cmd / omega (a CoM
+// over the foot that keeps moving at the commanded velocity): only the linear term of the last running node changes.
+TEST(ContactPlanningTerms, TerminalDcmCanTrackTheCommandedVelocityInsteadOfComingToRest) {
+  ContactPlanningConfig rest = makeConfig();
+  rest.formulation.costs = {term::kTerminalDcm};
+  rest.formulation.softConstraints = {};
+  rest.formulation.hardConstraints = {};
+  rest.validate();
+  ContactPlanningConfig walking = rest;
+  walking.terminalDcm.trackCommandedVelocity = true;
+  LipContactPlanner restPlanner(rest);
+  LipContactPlanner walkingPlanner(walking);
+  EXPECT_FALSE(restPlanner.getProblem().costs.get<TerminalDcmCost>(term::kTerminalDcm).tracksCommandedVelocity());
+  EXPECT_TRUE(walkingPlanner.getProblem().costs.get<TerminalDcmCost>(term::kTerminalDcm).tracksCommandedVelocity());
+  EXPECT_NE(walkingPlanner.getProblem().costs.get(term::kTerminalDcm).describe().find("v_cmd / omega"), std::string::npos);
+
+  const ContactPlannerInput input = makeWalkingInput();  // v_cmd = (0.4, 0)
+  const OcpQpProblem qpRest = restPlanner.buildProblem(input);
+  const OcpQpProblem qpWalking = walkingPlanner.buildProblem(input);
+  const size_t last = static_cast<size_t>(rest.planner.numNodes - 1);
+  const scalar_t omega = std::sqrt(rest.shared.gravity / rest.shared.comHeight);
+  const scalar_t gain = std::exp(2.0 * omega * rest.planner.dt);
+  const scalar_t w = rest.terminalDcm.weight;
+  // Quadratic terms are identical, the linear ones differ by 2 w gain offset per coefficient, offset = -v_cmd / omega.
+  EXPECT_TRUE(qpWalking.stages[last].Q.isApprox(qpRest.stages[last].Q));
+  EXPECT_TRUE(qpWalking.stages[last].R.isApprox(qpRest.stages[last].R));
+  EXPECT_TRUE(qpRest.stages[last].q.isZero());
+  EXPECT_NEAR(qpWalking.stages[last].q(LIP_CX), -2.0 * w * gain * 0.4 / omega, 1e-9);
+  EXPECT_NEAR(qpWalking.stages[last].q(LIP_VX), -2.0 * w * gain * 0.4 / omega / omega, 1e-9);
+  EXPECT_NEAR(qpWalking.stages[last].r(LIP_ZX), 2.0 * w * gain * 0.4 / omega, 1e-9);
+  EXPECT_NEAR(qpWalking.stages[last].q(LIP_CY), 0.0, 1e-12);
+  for (size_t k = 0; k + 1 < last; ++k) EXPECT_TRUE(qpWalking.stages[k].q.isZero()) << "only the last running node";
+}
+
+// planner.logPlans prints one line per plan: search statistics, phase sequence with durations, step lengths.
+TEST(ContactPlanningTerms, APlanDescribesItsPhasesAndSteps) {
+  ContactPlan plan;
+  plan.valid = true;
+  plan.startTime = 2.0;
+  plan.dt = 0.1;
+  plan.objective = 1.5;
+  plan.numBranchAndBoundNodes = 7;
+  plan.solveTime = 0.012;
+  plan.optimal = true;
+  // Left: contact 0.2 s, swing 0.3 s (a 0.4 m step forward), contact 0.1 s. Right: contact throughout.
+  plan.contacts = {{true, true}, {true, true}, {false, true}, {false, true}, {false, true}, {true, true}};
+  plan.footholds.assign(7, {vector2_t(0.0, 0.1), vector2_t(0.0, -0.1)});
+  for (size_t k = 5; k < 7; ++k) plan.footholds[k][0] = vector2_t(0.4, 0.1);
+  plan.comVelocity = {vector2_t(0.3, 0.0), vector2_t(0.5, 0.0)};
+  const std::string line = plan.describe();
+  EXPECT_NE(line.find("plan t=2.000 valid J=1.500 relaxations=7 solve=12.000ms optimal"), std::string::npos) << line;
+  EXPECT_NE(line.find("v0=[0.300 0.000] vN=[0.500 0.000]"), std::string::npos) << line;
+  EXPECT_NE(line.find("| L: C0.200 S0.300(0.400,0.000) C0.100"), std::string::npos) << line;
+  EXPECT_NE(line.find("| R: C0.600"), std::string::npos) << line;
+  plan.valid = false;
+  plan.timeLimitHit = true;
+  plan.optimal = false;
+  EXPECT_NE(plan.describe().find("INVALID"), std::string::npos);
+  EXPECT_NE(plan.describe().find("TIME-LIMIT"), std::string::npos);
 }
 
 /*============================================ required blocks and names ==================================*/
@@ -296,6 +407,139 @@ TEST(ContactPlanningTerms, WithoutRulesTheScheduleIsLeftAloneAndTheLatchTracksTh
   const auto late = adaptScheduleToContactEvents(schedule, 1.45, measured, noCadence, config, latches);
   EXPECT_EQ(late[0].type, ContactEventReport::Type::NONE);
   EXPECT_FALSE(latches[0].active) << "the contact phase proceeds and the latch is released";
+}
+
+/** The double support penalty, on a hand-built assignment of three nodes. Binaries are node-major: 2 * node + foot. */
+TEST(ContactPlanningTerms, DoubleSupportPenaltyChargesEveryNodeWithBothFeetDown) {
+  ContactPlanningConfig config = makeConfig();
+  config.formulation.assignmentCosts = {term::kDoubleSupportPenalty};
+  config.doubleSupportPenalty.cost = 5.0;
+  config.validate();
+  LipContactPlanner planner(config);
+  const auto& cost = planner.getProblem().assignmentCosts.get<DoubleSupportPenaltyCost>(term::kDoubleSupportPenalty);
+
+  ContactLogicState state;
+  state.numNodes = 3;
+  MiqpAssignment a(3 * N_CONTACTS);
+  const auto set = [&a](int node, std::int8_t left, std::int8_t right) {
+    a[static_cast<size_t>(ContactLogicState::contactBinaryIndex(node, 0))] = left;
+    a[static_cast<size_t>(ContactLogicState::contactBinaryIndex(node, 1))] = right;
+  };
+
+  set(0, 0, 1);  // left swinging, right in contact
+  set(1, 1, 1);  // double support
+  set(2, 1, 0);  // left in contact, right swinging
+  EXPECT_NEAR(cost.cost(state, a), 5.0, 1e-12) << "one double-support node out of three";
+
+  set(2, 1, 1);
+  EXPECT_NEAR(cost.cost(state, a), 10.0, 1e-12) << "two double-support nodes";
+
+  set(0, 1, 1);
+  set(1, 1, 1);
+  set(2, 1, 1);
+  EXPECT_NEAR(cost.cost(state, a), 15.0, 1e-12) << "standing costs the whole horizon";
+
+  config.doubleSupportPenalty.cost = 0.0;
+  LipContactPlanner disabled(config);
+  EXPECT_NEAR(disabled.getProblem().assignmentCosts.get<DoubleSupportPenaltyCost>(term::kDoubleSupportPenalty).cost(state, a), 0.0, 1e-12)
+      << "a zero cost is free whatever the assignment";
+}
+
+/**
+ * The branch-and-bound prunes on the assignment cost of a *partial* assignment, so the term has to be a lower bound
+ * there and exact only once every binary is decided. A free node may still become a double support, so charging it
+ * would overestimate the partial assignment and could discard the optimum.
+ */
+TEST(ContactPlanningTerms, DoubleSupportPenaltyIsALowerBoundOnAPartialAssignment) {
+  ContactPlanningConfig config = makeConfig();
+  config.formulation.assignmentCosts = {term::kDoubleSupportPenalty};
+  config.doubleSupportPenalty.cost = 5.0;
+  config.validate();
+  LipContactPlanner planner(config);
+  const auto& cost = planner.getProblem().assignmentCosts.get<DoubleSupportPenaltyCost>(term::kDoubleSupportPenalty);
+
+  ContactLogicState state;
+  state.numNodes = 3;
+  MiqpAssignment partial(3 * N_CONTACTS, kMiqpFree);
+  EXPECT_NEAR(cost.cost(state, partial), 0.0, 1e-12) << "nothing decided, nothing charged";
+
+  // One foot down at node 0, the other still free: not yet a double support.
+  partial[static_cast<size_t>(ContactLogicState::contactBinaryIndex(0, 0))] = 1;
+  EXPECT_NEAR(cost.cost(state, partial), 0.0, 1e-12) << "a half-decided node is not charged";
+
+  // Deciding the second foot completes the double support and the cost may only rise.
+  partial[static_cast<size_t>(ContactLogicState::contactBinaryIndex(0, 1))] = 1;
+  EXPECT_NEAR(cost.cost(state, partial), 5.0, 1e-12);
+
+  // Completing the rest of the horizon can only add to it, never take away.
+  MiqpAssignment complete = partial;
+  for (int k = 1; k < state.numNodes; ++k) {
+    complete[static_cast<size_t>(ContactLogicState::contactBinaryIndex(k, 0))] = 1;
+    complete[static_cast<size_t>(ContactLogicState::contactBinaryIndex(k, 1))] = 0;
+  }
+  EXPECT_GE(cost.cost(state, complete), cost.cost(state, partial)) << "the bound must not decrease when a node is decided";
+}
+
+/**
+ * In a zero-double-support gait the exchange is a single event: one foot lands at the very instant the other lifts.
+ * Ending a swing early holds the landing foot down from the measured contact until its scheduled touch-down, so an
+ * early touch-down there opens a double support exactly as long as the foot was early. Since a landing within a few
+ * milliseconds of the plan is the common case, that put a sliver of double support - shorter than the MPC's own time
+ * step - on nearly every step, at both ends of every swing (each exchange is one foot's touch-down and the other's
+ * lift-off). earlyTouchdownMinAdvance executes a near-on-time touch-down as planned instead.
+ */
+TEST(ContactPlanningTerms, ANearlyOnTimeTouchDownDoesNotSplitAZeroDoubleSupportExchange) {
+  // Left swings 1.0 -> 1.4 and lands at the instant the right lifts; right then swings 1.4 -> 1.8.
+  const ModeSchedule nominal({1.0, 1.4, 1.8}, {ModeNumber::STANCE, ModeNumber::RF, ModeNumber::LF, ModeNumber::STANCE});
+  ContactPlanningConfig config = makeConfig();
+  config.formulation.execution = {term::kPhaseResetting};
+  config.validate();
+  ASSERT_GT(config.phaseResetting.earlyTouchdownMinAdvance, config.phaseResetting.earlyTouchdownMinContactDuration)
+      << "otherwise the debounce alone pushes every truncation inside the guard window";
+  const feet_array_t<scalar_t> noCadence = makeFeetArray(0.0);
+  const contact_flag_t bothDown = {true, true};
+
+  // The shortest double support anywhere in the schedule, ignoring the leading and trailing stance phases.
+  const auto shortestDoubleSupport = [](const ModeSchedule& schedule) {
+    scalar_t shortest = std::numeric_limits<scalar_t>::infinity();
+    for (size_t i = 0; i + 1 < schedule.eventTimes.size(); ++i) {
+      if (schedule.modeSequence[i + 1] == ModeNumber::STANCE) {
+        shortest = std::min(shortest, schedule.eventTimes[i + 1] - schedule.eventTimes[i]);
+      }
+    }
+    return shortest;
+  };
+
+  {  // Landing 30 ms early: inside the guard, the exchange is left exactly as planned.
+    ModeSchedule schedule = nominal;
+    feet_array_t<SwingTimingLatch> latches = makeFeetArray(SwingTimingLatch{});
+    adaptScheduleToContactEvents(schedule, 1.37, bothDown, noCadence, config, latches);
+    const auto reports = adaptScheduleToContactEvents(schedule, 1.392, bothDown, noCadence, config, latches);
+    EXPECT_EQ(reports[0].type, ContactEventReport::Type::NONE) << "a near-on-time touch-down is not an early one";
+    EXPECT_EQ(schedule.eventTimes, nominal.eventTimes) << "the schedule was re-timed";
+    EXPECT_EQ(schedule.modeSequence, nominal.modeSequence) << "the exchange was split by a sliver of double support";
+  }
+  {  // Landing 200 ms early: a real early touch-down, still reset, and the double support it opens spans the guard.
+    ModeSchedule schedule = nominal;
+    feet_array_t<SwingTimingLatch> latches = makeFeetArray(SwingTimingLatch{});
+    adaptScheduleToContactEvents(schedule, 1.20, bothDown, noCadence, config, latches);
+    const auto reports = adaptScheduleToContactEvents(schedule, 1.222, bothDown, noCadence, config, latches);
+    EXPECT_EQ(reports[0].type, ContactEventReport::Type::EARLY_TOUCH_DOWN);
+    EXPECT_NEAR(reports[0].touchDownTime, 1.222, 1e-9);
+    EXPECT_GE(shortestDoubleSupport(schedule), config.phaseResetting.earlyTouchdownMinAdvance - 1e-9)
+        << "the rule may not create a double support shorter than its own guard";
+  }
+  {  // With the guard off the sliver comes back: this is the behaviour the guard exists to remove.
+    ContactPlanningConfig unguarded = config;
+    unguarded.phaseResetting.earlyTouchdownMinAdvance = 0.0;
+    unguarded.validate();
+    ModeSchedule schedule = nominal;
+    feet_array_t<SwingTimingLatch> latches = makeFeetArray(SwingTimingLatch{});
+    adaptScheduleToContactEvents(schedule, 1.37, bothDown, noCadence, unguarded, latches);
+    const auto reports = adaptScheduleToContactEvents(schedule, 1.392, bothDown, noCadence, unguarded, latches);
+    EXPECT_EQ(reports[0].type, ContactEventReport::Type::EARLY_TOUCH_DOWN);
+    EXPECT_NEAR(shortestDoubleSupport(schedule), 0.008, 1e-9) << "8 ms of double support, below the MPC time step";
+  }
 }
 
 }  // namespace ocs2::humanoid

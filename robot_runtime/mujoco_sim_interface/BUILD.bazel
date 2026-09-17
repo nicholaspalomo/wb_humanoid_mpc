@@ -10,6 +10,7 @@ cc_library(
     srcs = [
         "src/MujocoContactUtils.cpp",
         "src/MujocoContactPatch.cpp",
+        "src/CheaterSimContactEstimator.cpp",
         "src/MujocoSimInterface.cpp",
         "src/MujocoRenderer.cpp",
         "src/visualization/VisualizationRegistry.cpp",
@@ -19,6 +20,10 @@ cc_library(
         "src/visualization/BaseVelocityVisualization.cpp",
         "src/visualization/ContactTimelineVisualization.cpp",
         "src/visualization/TargetContactPatchVisualization.cpp",
+        "src/visualization/GroundMarkerGeoms.cpp",
+        "src/visualization/CenterOfMassVisualization.cpp",
+        "src/visualization/ZmpVisualization.cpp",
+        "src/visualization/DcmVisualization.cpp",
         "src/visualization/MujocoOptionFlagVisualization.cpp",
     ],
     hdrs = glob(["include/**"], allow_empty = True),
@@ -89,6 +94,21 @@ cc_test(
     name = "test_visualization_registry",
     size = "small",
     srcs = ["test/testVisualizationRegistry.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+    ],
+    deps = [
+        ":mujoco_sim_interface",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "test_cheater_sim_contact_estimator",
+    size = "small",
+    srcs = ["test/testCheaterSimContactEstimator.cpp"],
     copts = [
         "-std=c++20",
         "-Wall",

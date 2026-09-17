@@ -106,8 +106,12 @@ std::optional<scalar_t> currentOrNextLiftOffTime(const ModeSchedule& schedule, s
   return std::nullopt;
 }
 
-scalar_t commitBoundaryForSchedule(const ModeSchedule& schedule, scalar_t time, scalar_t commitTime) {
+scalar_t commitBoundaryForSchedule(const ModeSchedule& schedule, scalar_t time, scalar_t commitTime, scalar_t maxCommitExtension) {
   scalar_t boundary = time + commitTime;
+  // Cap on the extension below. Without one the walk chains through back-to-back swings, and a gait that exchanges
+  // support in a single instant has nothing but back-to-back swings: the boundary then reaches the end of the stepping
+  // region and no plan ever reaches past it again.
+  const scalar_t limit = maxCommitExtension > 0.0 ? boundary + maxCommitExtension : std::numeric_limits<scalar_t>::infinity();
   const auto& eventTimes = schedule.eventTimes;
   const auto& modeSequence = schedule.modeSequence;
   if (modeSequence.empty()) return boundary;
@@ -125,8 +129,11 @@ scalar_t commitBoundaryForSchedule(const ModeSchedule& schedule, scalar_t time, 
     for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
       if (!contacts[foot]) boundary = std::max(boundary, eventTimes[i]);  // touch-down of this swing
     }
+    if (boundary >= limit) break;  // capped: stop chaining into the swings the extension has just reached
   }
-  return boundary;
+  // Clamping can leave the boundary inside a swing that is already in flight, which hands a later plan the authority
+  // to re-time it. That is the price of keeping the boundary finite; the cap is off by default for that reason.
+  return std::min(boundary, limit);
 }
 
 bool planAgreesWithSwingsInFlight(const ModeSchedule& applied, const ContactPlan& plan, scalar_t time) {

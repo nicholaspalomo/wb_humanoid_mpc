@@ -40,6 +40,10 @@ class TerminalDcmCost final : public LipWeightedCost {
   void configure(const ContactPlanningConfig& config) override;
   NodeSet nodeSet() const override { return NodeSet::LAST_RUNNING; }
   void addToStage(const ContactPlanningContext& ctx, int node, StageAccumulator& stage) const override;
+  bool tracksCommandedVelocity() const { return trackCommandedVelocity_; }
+
+ private:
+  bool trackCommandedVelocity_ = false;
 };
 
 }  // namespace ocs2::humanoid

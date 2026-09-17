@@ -77,6 +77,10 @@ TEST(VisualizationRegistry, DefaultSetIsTheHistoricalViewer) {
   for (const char* name : {"mj_contact_points", "mj_contact_forces", "mj_com", "mj_inertia", "mj_convex_hull", "mj_transparent"}) {
     EXPECT_EQ(set.count(name), 0u) << name << " is off by default, like in MuJoCo";
   }
+  for (const char* name : {"center_of_mass", "zmp", "dcm"}) {
+    EXPECT_EQ(set.count(name), 0u) << name << " is off unless listed in the task file";
+    EXPECT_NE(createVisualization(name), nullptr) << name;
+  }
 }
 
 TEST(VisualizationRegistry, ListedNamesAreCreatedEnabledInRegistryOrder) {

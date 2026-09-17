@@ -43,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/cost/HeadingTrackingCost.h"
 #include "humanoid_common_mpc/contact_planning/cost/PreviousFootholdConsistencyCost.h"
 #include "humanoid_common_mpc/contact_planning/cost/RegularizationCost.h"
+#include "humanoid_common_mpc/contact_planning/cost/StepLengthCost.h"
 #include "humanoid_common_mpc/contact_planning/cost/StepWidthCost.h"
 #include "humanoid_common_mpc/contact_planning/cost/TerminalDcmCost.h"
 #include "humanoid_common_mpc/contact_planning/cost/VelocityTrackingCost.h"
@@ -53,6 +54,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/execution/PhaseResettingRule.h"
 #include "humanoid_common_mpc/contact_planning/logic/AlternatingFeetRule.h"
 #include "humanoid_common_mpc/contact_planning/logic/ContactSwitchCost.h"
+#include "humanoid_common_mpc/contact_planning/logic/DoubleSupportPenaltyCost.h"
 #include "humanoid_common_mpc/contact_planning/logic/MinimumDoubleSupportRule.h"
 #include "humanoid_common_mpc/contact_planning/logic/NoFlightRule.h"
 #include "humanoid_common_mpc/contact_planning/logic/PhaseDurationsRule.h"
@@ -110,6 +112,7 @@ std::unique_ptr<LipCost> ContactPlanningTermFactory::makeCost(const std::string&
   if (canonical == term::kFootYawRegularization) return std::make_unique<FootYawRegularizationCost>();
   if (canonical == term::kZmpRegularization) return std::make_unique<ZmpRegularizationCost>();
   if (canonical == term::kFootholdRegularization) return std::make_unique<FootholdRegularizationCost>();
+  if (canonical == term::kStepLength) return std::make_unique<StepLengthCost>();
   if (canonical == term::kTerminalDcm) return std::make_unique<TerminalDcmCost>();
   unknown(TermKind::COST, name);
 }
@@ -145,6 +148,7 @@ std::unique_ptr<AssignmentCost> ContactPlanningTermFactory::makeAssignmentCost(c
   const std::string canonical = canonicalOrThrow(TermKind::ASSIGNMENT_COST, name);
   if (canonical == term::kContactSwitch) return std::make_unique<ContactSwitchCost>();
   if (canonical == term::kPlanConsistency) return std::make_unique<PlanConsistencyCost>();
+  if (canonical == term::kDoubleSupportPenalty) return std::make_unique<DoubleSupportPenaltyCost>();
   unknown(TermKind::ASSIGNMENT_COST, name);
 }
 

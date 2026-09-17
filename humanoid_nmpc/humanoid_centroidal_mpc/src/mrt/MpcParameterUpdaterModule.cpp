@@ -230,8 +230,50 @@ void MpcParameterUpdaterModule::topicCallback(const std_msgs::msg::String::Share
 /******************************************************************************************************/
 /******************************************************************************************************/
 
+std::optional<std::string> MpcParameterUpdaterModule::takeContactEstimatorUpdate() {
+  std::lock_guard<std::mutex> lock(controllerSettingsMutex_);
+  std::optional<std::string> update = std::move(pendingContactEstimator_);
+  pendingContactEstimator_.reset();
+  return update;
+}
+
+std::optional<ContactWrenchGate::Config> MpcParameterUpdaterModule::takeContactWrenchGateUpdate() {
+  std::lock_guard<std::mutex> lock(controllerSettingsMutex_);
+  std::optional<ContactWrenchGate::Config> update = pendingContactWrenchGate_;
+  pendingContactWrenchGate_.reset();
+  return update;
+}
+
+void MpcParameterUpdaterModule::recordControllerSettings(const std::string& yamlFile) {
+  boost::property_tree::ptree pt;
+  try {
+    loadData::readPropertyTree(yamlFile, pt);
+  } catch (const std::exception& e) {
+    LOG(ERROR) << "[MpcParameterUpdaterModule] Could not parse " << yamlFile << " for the controller settings: " << e.what();
+    return;
+  }
+  const boost::optional<std::string> name = pt.get_optional<std::string>("contactEstimator");
+  std::optional<ContactWrenchGate::Config> gate;
+  if (const auto block = pt.get_child_optional("contact_wrench_gate")) {
+    ContactWrenchGate::Config config;
+    config.debounceTime = block->get<scalar_t>("debounceTime", config.debounceTime);
+    config.rampTime = block->get<scalar_t>("rampTime", config.rampTime);
+    if (config.debounceTime >= 0.0 && config.rampTime >= 0.0) {
+      gate = config;
+    } else {
+      LOG(ERROR) << "[MpcParameterUpdaterModule] contact_wrench_gate.debounceTime and rampTime must be non-negative; the block is ignored.";
+    }
+  }
+  std::lock_guard<std::mutex> lock(controllerSettingsMutex_);
+  if (name) pendingContactEstimator_ = *name;
+  if (gate) pendingContactWrenchGate_ = gate;
+}
+
 void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFile) {
   LOG(INFO) << "[MpcParameterUpdaterModule] Applying in-place parameter updates from " << yamlFile << "...";
+
+  // The controller-side settings do not touch the solver; they are recorded even when there is no solver to update.
+  recordControllerSettings(yamlFile);
 
   if (mpcPtr_ == nullptr) {
     LOG(ERROR) << "[MpcParameterUpdaterModule] mpcPtr_ is null.";

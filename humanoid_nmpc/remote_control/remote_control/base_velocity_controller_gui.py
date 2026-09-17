@@ -341,6 +341,25 @@ class App(tk.Tk):
             )
         self.plotjuggler_btn.pack(side="left", padx=10)
 
+        # --- Simulation row: measured contact state of the controller ---
+        # The task file selects the contact estimator by name (contactEstimator, robot_model/ContactEstimatorRegistry.h);
+        # the checkbox switches between the MuJoCo ground truth (cheater_sim) and every contact point touching
+        # (always_in_contact). The MPC Parameters tab owns the selection and publishes it on the parameter topic.
+        sim_frame = ttk.Frame(main_frame)
+        sim_frame.grid(row=2, column=0, columnspan=5, pady=(8, 0))
+        self.cheater_contacts_var = tk.BooleanVar(value=False)
+        self.cheater_contacts_checkbox = ttk.Checkbutton(
+            sim_frame,
+            text="Cheater contact estimator",
+            variable=self.cheater_contacts_var,
+            command=self._on_cheater_contacts_toggle,
+        )
+        self.cheater_contacts_checkbox.pack(side="left", padx=10)
+        self.mpc_params_tab.on_contact_estimator_changed = (
+            self._sync_cheater_contacts_checkbox
+        )
+        self._sync_cheater_contacts_checkbox()
+
         main_frame.rowconfigure(0, weight=1)
         main_frame.columnconfigure(0, weight=1)
         main_frame.columnconfigure(1, weight=1)
@@ -416,6 +435,21 @@ class App(tk.Tk):
         # Notify Joint Targets tab of mode change
         if hasattr(self, "joint_targets_tab"):
             self.joint_targets_tab.on_mode_changed()
+
+    def _on_cheater_contacts_toggle(self):
+        """Selects the contact estimator through the MPC Parameters tab, which publishes it live."""
+        self.mpc_params_tab.set_cheater_contact_estimator(
+            self.cheater_contacts_var.get()
+        )
+
+    def _sync_cheater_contacts_checkbox(self):
+        """Mirrors the tab's selection (file load, reset, save) and disables the checkbox when it cannot apply."""
+        tab = self.mpc_params_tab
+        self.cheater_contacts_var.set(tab.is_cheater_contact_estimator_selected())
+        usable = tab.enable_online_tuning and tab.has_contact_estimator_selection()
+        self.cheater_contacts_checkbox.configure(
+            state="normal" if usable else "disabled"
+        )
 
     def _on_gantry_toggle(self):
         """Handle gantry lock checkbox toggle."""

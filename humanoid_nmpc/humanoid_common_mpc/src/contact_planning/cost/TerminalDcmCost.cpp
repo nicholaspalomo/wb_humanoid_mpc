@@ -32,12 +32,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 std::string TerminalDcmCost::describe() const {
-  return weightLine("w e^{2 omega dt} ||xi_{N-1} - zmp_{N-1}||^2 on the last running node (terminal capturability)");
+  return trackCommandedVelocity_
+             ? weightLine("w e^{2 omega dt} ||xi_{N-1} - zmp_{N-1} - v_cmd / omega||^2 on the last running node (keeps walking)")
+             : weightLine("w e^{2 omega dt} ||xi_{N-1} - zmp_{N-1}||^2 on the last running node (terminal capturability)");
 }
 
 void TerminalDcmCost::configure(const ContactPlanningConfig& config) {
   checkWeight("terminal_dcm", config.terminalDcm.weight);
   weight_ = config.terminalDcm.weight;
+  trackCommandedVelocity_ = config.terminalDcm.trackCommandedVelocity;
 }
 
 void TerminalDcmCost::addToStage(const ContactPlanningContext& ctx, int /*node*/, StageAccumulator& stage) const {
@@ -45,7 +48,10 @@ void TerminalDcmCost::addToStage(const ContactPlanningContext& ctx, int /*node*/
   const scalar_t omega = ctx.omega;
   const scalar_t gain = std::exp(2.0 * omega * ctx.dt);
   for (int axis = 0; axis < 2; ++axis) {
-    stage.addQuadraticResidual({{idx_.com[axis], 1.0}, {idx_.vel[axis], 1.0 / omega}}, {{idx_.zmp[axis], -1.0}}, 0.0, weight_ * gain);
+    // With trackCommandedVelocity the target of the DCM is the last ZMP plus v_cmd / omega: the offset of a CoM over
+    // the foot that keeps moving at the commanded velocity, instead of the rest condition xi = zmp.
+    const scalar_t offset = trackCommandedVelocity_ ? -ctx.input->velocityCommand(axis) / omega : 0.0;
+    stage.addQuadraticResidual({{idx_.com[axis], 1.0}, {idx_.vel[axis], 1.0 / omega}}, {{idx_.zmp[axis], -1.0}}, offset, weight_ * gain);
   }
 }
 

@@ -5,8 +5,15 @@ telemetryFrequency: 100      # [Hz] Telemetry publishing frequency (decimated fr
 # the contact state the executed MPC policy plans against the simulator's ground truth over a sliding window of time.
 simContactTimelineWindow: 5.0          # [s] width of the sliding window
 simContactForceThreshold: 5.0          # [N] normal force above which a contact point counts as touching (ground truth)
-simReportsGroundTruthContacts: true   # feed the ground-truth contacts to the MPC as its measured contact state instead of
-# "always touching"; required for contact_planning.enablePhaseResetting in simulation
+# Measured contact state of the controller, by name (robot_model/ContactEstimatorRegistry.h): the MPC observation mode and
+# which planned contact wrenches the inverse dynamics projects into feedforward torques. One of:
+#   cheater_sim        the ground truth of the physics (normal force above simContactForceThreshold); required for the
+#                      phase_resetting execution rule of contact_planning.yaml
+#   robot_state        the contact flags of the RobotState (in MuJoCo the same ground truth)
+#   always_in_contact  every contact point touching: the executed schedule is taken as the measured contact state
+# LINT.IfChange(contact_estimator)
+contactEstimator: cheater_sim
+# LINT.ThenChange(//robot_runtime/robot_model/src/ContactEstimatorRegistry.cpp:contact_estimator_names, //robot_runtime/mujoco_sim_interface/src/CheaterSimContactEstimator.cpp:cheater_sim_contact_estimator_name)
 # Viewer visualizations (each listed one starts on; the key in brackets toggles it, 'p' prints the cheatsheet). Every
 # marker is a class in robot_runtime/mujoco_sim_interface/.../visualization; the names are those of VisualizationRegistry.
 # LINT.IfChange(sim_visualizations)
@@ -17,6 +24,9 @@ simVisualizations:
   - base_velocity           # measured (red) vs commanded (green) base velocity and yaw rate at the CoM
   - contact_timeline        # [b] barcode of planned vs ground-truth contact per contact point
   - target_contact_patches  # [g] contact patch of every foot at the planner's target position and yaw
+  - center_of_mass          # [o] whole-body centre of mass: sphere, vertical, and its shadow on the ground
+  - zmp                     # [z] zero moment point of the physical ground reaction, on the ground
+  - dcm                     # [d] divergent component of motion (capture point) of the measured CoM, on the ground
   # MuJoCo's own markers, off unless listed:
   # - mj_contact_points     # [c] markers at the physical contact points
   # - mj_contact_forces     # [f] MuJoCo's normal and friction force arrows at the contacts
@@ -54,10 +64,10 @@ Q_com:
 # ACoM rows follow the centroidal state's ZYX Euler convention, the same ordering
 # as Q entries (9,9) through (11,11). Row 0 is yaw, not roll.
 Q_acom:
-  scaling: 85
+  scaling: 50
   "(0,0)": 25  # theta_acom_z / yaw (matches theta_base_z)
-  "(1,1)": 15  # theta_acom_y / pitch (matches theta_base_y)
-  "(2,2)": 15  # theta_acom_x / roll (matches theta_base_x)
+  "(1,1)": 50  # theta_acom_y / pitch (matches theta_base_y)
+  "(2,2)": 20  # theta_acom_x / roll (matches theta_base_x)
 
 
 # Targeted Pinocchio frames for telemetry logging (position, orientation, twist, accel, wrench)
@@ -95,6 +105,18 @@ useGravityCompFeedforward: false
 # the pre-reset policy until then), and targets, gains and feedforward torques are then ramped linearly into the MPC
 # action over this duration. Try 0.3 to 0.5 once validated in MuJoCo.
 mpcEntryBlendTime: 2.0
+# Touch-down shaping of the planned contact wrenches in the inverse dynamics of the MRT joint controller. A foot's planned
+# wrench is projected into feedforward torques only while the foot is measured in contact (contactEstimator above). By
+# default it is applied in full from the first control cycle of measured contact, i.e. as a step at the first heel or toe
+# strike; both times at 0 keep that. debounceTime: measured contact must persist this long before the wrench is applied
+# (a bounce across the detection threshold restarts it). rampTime: the wrench then rises linearly from zero to the
+# planned value over this time. Lift-off is never shaped. Hot-reloadable (GUI: Solver & Horizon). The 10 ms debounce
+# rides out a heel or toe bounce across the 5 N detection threshold (simContactForceThreshold), and the 40 ms ramp brings
+# the wrench in over the first half of the 0.1 s double support, when the other foot still carries the weight; the whole
+# onset stays well inside the phase_resetting debounce of the schedule (earlyTouchdownMinContactDuration) plus one node.
+contact_wrench_gate:
+  debounceTime: 0.01  # [s]
+  rampTime: 0.04      # [s]
 
 interface:
   verbose: true  # show the loaded parameters
@@ -303,7 +325,7 @@ Q:
   # torso and arm counter-rotation the aCOM cost is there to produce. What is
   # left provides damping only; orientation itself is regulated by Q_acom.
   "(3,3)": 5  # L_x / robotMass
-  "(4,4)": 5  # L_y / robotMass
+  "(4,4)": 25  # L_y / robotMass
   "(5,5)": 2  # L_z / robotMass
 
   # ; Base Pose: [position, orientation] ;;

@@ -34,12 +34,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <sstream>
 
 #include "mujoco_sim_interface/visualization/BaseVelocityVisualization.h"
+#include "mujoco_sim_interface/visualization/CenterOfMassVisualization.h"
 #include "mujoco_sim_interface/visualization/ContactForceVisualization.h"
 #include "mujoco_sim_interface/visualization/ContactTimelineVisualization.h"
+#include "mujoco_sim_interface/visualization/DcmVisualization.h"
 #include "mujoco_sim_interface/visualization/ExternalForceVisualization.h"
 #include "mujoco_sim_interface/visualization/MetricsOverlay.h"
 #include "mujoco_sim_interface/visualization/MujocoOptionFlagVisualization.h"
 #include "mujoco_sim_interface/visualization/TargetContactPatchVisualization.h"
+#include "mujoco_sim_interface/visualization/ZmpVisualization.h"
 
 namespace robot::mujoco_sim_interface {
 
@@ -60,6 +63,10 @@ const std::vector<Entry>& registry() {
       {[] { return std::make_unique<BaseVelocityVisualization>(); }, true},
       {[] { return std::make_unique<ContactTimelineVisualization>(); }, true},
       {[] { return std::make_unique<TargetContactPatchVisualization>(); }, true},
+      // Centroidal markers on the ground: off unless listed, like MuJoCo's own markers.
+      {[] { return std::make_unique<CenterOfMassVisualization>(); }, false},
+      {[] { return std::make_unique<ZmpVisualization>(); }, false},
+      {[] { return std::make_unique<DcmVisualization>(); }, false},
       {[] { return MujocoOptionFlagVisualization::contactPoints(); }, false},
       {[] { return MujocoOptionFlagVisualization::contactForces(); }, false},
       {[] { return MujocoOptionFlagVisualization::centerOfMass(); }, false},
