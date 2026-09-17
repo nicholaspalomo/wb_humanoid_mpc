@@ -59,9 +59,9 @@ contact_planning:
     # task.yaml swing_trajectory_config.swingTimeScale must stay <= minSwingDuration or every swing is scaled down in
     # height and velocity by swingDuration / swingTimeScale and the foot lands short and low.
     gait_limits:
-      minSwingDuration: 0.4  # [s]
+      minSwingDuration: 0.5  # [s]
       maxSwingDuration: 1  # [s] a long swing at speed is dead time the planner would otherwise spend
-      minContactDuration: 0.1  # [s]
+      minContactDuration: 0.3  # [s]
       maxContactDuration: 0  # [s] <= 0: no limit (standing allowed)
       minDoubleSupportDuration: 0  # [s] after a touch-down the other foot stays down at least this long. 0 disables the
                                       # hold entirely and lets a foot lift at the very node the other lands (an
@@ -134,7 +134,7 @@ contact_planning:
   previous_foothold_consistency:
     weight: 5  # ||foot position - previous plan||^2 per node, damps landing-target jitter
   velocity_tracking:
-    weight: 50  # ||v_com - v_cmd||^2 per node
+    weight: 100  # ||v_com - v_cmd||^2 per node
   step_width:
     weight: 10  # (step width - nominalStepWidth)^2 per node
     nominalStepWidth: 0.25  # [m] preferred lateral distance between the feet
@@ -189,7 +189,7 @@ contact_planning:
   # The incentive for the zero double support that minDoubleSupportDuration: 0 only permits: with the duration at zero
   # and this term absent the planner still keeps a double support while walking, because it is cheaper for the ZMP.
   double_support_penalty:
-    cost: 0.1  # per node at which both feet are in contact. The term cannot tell the weight transfer
+    cost: 0.5  # per node at which both feet are in contact. The term cannot tell the weight transfer
                                       # of a step apart from standing on two feet, so it prices standing as well: measured
                                       # against these gait limits, 0.1 removes the transition double support at 0.6 m/s
                                       # (4 double-support nodes and no simultaneous exchange become 1 and 2) and leaves a
