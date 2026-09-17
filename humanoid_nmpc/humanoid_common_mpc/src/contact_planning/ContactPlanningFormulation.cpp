@@ -85,7 +85,7 @@ const std::vector<std::string>& knownTermNames(TermKind kind) {
   static const std::vector<std::string> logic{term::kPhaseDurations, term::kNoFlight, term::kMinimumDoubleSupport, term::kAlternatingFeet};
   static const std::vector<std::string> assignment{term::kContactSwitch, term::kPlanConsistency, term::kDoubleSupportPenalty};
   static const std::vector<std::string> search{term::kWarmStartPreviousPlan, term::kDiving, term::kEventShiftLocalSearch,
-                                               term::kHeadingRelinearisation};
+                                               term::kHeadingRelinearisation, term::kCadenceStretch};
   static const std::vector<std::string> execution{term::kPhaseResetting, term::kEnergyCadenceModulation, term::kDcmStepAdjustment,
                                                   term::kPlannedHeadingOverride};
   // clang-format off

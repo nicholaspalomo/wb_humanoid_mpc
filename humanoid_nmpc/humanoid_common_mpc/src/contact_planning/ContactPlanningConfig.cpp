@@ -59,6 +59,10 @@ void ContactPlanningConfig::validate() const {
   if (reachability.reachYOuter <= reachability.reachYInner) fail("reachYOuter must exceed reachYInner");
   if (s.bigM <= footSeparation.maxStepLength) fail("shared.bigM must exceed foot_separation.maxStepLength");
   if (p.commitTime < 0.0) fail("planner.commitTime must be non-negative");
+  if (cadenceStretch.samples < 0) fail("cadence_stretch.samples must be non-negative");
+  if (cadenceStretch.samples > 0 && cadenceStretch.maxStretch < 1.0) {
+    fail("cadence_stretch.maxStretch must be >= 1: a stretch below 1 shrinks the commit window and the horizon");
+  }
   if (p.maxCommitExtension > 0.0 && p.maxCommitExtension < g.maxSwingDuration) {
     fail("planner.maxCommitExtension must be 0 (no cap) or at least maxSwingDuration, so a whole swing still fits in it");
   }
@@ -303,6 +307,8 @@ void loadStructured(const ptree& pt, const ptree& block, const std::string& pref
   load(config.diving.maxDiveIterations, std::string(term::kDiving) + ".maxDiveIterations");
   load(config.eventShiftLocalSearch.iterations, std::string(term::kEventShiftLocalSearch) + ".iterations");
   load(config.eventShiftLocalSearch.maxTime, std::string(term::kEventShiftLocalSearch) + ".maxTime");
+  load(config.cadenceStretch.samples, std::string(term::kCadenceStretch) + ".samples");
+  load(config.cadenceStretch.maxStretch, std::string(term::kCadenceStretch) + ".maxStretch");
   load(config.headingRelinearisation.passes, std::string(term::kHeadingRelinearisation) + ".passes");
   load(config.phaseResetting.earlyTouchdownMinSwingRatio, std::string(term::kPhaseResetting) + ".earlyTouchdownMinSwingRatio");
   load(config.phaseResetting.earlyTouchdownMinContactDuration, std::string(term::kPhaseResetting) + ".earlyTouchdownMinContactDuration");

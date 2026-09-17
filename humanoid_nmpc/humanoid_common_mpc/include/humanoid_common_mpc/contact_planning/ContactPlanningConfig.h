@@ -199,6 +199,23 @@ struct EventShiftLocalSearchParameters {
   int iterations = 10;      // rounds of event-shift local search after the branch-and-bound (0 disables)
   scalar_t maxTime = 0.05;  // [s] time budget of the local search
 };
+/**
+ * `cadence_stretch`: the cadence the planner can express is quantised by the node grid, because a phase lasts a whole
+ * number of nodes. minSwingNodes() = ceil(minSwingDuration / dt) and maxSwingNodes() = floor(maxSwingDuration / dt), so
+ * at dt 0.1 with swing limits [0.4, 0.5] the swing is 4 or 5 nodes and nothing between - a 25% jump in the step the
+ * commanded speed needs. This stage recovers the interval without leaving the grid: under a FIXED contact pattern the
+ * cadence simply is the grid scale, so stretching the node duration to s * dt re-times every phase together. Every term
+ * is already an exact function of the node duration (the LIP block is cosh/sinh of omega dt, the heading block is
+ * linear in dt, step_length's nominal displacement is v dt ratio, terminal_dcm's gain is exp(2 omega dt)), and
+ * ContactPlan carries its own dt, so a stretched plan needs no new representation.
+ *
+ * The stretch is bounded below by 1: s < 1 shrinks the committed window below commitTime and the horizon below
+ * mpc.timeHorizon, which makes the merge pad the tail with STANCE and throws away the last steps' anticipation.
+ */
+struct CadenceStretchParameters {
+  int samples = 0;             // stretch candidates evaluated after the branch-and-bound (0 disables the stage)
+  scalar_t maxStretch = 1.25;  // upper bound on s; the admissible range is also clipped by the gait limits
+};
 struct HeadingRelinearisationParameters {
   int passes = 1;  // re-linearisations of the heading frame at the incumbent (0 disables)
 };
@@ -254,6 +271,7 @@ struct ContactPlanningConfig {
   DoubleSupportPenaltyParameters doubleSupportPenalty;
   DivingParameters diving;
   EventShiftLocalSearchParameters eventShiftLocalSearch;
+  CadenceStretchParameters cadenceStretch;
   HeadingRelinearisationParameters headingRelinearisation;
   PhaseResettingParameters phaseResetting;
   EnergyCadenceModulationParameters energyCadenceModulation;

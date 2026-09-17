@@ -218,7 +218,9 @@ HeadingNominal LipContactPlanner::nominalFromSolution(const Layout& layout, cons
   return ocs2::humanoid::nominalFromSolution(layout, solution.x);
 }
 
-ContactPlanningContext LipContactPlanner::makeContext(const ContactPlannerInput& input, const HeadingNominal& nominal) const {
+ContactPlanningContext LipContactPlanner::makeContext(const ContactPlannerInput& input,
+                                                      const HeadingNominal& nominal,
+                                                      scalar_t dtOverride) const {
   const int N = config_.planner.numNodes;
   const Layout& layout = problem_.layout();
   if (layout.hasHeading && (nominal.heading.size() < static_cast<size_t>(N + 1) || nominal.feet.size() < static_cast<size_t>(N + 1) ||
@@ -238,7 +240,7 @@ ContactPlanningContext LipContactPlanner::makeContext(const ContactPlannerInput&
   ctx.previousPlanShift = previousPlanShift(input);
   ctx.previousPlan = ctx.previousPlanShift >= 0 ? &*previousPlan_ : nullptr;
   ctx.yawInertia = layout.hasHeading ? yawInertia(input) : 1.0;
-  ctx.dt = config_.planner.dt;
+  ctx.dt = dtOverride > 0.0 ? dtOverride : config_.planner.dt;
   ctx.numNodes = N;
   ctx.omega = config_.omega();
   ctx.bigM = config_.shared.bigM;
@@ -337,6 +339,9 @@ ContactPlan LipContactPlanner::plan(const ContactPlannerInput& input) {
   run.assembleWithNominal = [this, &input](const HeadingNominal& relinearised) {
     return problem_.assemble(makeContext(input, relinearised));
   };
+  run.assembleWithGrid = [this, &input, &nominal](scalar_t nodeDuration) {
+    return problem_.assemble(makeContext(input, nominal, nodeDuration));
+  };
   run.start = start;
   run.verbose = config_.planner.verbose;
   for (size_t i = 0; i < searchStages_.size(); ++i) {
@@ -348,6 +353,9 @@ ContactPlan LipContactPlanner::plan(const ContactPlannerInput& input) {
   }
 
   ContactPlan plan = decode(input, ctx, lastResult_);
+  // A stage that re-timed the grid (cadence_stretch) reports the node duration the plan is to carry. ContactPlan holds
+  // its own dt, so the whole plan - event times, horizon, foothold lookup - follows from this one field.
+  if (run.chosenDt > 0.0) plan.dt = run.chosenDt;
   if (config_.planner.verbose) {
     std::cout << "[LipContactPlanner] valid=" << plan.valid << " objective=" << plan.objective
               << " relaxations=" << statistics_.numBranchAndBoundRelaxations << " localSearchQps=" << statistics_.numLocalSearchQps

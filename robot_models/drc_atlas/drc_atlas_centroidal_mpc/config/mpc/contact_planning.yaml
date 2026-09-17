@@ -18,7 +18,11 @@ contact_planning:
     numNodes: 12                      # planning horizon = numNodes * dt, should cover mpc.timeHorizon
     commitTime: 0.3  # [s] the applied schedule is fixed this far ahead; must cover the planner latency (a swing
                                       #     that has started or starts within this window is always executed to its touch-down)
-    maxCommitExtension: 0  # [s] <= 0: no cap (today's behaviour). Bounds how far past commitTime the boundary may be
+    # Enabled: with minDoubleSupportDuration 0 the swings abut and the boundary walk has nothing to terminate it,
+    # which stalls the planner silently (it falls back to a STANCE-only merge, so the foot that should lift never
+    # does and the robot is dragged sideways standing still). 0.6 is just above maxSwingDuration 0.5, so a whole
+    # swing still fits, and commitTime + 0.6 = 0.9 s leaves the 1.2 s plan reaching past the boundary.
+    maxCommitExtension: 0.6  # [s] <= 0: no cap (today's behaviour). Bounds how far past commitTime the boundary may be
                                       # extended to reach a swing's touch-down. The extension walks the phases overlapping the
                                       # window and each swing it reaches pushes the boundary to that swing's touch-down, which
                                       # pulls the following phases into the walk. With minDoubleSupportDuration: 0 every swing
@@ -59,8 +63,15 @@ contact_planning:
     # task.yaml swing_trajectory_config.swingTimeScale must stay <= minSwingDuration or every swing is scaled down in
     # height and velocity by swingDuration / swingTimeScale and the foot lands short and low.
     gait_limits:
-      minSwingDuration: 0.5  # [s]
-      maxSwingDuration: 1  # [s] a long swing at speed is dead time the planner would otherwise spend
+      minSwingDuration: 0.4  # [s] must stay >= task.yaml swing_trajectory_config.swingTimeScale (0.25)
+      # [s] a long swing at speed is dead time the planner would otherwise spend. At 1.0 the planner chose 0.6-0.7 s
+      # swings even at low command, and with minDoubleSupportDuration 0 the whole of that is single support: the lateral
+      # LIP diverges as cosh(omega t), so a 0.7 s single support multiplies a lateral offset by cosh(2.38) = 5.4 with no
+      # double support in which to walk the ZMP across. It also caps the lateral speed, which needs a step of
+      # v_y * T_stride to fit inside maxStepWidth - minStepWidth = 0.30 m, so a long stride halves what the gait can
+      # deliver sideways. And a 1.0 s swing is most of the 1.2 s horizon, which leaves the planner nothing to plan with
+      # and makes maxCommitExtension unusable (the capped boundary would still outrun the plan).
+      maxSwingDuration: 0.5
       minContactDuration: 0.3  # [s]
       maxContactDuration: 0  # [s] <= 0: no limit (standing allowed)
       minDoubleSupportDuration: 0  # [s] after a touch-down the other foot stays down at least this long. 0 disables the
@@ -182,14 +193,14 @@ contact_planning:
   # (torsional friction coefficient * weight, friction coefficient * half the weight * nominalStepWidth, both from
   # contactWrenchConeSoftConstraint) and the per-leg hip yaw range are not keys here.
   contact_switch:
-    cost: 0.3  # per lift-off / touch-down event. A faster cadence puts more events in the horizon,
+    cost: 0.02  # per lift-off / touch-down event. A faster cadence puts more events in the horizon,
                                       # so at 1.0 this term charged the planner for the very thing the cadence limits allow.
   plan_consistency:
     cost: 0.5  # per node whose contact differs from the previous plan (hysteresis between plans)
   # The incentive for the zero double support that minDoubleSupportDuration: 0 only permits: with the duration at zero
   # and this term absent the planner still keeps a double support while walking, because it is cheaper for the ZMP.
   double_support_penalty:
-    cost: 0.5  # per node at which both feet are in contact. The term cannot tell the weight transfer
+    cost: 0.1  # per node at which both feet are in contact. The term cannot tell the weight transfer
                                       # of a step apart from standing on two feet, so it prices standing as well: measured
                                       # against these gait limits, 0.1 removes the transition double support at 0.6 m/s
                                       # (4 double-support nodes and no simultaneous exchange become 1 and 2) and leaves a

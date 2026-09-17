@@ -66,7 +66,7 @@ Q_com:
 Q_acom:
   scaling: 50
   "(0,0)": 25  # theta_acom_z / yaw (matches theta_base_z)
-  "(1,1)": 20  # theta_acom_y / pitch (matches theta_base_y)
+  "(1,1)": 50  # theta_acom_y / pitch (matches theta_base_y)
   "(2,2)": 20  # theta_acom_x / roll (matches theta_base_x)
 
 
@@ -325,7 +325,7 @@ Q:
   # torso and arm counter-rotation the aCOM cost is there to produce. What is
   # left provides damping only; orientation itself is regulated by Q_acom.
   "(3,3)": 5  # L_x / robotMass
-  "(4,4)": 5  # L_y / robotMass
+  "(4,4)": 25  # L_y / robotMass
   "(5,5)": 2  # L_z / robotMass
 
   # ; Base Pose: [position, orientation] ;;

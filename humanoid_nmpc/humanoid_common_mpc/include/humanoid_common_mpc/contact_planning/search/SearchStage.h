@@ -73,8 +73,14 @@ struct SearchRun {
   MiqpResult* result = nullptr;
   SearchStatistics* statistics = nullptr;
   std::function<OcpQpProblem(const HeadingNominal&)> assembleWithNominal;  // re-builds the problem around a nominal
-  Clock::time_point start;                                                 // start of the plan, for the time budgets
+  // Re-builds the problem on a grid of a different node duration, the incumbent's contact pattern unchanged. Under a
+  // fixed pattern the cadence is the grid scale, so this is how a stage re-times every phase of the plan together.
+  std::function<OcpQpProblem(scalar_t)> assembleWithGrid;
+  Clock::time_point start;  // start of the plan, for the time budgets
   bool verbose = false;
+  // Output of a stage that re-timed the grid: the node duration the plan is to be emitted with. 0 leaves it at
+  // planner.dt. ContactPlan carries its own dt, so a re-timed plan needs no other change.
+  scalar_t chosenDt = 0.0;
 
   scalar_t elapsedSeconds() const { return std::chrono::duration<scalar_t>(Clock::now() - start).count(); }
 };

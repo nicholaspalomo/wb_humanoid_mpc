@@ -78,6 +78,7 @@ inline constexpr const char* kDoubleSupportPenalty = "double_support_penalty";
 inline constexpr const char* kWarmStartPreviousPlan = "warm_start_previous_plan";
 inline constexpr const char* kDiving = "diving";
 inline constexpr const char* kEventShiftLocalSearch = "event_shift_local_search";
+inline constexpr const char* kCadenceStretch = "cadence_stretch";
 inline constexpr const char* kHeadingRelinearisation = "heading_relinearisation";
 // Execution rules of the reference manager, applied between plans.
 inline constexpr const char* kPhaseResetting = "phase_resetting";
