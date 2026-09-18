@@ -32,13 +32,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 namespace {
 
-/** A robot state with the given base rotation; nothing else of the state enters the tilt. */
-robot::model::RobotState stateWithRotation(const quaternion_t& rotation) {
-  robot::model::RobotState state;
-  state.setRootRotationLocalToWorldFrame(rotation);
-  return state;
-}
-
 quaternion_t aboutAxis(const vector3_t& axis, scalar_t angle) {
   return quaternion_t(Eigen::AngleAxis<scalar_t>(angle, axis.normalized()));
 }
@@ -46,10 +39,10 @@ quaternion_t aboutAxis(const vector3_t& axis, scalar_t angle) {
 }  // namespace
 
 TEST(BaseTiltAngle, uprightIsZeroWhateverTheHeading) {
-  EXPECT_NEAR(SimFsmBridge::baseTiltAngle(stateWithRotation(quaternion_t::Identity())), 0.0, 1e-12);
+  EXPECT_NEAR(SimFsmBridge::baseTiltAngle(quaternion_t::Identity()), 0.0, 1e-12);
   // Turning on the spot is not a tilt: the measure compares verticals, so it must not see a yaw at all.
   for (const scalar_t yaw : {0.5, 2.0, -3.0}) {
-    EXPECT_NEAR(SimFsmBridge::baseTiltAngle(stateWithRotation(aboutAxis(vector3_t::UnitZ(), yaw))), 0.0, 1e-12) << "yaw " << yaw;
+    EXPECT_NEAR(SimFsmBridge::baseTiltAngle(aboutAxis(vector3_t::UnitZ(), yaw)), 0.0, 1e-12) << "yaw " << yaw;
   }
 }
 
@@ -57,21 +50,21 @@ TEST(BaseTiltAngle, isTheAngleBetweenTheVerticals) {
   // A pitch or a roll tilts the base's vertical by exactly that angle, either way about either axis.
   for (const scalar_t angle : {0.1, 0.5, 1.0, 2.0}) {
     for (const vector3_t& axis : {vector3_t(vector3_t::UnitX()), vector3_t(vector3_t::UnitY())}) {
-      EXPECT_NEAR(SimFsmBridge::baseTiltAngle(stateWithRotation(aboutAxis(axis, angle))), angle, 1e-9) << "angle " << angle;
-      EXPECT_NEAR(SimFsmBridge::baseTiltAngle(stateWithRotation(aboutAxis(axis, -angle))), angle, 1e-9) << "angle " << -angle;
+      EXPECT_NEAR(SimFsmBridge::baseTiltAngle(aboutAxis(axis, angle)), angle, 1e-9) << "angle " << angle;
+      EXPECT_NEAR(SimFsmBridge::baseTiltAngle(aboutAxis(axis, -angle)), angle, 1e-9) << "angle " << -angle;
     }
   }
 }
 
 TEST(BaseTiltAngle, onItsSideIsAQuarterTurnAndUpsideDownIsAHalf) {
-  EXPECT_NEAR(SimFsmBridge::baseTiltAngle(stateWithRotation(aboutAxis(vector3_t::UnitX(), 0.5 * M_PI))), 0.5 * M_PI, 1e-9);
-  EXPECT_NEAR(SimFsmBridge::baseTiltAngle(stateWithRotation(aboutAxis(vector3_t::UnitY(), M_PI))), M_PI, 1e-9);
+  EXPECT_NEAR(SimFsmBridge::baseTiltAngle(aboutAxis(vector3_t::UnitX(), 0.5 * M_PI)), 0.5 * M_PI, 1e-9);
+  EXPECT_NEAR(SimFsmBridge::baseTiltAngle(aboutAxis(vector3_t::UnitY(), M_PI)), M_PI, 1e-9);
 }
 
 TEST(BaseTiltAngle, staysFiniteAtTheLimits) {
   // acos of a rotation matrix entry that rounds just past one must not produce a NaN: the fall check compares this
   // against a threshold every control cycle, and a NaN would compare false and silently disable the recovery.
-  const scalar_t upsideDown = SimFsmBridge::baseTiltAngle(stateWithRotation(aboutAxis(vector3_t::UnitX(), M_PI)));
+  const scalar_t upsideDown = SimFsmBridge::baseTiltAngle(aboutAxis(vector3_t::UnitX(), M_PI));
   EXPECT_TRUE(std::isfinite(upsideDown));
   EXPECT_NEAR(upsideDown, M_PI, 1e-9);
 }

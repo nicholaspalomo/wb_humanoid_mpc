@@ -383,6 +383,13 @@ void WBMpcMrtJointController::solverWorker() {
   while (true) {
     auto targetTimeForNextIteration = std::chrono::steady_clock::now() + std::chrono::microseconds(mpcDeltaTMicroSeconds_);
 
+    // Handle an externally requested reset (the gantry locking or unlocking, including the simulator's fall recovery).
+    if (resetMpcRequested_.exchange(false)) {
+      mcpMrtInterface_.resetMpcNode(currentObservationToResetTrajectory(mcpMrtInterface_.getCurrentObservation()));
+      policyActivated_.store(false);
+      std::cerr << "MPC reset to current observation (external request)." << std::endl;
+    }
+
     absl::Status mpcStatus = mcpMrtInterface_.advanceMpc();
     if (!mpcStatus.ok()) {
       // MPC solver failed — log and continue with previous solution.

@@ -301,9 +301,26 @@ int main(int argc, char** argv) {
     }
 
     rclcpp::spin_some(nodeHandle);
-    // A robot that has tipped past the configured tilt is caught on the gantry and put in JOINT_PD.
+    const bool gantryBefore = robotInterface.isGantryLocked();
+    // A robot that has tipped past the configured tilt is caught on the gantry and put in JOINT_PD. Placed before
+    // processCommands() so that the lock is part of the same transition the block below reacts to.
     fsmBridge.recoverFromFall(robotInterface.getRobotState(), robotInterface, currentModeName);
     fsmBridge.processCommands(currentModeName, robotInterface);
+    const bool gantryAfter = robotInterface.isGantryLocked();
+
+    // The gantry changing state invalidates the solver's warm start either way: locking pins the floating base the
+    // trajectory was solved for, unlocking releases a base the solver still believes is pinned.
+    if (gantryBefore != gantryAfter) {
+      mpcJointController.requestMpcReset();
+      if (gantryAfter) {
+        // Locked: the whole-body MPC is overconstrained against a pinned base, so hold the posture instead.
+        currentModeName = "JOINT_PD";
+        fsmBridge.publishFsmState(currentModeName, gantryAfter);
+        LOG(INFO) << "Gantry locked — switching to JOINT_PD mode and resetting MPC.";
+      } else {
+        LOG(INFO) << "Gantry unlocked — resetting MPC.";
+      }
+    }
 
     auto currentTime = std::chrono::steady_clock::now();
     if (currentTime > targetTimeForNextIteration) {

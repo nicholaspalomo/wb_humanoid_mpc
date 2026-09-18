@@ -111,11 +111,12 @@ void SimFsmBridge::applyModeAction(std::string_view modeName,
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-scalar_t SimFsmBridge::baseTiltAngle(const robot::model::RobotState& robotState) {
+scalar_t SimFsmBridge::baseTiltAngle(const quaternion_t& baseRotationLocalToWorld) {
   // The base's own vertical, expressed in the world: the third column of its rotation matrix. Its angle to the world
   // vertical is the arccosine of that column's z component, which is heading independent, so a robot that has turned
-  // on the spot reads zero tilt exactly like one that has not.
-  const matrix3_t baseRotation = robotState.getRootRotationLocalToWorldFrame().toRotationMatrix();
+  // on the spot reads zero tilt exactly like one that has not. The clamp keeps a matrix entry that rounds just past
+  // one from producing a NaN, which would compare false against the threshold and silently disable the recovery.
+  const matrix3_t baseRotation = baseRotationLocalToWorld.toRotationMatrix();
   return std::acos(std::clamp(baseRotation(2, 2), scalar_t(-1.0), scalar_t(1.0)));
 }
 
@@ -124,7 +125,7 @@ bool SimFsmBridge::recoverFromFall(const robot::model::RobotState& robotState,
                                    robot::mujoco_sim_interface::MujocoSimInterface& robotInterface,
                                    std::string& currentModeName) {
   if (maxBaseTiltAngle_ <= 0.0 || robotInterface.isGantryLocked()) return false;
-  const scalar_t tilt = baseTiltAngle(robotState);
+  const scalar_t tilt = baseTiltAngle(robotState.getRootRotationLocalToWorldFrame());
   if (tilt <= maxBaseTiltAngle_) return false;
 
   LOG(INFO) << "Base tilted " << tilt << " rad past the " << maxBaseTiltAngle_

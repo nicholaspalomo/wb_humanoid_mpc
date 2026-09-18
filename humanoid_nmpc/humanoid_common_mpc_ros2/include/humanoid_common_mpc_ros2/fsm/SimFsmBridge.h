@@ -110,7 +110,7 @@ class SimFsmBridge {
   scalar_t getMaxBaseTiltAngle() const { return maxBaseTiltAngle_; }
 
   /** The angle between the base's vertical and the world vertical, in radians (0 upright, pi upside down). */
-  static scalar_t baseTiltAngle(const robot::model::RobotState& robotState);
+  static scalar_t baseTiltAngle(const quaternion_t& baseRotationLocalToWorld);
 
   /**
    * @brief Catches a fallen robot: locks the gantry and puts the robot in JOINT_PD when the base has tilted past

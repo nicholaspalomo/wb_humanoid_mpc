@@ -119,6 +119,17 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
   const vector_t& getLatestPolicyInput() const { return latestPolicyInput_; }
   const CommandData& getCommandData() const { return mcpMrtInterface_.getCommand(); }
 
+  /**
+   * @brief Request an asynchronous MPC reset. The solver thread resets the MPC to a stable trajectory from the current
+   *        observation on its next iteration.
+   *
+   * Use it when something outside the solver invalidates the warm start. The gantry is the case that matters in
+   * simulation: locking it pins the floating base, so the trajectory the solver is warm-started from describes a robot
+   * that no longer exists, and unlocking it releases a base the solver still believes is pinned. Either way the next
+   * solve should start from what is actually there.
+   */
+  void requestMpcReset() { resetMpcRequested_.store(true); }
+
  private:
   /**
    * Handles the MPC solver thread.
@@ -138,9 +149,10 @@ class WBMpcMrtJointController final : public ::robot::model::ControlBase {
 
   MPC_MRT_Interface mcpMrtInterface_;
   std::shared_ptr<::robot::model::ContactEstimator> contactEstimator_;
-  contact_flag_t measuredContactFlags_{};     // of the last control cycle, from contactEstimator_
-  ContactWrenchGate contactWrenchGate_;       // advanced with measuredContactFlags_ every cycle
-  std::atomic<bool> policyActivated_{false};  // a policy has been swapped in since the last reset
+  contact_flag_t measuredContactFlags_{};       // of the last control cycle, from contactEstimator_
+  ContactWrenchGate contactWrenchGate_;         // advanced with measuredContactFlags_ every cycle
+  std::atomic<bool> policyActivated_{false};    // a policy has been swapped in since the last reset
+  std::atomic<bool> resetMpcRequested_{false};  // requestMpcReset(), consumed by the solver thread
 
   PinocchioInterface pinocchioInterface_;
   ocs2::SystemObservation currentMpcObservation_;
