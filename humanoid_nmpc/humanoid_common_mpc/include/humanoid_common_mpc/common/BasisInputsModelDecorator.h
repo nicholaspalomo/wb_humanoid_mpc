@@ -180,6 +180,9 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
   VECTOR6_T<SCALAR_T> getBaseComVelocity(const VECTOR_T<SCALAR_T>& state) const override {
     return wrappedModel_->getBaseComVelocity(state);
   }
+  void setBaseComLinearVelocity(VECTOR_T<SCALAR_T>& state, const VECTOR3_T<SCALAR_T>& velocity) const override {
+    wrappedModel_->setBaseComLinearVelocity(state, velocity);
+  }
   VECTOR_T<SCALAR_T> getJointAngles(const VECTOR_T<SCALAR_T>& state) const override { return wrappedModel_->getJointAngles(state); }
   VECTOR_T<SCALAR_T> getJointVelocities(const VECTOR_T<SCALAR_T>& state, const VECTOR_T<SCALAR_T>& input) const override {
     assert(input.size() == this->input_dim);

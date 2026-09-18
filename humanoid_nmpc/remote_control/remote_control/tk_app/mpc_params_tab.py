@@ -332,6 +332,7 @@ class MpcParamsTab(ttk.Frame):
             "Constraints & Barriers",
             "Solver & Horizon",
             "Contact Planning",
+            "Other Parameters",
         ]
 
         # The buttons flow into as many rows as the width of the tab allows. A single packed row needs more width than
@@ -511,6 +512,11 @@ class MpcParamsTab(ttk.Frame):
             self._render_solver_and_horizon()
         elif cat == "Contact Planning":
             self._render_contact_planning()
+
+        # Whatever the hand-written renderer above did not draw. Nothing has to be added here when a parameter is
+        # added to a configuration file: an unclaimed block lands under "Other Parameters", and an unclaimed key of a
+        # claimed block lands at the end of its own category.
+        self._render_uncovered_parameters(cat)
 
         # Restore saved slider values and defaults (from previous edits on this tab)
         for key, row in self.slider_rows.items():
@@ -1176,6 +1182,39 @@ class MpcParamsTab(ttk.Frame):
                     row.pack(fill="x", padx=4, pady=1)
                     self.slider_rows[f"swing_trajectory_config.{k}"] = row
 
+        # Contact implicit constraints
+        ci_cfg = self.raw_data.get("contact_implicit", {})
+        if ci_cfg:
+            ci_frame = ttk.LabelFrame(
+                self.scroll_container.scrollable_content,
+                text="• Contact Implicit Soft Constraints",
+            )
+            ci_frame.pack(fill="x", padx=6, pady=4)
+            for k in [
+                "complementarityWeight",
+                "slipWeight",
+                "penetrationMu",
+                "penetrationDelta",
+            ]:
+                if k in ci_cfg:
+                    val = float(ci_cfg[k])
+                    # Weights can be high, mu/delta are small
+                    if "Weight" in k:
+                        s_min, s_max = 0.0, max(val * 5.0, 1000.0)
+                    else:
+                        s_min, s_max = 0.0, max(val * 5.0, 1.0)
+                    row = SliderRow(
+                        ci_frame,
+                        name=f"contact_implicit.{k}",
+                        initial_value=val,
+                        min_val=s_min,
+                        max_val=s_max,
+                        label_width=26,
+                        on_change=self._on_any_slider_change,
+                    )
+                    row.pack(fill="x", padx=4, pady=1)
+                    self.slider_rows[f"contact_implicit.{k}"] = row
+
         # Relaxed log barriers & soft constraint parameters
         bar_frame = ttk.LabelFrame(
             self.scroll_container.scrollable_content,
@@ -1376,6 +1415,49 @@ class MpcParamsTab(ttk.Frame):
                         row.pack(fill="x", padx=4, pady=1)
                         self.slider_rows[f"contacts.contact_rectangle.{k}"] = row
 
+        # Relaxed complementarity contact terms (the contact-implicit formulation). The block is read whether or not
+        # the three terms are listed in soft_constraints, so the sliders are shown either way and the header says which.
+        ci_cfg = self.raw_data.get("contact_implicit", {})
+        if ci_cfg:
+            soft = self.raw_data.get("soft_constraints", []) or []
+            listed = [
+                name
+                for name in (
+                    "contact_complementarity",
+                    "force_weighted_slip",
+                    "ground_penetration",
+                )
+                if name in soft
+            ]
+            ci_frame = ttk.LabelFrame(
+                self.scroll_container.scrollable_content,
+                text="• Contact-Implicit Terms (relaxed complementarity)"
+                + (
+                    f"  [active: {', '.join(listed)}]"
+                    if listed
+                    else "  [inactive: not listed in soft_constraints]"
+                ),
+            )
+            ci_frame.pack(fill="x", padx=6, pady=4)
+            for k, v in ci_cfg.items():
+                val = self._to_float(v)
+                if val is None:
+                    continue
+                s_min, s_max = self.CONTACT_IMPLICIT_RANGES.get(
+                    k, (0.0, max(val * 4.0, 1.0))
+                )
+                row = SliderRow(
+                    ci_frame,
+                    name=k,
+                    initial_value=val,
+                    min_val=s_min,
+                    max_val=max(s_max, val),
+                    label_width=26,
+                    on_change=self._on_any_slider_change,
+                )
+                row.pack(fill="x", padx=4, pady=1)
+                self.slider_rows[f"contact_implicit.{k}"] = row
+
         # Collision sphere radii
         foot_rad = col_cfg.get("foot", {}).get("footCollisionSphereRadius")
         knee_rad = col_cfg.get("knee", {}).get("kneeCollisionSphereRadius")
@@ -1418,6 +1500,85 @@ class MpcParamsTab(ttk.Frame):
                         "collision_constraint.knee.kneeCollisionSphereRadius"
                     ] = row
 
+    # Which top-level keys of the configuration each category owns. Anything not claimed here is rendered under
+    # "Other Parameters", so a new block reaches the GUI without a line of code. Within a claimed block, any key the
+    # hand-written renderer above does not draw is picked up by the generic pass at the end of the category
+    # (_render_uncovered_parameters), so a new key reaches the GUI without a line of code either.
+    # LINT.IfChange(category_blocks)
+    CATEGORY_BLOCKS = {
+        "State Cost (Q)": {"Q", "Q_acom", "Q_com"},
+        "Control Cost (R)": {"R"},
+        "Terminal Cost (Q_final)": {
+            "Q_final",
+            "dcm_terminal_cost",
+            "terminalCostScaling",
+        },
+        "Task Space Costs": {
+            "icp_cost_weights",
+            "left_leg_torque_cost",
+            "right_leg_torque_cost",
+            "task_space_costs",
+            "task_space_foot_cost_weights",
+        },
+        "Constraints & Barriers": {
+            "collision_constraint",
+            "contact_implicit",
+            "contacts",
+            "jointLimits",
+            "model_settings",
+            "swing_trajectory_config",
+        },
+        # model_settings is split across two categories by the hand-written renderers; it is claimed by the one whose
+        # generic pass should pick up any key of it that neither renderer draws.
+        "Solver & Horizon": {
+            "contact_wrench_gate",
+            "mpc",
+            "multiple_shooting",
+            "rollout",
+        },
+        "Contact Planning": {"contact_planning"},
+    }
+    # LINT.ThenChange(//humanoid_nmpc/remote_control/test/test_gui_parameter_coverage.py:gui_coverage_tables)
+
+    #: Parameters a slider must never touch, with the reason. A slider writes a float back into the file and publishes
+    #: it to the running controller, so a key belongs here when that is meaningless (a name, a model selection), unsafe
+    #: under the running solver (thread counts, problem dimensions) or not a parameter at all (the initial pose).
+    #: Absent from this table means "render it": an unknown key becomes a slider, so forgetting the GUI is impossible.
+    NOT_TUNABLE_KEYS = {
+        "centroidalModelType": "selects the dynamics model; changing it rebuilds the whole problem",
+        "contacts.contactWrenchConeSoftConstraint.numBasisVectors": "sets the input dimension",
+        "mpc.solutionTimeWindow": "MPC bookkeeping, not a tuning weight",
+        "mpcEntryBlendTime": "hand-over ramp used once at mode entry; a live change mid-hand-over is meaningless",
+        "multiple_shooting.nThreads": "thread pool size, fixed at solver construction",
+        "multiple_shooting.threadPriority": "thread scheduling, fixed at solver construction",
+        "rollout.maxNumStepsPerSecond": "integrator safety limit, not a tuning weight",
+        "simContactForceThreshold": "simulator-side contact detection, not an MPC parameter",
+        "simContactTimelineWindow": "simulator-side plotting window",
+        "telemetryFrequency": "publishing rate of the telemetry topic",
+        "dcm_terminal_cost.gravity": "a physical constant, not a tuning weight",
+        "contact_planning.planner.numNodes": "sets the size of the planner's problem, not a weight",
+        "contact_planning.heading_relinearisation.passes": "an iteration count of the search, not a weight",
+    }
+
+    #: Prefixes under which nothing is a tuning parameter.
+    NOT_TUNABLE_PREFIXES = {
+        "initialState": "the robot's initial pose, not a tuning parameter",
+        "defaultJointState": "the nominal posture, edited in the Joint Targets tab",
+    }
+
+    #: Slider ranges (min, max) by full dotted path, for the keys the generic renderer would otherwise give the
+    #: default 0..4x range. This is the only thing that has to be written by hand when a parameter is added, it is
+    #: optional, and getting it wrong costs a badly scaled slider rather than a missing one.
+    GENERIC_RANGES = {
+        "contact_implicit.complementarityWeight": (0.0, 10000.0),
+        "contact_implicit.slipWeight": (0.0, 1000.0),
+        "contact_implicit.penetrationMu": (0.0, 1.0),
+        "contact_implicit.penetrationDelta": (0.0, 0.05),
+        "contact_implicit.terrainHeight": (-0.5, 0.5),
+        # [rad] the tilt at which the simulator catches the robot on the gantry: 0 disables it, pi is upside down.
+        "simMaxBaseTiltAngle": (0.0, 3.14159),
+    }
+
     # Slider ranges (min, max scale factor, minimum max) for the DCM terminal cost keys.
     # LINT.IfChange(dcm_terminal_cost_gui_keys)
     DCM_TERMINAL_COST_RANGES = {
@@ -1425,8 +1586,45 @@ class MpcParamsTab(ttk.Frame):
         "weight_x": (0.0, 4.0, 100.0),
         "weight_y": (0.0, 4.0, 100.0),
         "velocityOffsetFactor": (0.0, 2.0, 1.0),
+        # [s] the window over which a foot's weight in the support centre ramps through lift-off and touch-down.
+        # Without it the reference jumps by half a step width whenever the horizon end crosses a mode switch.
+        "supportBlendTime": (0.0, 4.0, 0.5),
     }
     # LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/src/cost/DcmTerminalCost.cpp:dcm_terminal_cost_keys)
+
+    # Slider ranges (min, max) for the relaxed complementarity contact terms of the contact-implicit formulation. The
+    # two penalties are prices on a product of a force and a length or a rate, so they span decades and cannot use the
+    # generic 0..4x range; the barrier pair is the usual relaxed-barrier (mu, delta).
+    # LINT.IfChange(contact_implicit_gui_keys)
+    CONTACT_IMPLICIT_RANGES = {
+        "complementarityWeight": (0.0, 10000.0),
+        "slipWeight": (0.0, 1000.0),
+        "penetrationMu": (0.0, 1.0),
+        "penetrationDelta": (0.0, 0.05),
+        "terrainHeight": (-0.5, 0.5),
+    }
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/common/ModelSettings.cpp:contact_implicit_yaml_path)
+
+    # Slider ranges (min, max) for the closed-form H-LIP planner's keys. The cadence and the step bounds are physical
+    # quantities with meaningful limits, not weights, and the generic 0..4x range would offer a 1.4 s single support
+    # and a zero step width. Keys are paths inside the contact_planning block.
+    # LINT.IfChange(hlip_gui_keys)
+    CONTACT_PLANNING_RANGES = {
+        "hlip.sspDuration": (0.1, 1.0),
+        "hlip.dspDuration": (0.0, 0.5),
+        "hlip.stepWidth": (0.05, 0.6),
+        "hlip.maxStepLength": (0.1, 1.0),
+        "hlip.maxStepWidth": (0.1, 0.8),
+        "hlip.minStepWidth": (0.05, 0.4),
+        "hlip.blend.sharpness": (1.0, 200.0),
+        "hlip.blend.threshold": (0.0, 0.5),
+        "hlip.blend.maxCommandedVelocityX": (0.1, 2.0),
+        "hlip.blend.maxCommandedVelocityY": (0.1, 2.0),
+        "hlip.blend.maxCommandedYawRate": (0.1, 3.0),
+        "hlip.blend.maxBaseVelocityX": (0.1, 2.0),
+        "hlip.blend.maxBaseVelocityY": (0.1, 2.0),
+    }
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/contact_planning/ContactPlanningConfig.cpp:contact_planning_keys)
 
     # Contact planning keys that are not tunable online (they change the problem structure or the threading). Keys are
     # paths inside the contact_planning block (planner / shared / term lists / one block per term).
@@ -1448,9 +1646,12 @@ class MpcParamsTab(ttk.Frame):
         """
         cp_data = self.raw_data.get("contact_planning", {})
         use_cp = bool(self.raw_data.get("useContactPlanning", False))
+        # Which implementation runs decides which blocks below are read at all: `hlip` reads only planner / shared /
+        # hlip, `lip_miqp` reads the term lists and one block per term (ContactPlannerFactory).
+        planner_type = str(cp_data.get("planner", {}).get("type", "hlip"))
         header = ttk.LabelFrame(
             self.scroll_container.scrollable_content,
-            text="• Mixed-Integer Contact Planner"
+            text=f"• Contact Planner: {planner_type}"
             + ("  [active]" if use_cp else "  [inactive: useContactPlanning is false]"),
         )
         header.pack(fill="x", padx=6, pady=4)
@@ -1475,8 +1676,18 @@ class MpcParamsTab(ttk.Frame):
             return
         self._render_contact_planning_structured(cp_data)
 
+    #: Blocks of the contact_planning file each planner reads. Anything else in the file belongs to the other one.
+    CONTACT_PLANNING_BLOCKS_BY_PLANNER = {"hlip": {"planner", "shared", "hlip"}}
+
     def _render_contact_planning_structured(self, cp_data):
-        """One read-only frame for the term lists, then one slider group per parameter block, in file order."""
+        """One read-only frame for the term lists, then one slider group per parameter block, in file order.
+
+        Blocks the selected planner does not read are still rendered - the file keeps both planners' parameters, and
+        editing them is how the other one is prepared - but they are labelled so that nobody tunes a weight that is
+        not in the loop.
+        """
+        planner_type = str(cp_data.get("planner", {}).get("type", "hlip"))
+        read_blocks = self.CONTACT_PLANNING_BLOCKS_BY_PLANNER.get(planner_type)
         lists = [
             (key, value) for key, value in cp_data.items() if isinstance(value, list)
         ]
@@ -1496,9 +1707,9 @@ class MpcParamsTab(ttk.Frame):
         for key, value in cp_data.items():
             if not isinstance(value, dict):
                 continue
-            frame = ttk.LabelFrame(
-                self.scroll_container.scrollable_content, text=f"• {key}"
-            )
+            ignored = read_blocks is not None and key not in read_blocks
+            label = f"• {key}" + (f"  [not read by {planner_type}]" if ignored else "")
+            frame = ttk.LabelFrame(self.scroll_container.scrollable_content, text=label)
             frame.pack(fill="x", padx=6, pady=4)
             self._render_contact_planning_block(frame, key, value)
 
@@ -1514,17 +1725,101 @@ class MpcParamsTab(ttk.Frame):
             val = self._to_float(value)
             if val is None:
                 continue
+            min_val, max_val = self.CONTACT_PLANNING_RANGES.get(
+                key_path, (0.0, max(val * 4.0, 1.0))
+            )
             row = SliderRow(
                 frame,
                 name=key_path.split(".", 1)[1] if "." in key_path else key_path,
                 initial_value=val,
-                min_val=0.0,
-                max_val=max(val * 4.0, 1.0),
+                min_val=min_val,
+                max_val=max_val,
                 label_width=34,
                 on_change=self._on_any_slider_change,
             )
             row.pack(fill="x", padx=4, pady=1)
             self.slider_rows[f"contact_planning.{key_path}"] = row
+
+    def _is_tunable(self, key_path: str) -> bool:
+        """Whether a configuration key should become a slider (see NOT_TUNABLE_KEYS)."""
+        if key_path in self.NOT_TUNABLE_KEYS:
+            return False
+        return not any(
+            key_path == prefix or key_path.startswith(prefix + ".")
+            for prefix in self.NOT_TUNABLE_PREFIXES
+        )
+
+    def _numeric_leaves(self, node, prefix=""):
+        """Every numeric scalar of a parsed configuration, keyed by its dotted path.
+
+        Booleans are left out: a slider would write a float back into a bool key and break the next reload.
+        """
+        leaves = {}
+        if isinstance(node, dict):
+            for key, value in node.items():
+                child = f"{prefix}.{key}" if prefix else str(key)
+                leaves.update(self._numeric_leaves(value, child))
+        elif isinstance(node, bool) or node is None:
+            pass
+        elif isinstance(node, (int, float)):
+            leaves[prefix] = node
+        return leaves
+
+    def _render_uncovered_parameters(self, category: str):
+        """Sliders for the parameters of this category that no hand-written renderer drew.
+
+        This is what makes the tab read the configuration rather than a list of keys in Python. The hand-written
+        groups above give the matrices and the barriers their labels, units and ranges; everything else - including
+        every key added to a configuration file after this code was written - arrives here automatically, grouped by
+        its top-level block.
+        """
+        claimed = set()
+        for blocks in self.CATEGORY_BLOCKS.values():
+            claimed |= blocks
+        if category == "Other Parameters":
+            blocks_here = [key for key in self.raw_data if key not in claimed]
+        else:
+            blocks_here = [
+                key
+                for key in self.raw_data
+                if key in self.CATEGORY_BLOCKS.get(category, set())
+            ]
+
+        for block in sorted(blocks_here):
+            leaves = self._numeric_leaves(self.raw_data[block], block)
+            pending = [
+                (key, value)
+                for key, value in sorted(leaves.items())
+                # The matrices are keyed with the quoted YAML spelling, e.g. Q."(0,0)".
+                if key not in self.slider_rows
+                and key.replace('"', "")
+                not in {k.replace('"', "") for k in self.slider_rows}
+                and self._is_tunable(key)
+            ]
+            if not pending:
+                continue
+            frame = ttk.LabelFrame(
+                self.scroll_container.scrollable_content, text=f"• {block}"
+            )
+            frame.pack(fill="x", padx=6, pady=4)
+            for key, value in pending:
+                val = self._to_float(value)
+                if val is None:
+                    continue
+                min_val, max_val = self.GENERIC_RANGES.get(
+                    key, (0.0, max(abs(val) * 4.0, 1.0))
+                )
+                row = SliderRow(
+                    frame,
+                    name=key.split(".", 1)[1] if "." in key else key,
+                    initial_value=val,
+                    min_val=min(min_val, val),
+                    max_val=max(max_val, val),
+                    label_width=34,
+                    on_change=self._on_any_slider_change,
+                )
+                row.pack(fill="x", padx=4, pady=1)
+                self.slider_rows[key] = row
 
     def _render_solver_and_horizon(self):
         """Render MPC loop frequencies, horizon, SQP multiple shooting, and rollout settings."""

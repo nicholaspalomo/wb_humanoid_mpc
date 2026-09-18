@@ -94,6 +94,12 @@ const absl::flat_hash_map<std::string, MpcSoftConstraintType> kSoftConstraintMap
     {"contactwrenchconesoftconstraint", MpcSoftConstraintType::ContactWrenchCone},
     {"zerovelocity", MpcSoftConstraintType::ZeroVelocity},
     {"zerovelocitysoftconstraint", MpcSoftConstraintType::ZeroVelocity},
+    {"contactcomplementarity", MpcSoftConstraintType::ContactComplementarity},
+    {"contactcomplementarityconstraint", MpcSoftConstraintType::ContactComplementarity},
+    {"forceweightedslip", MpcSoftConstraintType::ForceWeightedSlip},
+    {"forceweightedslipconstraint", MpcSoftConstraintType::ForceWeightedSlip},
+    {"groundpenetration", MpcSoftConstraintType::GroundPenetration},
+    {"groundpenetrationconstraint", MpcSoftConstraintType::GroundPenetration},
 };
 
 const absl::flat_hash_map<std::string, MpcHardConstraintType> kHardConstraintMap = {
@@ -153,7 +159,8 @@ absl::StatusOr<MpcSoftConstraintType> stringToMpcSoftConstraintType(absl::string
   }
   return absl::InvalidArgumentError(
       absl::StrCat("Unknown MPC soft constraint type: '", name, "'. Supported soft constraints are: ",
-                   "joint_limits, foot_collision, friction_force_cone, contact_moment_xy, contact_wrench_cone, zero_velocity."));
+                   "joint_limits, foot_collision, friction_force_cone, contact_moment_xy, contact_wrench_cone, zero_velocity, ",
+                   "contact_complementarity, force_weighted_slip, ground_penetration."));
 }
 
 absl::StatusOr<std::string> mpcSoftConstraintTypeToString(MpcSoftConstraintType type) {
@@ -170,6 +177,12 @@ absl::StatusOr<std::string> mpcSoftConstraintTypeToString(MpcSoftConstraintType 
       return "contact_wrench_cone";
     case MpcSoftConstraintType::ZeroVelocity:
       return "zero_velocity";
+    case MpcSoftConstraintType::ContactComplementarity:
+      return "contact_complementarity";
+    case MpcSoftConstraintType::ForceWeightedSlip:
+      return "force_weighted_slip";
+    case MpcSoftConstraintType::GroundPenetration:
+      return "ground_penetration";
     default:
       return absl::InvalidArgumentError(absl::StrCat("Unknown MpcSoftConstraintType: ", static_cast<int>(type)));
   }
@@ -273,6 +286,32 @@ absl::StatusOr<MpcFormulationTasks> loadMpcFormulationTasks(absl::string_view ta
       formulationTasks.hasSoftConstraint(MpcSoftConstraintType::ZeroVelocity)) {
     return absl::InvalidArgumentError(
         "[loadMpcFormulationTasks] 'zero_velocity' cannot be configured as both a hard constraint and a soft constraint simultaneously.");
+  }
+
+  // The contact-implicit terms and the schedule-gated contact constraints contradict each other: the first let the
+  // optimizer decide where a foot carries load, the second decide it from the mode schedule before the solve.
+  if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::ContactComplementarity) &&
+      formulationTasks.hasHardConstraint(MpcHardConstraintType::ZeroWrench)) {
+    return absl::InvalidArgumentError(
+        "[loadMpcFormulationTasks] 'contact_complementarity' and the hard 'zero_wrench' constraint are mutually exclusive: the first "
+        "lets the solver decide when a foot carries load, the second forces the swing foot's wrench to zero from the mode schedule. "
+        "Remove 'zero_wrench' from hard_constraints to run the contact-implicit formulation "
+        "(humanoid_nmpc/docs/contact_implicit_mpc/README.md).");
+  }
+  if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::ForceWeightedSlip) &&
+      (formulationTasks.hasHardConstraint(MpcHardConstraintType::ZeroVelocity) ||
+       formulationTasks.hasSoftConstraint(MpcSoftConstraintType::ZeroVelocity))) {
+    return absl::InvalidArgumentError(
+        "[loadMpcFormulationTasks] 'force_weighted_slip' replaces 'zero_velocity': the two hold the same foot still, one from the "
+        "measured load and one from the mode schedule. Remove 'zero_velocity' from the constraint lists "
+        "(humanoid_nmpc/docs/contact_implicit_mpc/README.md).");
+  }
+  if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::ContactComplementarity) &&
+      !formulationTasks.hasSoftConstraint(MpcSoftConstraintType::GroundPenetration)) {
+    return absl::InvalidArgumentError(
+        "[loadMpcFormulationTasks] 'contact_complementarity' needs 'ground_penetration' alongside it: without the unilateral "
+        "condition h >= 0 nothing stops a foot being pushed through the ground, where the complementarity product is satisfied by a "
+        "negative height (humanoid_nmpc/docs/contact_implicit_mpc/README.md).");
   }
 
   if (verbose) {

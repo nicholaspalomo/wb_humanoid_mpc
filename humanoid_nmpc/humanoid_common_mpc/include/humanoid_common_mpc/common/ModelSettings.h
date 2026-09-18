@@ -61,6 +61,26 @@ class ModelSettings {
     bool constrainYawRateAboutContactNormal{false};
   };
 
+  /**
+   * Weights of the relaxed complementarity formulation of contact, active when contact_complementarity,
+   * force_weighted_slip and ground_penetration are listed in the task file's soft_constraints
+   * (humanoid_nmpc/docs/contact_implicit_mpc/README.md). They price the three conditions of rigid contact rather than
+   * imposing them, which is what lets the solver choose the contact sequence.
+   */
+  struct ContactImplicitConfig {
+    // Penalty on f_n * h [N m]. Large enough that carrying load at a height is never worth it, small enough that the
+    // linearised product stays a well-conditioned quadratic.
+    scalar_t complementarityWeight{100.0};
+    // Penalty on f_n * v_xy [N m/s]. This is what holds a loaded foot still, in place of the stance constraint.
+    scalar_t slipWeight{10.0};
+    // Relaxed barrier on h >= 0: `mu` is the barrier weight, `delta` the width of the quadratic relaxation [m].
+    scalar_t penetrationMu{1.0e-2};
+    scalar_t penetrationDelta{1.0e-3};
+    // [m] height of the ground under the contact frames. The reduced-order planner assumes flat terrain; the MPC only
+    // needs the ground to be where this says for the complementarity conditions to mean what they should.
+    scalar_t terrainHeight{0.0};
+  };
+
   ModelSettings(const std::string& configFile, const std::string& urdfFile, const std::string& mpcName, bool verbose = false);
 
   ModelSettings() = delete;
@@ -108,6 +128,7 @@ class ModelSettings {
   size_t j_r_elbow_y_index;
 
   FootConstraintConfig footConstraintConfig;
+  ContactImplicitConfig contactImplicitConfig;
 };
 
 }  // namespace ocs2::humanoid

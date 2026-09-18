@@ -29,8 +29,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <gtest/gtest.h>
 
+#include <chrono>
+#include <filesystem>
 #include <fstream>
 #include <optional>
+#include <regex>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -45,6 +48,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_sqp/SqpSolver.h>
 
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
+#include "humanoid_centroidal_mpc/command/CentroidalMpcTargetTrajectoriesCalculator.h"
 #include "humanoid_centroidal_mpc/constraint/ZeroVelocityConstraintCppAd.h"
 #include "humanoid_centroidal_mpc/cost/CentroidalMpcEndEffectorFootCost.h"
 #include "humanoid_centroidal_mpc/cost/DcmTerminalCost.h"
@@ -602,6 +606,30 @@ TEST_F(MpcParameterUpdaterModuleTest, FootConstraintGainsUpdated) {
   auto* sqp = getSqpSolver();
   ASSERT_NE(sqp, nullptr);
 
+  // The gains live on the zero-velocity twist constraint, which the contact-implicit formulation replaces with the
+  // relaxed complementarity terms (humanoid_nmpc/docs/contact_implicit_mpc/README.md). With that formulation selected
+  // there is no such constraint to update, and the hot reload of these gains is simply not applicable.
+  const bool hasZeroVelocityConstraint = [&]() {
+    for (auto& ocp : sqp->getOcpDefinitions()) {
+      for (const auto& footName : contactNames_) {
+        try {
+          ocp.equalityConstraintPtr->get<ZeroVelocityConstraintCppAd>(footName + "_zeroVelocity");
+          return true;
+        } catch (...) {
+        }
+        try {
+          ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_zeroVelocity");
+          return true;
+        } catch (...) {
+        }
+      }
+    }
+    return false;
+  }();
+  if (!hasZeroVelocityConstraint) {
+    GTEST_SKIP() << "zero_velocity is not in this configuration's constraint lists (contact-implicit formulation)";
+  }
+
   // Mutate model_settings.foot_constraint.linearVelocityErrorGain_xy to 99.0
   {
     std::ifstream in(tmpTaskFile_);
@@ -656,6 +684,86 @@ TEST_F(MpcParameterUpdaterModuleTest, FootConstraintGainsUpdated) {
     if (foundUpdated) break;
   }
   EXPECT_TRUE(foundUpdated) << "Av(0,0) should have been updated to 99.0 (linearVelocityErrorGain_xy)";
+}
+
+/******************************************************************************************************/
+// Test: a change to reference.yaml reaches the registered reloaders, so the command limits and ramps can be tuned on
+// a running controller instead of needing a restart (the remote control's Command Limits tab writes that file).
+/******************************************************************************************************/
+TEST_F(MpcParameterUpdaterModuleTest, ReferenceFileChangeReachesTheRegisteredReloaders) {
+  const std::string tmpReferenceFile = (std::filesystem::path(testing::TempDir()) / "updater_reference.yaml").string();
+  {
+    std::ifstream in(referenceFile_);
+    std::ofstream out(tmpReferenceFile);
+    out << std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  }
+
+  MpcParameterUpdaterModule updater(mpc_.get(), tmpTaskFile_, urdfFile_, tmpReferenceFile, stateDim_, inputDim_, contactNames_, nullptr,
+                                    basisCostTransform_);
+  std::vector<std::string> reloadedWith;
+  updater.addReferenceFileReloader([&reloadedWith](const std::string& file) { reloadedWith.push_back(file); });
+
+  const vector_t dummyState = vector_t::Zero(stateDim_);
+  // The file is polled once every hundred solves; nothing has changed yet, so nothing is reloaded.
+  for (size_t i = 0; i < 101; ++i) {
+    updater.preSolverRun(0.0, 1.0, dummyState, *interface_->getReferenceManagerPtr());
+  }
+  EXPECT_TRUE(reloadedWith.empty()) << "an untouched reference file must not trigger a reload";
+
+  {
+    std::ofstream out(tmpReferenceFile, std::ios::app);
+    out << "\n# touched by the test\n";
+  }
+  std::filesystem::last_write_time(tmpReferenceFile, std::filesystem::file_time_type::clock::now() + std::chrono::seconds(1));
+  for (size_t i = 0; i < 101; ++i) {
+    updater.preSolverRun(0.0, 1.0, dummyState, *interface_->getReferenceManagerPtr());
+  }
+  ASSERT_EQ(reloadedWith.size(), 1U) << "a changed reference file must reload exactly once";
+  EXPECT_EQ(reloadedWith.front(), tmpReferenceFile);
+
+  std::remove(tmpReferenceFile.c_str());
+}
+
+/******************************************************************************************************/
+// Test: the values a reload reads are the ones the command path then uses. The pelvis height is the observable one:
+// commandedPositionToTargetTrajectories clamps the commanded delta to maxDeltaPelvisHeight and adds defaultBaseHeight,
+// so both reloaded values appear directly in the target it returns.
+/******************************************************************************************************/
+TEST_F(MpcParameterUpdaterModuleTest, ReloadingCommandLimitsChangesTheTargetItProduces) {
+  const std::string tmpReferenceFile = (std::filesystem::path(testing::TempDir()) / "updater_limits.yaml").string();
+  const auto writeWith = [&tmpReferenceFile, this](scalar_t maxDeltaPelvisHeight, scalar_t defaultBaseHeight) {
+    std::ifstream in(referenceFile_);
+    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.close();
+    content = std::regex_replace(content, std::regex("maxDeltaPelvisHeight: *[0-9.]+"),
+                                 "maxDeltaPelvisHeight: " + std::to_string(maxDeltaPelvisHeight));
+    content =
+        std::regex_replace(content, std::regex("defaultBaseHeight: *[0-9.]+"), "defaultBaseHeight: " + std::to_string(defaultBaseHeight));
+    std::ofstream out(tmpReferenceFile);
+    out << content;
+  };
+
+  writeWith(0.10, 0.90);
+  CentroidalMpcTargetTrajectoriesCalculator calculator(tmpReferenceFile, interface_->getEffectiveMpcRobotModel(),
+                                                       interface_->getPinocchioInterface(), interface_->getCentroidalModelInfo(),
+                                                       interface_->mpcSettings().timeHorizon_);
+
+  // A crouch far beyond the limit, so the returned height is the clamp itself: defaultBaseHeight - maxDeltaPelvisHeight.
+  const vector_t state = interface_->getInitialState();
+  const vector4_t deepCrouch(0.0, 0.0, -10.0, 0.0);
+  const TargetTrajectories before = calculator.commandedPositionToTargetTrajectories(deepCrouch, 0.0, state);
+  ASSERT_FALSE(before.stateTrajectory.empty());
+  const scalar_t heightBefore = interface_->getEffectiveMpcRobotModel().getBasePosition(before.stateTrajectory.back())(2);
+  EXPECT_NEAR(heightBefore, 0.90 - 0.10, 1e-6);
+
+  writeWith(0.25, 0.80);
+  calculator.reloadCommandLimits(tmpReferenceFile);
+  const TargetTrajectories after = calculator.commandedPositionToTargetTrajectories(deepCrouch, 0.0, state);
+  ASSERT_FALSE(after.stateTrajectory.empty());
+  const scalar_t heightAfter = interface_->getEffectiveMpcRobotModel().getBasePosition(after.stateTrajectory.back())(2);
+  EXPECT_NEAR(heightAfter, 0.80 - 0.25, 1e-6) << "the reloaded limits must be the ones the target is built from";
+
+  std::remove(tmpReferenceFile.c_str());
 }
 
 /******************************************************************************************************/
@@ -806,13 +914,19 @@ TEST_F(MpcParameterUpdaterModuleTest, ComAndAcomTrackingWeightsUpdated) {
                                     basisCostTransform_);
   touchTaskFileAndRunUpdater(updater);
 
+  // Each matrix is premultiplied by its own `scaling` entry, and the two are not the same number in every robot's
+  // task file. Read them rather than hard-coding, or this test rots the next time either is retuned.
+  scalar_t comScaling = 1.0;
+  scalar_t acomScaling = 1.0;
+  loadData::loadCppDataType(tmpTaskFile_, "Q_com.scaling", comScaling);
+  loadData::loadCppDataType(tmpTaskFile_, "Q_acom.scaling", acomScaling);
+
   // Every per-thread clone of the problem must see the update, not just the first.
   for (auto& ocp : sqp->getOcpDefinitions()) {
     auto& cost = ocp.stateCostPtr->get<ComAndAcomTrackingCost>("comAndAcomTrackingCost");
-    // Both matrices are premultiplied by their respective `scaling` entry, 85.
-    EXPECT_NEAR(cost.getQCom()(2, 2), 85.0 * 999.0, 1e-3);
+    EXPECT_NEAR(cost.getQCom()(2, 2), comScaling * 999.0, 1e-3);
     // Row 0 of Q_acom is yaw, in the centroidal state's ZYX Euler convention.
-    EXPECT_NEAR(cost.getQAcom()(0, 0), 85.0 * 777.0, 1e-3);
+    EXPECT_NEAR(cost.getQAcom()(0, 0), acomScaling * 777.0, 1e-3);
   }
 }
 

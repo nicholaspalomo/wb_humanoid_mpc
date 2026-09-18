@@ -27,6 +27,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc/cost/DcmTerminalCost.h"
 
+#include <optional>
+
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -45,7 +47,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 namespace {
-constexpr size_t kNumParameters = 8;
+// supportWeights(2), omega, velocityCommand(2), offsetFactor, sqrtWeights(2), plannedDcmWeight, plannedDcm(2).
+constexpr size_t kNumParameters = 11;
 constexpr size_t kResidualDim = 2;
 }  // namespace
 
@@ -77,8 +80,12 @@ DcmTerminalCost::DcmTerminalCost(const SwitchedModelReferenceManager& referenceM
       mpcRobotModelAdPtr_(mpcRobotModelAD.clone()) {
   config_.validate();
   auto residualAd = [this](const ad_vector_t& x, const ad_vector_t& p, ad_vector_t& y) { y = this->residual(x, p); };
+  // The generated library is keyed to the parameter count. A cached model from an earlier signature has the right
+  // file name but the wrong parameter dimension, and with recompileLibrariesCppAd false it would be loaded and then
+  // fed the new parameter vector; the suffix makes a stale library simply not exist, so it is regenerated instead.
+  const std::string modelName = costName + "_p" + std::to_string(kNumParameters);
   adInterfacePtr_.reset(
-      new CppAdInterface(residualAd, mpcRobotModelAD.getStateDim(), kNumParameters, std::move(costName), modelSettings.modelFolderCppAd));
+      new CppAdInterface(residualAd, mpcRobotModelAD.getStateDim(), kNumParameters, modelName, modelSettings.modelFolderCppAd));
   if (modelSettings.recompileLibrariesCppAd) {
     adInterfacePtr_->createModels(CppAdInterface::ApproximationOrder::First, modelSettings.verboseCppAd);
   } else {
@@ -121,8 +128,18 @@ ad_vector_t DcmTerminalCost::residual(const ad_vector_t& state, const ad_vector_
   const ad_vector2_t support =
       (weightLeft * contactPositions[0].head<2>() + weightRight * contactPositions[1].head<2>()) / (weightLeft + weightRight);
 
+  // Where the horizon should end. Without a reduced-order plan that is the centre of the terminal support plus the
+  // commanded drift: "come to rest over the feet". With one it is the plan's own DCM, which lies beyond the stance
+  // foot towards the next foothold - referencing the support centre instead pulls the centre of mass back over the
+  // foot, and the planner then reads a state with no lateral velocity and narrows its next step until the robot falls
+  // (humanoid_nmpc/docs/hlip_contact_planner/README.md). Blended rather than branched, so the expression stays
+  // differentiable and one compiled model serves both.
+  const ad_scalar_t plannedWeight = parameters(8);
+  const ad_vector2_t plannedDcm = parameters.segment<2>(9);
+
   const ad_vector2_t dcm = com + comVelocity / omega;
-  const ad_vector2_t dcmReference = support + offsetFactor * velocityCommand / omega;
+  const ad_vector2_t supportReference = support + offsetFactor * velocityCommand / omega;
+  const ad_vector2_t dcmReference = plannedWeight * plannedDcm + (ad_scalar_t(1.0) - plannedWeight) * supportReference;
   ad_vector_t r(kResidualDim);
   r = (dcm - dcmReference).cwiseProduct(sqrtWeights);
   return r;
@@ -159,6 +176,10 @@ vector2_t DcmTerminalCost::computeSupportWeights(scalar_t time) const {
 
 vector_t DcmTerminalCost::getParameters(scalar_t time, const TargetTrajectories& targetTrajectories) const {
   const vector2_t supportWeights = computeSupportWeights(time);
+  // Off the target that was handed in, so that the parameters stay a function of this term's arguments. Under online
+  // contact planning that channel carries the planned CoM velocity rather than the raw command (planned_com_override),
+  // which is what the terminal DCM should be consistent with: the reference then leads towards the planned foothold
+  // instead of towards a straight line the gait is not following.
   vector2_t velocityCommand = vector2_t::Zero();
   if (!targetTrajectories.empty()) {
     const vector_t desiredState = targetTrajectories.getDesiredState(time);
@@ -173,6 +194,9 @@ vector_t DcmTerminalCost::getParameters(scalar_t time, const TargetTrajectories&
   parameters.segment<2>(3) = velocityCommand;
   parameters(5) = config_.velocityOffsetFactor;
   parameters.segment<2>(6) = config_.weights.cwiseSqrt();
+  const std::optional<vector2_t> plannedDcm = referenceManagerPtr_->getPlannedDcm(time, config_.omega());
+  parameters(8) = plannedDcm.has_value() ? 1.0 : 0.0;
+  parameters.segment<2>(9) = plannedDcm.value_or(vector2_t::Zero());
   return parameters;
 }
 

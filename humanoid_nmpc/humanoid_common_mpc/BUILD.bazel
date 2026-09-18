@@ -39,6 +39,8 @@ cc_library(
 # configuration and the plan. No Pinocchio, no reference manager: the planner's unit tests build against this target.
 _CONTACT_PLANNING_CORE_HDRS = [
     "include/humanoid_common_mpc/contact_planning/ContactPlan.h",
+    "include/humanoid_common_mpc/contact_planning/ContactPlannerFactory.h",
+    "include/humanoid_common_mpc/contact_planning/ContactPlannerInterface.h",
     "include/humanoid_common_mpc/contact_planning/ContactPlanningConfig.h",
     "include/humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h",
     "include/humanoid_common_mpc/contact_planning/ContactPlanningTermFactory.h",
@@ -49,6 +51,7 @@ _CONTACT_PLANNING_CORE_HDRS = [
     "include/humanoid_common_mpc/contact_planning/TargetContactPose.h",
 ] + glob(
     [
+        "include/humanoid_common_mpc/contact_planning/hlip/*.h",
         "include/humanoid_common_mpc/contact_planning/problem/*.h",
         "include/humanoid_common_mpc/contact_planning/model/*.h",
         "include/humanoid_common_mpc/contact_planning/cost/*.h",
@@ -57,13 +60,17 @@ _CONTACT_PLANNING_CORE_HDRS = [
         "include/humanoid_common_mpc/contact_planning/search/*.h",
         "include/humanoid_common_mpc/contact_planning/execution/*.h",
     ],
-    exclude = ["include/humanoid_common_mpc/contact_planning/execution/PlannedHeadingOverride.h"],
+    exclude = [
+        "include/humanoid_common_mpc/contact_planning/execution/PlannedComOverride.h",
+        "include/humanoid_common_mpc/contact_planning/execution/PlannedHeadingOverride.h",
+    ],
 )
 
 cc_library(
     name = "contact_planning_core",
     srcs = [
         "src/contact_planning/ContactPlan.cpp",
+        "src/contact_planning/ContactPlannerFactory.cpp",
         "src/contact_planning/ContactPlanningConfig.cpp",
         "src/contact_planning/ContactPlanningFormulation.cpp",
         "src/contact_planning/ContactPlanningTermFactory.cpp",
@@ -74,6 +81,7 @@ cc_library(
         "src/contact_planning/TargetContactPose.cpp",
     ] + glob(
         [
+            "src/contact_planning/hlip/*.cpp",
             "src/contact_planning/problem/*.cpp",
             "src/contact_planning/model/*.cpp",
             "src/contact_planning/cost/*.cpp",
@@ -82,7 +90,10 @@ cc_library(
             "src/contact_planning/search/*.cpp",
             "src/contact_planning/execution/*.cpp",
         ],
-        exclude = ["src/contact_planning/execution/PlannedHeadingOverride.cpp"],
+        exclude = [
+            "src/contact_planning/execution/PlannedComOverride.cpp",
+            "src/contact_planning/execution/PlannedHeadingOverride.cpp",
+        ],
     ),
     hdrs = _CONTACT_PLANNING_CORE_HDRS,
     includes = ["include"],
@@ -91,6 +102,11 @@ cc_library(
         ":humanoid_common_mpc_types",
         "//lib/ocs2:ocs2_core",
         "//lib/ocs2:ocs2_robotic_tools",
+        "@abseil-cpp//absl/log:check",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
         "@blasfeo",
         "@hpipm",
         "@eigen",
@@ -115,6 +131,9 @@ cc_library(
         "src/constraint/JointLimitsSoftConstraint.cpp",
         "src/constraint/FootCollisionConstraint.cpp",
         "src/constraint/ZeroWrenchConstraint.cpp",
+        "src/constraint/ContactComplementarityConstraint.cpp",
+        "src/constraint/ForceWeightedSlipConstraint.cpp",
+        "src/constraint/GroundPenetrationConstraint.cpp",
         "src/constraint/BasisScalingNonNegativityConstraint.cpp",
         "src/constraint/EndEffectorKinematicsTwistConstraint.cpp",
         "src/constraint/FrictionForceConeConstraint.cpp",
@@ -146,6 +165,7 @@ cc_library(
         "src/contact_planning/ContactPlanningModelParameters.cpp",
         "src/contact_planning/ContactPlanningReferenceManager.cpp",
         "src/contact_planning/ContactPlannerModule.cpp",
+        "src/contact_planning/execution/PlannedComOverride.cpp",
         "src/contact_planning/execution/PlannedHeadingOverride.cpp",
     ],
     hdrs = glob(
@@ -342,6 +362,39 @@ cc_test(
     name = "testContactPhaseResetting",
     size = "small",
     srcs = ["test/testContactPhaseResetting.cpp"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":contact_planning_core",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "testHlipModel",
+    size = "small",
+    srcs = ["test/testHlipModel.cpp"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":contact_planning_core",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "testHlipContactPlanner",
+    size = "small",
+    srcs = ["test/testHlipContactPlanner.cpp"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":contact_planning_core",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "testContactPlannerFactory",
+    size = "small",
+    srcs = ["test/testContactPlannerFactory.cpp"],
     copts = _COMMON_COPTS,
     deps = [
         ":contact_planning_core",

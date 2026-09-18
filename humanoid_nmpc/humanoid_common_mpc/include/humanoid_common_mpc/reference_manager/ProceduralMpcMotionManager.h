@@ -30,6 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <atomic>
+
 #include <functional>
 #include <string>
 #include <vector>
@@ -112,6 +114,14 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
    * the planner then lengthens the steps progressively instead of answering a step change in the command.
    */
   void setVelocityCommandAccelerationLimits(scalar_t maxLinearAcceleration, scalar_t maxAngularAcceleration);
+
+  /**
+   * Re-reads the command limits and the command ramps from `referenceFile` (hot reload).
+   *
+   * Called by the parameter updater from the solver thread while the command path scales a raw command on the
+   * subscription thread, so the limits are atomics; see TargetTrajectoriesCalculatorBase::reloadCommandLimits.
+   */
+  void reloadCommandLimits(const std::string& referenceFile);
   scalar_t getMaxLinearAcceleration() const { return maxLinearAcceleration_; }
   scalar_t getMaxAngularAcceleration() const { return maxAngularAcceleration_; }
   /** The rate-limited reference of the last solve, [v_x, v_y, pelvis height, yaw rate]. */
@@ -154,10 +164,10 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
   std::map<std::string, ModeSequenceTemplate> gaitMap_;
 
   // For velocity control mode
-  scalar_t maxDisplacementVelocityX_ = 0.6;
-  scalar_t maxDisplacementVelocityY_ = 0.3;
-  scalar_t maxDeltaPelvisHeight_ = 0.3;
-  scalar_t maxRotationVelocity_ = 0.6;
+  std::atomic<scalar_t> maxDisplacementVelocityX_{0.6};
+  std::atomic<scalar_t> maxDisplacementVelocityY_{0.3};
+  std::atomic<scalar_t> maxDeltaPelvisHeight_{0.3};
+  std::atomic<scalar_t> maxRotationVelocity_{0.6};
 
   BreakFrequencyAlphaFilter velocityCommandFilter;
   WalkingVelocityCommand velocityCommand_;

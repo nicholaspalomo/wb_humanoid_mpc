@@ -29,6 +29,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_ros2/fsm/SimFsmBridge.h"
 
+#include <algorithm>
+#include <cmath>
+
 #include <absl/log/log.h>
 #include <ocs2_robotic_tools/common/RotationTransforms.h>
 
@@ -107,6 +110,32 @@ void SimFsmBridge::applyModeAction(std::string_view modeName,
 
 /******************************************************************************************************/
 /******************************************************************************************************/
+/******************************************************************************************************/
+scalar_t SimFsmBridge::baseTiltAngle(const robot::model::RobotState& robotState) {
+  // The base's own vertical, expressed in the world: the third column of its rotation matrix. Its angle to the world
+  // vertical is the arccosine of that column's z component, which is heading independent, so a robot that has turned
+  // on the spot reads zero tilt exactly like one that has not.
+  const matrix3_t baseRotation = robotState.getRootRotationLocalToWorldFrame().toRotationMatrix();
+  return std::acos(std::clamp(baseRotation(2, 2), scalar_t(-1.0), scalar_t(1.0)));
+}
+
+/******************************************************************************************************/
+bool SimFsmBridge::recoverFromFall(const robot::model::RobotState& robotState,
+                                   robot::mujoco_sim_interface::MujocoSimInterface& robotInterface,
+                                   std::string& currentModeName) {
+  if (maxBaseTiltAngle_ <= 0.0 || robotInterface.isGantryLocked()) return false;
+  const scalar_t tilt = baseTiltAngle(robotState);
+  if (tilt <= maxBaseTiltAngle_) return false;
+
+  LOG(INFO) << "Base tilted " << tilt << " rad past the " << maxBaseTiltAngle_
+            << " rad limit — catching the robot on the gantry in JOINT_PD.";
+  robotInterface.lockGantry();
+  if (robotInterface.isZeroTorqueMode()) robotInterface.enableTorques();
+  currentModeName = "JOINT_PD";
+  publishFsmState(currentModeName, robotInterface.isGantryLocked());
+  return true;
+}
+
 /******************************************************************************************************/
 bool SimFsmBridge::processCommands(std::string& currentModeName, robot::mujoco_sim_interface::MujocoSimInterface& robotInterface) {
   std::optional<std::string> cmdOpt;

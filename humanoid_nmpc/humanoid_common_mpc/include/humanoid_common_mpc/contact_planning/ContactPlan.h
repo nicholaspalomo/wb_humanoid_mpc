@@ -80,6 +80,11 @@ struct ContactPlan {
   std::vector<scalar_t> headingRate;             // [rad/s]
   std::vector<feet_array_t<scalar_t>> footYaws;  // [rad] planned foot yaw (the landing yaw while the foot swings)
 
+  // Steps the planner had to cut to the reachable region. A clipped step is no longer the deadbeat step, so the
+  // lateral error it was meant to cancel survives into the next step; when this is persistently non-zero the cadence
+  // or the commanded velocity is asking for more than the legs can deliver, and the gait will diverge.
+  int numClippedSteps = 0;
+
   // Solver statistics
   scalar_t objective = 0.0;
   int numBranchAndBoundNodes = 0;
@@ -113,6 +118,17 @@ struct ContactPlan {
   std::optional<scalar_t> headingRateAtTime(scalar_t time) const;
   /** Planned foot yaw at the node nearest to `time` (the landing yaw while the foot swings); empty without the heading model. */
   std::optional<scalar_t> footYawAtTime(size_t contactIndex, scalar_t time) const;
+
+  /**
+   * The reduced model's centre of mass at `time`, linearly interpolated between nodes and clamped to the plan.
+   *
+   * This is the trajectory the footholds were planned for: with the H-LIP planner it is the orbit the deadbeat step
+   * regulates to, whose lateral part deliberately falls towards the swing foot. The whole-body MPC has to be asked for
+   * that motion, or its own centre-of-mass reference and the planner's footholds pull in opposite directions
+   * (planned_com_override, humanoid_nmpc/docs/hlip_contact_planner/README.md).
+   */
+  std::optional<vector2_t> comPositionAtTime(scalar_t time) const;
+  std::optional<vector2_t> comVelocityAtTime(scalar_t time) const;
 
   /**
    * Moves the whole plan by `shift` seconds (start time and commit boundary). Used when the executed schedule is re-timed

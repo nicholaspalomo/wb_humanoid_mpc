@@ -45,14 +45,26 @@ TargetTrajectoriesCalculatorBase::TargetTrajectoriesCalculatorBase(const std::st
     : mpcRobotModelPtr_(mpcRobotModel.clone()), mpcHorizon_(mpcHorizon) {
   std::cerr << "Loading reference file: " << referenceFile << std::endl;
   targetJointState_.resize(mpcRobotModel.getJointDim());
-  loadData::loadCppDataType(referenceFile, "defaultBaseHeight", defaultBaseHeight_);
   loadData::loadEigenMatrix(referenceFile, "defaultJointState", targetJointState_);
-  loadData::loadCppDataType(referenceFile, "targetRotationVelocity", targetRotationVelocity_);
-  loadData::loadCppDataType(referenceFile, "targetDisplacementVelocity", targetDisplacementVelocity_);
-  loadData::loadCppDataType(referenceFile, "maxDisplacementVelocityX", maxDisplacementVelocityX_);
-  loadData::loadCppDataType(referenceFile, "maxDisplacementVelocityY", maxDisplacementVelocityY_);
-  loadData::loadCppDataType(referenceFile, "maxDeltaPelvisHeight", maxDeltaPelvisHeight_);
-  loadData::loadCppDataType(referenceFile, "maxRotationVelocity", maxRotationVelocity_);
+  reloadCommandLimits(referenceFile);
+}
+
+void TargetTrajectoriesCalculatorBase::reloadCommandLimits(const std::string& referenceFile) {
+  // loadData takes a reference to the value it writes, which an atomic cannot provide, so each is loaded into a local
+  // seeded with the current value: a key that is absent from the file then leaves its limit where it was, exactly as
+  // it does at construction.
+  const auto load = [&referenceFile](const std::string& key, std::atomic<scalar_t>& target) {
+    scalar_t value = target.load();
+    loadData::loadCppDataType(referenceFile, key, value);
+    target.store(value);
+  };
+  load("defaultBaseHeight", defaultBaseHeight_);
+  load("targetRotationVelocity", targetRotationVelocity_);
+  load("targetDisplacementVelocity", targetDisplacementVelocity_);
+  load("maxDisplacementVelocityX", maxDisplacementVelocityX_);
+  load("maxDisplacementVelocityY", maxDisplacementVelocityY_);
+  load("maxDeltaPelvisHeight", maxDeltaPelvisHeight_);
+  load("maxRotationVelocity", maxRotationVelocity_);
 }
 
 /******************************************************************************************************/
@@ -84,7 +96,8 @@ vector6_t TargetTrajectoriesCalculatorBase::getDeltaBaseTarget(const vector4_t& 
   target(0) = currentPoseTarget(0) + globalFrameDeltaX;
   target(1) = currentPoseTarget(1) + globalFrameDeltaY;
   // base z relative to the default height
-  scalar_t deltaPelvisHeight = std::clamp(commadLinePoseTarget(2), -maxDeltaPelvisHeight_, maxDeltaPelvisHeight_);
+  const scalar_t maxDeltaPelvisHeight = maxDeltaPelvisHeight_;
+  scalar_t deltaPelvisHeight = std::clamp(commadLinePoseTarget(2), -maxDeltaPelvisHeight, maxDeltaPelvisHeight);
   target(2) = defaultBaseHeight_ + deltaPelvisHeight;
   // theta_z relative to current
   target(3) = currentPoseTarget(3) + commadLinePoseTarget(3) * M_PI / 180.0;
@@ -136,7 +149,7 @@ vector6_t TargetTrajectoriesCalculatorBase::integrateTargetBasePose(const vector
 
   targetPose[0] += averageVel[0] * deltaT;
   targetPose[1] += averageVel[1] * deltaT;
-  targetPose[2] = (deltaPelvisHeight > 0.1) ? deltaPelvisHeight : defaultBaseHeight_;
+  targetPose[2] = (deltaPelvisHeight > 0.1) ? deltaPelvisHeight : scalar_t(defaultBaseHeight_);
   targetPose[3] += averageVel[2] * deltaT;
   targetPose[4] = 0.0;
   targetPose[5] = 0.0;

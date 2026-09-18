@@ -5,6 +5,14 @@ telemetryFrequency: 100      # [Hz] Telemetry publishing frequency (decimated fr
 # the contact state the executed MPC policy plans against the simulator's ground truth over a sliding window of time.
 simContactTimelineWindow: 5.0          # [s] width of the sliding window
 simContactForceThreshold: 5.0          # [N] normal force above which a contact point counts as touching (ground truth)
+# Fall recovery: the tilt of the base past which the simulator catches the robot on the gantry, reattaching it upright
+# at the gantry height, switching to JOINT_PD (the whole-body MPC is overconstrained against a pinned base) and
+# resetting the MPC. The remote control follows the same transition and re-centres its joysticks, so a stick left
+# forward cannot keep commanding a walk into a robot hanging from the harness. The measure is the angle between the
+# base's own vertical and the world vertical, so it is heading independent: 0 upright, pi/2 on its side, pi upside
+# down. 0 disables the recovery and leaves a fallen robot where it lands, which is what you want when the fall itself
+# is the thing being studied. 1.0 rad (57 deg) is past any recoverable lean.
+simMaxBaseTiltAngle: 1.0                # [rad] 0 disables
 # Measured contact state of the controller, by name (robot_model/ContactEstimatorRegistry.h): the MPC observation mode and
 # which planned contact wrenches the inverse dynamics projects into feedforward torques. One of:
 #   cheater_sim        the ground truth of the physics (normal force above simContactForceThreshold); required for the
@@ -38,7 +46,7 @@ simVisualizations:
 enableOnlineTuning: true     # Enable runtime parameter and gain tuning in Controller GUI
 useContactBasisVectorInputs: true  # Set true to use basis-vector scalings λ as MPC contact inputs (instead of direct wrenches)
 useComAndAcomTracking: true      # Set true to regulate CoM + Angular Center of Mass (ACoM) instead of base pose
-useContactPlanning: true        # Set true to plan the contact sequence, timing and footholds online with the mixed-integer contact planner (replaces the gait schedule)
+useContactPlanning: false        # Set true to plan the contact sequence, timing and footholds online with the mixed-integer contact planner (replaces the gait schedule)
 # The planner's parameters are the contact_planning block of contact_planning.yaml next to this file (hot-reloaded and
 # edited by the tuning GUI like this file).
 useDcmTerminalCost: true         # Set true to end the horizon with the DCM (capture point) viability cost; Q_final / terminal_cost are then ignored
@@ -80,15 +88,35 @@ telemetryFrames:
 centroidalModelType: 0  # 0: FullCentroidalDynamics, 1: Single Rigid Body Dynamics
 
 # MPC Problem Formulation Tasks
+# Which contact formulation runs. As shipped the mode schedule gates the contact constraints: the swing foot's wrench is
+# forced to zero and the stance foot is held still, both from the schedule the contact planner produced, so the MPC cannot
+# depart from that schedule. The contact-implicit alternative below replaces those two with the relaxed complementarity
+# conditions of rigid contact and lets the solver decide where each foot carries load, which is the second half of
+# arXiv:2502.15630 (humanoid_nmpc/docs/contact_implicit_mpc/README.md). It changes the closed loop, so it is off until it
+# has been validated in MuJoCo: to switch, drop zero_wrench and zero_velocity below and add the three terms marked
+# `contact-implicit` to soft_constraints. loadMpcFormulationTasks refuses the half-way combinations.
 hard_constraints:
-  - zero_wrench
+  # - zero_wrench                       # remove for the contact-implicit formulation
   - normal_velocity
-  - zero_velocity
+  # - zero_velocity                     # remove for the contact-implicit formulation
 
 soft_constraints:
   - joint_limits
   - foot_collision
   - contact_wrench_cone
+  - contact_complementarity         # contact-implicit: f_n * h = 0, load only where the foot touches the ground
+  - force_weighted_slip             # contact-implicit: f_n * v_xy = 0, a loaded foot is held still
+  - ground_penetration              # contact-implicit: h >= 0, required alongside contact_complementarity
+
+# Weights of the contact-implicit terms above; read whether or not they are listed, ignored when they are not.
+# LINT.IfChange(contact_implicit_config)
+contact_implicit:
+  complementarityWeight: 100.0  # penalty on f_n * h [N m]: the price of carrying load at a height
+  slipWeight: 100.0  # penalty on f_n * v_xy [N m/s]: the price of sliding under load
+  penetrationMu: 0.01  # relaxed barrier weight on h >= 0
+  penetrationDelta: 0.001  # [m] width of that barrier's quadratic relaxation
+  terrainHeight: 0  # [m] ground height under the contact frames
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/common/ModelSettings.cpp:contact_implicit_yaml_path)
 
 costs:
   - state_quadratic_cost

@@ -1,22 +1,34 @@
-# Mixed-integer contact planner of the DRC Atlas: the contact_planning block, read when useContactPlanning is true in
+# Online contact planner of the DRC Atlas: the contact_planning block, read when useContactPlanning is true in
 # task.yaml. This file lives next to task.yaml (CentroidalMpcInterface looks for contact_planning.yaml in the task file's
 # directory); the parameter updater reloads it whenever it is saved, like task.yaml, and the tuning GUI edits it in place.
 #
-# The block mirrors the structure of the planner (humanoid_nmpc/docs/README.md, section 2). `planner` holds what is a
-# property of the planner itself, `shared` the parameters read by more than one term, then the term lists that select
-# what the planner is assembled from (the analogue of the costs / soft_constraints / hard_constraints lists of task.yaml),
-# and one parameter block per listed term, named as the term. The planner prints the assembled formulation at start-up
-# and after every reload. A Linear Inverted Pendulum model is planned on a coarse grid of numNodes * dt seconds; per node
-# and foot a binary decides contact vs. swing, continuous variables place the feet and the ZMP, and the logic rules turn
-# the phase duration limits into propagation on the binaries. The problem is solved by branch-and-bound over HPIPM
-# relaxations, warm-started with the previous plan. The result replaces the gait schedule (mode sequence + event times)
-# and provides the swing-foot landing targets tracked by task_space_foot_cost_weights.pos_x / pos_y.
+# `planner.type` chooses the planner and therefore which of the blocks below are read at all.
+#
+#   hlip      the closed-form reduced-order stepper of arXiv:2502.15630 (the default; see
+#             humanoid_nmpc/docs/hlip_contact_planner/README.md). A fixed cadence of alternating single supports and a
+#             foothold from the H-LIP deadbeat step-to-step controller. Nothing is optimized, nothing is searched and
+#             no gain is tuned: the reduced model proposes a nominal gait and the whole-body MPC is free to leave it.
+#             Reads `planner`, `shared` and `hlip`.
+#   lip_miqp  the mixed-integer program (LipContactPlanner, humanoid_nmpc/docs/README.md section 2). A Linear Inverted
+#             Pendulum on a coarse grid, one contact binary per node and foot, solved by branch-and-bound over HPIPM
+#             relaxations. Reads `planner`, `shared`, the term lists and one parameter block per listed term.
+#
+# Either way the result replaces the gait schedule (mode sequence + event times) and provides the swing-foot landing
+# targets tracked by task_space_foot_cost_weights.pos_x / pos_y. The planner prints what it was configured with at
+# start-up and after every reload.
 # LINT.IfChange(contact_planning_config)
 contact_planning:
-  planner:                            # grid, commit window, solver budget, threading
-    dt: 0.1  # [s] planner node duration
-    numNodes: 12                      # planning horizon = numNodes * dt, should cover mpc.timeHorizon
-    commitTime: 0.3  # [s] the applied schedule is fixed this far ahead; must cover the planner latency (a swing
+  planner:                            # which planner, grid, commit window, solver budget, threading
+    # Which contact planner runs (ContactPlannerFactory). `hlip` is the closed-form reduced-order stepper of
+    # arXiv:2502.15630 (humanoid_nmpc/docs/hlip_contact_planner/README.md): a fixed cadence and the H-LIP deadbeat step,
+    # nothing is optimized and none of the blocks below except `hlip` and `shared` are read. `lip_miqp` is the
+    # mixed-integer program, which reads the term lists and every per-term block and ignores the `hlip` block.
+    type: hlip
+    dt: 0.025  # [s] planner node duration. The H-LIP cadence is continuous but a mode schedule is not: a phase
+                                      #     boundary is rounded to the nearest node, so keep this well below sspDuration.
+                                      #     A plan costs microseconds, so a fine grid is free. With lip_miqp use 0.1.
+    numNodes: 56                      # planning horizon = numNodes * dt = 1.4 s, covers mpc.timeHorizon (1 s)
+    commitTime: 0.05  # [s] the applied schedule is fixed this far ahead; must cover the planner latency (a swing
                                       #     that has started or starts within this window is always executed to its touch-down)
     # Enabled: with minDoubleSupportDuration 0 the swings abut and the boundary walk has nothing to terminate it,
     # which stalls the planner silently (it falls back to a STANCE-only merge, so the foot that should lift never
@@ -63,7 +75,10 @@ contact_planning:
     # task.yaml swing_trajectory_config.swingTimeScale must stay <= minSwingDuration or every swing is scaled down in
     # height and velocity by swingDuration / swingTimeScale and the foot lands short and low.
     gait_limits:
-      minSwingDuration: 0.4  # [s] must stay >= task.yaml swing_trajectory_config.swingTimeScale (0.25)
+      minSwingDuration: 0.3  # [s] must stay >= task.yaml swing_trajectory_config.swingTimeScale (0.25).
+                                      #     With planner.type: hlip nothing below reads these limits: the cadence is
+                                      #     hlip.sspDuration exactly and the execution rules that read them are not
+                                      #     listed. They shape the plan only under planner.type: lip_miqp.
       # [s] a long swing at speed is dead time the planner would otherwise spend. At 1.0 the planner chose 0.6-0.7 s
       # swings even at low command, and with minDoubleSupportDuration 0 the whole of that is single support: the lateral
       # LIP diverges as cosh(omega t), so a 0.7 s single support multiplies a lateral offset by cosh(2.38) = 5.4 with no
@@ -71,7 +86,7 @@ contact_planning:
       # v_y * T_stride to fit inside maxStepWidth - minStepWidth = 0.30 m, so a long stride halves what the gait can
       # deliver sideways. And a 1.0 s swing is most of the 1.2 s horizon, which leaves the planner nothing to plan with
       # and makes maxCommitExtension unusable (the capped boundary would still outrun the plan).
-      maxSwingDuration: 0.5
+      maxSwingDuration: 0.4
       minContactDuration: 0.3  # [s]
       maxContactDuration: 0  # [s] <= 0: no limit (standing allowed)
       minDoubleSupportDuration: 0  # [s] after a touch-down the other foot stays down at least this long. 0 disables the
@@ -80,7 +95,46 @@ contact_planning:
                                       # NOTE: any value above 0 is quantised up to a whole node, so at dt: 0.1 anything in
                                       # (0, 0.1] behaves as 0.1 s; only exactly 0 gives a zero double support.
 
-  # ---- the formulation: what the planner is assembled from ----
+  # ---- the closed-form H-LIP planner (planner.type: hlip) ----
+  # The reduced-order layer of arXiv:2502.15630. The gait is a fixed cadence and each foothold is the H-LIP deadbeat
+  # step; there is no cost, no constraint and no search, and the whole-body MPC is what departs from this nominal gait.
+  # The deadbeat gain is closed form (K = [1, dspDuration + coth(omega sspDuration) / omega]), so nothing here is a
+  # weight: every key is either a cadence, a geometry, or the range of a joypad command.
+  hlip:
+    # [s] single support. The stride is 2 * (sspDuration + dspDuration). This is the single most consequential key
+    # here, because the lateral pendulum amplifies an offset by cosh(omega * sspDuration) every step: 1.79 at 0.35 s,
+    # 2.82 at 0.5 s. At 0.5 s, starting to walk from a standstill demanded a 0.79 m lateral step, which the reach clip
+    # cut to 0.45 m; a clipped step is no longer deadbeat, so the error grew every step until the robot fell.
+    sspDuration: 0.35
+    # [s] double support. The paper uses 0, an instantaneous exchange of support. Here it is the time the whole-body
+    # MPC has to move the centre of mass over the next stance foot before that foot has to carry the robot alone: the
+    # reduced model's double support only drifts at constant velocity and does not represent the transfer itself, so
+    # this is what keeps the single support from starting with the centre of mass still between the feet. It enters
+    # the deadbeat gain in closed form, so nothing else has to be retuned with it.
+    dspDuration: 0.1
+    stepWidth: 0.25  # [m] lateral distance between the feet of the nominal period-two orbit
+    maxStepLength: 0.5  # [m] clip on the step along the heading. This and the two below are the only bounds
+                                      #     the planner applies to the deadbeat step: a foothold outside the leg's reach is
+                                      #     clipped rather than handed to the MPC. They are safety limits, not tuning.
+    maxStepWidth: 0.45  # [m] largest lateral distance between the feet after a step
+    minStepWidth: 0.15  # [m] self-collision margin on that distance
+    # Standing / walking blend, equations (15) - (17) of the paper: alpha = tanh(sharpness (phi - threshold)) / 2 + 1/2
+    # with phi the squared norm of the commands and the measured base velocity, each normalised by its threshold below.
+    # Under alpha = 0.5 the planner stands and the feet stay put; above it the commanded velocity is scaled by alpha, so
+    # the stride grows out of standing instead of jumping to full length at the first non-zero command.
+    blend:
+      sharpness: 40  # rho_1
+      threshold: 0.02  # rho_2
+      maxCommandedVelocityX: 0.7  # [m/s]
+      maxCommandedVelocityY: 0.3  # [m/s]
+      maxCommandedYawRate: 0.61  # [rad/s] (35 deg/s)
+      maxBaseVelocityX: 0.5  # [m/s]
+      maxBaseVelocityY: 0.4  # [m/s]
+
+  # ---- the formulation: what the planner is assembled from (planner.type: lip_miqp only) ----
+  # Every list below and every per-term block after it belongs to the mixed-integer planner. With planner.type: hlip
+  # only `dynamics` is consulted, and only for whether heading_double_integrator is listed: that is what tells the H-LIP
+  # planner to publish a planned heading and planned foot yaws, which the foot cost tracks when the robot turns.
   dynamics:                           # model blocks; order fixes the variable layout, the first two are mandatory
     - lip_com                         # LIP centre of mass: c, v; input zmp (zero-order hold)
     - foothold_integrator             # foot positions p_i; inputs dp_i and the contact binaries c_i
@@ -132,9 +186,18 @@ contact_planning:
   # corrections). Each changes the closed loop: with none listed the reference manager merges plans exactly as it did
   # before they existed, which is the behaviour the gait is tuned against. Enable one at a time and validate it in MuJoCo
   # before hardware. phase_resetting must precede energy_cadence_modulation when both are listed.
+  # With planner.type: hlip the list is empty on purpose: the H-LIP replans from the measured state at every MPC solve
+  # and the whole-body MPC absorbs what is left, which is the point of the paper's split. Each rule below is a heuristic
+  # correction applied between plans; enable one at a time and validate it in MuJoCo before hardware.
   execution:
-    # - phase_resetting                 # early touch-down: switch the foot to contact at once; late: extend the swing
-    - planned_heading_override        # the plan's heading replaces the commanded yaw in the MPC target trajectory
+    # Not a heuristic: this is the reference plumbing of the paper (its equations 11-14). The H-LIP's lateral orbit
+    # requires the centre of mass to fall towards the swing foot, while the target trajectory built from the operator's
+    # command asks for a straight line with no lateral velocity. Without this rule the whole-body MPC holds the centre
+    # of mass still, the planner reads that back and narrows the step to minStepWidth, and the robot sidesteps and
+    # falls. The rules below it are the heuristics, and they stay off.
+    - planned_com_override            # the plan's centre of mass replaces the horizontal CoM reference of the target
+    # - phase_resetting               # early touch-down: switch the foot to contact at once; late: extend the swing
+    # - planned_heading_override      # the plan's heading replaces the commanded yaw in the MPC target trajectory
     # - energy_cadence_modulation     # re-time the touch-down of the swing in flight by the LIP orbital energy error
     # - dcm_step_adjustment           # move the landing target by the DCM error propagated to touch-down
 

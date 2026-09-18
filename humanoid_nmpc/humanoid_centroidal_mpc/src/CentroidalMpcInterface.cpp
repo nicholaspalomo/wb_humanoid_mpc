@@ -47,6 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_core/misc/Numerics.h>
 #include <ocs2_core/penalties/Penalties.h>
 #include <ocs2_core/soft_constraint/StateInputSoftConstraint.h>
+#include <ocs2_core/soft_constraint/StateSoftConstraint.h>
 #include <ocs2_oc/synchronized_module/SolverSynchronizedModule.h>
 #include <ocs2_pinocchio_interface/PinocchioEndEffectorKinematicsCppAd.h>
 
@@ -54,7 +55,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <humanoid_common_mpc/HumanoidPreComputation.h>
 #include <humanoid_common_mpc/common/MpcFormulationConfig.h>
 #include <humanoid_common_mpc/constraint/BasisScalingNonNegativityConstraint.h>
+#include <humanoid_common_mpc/constraint/ContactComplementarityConstraint.h>
 #include <humanoid_common_mpc/constraint/EndEffectorKinematicsTwistConstraint.h>
+#include <humanoid_common_mpc/constraint/ForceWeightedSlipConstraint.h>
+#include <humanoid_common_mpc/constraint/GroundPenetrationConstraint.h>
 #include <humanoid_common_mpc/cost/EndEffectorKinematicsQuadraticCost.h>
 #include <humanoid_common_mpc/pinocchio_model/createPinocchioModel.h>
 #include "humanoid_common_mpc/common/StatusMacros.h"
@@ -424,7 +428,10 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
     std::unique_ptr<EndEffectorKinematics<scalar_t>> eeKinematicsPtr;
     bool needsEeKinematics = formulationTasks.hasHardConstraint(MpcHardConstraintType::ZeroVelocity) ||
                              formulationTasks.hasSoftConstraint(MpcSoftConstraintType::ZeroVelocity) ||
-                             formulationTasks.hasHardConstraint(MpcHardConstraintType::NormalVelocity);
+                             formulationTasks.hasHardConstraint(MpcHardConstraintType::NormalVelocity) ||
+                             formulationTasks.hasSoftConstraint(MpcSoftConstraintType::ContactComplementarity) ||
+                             formulationTasks.hasSoftConstraint(MpcSoftConstraintType::ForceWeightedSlip) ||
+                             formulationTasks.hasSoftConstraint(MpcSoftConstraintType::GroundPenetration);
     if (needsEeKinematics) {
       const size_t effectiveInputDim = effectiveMpcRobotModelPtr_->getInputDim();
       eeKinematicsPtr.reset(new PinocchioEndEffectorKinematicsCppAd(*pinocchioInterfacePtr_, pinocchioMappingCppAd, {footName},
@@ -484,6 +491,33 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
       auto penalty = std::make_unique<QuadraticPenalty>(modelSettings_.footConstraintConfig.softConstraintWeight);
       problemPtr_->softConstraintPtr->add(absl::StrCat(footName, "_zeroVelocity"),
                                           std::make_unique<StateInputSoftConstraint>(std::move(stanceConstraint), std::move(penalty)));
+    }
+
+    // The relaxed complementarity conditions of rigid contact: with all three listed (and zero_wrench / zero_velocity
+    // dropped, which loadMpcFormulationTasks enforces) the mode schedule no longer gates any contact constraint and
+    // the solver decides where each foot carries load. See humanoid_nmpc/docs/contact_implicit_mpc/README.md.
+    const ModelSettings::ContactImplicitConfig& contactImplicit = modelSettings_.contactImplicitConfig;
+    if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::ContactComplementarity) && eeKinematicsPtr) {
+      std::unique_ptr<StateInputConstraint> complementarity = std::make_unique<ContactComplementarityConstraint>(
+          *eeKinematicsPtr, *effectiveMpcRobotModelPtr_, i, contactImplicit.terrainHeight);
+      auto penalty = std::make_unique<QuadraticPenalty>(contactImplicit.complementarityWeight);
+      problemPtr_->softConstraintPtr->add(absl::StrCat(footName, "_contactComplementarity"),
+                                          std::make_unique<StateInputSoftConstraint>(std::move(complementarity), std::move(penalty)));
+    }
+    if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::ForceWeightedSlip) && eeKinematicsPtr) {
+      std::unique_ptr<StateInputConstraint> slip =
+          std::make_unique<ForceWeightedSlipConstraint>(*eeKinematicsPtr, *effectiveMpcRobotModelPtr_, i);
+      auto penalty = std::make_unique<QuadraticPenalty>(contactImplicit.slipWeight);
+      problemPtr_->softConstraintPtr->add(absl::StrCat(footName, "_forceWeightedSlip"),
+                                          std::make_unique<StateInputSoftConstraint>(std::move(slip), std::move(penalty)));
+    }
+    if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::GroundPenetration) && eeKinematicsPtr) {
+      std::unique_ptr<StateConstraint> penetration =
+          std::make_unique<GroundPenetrationConstraint>(*eeKinematicsPtr, contactImplicit.terrainHeight);
+      auto penalty = std::make_unique<RelaxedBarrierPenalty>(
+          RelaxedBarrierPenalty::Config(contactImplicit.penetrationMu, contactImplicit.penetrationDelta));
+      problemPtr_->stateSoftConstraintPtr->add(absl::StrCat(footName, "_groundPenetration"),
+                                               std::make_unique<StateSoftConstraint>(std::move(penetration), std::move(penalty)));
     }
 
     if (formulationTasks.hasHardConstraint(MpcHardConstraintType::ZeroWrench)) {

@@ -107,6 +107,13 @@ int main(int argc, char** argv) {
       interface.modelSettings().contactNames, dynamic_cast<const SwitchedModelReferenceManager*>(interface.getReferenceManagerPtr().get()),
       interface.getBasisInputsCostTransformConfig());
   mpcParameterUpdater->setContactPlannerModule(interface.getContactPlannerModulePtr());
+  // The command limits and ramps come from reference.yaml, which is read once at construction by both of these. With
+  // the reloaders registered, the Command Limits tab of the remote control changes them on the running controller
+  // instead of needing a restart. Both objects outlive the updater: they live in this scope, as it does.
+  mpcParameterUpdater->addReferenceFileReloader(
+      [&mpcTargetTrajectoriesCalculator](const std::string& file) { mpcTargetTrajectoriesCalculator.reloadCommandLimits(file); });
+  mpcParameterUpdater->addReferenceFileReloader(
+      [ros2ProceduralMpcMotionManager](const std::string& file) { ros2ProceduralMpcMotionManager->reloadCommandLimits(file); });
   mpcParameterUpdater->subscribe(nodeHandle);
   mpc.getSolverPtr()->addSynchronizedModule(mpcParameterUpdater);
 

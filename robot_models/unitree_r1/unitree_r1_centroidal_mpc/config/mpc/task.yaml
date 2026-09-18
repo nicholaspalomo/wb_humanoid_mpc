@@ -5,6 +5,14 @@ telemetryFrequency: 100      # [Hz] Telemetry publishing frequency (decimated fr
 # the contact state the executed MPC policy plans against the simulator's ground truth over a sliding window of time.
 simContactTimelineWindow: 5.0          # [s] width of the sliding window
 simContactForceThreshold: 5.0          # [N] normal force above which a contact point counts as touching (ground truth)
+# Fall recovery: the tilt of the base past which the simulator catches the robot on the gantry, reattaching it upright
+# at the gantry height, switching to JOINT_PD (the whole-body MPC is overconstrained against a pinned base) and
+# resetting the MPC. The remote control follows the same transition and re-centres its joysticks, so a stick left
+# forward cannot keep commanding a walk into a robot hanging from the harness. The measure is the angle between the
+# base's own vertical and the world vertical, so it is heading independent: 0 upright, pi/2 on its side, pi upside
+# down. 0 disables the recovery and leaves a fallen robot where it lands, which is what you want when the fall itself
+# is the thing being studied. 1.0 rad (57 deg) is past any recoverable lean.
+simMaxBaseTiltAngle: 1.0                # [rad] 0 disables
 # Measured contact state of the controller, by name (robot_model/ContactEstimatorRegistry.h): the MPC observation mode and
 # which planned contact wrenches the inverse dynamics projects into feedforward torques. One of:
 #   cheater_sim        the ground truth of the physics (normal force above simContactForceThreshold); required for the

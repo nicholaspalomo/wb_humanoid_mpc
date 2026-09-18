@@ -115,13 +115,16 @@ vector3_t SwitchedModelReferenceManager::getSwingFootPlaneNormal(size_t contactI
 std::optional<vector2_t> SwitchedModelReferenceManager::getSwingFootVelocityReference(size_t contactIndex, scalar_t time) const {
   if (isInContact(time, contactIndex)) return std::nullopt;
 
-  // Extract the commanded XY velocity from the target trajectories
-  const vector_t desiredState = getTargetTrajectories().getDesiredState(time);
-  if (desiredState.size() >= 2) {
-    // Relying on the convention that the first two elements of the target state are the CoM XY velocity command
-    return desiredState.head<2>();
-  }
-  return std::nullopt;
+  return getCommandedVelocity(time);
+}
+
+vector2_t SwitchedModelReferenceManager::getCommandedVelocity(scalar_t time) const {
+  const TargetTrajectories& targetTrajectories = getTargetTrajectories();
+  if (targetTrajectories.empty()) return vector2_t::Zero();
+  // Relying on the convention that the first two elements of the target state are the CoM XY velocity command.
+  const vector_t desiredState = targetTrajectories.getDesiredState(time);
+  if (desiredState.size() < 2) return vector2_t::Zero();
+  return desiredState.head<2>();
 }
 
 /******************************************************************************************************/

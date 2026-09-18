@@ -97,6 +97,18 @@ void ContactPlanningConfig::validate() const {
   if (dcmStepAdjustment.gain < 0.0) fail("dcm_step_adjustment.gain must be non-negative");
   if (dcmStepAdjustment.maxOffset < 0.0) fail("dcm_step_adjustment.maxOffset must be non-negative");
   if (energyCadenceModulation.gain < 0.0) fail("energy_cadence_modulation.gain must be non-negative");
+  const HlipParameters& h = hlip;
+  if (h.sspDuration <= 0.0) fail("hlip.sspDuration must be positive");
+  if (h.dspDuration < 0.0) fail("hlip.dspDuration must be non-negative");
+  if (h.stepWidth <= 0.0) fail("hlip.stepWidth must be positive");
+  if (h.maxStepLength <= 0.0) fail("hlip.maxStepLength must be positive");
+  if (h.minStepWidth <= 0.0 || h.maxStepWidth < h.minStepWidth) fail("need 0 < hlip.minStepWidth <= hlip.maxStepWidth");
+  if (h.stepWidth < h.minStepWidth || h.stepWidth > h.maxStepWidth) fail("hlip.stepWidth must lie within the hlip step width bounds");
+  if (h.blend.sharpness <= 0.0) fail("hlip.blend.sharpness must be positive");
+  if (h.blend.maxCommandedVelocityX <= 0.0 || h.blend.maxCommandedVelocityY <= 0.0 || h.blend.maxCommandedYawRate <= 0.0 ||
+      h.blend.maxBaseVelocityX <= 0.0 || h.blend.maxBaseVelocityY <= 0.0) {
+    fail("every hlip.blend command threshold must be positive");
+  }
   if (energyCadenceModulation.deadband < 0.0) fail("energy_cadence_modulation.deadband must be non-negative");
   if (yawTorqueBudget.torsionalFrictionTorque < 0.0 || yawTorqueBudget.doubleSupportYawCouple < 0.0) fail("yaw torque limits must be >= 0");
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
@@ -186,8 +198,9 @@ constexpr std::array<const char*, 61> kLegacyKeys{"dt",
                                                   "doubleSupportYawCouple"};
 
 /** Keys of the structured layout that identify it (the block names besides the term blocks). */
-constexpr std::array<const char*, 10> kStructuredKeys{"planner",          "shared",      "dynamics",         "costs",  "soft_constraints",
-                                                      "hard_constraints", "logic_rules", "assignment_costs", "search", "execution"};
+constexpr std::array<const char*, 11> kStructuredKeys{"planner",          "shared",           "hlip",        "dynamics",         "costs",
+                                                      "soft_constraints", "hard_constraints", "logic_rules", "assignment_costs", "search",
+                                                      "execution"};
 
 bool hasAnyKey(const ptree& block, const char* const* keys, size_t count) {
   for (size_t i = 0; i < count; ++i) {
@@ -245,6 +258,7 @@ void loadStructured(const ptree& pt, const ptree& block, const std::string& pref
   load(p.planningFrequency, "planner.planningFrequency");
   load(p.verbose, "planner.verbose");
   load(p.logPlans, "planner.logPlans");
+  load(p.type, "planner.type");
 
   SharedParameters& s = config.shared;
   load(s.gravity, "shared.gravity");
@@ -257,6 +271,21 @@ void loadStructured(const ptree& pt, const ptree& block, const std::string& pref
   load(s.gaitLimits.minContactDuration, "shared.gait_limits.minContactDuration");
   load(s.gaitLimits.maxContactDuration, "shared.gait_limits.maxContactDuration");
   load(s.gaitLimits.minDoubleSupportDuration, "shared.gait_limits.minDoubleSupportDuration");
+
+  HlipParameters& h = config.hlip;
+  load(h.sspDuration, "hlip.sspDuration");
+  load(h.dspDuration, "hlip.dspDuration");
+  load(h.stepWidth, "hlip.stepWidth");
+  load(h.maxStepLength, "hlip.maxStepLength");
+  load(h.maxStepWidth, "hlip.maxStepWidth");
+  load(h.minStepWidth, "hlip.minStepWidth");
+  load(h.blend.sharpness, "hlip.blend.sharpness");
+  load(h.blend.threshold, "hlip.blend.threshold");
+  load(h.blend.maxCommandedVelocityX, "hlip.blend.maxCommandedVelocityX");
+  load(h.blend.maxCommandedVelocityY, "hlip.blend.maxCommandedVelocityY");
+  load(h.blend.maxCommandedYawRate, "hlip.blend.maxCommandedYawRate");
+  load(h.blend.maxBaseVelocityX, "hlip.blend.maxBaseVelocityX");
+  load(h.blend.maxBaseVelocityY, "hlip.blend.maxBaseVelocityY");
 
   ContactPlanningFormulation& f = config.formulation;
   bool present = false;

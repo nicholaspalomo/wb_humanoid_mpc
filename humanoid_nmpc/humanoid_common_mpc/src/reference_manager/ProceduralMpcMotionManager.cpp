@@ -53,16 +53,7 @@ ProceduralMpcMotionManager::ProceduralMpcMotionManager(const std::string& gaitFi
       gaitSchedulePtr_(switchedModelReferenceManagerPtr_->getGaitSchedule()),
       mpcRobotModelPtr_(&mpcRobotModel),
       velocityCommandFilter(5, vector4_t::Zero()) {
-  loadData::loadCppDataType(referenceFile, "maxDisplacementVelocityX", maxDisplacementVelocityX_);
-  loadData::loadCppDataType(referenceFile, "maxDisplacementVelocityY", maxDisplacementVelocityY_);
-  loadData::loadCppDataType(referenceFile, "maxDeltaPelvisHeight", maxDeltaPelvisHeight_);
-  loadData::loadCppDataType(referenceFile, "maxRotationVelocity", maxRotationVelocity_);
-  {
-    // Optional: absent keys keep the limits off (the historical behaviour, an unramped reference).
-    boost::property_tree::ptree pt;
-    loadData::readPropertyTree(referenceFile, pt);
-    setVelocityCommandAccelerationLimits(pt.get<scalar_t>("maxLinearAcceleration", 0.0), pt.get<scalar_t>("maxAngularAcceleration", 0.0));
-  }
+  reloadCommandLimits(referenceFile);
 
   gaitMap_ = getGaitMap(gaitFile);
 }
@@ -98,6 +89,24 @@ vector4_t ProceduralMpcMotionManager::rateLimitVelocityCommand(
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
+
+void ProceduralMpcMotionManager::reloadCommandLimits(const std::string& referenceFile) {
+  // See TargetTrajectoriesCalculatorBase::reloadCommandLimits: loadData writes through a reference, which an atomic
+  // cannot give it, so each limit round-trips through a local seeded with its current value.
+  const auto load = [&referenceFile](const std::string& key, std::atomic<scalar_t>& target) {
+    scalar_t value = target.load();
+    loadData::loadCppDataType(referenceFile, key, value);
+    target.store(value);
+  };
+  load("maxDisplacementVelocityX", maxDisplacementVelocityX_);
+  load("maxDisplacementVelocityY", maxDisplacementVelocityY_);
+  load("maxDeltaPelvisHeight", maxDeltaPelvisHeight_);
+  load("maxRotationVelocity", maxRotationVelocity_);
+  // Optional: absent keys keep the ramps off (the historical behaviour, an unramped reference).
+  boost::property_tree::ptree pt;
+  loadData::readPropertyTree(referenceFile, pt);
+  setVelocityCommandAccelerationLimits(pt.get<scalar_t>("maxLinearAcceleration", 0.0), pt.get<scalar_t>("maxAngularAcceleration", 0.0));
+}
 
 void ProceduralMpcMotionManager::setAndScaleVelocityCommand(const WalkingVelocityCommand& rawVelocityCommand) {
   velocityCommand_ = scaleWalkingVelocityCommand(rawVelocityCommand);

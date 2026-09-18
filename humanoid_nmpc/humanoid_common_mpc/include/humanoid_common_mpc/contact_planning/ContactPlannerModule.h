@@ -31,14 +31,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <string>
 #include <thread>
 
 #include <ocs2_oc/synchronized_module/SolverSynchronizedModule.h>
 
+#include "humanoid_common_mpc/contact_planning/ContactPlannerInterface.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningModelParameters.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h"
-#include "humanoid_common_mpc/contact_planning/LipContactPlanner.h"
 
 namespace ocs2::humanoid {
 
@@ -139,7 +140,10 @@ class ContactPlannerModule final : public SolverSynchronizedModule {
   std::optional<ContactPlanningModelParameters> modelParameters_;
   bool configChanged_ = false;
 
-  LipContactPlanner planner_;  // used by the worker thread, or by the solver thread in synchronous mode
+  // Used by the worker thread, or by the solver thread in synchronous mode. The implementation is chosen by name
+  // (`planner.type`, ContactPlannerFactory) and is rebuilt when that name changes.
+  std::unique_ptr<ContactPlannerInterface> planner_;
+  std::string plannerType_;  // the name `planner_` was built from; guarded by the same access rules as `planner_`
 
   std::thread worker_;
   std::atomic<bool> running_{false};

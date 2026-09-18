@@ -30,6 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <atomic>
+
 #include <functional>
 
 #include <ocs2_core/reference/TargetTrajectories.h>
@@ -49,6 +51,17 @@ class TargetTrajectoriesCalculatorBase {
                                    scalar_t mpcHorizon);
 
   TargetTrajectoriesCalculatorBase(const TargetTrajectoriesCalculatorBase& rhs) = delete;
+
+  /**
+   * Re-reads the command limits and reference defaults from `referenceFile` (the scalars this class loads at
+   * construction, not the nominal joint posture, which the joint targets path owns).
+   *
+   * Called by the parameter updater when reference.yaml changes on disk, i.e. from the solver thread, while the
+   * command path reads these values from the subscription thread. They are therefore atomics: each is an independent
+   * scalar, so a reload that lands between two reads can only mix an old limit with a new one, which is what a slider
+   * drag looks like anyway.
+   */
+  void reloadCommandLimits(const std::string& referenceFile);
 
   void setTargetDisplacementVelocity(scalar_t targetDisplacementVelocity) { targetDisplacementVelocity_ = targetDisplacementVelocity; }
   void setTargetRotationVelocity_(scalar_t targetRotationVelocity) { targetRotationVelocity = targetRotationVelocity; }
@@ -94,16 +107,16 @@ class TargetTrajectoriesCalculatorBase {
   const MpcRobotModelBase<scalar_t>* mpcRobotModelPtr_;
 
   // For pose control mode
-  scalar_t targetDisplacementVelocity_;
-  scalar_t targetRotationVelocity_;
+  std::atomic<scalar_t> targetDisplacementVelocity_;
+  std::atomic<scalar_t> targetRotationVelocity_;
 
   // For velocity control mode
-  scalar_t maxDisplacementVelocityX_ = 0.6;
-  scalar_t maxDisplacementVelocityY_ = 0.3;
-  scalar_t maxDeltaPelvisHeight_ = 0.3;
-  scalar_t maxRotationVelocity_ = 0.6;
+  std::atomic<scalar_t> maxDisplacementVelocityX_{0.6};
+  std::atomic<scalar_t> maxDisplacementVelocityY_{0.3};
+  std::atomic<scalar_t> maxDeltaPelvisHeight_{0.3};
+  std::atomic<scalar_t> maxRotationVelocity_{0.6};
 
-  scalar_t defaultBaseHeight_;
+  std::atomic<scalar_t> defaultBaseHeight_;
   vector_t targetJointState_;
   scalar_t mpcHorizon_;
   // State of the first-order low-pass filter applied to the commanded velocity [v_x, v_y, dz, yaw rate].

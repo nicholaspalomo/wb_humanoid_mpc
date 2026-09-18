@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -106,6 +107,22 @@ class MpcParameterUpdaterModule : public SolverSynchronizedModule {
   }
 
   /**
+   * Registers something whose parameters come from reference.yaml, to be reloaded when that file changes on disk.
+   *
+   * The command limits and the command ramps (`maxDisplacementVelocityX/Y`, `maxRotationVelocity`,
+   * `maxDeltaPelvisHeight`, the acceleration limits, `defaultBaseHeight`) are read from that file at construction by
+   * the target trajectories calculator and the procedural motion manager, so a change to it used to need a restart.
+   * The reloaders registered here are called with the file's path whenever it changes, on the solver thread; each
+   * consumer is responsible for the thread safety of what it writes (both of the above hold their limits in atomics).
+   *
+   * A generic hook rather than a typed setter per consumer: what the file feeds differs per robot and per node, and
+   * this way the updater does not have to know any of them.
+   */
+  void addReferenceFileReloader(std::function<void(const std::string&)> reloader) {
+    referenceFileReloaders_.push_back(std::move(reloader));
+  }
+
+  /**
    * The `contactEstimator` name of the last YAML applied since this was last called (task file or parameter topic), or
    * nullopt when none carried the key. The estimator itself belongs to the MRT joint controller and is swapped on its
    * control thread, so the simulator node polls this from its loop and resolves the name through its
@@ -166,6 +183,8 @@ class MpcParameterUpdaterModule : public SolverSynchronizedModule {
   // File-watching state
   std::filesystem::file_time_type taskFileLastWriteTime_;
   std::filesystem::file_time_type contactPlanningFileLastWriteTime_;
+  std::filesystem::file_time_type referenceFileLastWriteTime_;
+  std::vector<std::function<void(const std::string&)>> referenceFileReloaders_;
   size_t checkCounter_{0};
 
   // Controller-side settings (takeContactEstimatorUpdate, takeContactWrenchGateUpdate)

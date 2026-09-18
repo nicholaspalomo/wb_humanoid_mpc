@@ -42,6 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/execution/ScheduleAdaptationPipeline.h"
 #include "humanoid_common_mpc/contact_planning/logic/DoubleSupportPenaltyCost.h"
 #include "humanoid_common_mpc/contact_planning/model/LipBlockIndices.h"
+#include "humanoid_common_mpc/contact_planning/search/CadenceStretchStage.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 
 namespace ocs2::humanoid {
@@ -488,6 +489,42 @@ TEST(ContactPlanningTerms, DoubleSupportPenaltyIsALowerBoundOnAPartialAssignment
  * step - on nearly every step, at both ends of every swing (each exchange is one foot's touch-down and the other's
  * lift-off). earlyTouchdownMinAdvance executes a near-on-time touch-down as planned instead.
  */
+TEST(ContactPlanningTerms, CadenceStretchIsBoundedByTheGaitLimits) {
+  // The stretch re-times every phase of the incumbent together, so the phase that is closest to its limit is what
+  // bounds it. A five-node swing at dt 0.1 is 0.5 s, already at maxSwingDuration, so nothing may be stretched; a
+  // four-node swing is 0.4 s and leaves room for exactly 0.5 / 0.4.
+  ContactPlanningConfig config = makeConfig();
+  config.planner.numNodes = 12;
+  config.cadenceStretch.samples = 4;
+  config.cadenceStretch.maxStretch = 2.0;
+  config.validate();
+
+  const auto assignmentWithSwing = [&config](int swingNodes) {
+    MiqpAssignment assignment(static_cast<size_t>(ContactLogicState::kBinariesPerNode * config.planner.numNodes), 1);
+    for (int node = 0; node < swingNodes; ++node) {
+      assignment[static_cast<size_t>(ContactLogicState::contactBinaryIndex(node, CONTACT_LEFT_INDEX))] = 0;
+    }
+    return assignment;
+  };
+
+  EXPECT_NEAR(CadenceStretchStage::admissibleStretch(config, assignmentWithSwing(4), config.planner.numNodes, 2.0), 0.5 / 0.4, 1e-9);
+  EXPECT_NEAR(CadenceStretchStage::admissibleStretch(config, assignmentWithSwing(5), config.planner.numNodes, 2.0), 1.0, 1e-9);
+  // maxStretch is the other bound, and it is the binding one for a short swing.
+  EXPECT_NEAR(CadenceStretchStage::admissibleStretch(config, assignmentWithSwing(3), config.planner.numNodes, 1.2), 1.2, 1e-9);
+  // A swing that already exceeds the limit cannot be repaired by stretching, and must not push the bound below 1.
+  EXPECT_NEAR(CadenceStretchStage::admissibleStretch(config, assignmentWithSwing(8), config.planner.numNodes, 2.0), 1.0, 1e-9);
+}
+
+TEST(ContactPlanningTerms, CadenceStretchIsDisabledWithoutSamples) {
+  ContactPlanningConfig config = makeConfig();
+  config.cadenceStretch.samples = 0;
+  config.validate();
+  std::unique_ptr<SearchStage> stage = ContactPlanningTermFactory::makeSearchStage(term::kCadenceStretch);
+  ASSERT_NE(stage, nullptr);
+  stage->configure(config);
+  EXPECT_NE(stage->describe().find("0 stretch"), std::string::npos);
+}
+
 TEST(ContactPlanningTerms, ANearlyOnTimeTouchDownDoesNotSplitAZeroDoubleSupportExchange) {
   // Left swings 1.0 -> 1.4 and lands at the instant the right lifts; right then swings 1.4 -> 1.8.
   const ModeSchedule nominal({1.0, 1.4, 1.8}, {ModeNumber::STANCE, ModeNumber::RF, ModeNumber::LF, ModeNumber::STANCE});

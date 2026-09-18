@@ -72,3 +72,13 @@ cc_binary(
     srcs = ["src/MpcKeyboardVelocityCommandNode.cpp"],
     deps = [":humanoid_common_mpc_ros2"],
 )
+
+cc_test(
+    name = "testBaseTiltAngle",
+    size = "small",
+    srcs = ["test/testBaseTiltAngle.cpp"],
+    deps = [
+        ":humanoid_common_mpc_ros2",
+        "@googletest//:gtest_main",
+    ],
+)

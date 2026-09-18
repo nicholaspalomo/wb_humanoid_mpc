@@ -45,6 +45,8 @@ class ExecutionRule : public ContactPlanningTerm {
  public:
   /** True when the rule compares the measured centre of mass with the NMPC's predicted trajectory. */
   virtual bool needsPredictedTrajectory() const { return false; }
+  /** True when the rule reads the measured centre of mass or base position of the cycle (implied by the above). */
+  virtual bool needsComState() const { return needsPredictedTrajectory(); }
   /** Once per cycle, before the schedule is adapted (the cadence rule computes its shifts here). */
   virtual void beginCycle(ExecutionContext& /*ctx*/) const {}
   /**

@@ -28,18 +28,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <iostream>
 
 #include "absl/log/log.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlannerFactory.h"
 
 namespace ocs2::humanoid {
 
 ContactPlannerModule::ContactPlannerModule(std::shared_ptr<ContactPlanningReferenceManager> referenceManagerPtr,
                                            ContactPlanningConfig config)
-    : referenceManagerPtr_(std::move(referenceManagerPtr)), config_(std::move(config)), planner_(config_) {
+    : referenceManagerPtr_(std::move(referenceManagerPtr)), config_(std::move(config)) {
   if (referenceManagerPtr_ == nullptr) {
     throw std::invalid_argument("[ContactPlannerModule] reference manager must not be null");
   }
+  absl::StatusOr<std::unique_ptr<ContactPlannerInterface>> planner = makeContactPlanner(config_);
+  if (!planner.ok()) throw std::invalid_argument(std::string(planner.status().message()));
+  planner_ = *std::move(planner);
+  plannerType_ = config_.planner.type;
   referenceManagerPtr_->setConfig(config_);
   logPlans_.store(config_.planner.logPlans);
-  LOG(INFO) << "[ContactPlannerModule] contact planner formulation:\n" << planner_.getFormulationSummary();
+  LOG(INFO) << "[ContactPlannerModule] contact planner formulation:\n" << planner_->getFormulationSummary();
   if (config_.planner.runInBackgroundThread) {
     startWorker();
   }
@@ -105,13 +110,15 @@ void ContactPlannerModule::setConfig(const ContactPlanningConfig& configIn) {
       }
     }
     structuralChange = config_.formulation != config.formulation || config_.planner.numNodes != config.planner.numNodes ||
-                       config_.planner.dt != config.planner.dt;
+                       config_.planner.dt != config.planner.dt || config_.planner.type != config.planner.type;
     config_ = config;
     configChanged_ = true;
     logPlans_.store(config.planner.logPlans);
   }
   if (structuralChange) {
-    LOG(INFO) << "[ContactPlannerModule] contact planner formulation reloaded:\n" << LipContactPlanner::formulationSummary(config);
+    const absl::StatusOr<std::string> summary = contactPlannerSummary(config);
+    LOG(INFO) << "[ContactPlannerModule] contact planner formulation reloaded:\n"
+              << (summary.ok() ? *summary : std::string(summary.status().message()));
   }
 
   if (startWorkerThread) {
@@ -141,13 +148,23 @@ void ContactPlannerModule::runPlanner(const ContactPlannerInput& input) {
   {
     std::lock_guard<std::mutex> lock(configMutex_);
     if (configChanged_) {
-      planner_.setConfig(config_);
+      if (config_.planner.type != plannerType_) {
+        // The implementation itself changed: build the new one and drop whatever the old one carried over.
+        absl::StatusOr<std::unique_ptr<ContactPlannerInterface>> rebuilt = makeContactPlanner(config_);
+        if (rebuilt.ok()) {
+          planner_ = *std::move(rebuilt);
+          plannerType_ = config_.planner.type;
+        } else {
+          LOG(ERROR) << "[ContactPlannerModule] keeping the '" << plannerType_ << "' planner: " << rebuilt.status().message();
+        }
+      }
+      planner_->setConfig(config_);
       configChanged_ = false;
     }
   }
   ContactPlan plan;
   try {
-    plan = planner_.plan(input);
+    plan = planner_->plan(input);
   } catch (const std::exception& e) {
     LOG(ERROR) << "[ContactPlannerModule] planning failed: " << e.what();
     plan.valid = false;
@@ -204,16 +221,11 @@ void ContactPlannerModule::postSolverRun(const PrimalSolution& primalSolution) {
 void ContactPlannerModule::preSolverRun(scalar_t initTime,
                                         scalar_t /*finalTime*/,
                                         const vector_t& initState,
-                                        const ReferenceManagerInterface& referenceManager) {
-  // The commanded CoM velocity is the normalized linear momentum target at the start of the horizon.
-  vector2_t velocityCommand = vector2_t::Zero();
-  const TargetTrajectories& targetTrajectories = referenceManager.getTargetTrajectories();
-  if (!targetTrajectories.empty()) {
-    const vector_t desiredState = targetTrajectories.getDesiredState(initTime);
-    if (desiredState.size() >= 2) {
-      velocityCommand = desiredState.head<2>();
-    }
-  }
+                                        const ReferenceManagerInterface& /*referenceManager*/) {
+  // The commanded CoM velocity, as the reference manager read it off the target's momentum channel at this cycle,
+  // before its execution rules ran. Taking it from the target here instead would feed the planner its own output
+  // whenever planned_com_override is listed, since that rule rewrites exactly that channel with the planned velocity.
+  const vector2_t velocityCommand = referenceManagerPtr_->commandedVelocity();
   const ContactPlannerInput input = referenceManagerPtr_->makePlannerInput(initTime, initState, velocityCommand);
 
   // A contact event (early / late touch-down) invalidates the timing the last plan was built on: plan again right away

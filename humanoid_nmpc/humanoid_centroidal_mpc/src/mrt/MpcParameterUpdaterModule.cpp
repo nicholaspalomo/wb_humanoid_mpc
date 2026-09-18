@@ -155,6 +155,10 @@ MpcParameterUpdaterModule::MpcParameterUpdaterModule(MPC_BASE* mpcPtr,
     std::error_code ec;
     taskFileLastWriteTime_ = std::filesystem::last_write_time(taskFile_, ec);
   }
+  if (!referenceFile_.empty() && std::filesystem::exists(referenceFile_)) {
+    std::error_code ec;
+    referenceFileLastWriteTime_ = std::filesystem::last_write_time(referenceFile_, ec);
+  }
   if (contactPlanningFile_ != taskFile_ && std::filesystem::exists(contactPlanningFile_)) {
     std::error_code ec;
     contactPlanningFileLastWriteTime_ = std::filesystem::last_write_time(contactPlanningFile_, ec);
@@ -209,6 +213,22 @@ void MpcParameterUpdaterModule::preSolverRun(scalar_t initTime,
       if (!ec && planningLastWrite != contactPlanningFileLastWriteTime_) {
         contactPlanningFileLastWriteTime_ = planningLastWrite;
         applyContactPlanningUpdates(contactPlanningFile_);
+      }
+    }
+    // The command limits and ramps live in reference.yaml, which nothing else watches: without this a change to it
+    // needed a restart of the controller (the Command Limits tab of the remote control writes exactly this file).
+    if (!referenceFile_.empty() && !referenceFileReloaders_.empty()) {
+      auto referenceLastWrite = std::filesystem::last_write_time(referenceFile_, ec);
+      if (!ec && referenceLastWrite != referenceFileLastWriteTime_) {
+        referenceFileLastWriteTime_ = referenceLastWrite;
+        for (const std::function<void(const std::string&)>& reload : referenceFileReloaders_) {
+          try {
+            reload(referenceFile_);
+          } catch (const std::exception& e) {
+            LOG(WARNING) << "[MpcParameterUpdaterModule] Failed to reload " << referenceFile_ << ": " << e.what();
+          }
+        }
+        LOG(INFO) << "[MpcParameterUpdaterModule] Reloaded command limits from " << referenceFile_;
       }
     }
   }
@@ -475,6 +495,25 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
   const bool hasJointLimitsBarrier = loadBarrier("jointLimits", jointLimitsBarrier.mu, jointLimitsBarrier.delta);
   const bool hasCollisionBarrier = loadBarrier("collision_constraint", collisionBarrier.mu, collisionBarrier.delta);
   // LINT.ThenChange(//humanoid_nmpc/remote_control/remote_control/tk_app/mpc_params_tab.py:build_time_contact_keys)
+
+  // ────────────────────────────────────────────────────────────────
+  // 3a. Parse contact-implicit config
+  // ────────────────────────────────────────────────────────────────
+  scalar_t complementarityWeight = -1.0;
+  scalar_t slipWeight = -1.0;
+  RelaxedBarrierPenalty::Config groundPenetrationBarrier;
+  bool hasGroundPenetrationBarrier = false;
+  if (pt.get_child_optional("contact_implicit")) {
+    const std::string ciPrefix = "contact_implicit.";
+    loadData::loadPtreeValue(pt, complementarityWeight, ciPrefix + "complementarityWeight", false);
+    loadData::loadPtreeValue(pt, slipWeight, ciPrefix + "slipWeight", false);
+
+    if (pt.get_optional<scalar_t>(ciPrefix + "penetrationMu") || pt.get_optional<scalar_t>(ciPrefix + "penetrationDelta")) {
+      loadData::loadPtreeValue(pt, groundPenetrationBarrier.mu, ciPrefix + "penetrationMu", false);
+      loadData::loadPtreeValue(pt, groundPenetrationBarrier.delta, ciPrefix + "penetrationDelta", false);
+      hasGroundPenetrationBarrier = true;
+    }
+  }
 
   // LINT.IfChange(softConstraintWeight_yaml_path)
   // The negative sentinel is what marks the weight absent: loadPtreeValue leaves
@@ -771,6 +810,57 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
         LOG(WARNING) << "Failed to update FootCollisionSoftConstraint: " << e.what();
       } catch (...) {
         LOG(WARNING) << "Failed to update FootCollisionSoftConstraint: unknown exception";
+      }
+    }
+
+    // ── Contact implicit soft constraints ──
+    if (complementarityWeight >= 0.0) {
+      vector_t param(1);
+      param[0] = complementarityWeight;
+      for (const auto& footName : contactNames_) {
+        try {
+          auto& softCon = ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_contactComplementarity");
+          for (auto& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
+            penalty->setParameters(param);
+          }
+        } catch (const std::out_of_range&) {
+        } catch (const std::exception& e) {
+          LOG(WARNING) << "Failed to update " << footName << "_contactComplementarity: " << e.what();
+        } catch (...) {
+        }
+      }
+    }
+
+    if (slipWeight >= 0.0) {
+      vector_t param(1);
+      param[0] = slipWeight;
+      for (const auto& footName : contactNames_) {
+        try {
+          auto& softCon = ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_forceWeightedSlip");
+          for (auto& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
+            penalty->setParameters(param);
+          }
+        } catch (const std::out_of_range&) {
+        } catch (const std::exception& e) {
+          LOG(WARNING) << "Failed to update " << footName << "_forceWeightedSlip: " << e.what();
+        } catch (...) {
+        }
+      }
+    }
+
+    if (hasGroundPenetrationBarrier) {
+      const vector_t penetrationParams = (vector_t(2) << groundPenetrationBarrier.mu, groundPenetrationBarrier.delta).finished();
+      for (const auto& footName : contactNames_) {
+        try {
+          auto& softCon = ocp.stateSoftConstraintPtr->get<StateSoftConstraint>(footName + "_groundPenetration");
+          for (auto& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
+            penalty->setParameters(penetrationParams);
+          }
+        } catch (const std::out_of_range&) {
+        } catch (const std::exception& e) {
+          LOG(WARNING) << "Failed to update " << footName << "_groundPenetration: " << e.what();
+        } catch (...) {
+        }
       }
     }
 

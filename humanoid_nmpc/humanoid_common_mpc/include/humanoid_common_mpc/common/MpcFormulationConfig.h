@@ -63,6 +63,12 @@ enum class MpcSoftConstraintType {
   ContactMomentXY,
   ContactWrenchCone,
   ZeroVelocity,
+  // The relaxed complementarity conditions of rigid contact, which replace the schedule-gated zero_wrench and
+  // zero_velocity constraints and let the MPC decide contact itself
+  // (humanoid_nmpc/docs/contact_implicit_mpc/README.md).
+  ContactComplementarity,
+  ForceWeightedSlip,
+  GroundPenetration,
 };
 
 /**

@@ -107,6 +107,29 @@ class SwitchedModelReferenceManager : public ReferenceManager {
 
   vector_t getDesiredState(const TargetTrajectories& targetTrajectories, const vector_t& state, scalar_t time) const;
 
+  /**
+   * The operator's commanded CoM velocity at `time`, for the terms that want the command itself rather than whatever
+   * the reference currently asks for.
+   *
+   * Both are the linear part of the target's momentum channel here, which is why this is a single line. They part
+   * company under online contact planning: the planned_com_override execution rule replaces that channel with the
+   * reduced model's own CoM velocity, which swings from side to side with the gait, and a term that read the channel
+   * directly would take that oscillation for an operator command. ContactPlanningReferenceManager therefore answers
+   * this from the untouched copy of what the operator published.
+   */
+  virtual vector2_t getCommandedVelocity(scalar_t time) const;
+
+  /**
+   * The divergent component of motion the reduced-order plan asks for at `time`, when a plan is active.
+   *
+   * The terminal DCM cost otherwise references the centre of the terminal support, i.e. "come to rest over the feet".
+   * That is the right reference for a gait whose footholds are decided elsewhere, and the wrong one under a
+   * reduced-order plan: the H-LIP's lateral orbit puts the DCM *beyond* the stance foot, towards the next foothold,
+   * and a cost pulling it back onto the foot fights the very footholds the planner is placing. Empty when no plan is
+   * active, and the support-centre reference then stands as before.
+   */
+  virtual std::optional<vector2_t> getPlannedDcm(scalar_t /*time*/, scalar_t /*omega*/) const { return std::nullopt; }
+
  protected:
   virtual void modifyReferences(scalar_t initTime,
                                 scalar_t finalTime,

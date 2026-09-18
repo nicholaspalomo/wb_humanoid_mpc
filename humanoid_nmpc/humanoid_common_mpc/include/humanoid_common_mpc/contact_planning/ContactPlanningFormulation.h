@@ -85,6 +85,7 @@ inline constexpr const char* kPhaseResetting = "phase_resetting";
 inline constexpr const char* kEnergyCadenceModulation = "energy_cadence_modulation";
 inline constexpr const char* kDcmStepAdjustment = "dcm_step_adjustment";
 inline constexpr const char* kPlannedHeadingOverride = "planned_heading_override";
+inline constexpr const char* kPlannedComOverride = "planned_com_override";
 }  // namespace term
 
 /** Normalises a term name for comparison: lower case, `_`, `-` and spaces removed. */

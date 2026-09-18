@@ -59,6 +59,10 @@ namespace ocs2::humanoid {
  * End-to-end test of the contact planning path on the DRC Atlas model: the interface builds the planning reference
  * manager and module from a task file with useContactPlanning: true, the module plans synchronously from the interface's
  * initial state, and the reference manager turns the plan into a mode schedule and swing-foot references.
+ *
+ * These tests cover the mixed-integer planner and the execution rules of the reference manager, so the fixture pins
+ * planner.type to lip_miqp and restores the execution list the shipped file used to carry, whatever the shipped file
+ * selects today. The shipped default (the closed-form H-LIP planner) is covered by testHlipPlanningIntegration.cpp.
  */
 class ContactPlanningIntegrationTest : public ::testing::Test {
  protected:
@@ -85,7 +89,14 @@ class ContactPlanningIntegrationTest : public ::testing::Test {
 
     std::string planning = readFile(resolveContactPlanningConfigFile(taskFile));
     ASSERT_NE(planning.find("contact_planning:"), std::string::npos) << "the shipped planner configuration was not found";
+    planning = std::regex_replace(planning, std::regex("\n *type: *hlip"), "\n    type: lip_miqp");
+    planning = std::regex_replace(planning, std::regex("- planned_com_override"), "- planned_heading_override");
     planning = std::regex_replace(planning, std::regex("runInBackgroundThread: *(true|false)"), "runInBackgroundThread: false");
+    planning = std::regex_replace(planning, std::regex("\n *dt: *[0-9.]+"), "\n    dt: 0.1");
+    planning = std::regex_replace(planning, std::regex("numNodes: *[0-9]+"), "numNodes: 12");
+    planning = std::regex_replace(planning, std::regex("commitTime: *[0-9.]+"), "commitTime: 0.3");
+    planning = std::regex_replace(planning, std::regex("minSwingDuration: *[0-9.]+"), "minSwingDuration: 0.4");
+    planning = std::regex_replace(planning, std::regex("maxSwingDuration: *[0-9.]+"), "maxSwingDuration: 0.5");
     planning = std::regex_replace(planning, std::regex("maxSolveTime: *[0-9.]+"), "maxSolveTime: 5.0");
     planning = std::regex_replace(planning, std::regex("maxBranchAndBoundNodes: *[0-9]+"), "maxBranchAndBoundNodes: 2000");
     planning = std::regex_replace(planning, std::regex("useAcomDynamics: *(true|false)"), "useAcomDynamics: true");
