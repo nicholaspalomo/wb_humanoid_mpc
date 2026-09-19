@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <optional>
 #include <regex>
 #include <string>
+#include <system_error>
 #include <thread>
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
@@ -82,7 +83,12 @@ class ContactPlanningIntegrationTest : public ::testing::Test {
     };
     std::string content = readFile(taskFile);
     content = std::regex_replace(content, std::regex("useContactPlanning: *(true|false)"), "useContactPlanning: true");
-    tmpTaskFile_ = (std::filesystem::path(testing::TempDir()) / "contact_planning_task.yaml").string();
+    // Its own directory, because the planner configuration has to be called contact_planning.yaml to be found next to
+    // the task file, and testHlipPlanningIntegration writes a file of that name too - with the other planner selected.
+    tmpDir_ = (std::filesystem::path(testing::TempDir()) / "contact_planning_integration").string();
+    std::filesystem::create_directories(tmpDir_);
+
+    tmpTaskFile_ = (std::filesystem::path(tmpDir_) / "contact_planning_task.yaml").string();
     std::ofstream out(tmpTaskFile_);
     out << content;
     out.close();
@@ -101,7 +107,7 @@ class ContactPlanningIntegrationTest : public ::testing::Test {
     planning = std::regex_replace(planning, std::regex("maxBranchAndBoundNodes: *[0-9]+"), "maxBranchAndBoundNodes: 2000");
     planning = std::regex_replace(planning, std::regex("useAcomDynamics: *(true|false)"), "useAcomDynamics: true");
     planning = std::regex_replace(planning, std::regex("planHeadingOverridesTarget: *(true|false)"), "planHeadingOverridesTarget: true");
-    tmpContactPlanningFile_ = (std::filesystem::path(testing::TempDir()) / kContactPlanningConfigFileName).string();
+    tmpContactPlanningFile_ = (std::filesystem::path(tmpDir_) / kContactPlanningConfigFileName).string();
     std::ofstream planningOut(tmpContactPlanningFile_);
     planningOut << planning;
     planningOut.close();
@@ -113,11 +119,11 @@ class ContactPlanningIntegrationTest : public ::testing::Test {
   }
 
   void TearDown() override {
-    std::remove(tmpTaskFile_.c_str());
-    std::remove(tmpContactPlanningFile_.c_str());
+    std::error_code ignored;
+    std::filesystem::remove_all(tmpDir_, ignored);
   }
 
-  std::string referenceFile_, urdfFile_, tmpTaskFile_, tmpContactPlanningFile_;
+  std::string referenceFile_, urdfFile_, tmpDir_, tmpTaskFile_, tmpContactPlanningFile_;
   std::unique_ptr<CentroidalMpcInterface> interface_;
 };
 

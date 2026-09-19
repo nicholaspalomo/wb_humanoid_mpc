@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <optional>
 #include <regex>
 #include <string>
+#include <system_error>
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
 
@@ -98,9 +99,17 @@ class HlipPlanningIntegrationTest : public ::testing::Test {
       std::ifstream in(path);
       return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     };
+    // Each of these fixtures needs its planner configuration to sit beside its task file under the one name
+    // resolveContactPlanningConfigFile looks for, so the file name cannot distinguish them and the directory has to.
+    // Sharing one directory with testContactPlanningIntegration meant both wrote contact_planning.yaml to the same
+    // path - this one selecting the H-LIP planner, that one the MIQP planner - and whichever ran second decided what
+    // the other one loaded.
+    tmpDir_ = (std::filesystem::path(testing::TempDir()) / "hlip_planning_integration").string();
+    std::filesystem::create_directories(tmpDir_);
+
     std::string content = readFile(taskFile);
     content = std::regex_replace(content, std::regex("useContactPlanning: *(true|false)"), "useContactPlanning: true");
-    tmpTaskFile_ = (std::filesystem::path(testing::TempDir()) / "hlip_planning_task.yaml").string();
+    tmpTaskFile_ = (std::filesystem::path(tmpDir_) / "hlip_planning_task.yaml").string();
     std::ofstream out(tmpTaskFile_);
     out << content;
     out.close();
@@ -111,7 +120,7 @@ class HlipPlanningIntegrationTest : public ::testing::Test {
     ASSERT_NE(planning.find("contact_planning:"), std::string::npos) << "the shipped planner configuration was not found";
     ASSERT_NE(planning.find("type: hlip"), std::string::npos) << "the shipped configuration no longer selects the H-LIP planner";
     planning = std::regex_replace(planning, std::regex("runInBackgroundThread: *(true|false)"), "runInBackgroundThread: false");
-    tmpContactPlanningFile_ = (std::filesystem::path(testing::TempDir()) / kContactPlanningConfigFileName).string();
+    tmpContactPlanningFile_ = (std::filesystem::path(tmpDir_) / kContactPlanningConfigFileName).string();
     std::ofstream planningOut(tmpContactPlanningFile_);
     planningOut << planning;
     planningOut.close();
@@ -128,8 +137,8 @@ class HlipPlanningIntegrationTest : public ::testing::Test {
   }
 
   void TearDown() override {
-    std::remove(tmpTaskFile_.c_str());
-    std::remove(tmpContactPlanningFile_.c_str());
+    std::error_code ignored;
+    std::filesystem::remove_all(tmpDir_, ignored);
   }
 
   /** Runs one planning cycle at `time` with a commanded forward velocity and activates the plan. */
@@ -146,7 +155,7 @@ class HlipPlanningIntegrationTest : public ::testing::Test {
     referenceManager_->preSolverRun(time + 0.02, time + 0.02 + horizon, state, ModeNumber::STANCE);
   }
 
-  std::string referenceFile_, urdfFile_, tmpTaskFile_, tmpContactPlanningFile_;
+  std::string referenceFile_, urdfFile_, tmpDir_, tmpTaskFile_, tmpContactPlanningFile_;
   std::unique_ptr<CentroidalMpcInterface> interface_;
   std::shared_ptr<ContactPlanningReferenceManager> referenceManager_;
   std::shared_ptr<ContactPlannerModule> module_;

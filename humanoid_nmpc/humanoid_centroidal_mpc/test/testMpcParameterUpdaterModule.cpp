@@ -57,7 +57,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/constraint/BasisScalingNonNegativityConstraint.h"
+#include "humanoid_common_mpc/constraint/ContactComplementarityConstraint.h"
 #include "humanoid_common_mpc/constraint/EndEffectorKinematicsTwistConstraint.h"
+#include "humanoid_common_mpc/constraint/ForceWeightedSlipConstraint.h"
+#include "humanoid_common_mpc/constraint/GroundPenetrationConstraint.h"
 #include "humanoid_common_mpc/constraint/JointLimitsSoftConstraint.h"
 #include "humanoid_common_mpc/cost/ComAndAcomTrackingCost.h"
 #include "humanoid_common_mpc/cost/EndEffectorKinematicsQuadraticCost.h"
@@ -1007,6 +1010,76 @@ TEST_F(MpcParameterUpdaterModuleTest, BasisNonNegativityBarrierUpdated) {
     for (const auto& footName : contactNames_) {
       auto& con = ocp.costPtr->get<BasisScalingNonNegativityConstraint>(footName + "_basisNonNegativity");
       EXPECT_NEAR(con.getBarrierConfig().mu, 0.42, 1e-4);
+    }
+  }
+}
+
+/******************************************************************************************************/
+// Test: ContactImplicitTuningReachesEveryTerm
+/******************************************************************************************************/
+TEST_F(MpcParameterUpdaterModuleTest, ContactImplicitTuningReachesEveryTerm) {
+  // The contact-implicit block has three terms and two of them share the terrain height: one says a foot may not carry
+  // load above the ground, the other that it may not go below it. A height applied to one and not the other leaves the
+  // formulation with two disagreeing definitions of where the ground is. That was a real bug, and nothing caught it
+  // because live tuning of this block had no coverage at all - which is the gap this test closes.
+  SqpSolver* sqp = getSqpSolver();
+  ASSERT_NE(sqp, nullptr);
+
+  const std::string probeFoot = contactNames_.front();
+  try {
+    sqp->getOcpDefinitions().front().softConstraintPtr->get<StateInputSoftConstraint>(probeFoot + "_contactComplementarity");
+  } catch (...) {
+    GTEST_SKIP() << "the contact-implicit terms are not enabled in this robot's task file";
+  }
+
+  const scalar_t newTerrainHeight = 0.017;
+  const scalar_t newHeightReference = 0.123;
+  const scalar_t newVelocityReference = 0.456;
+  const scalar_t newAngularVelocityReference = 0.789;
+  {
+    std::ifstream in(tmpTaskFile_);
+    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.close();
+
+    const auto setKey = [&content](const std::string& key, scalar_t value) {
+      const size_t keyPos = content.find("\n  " + key + ":");
+      ASSERT_NE(keyPos, std::string::npos) << key << " not found under contact_implicit";
+      const size_t valueStart = keyPos + key.size() + 4;  // past the newline, the two-space indent, the key and the colon
+      const size_t lineEnd = content.find('\n', valueStart);
+      content.replace(valueStart, lineEnd - valueStart, " " + std::to_string(value));
+    };
+    setKey("terrainHeight", newTerrainHeight);
+    setKey("heightReference", newHeightReference);
+    setKey("velocityReference", newVelocityReference);
+    setKey("angularVelocityReference", newAngularVelocityReference);
+
+    std::ofstream out(tmpTaskFile_);
+    out << content;
+  }
+
+  MpcParameterUpdaterModule updater(mpc_.get(), tmpTaskFile_, urdfFile_, referenceFile_, stateDim_, inputDim_, contactNames_, nullptr,
+                                    basisCostTransform_);
+  touchTaskFileAndRunUpdater(updater);
+
+  // Every per-thread clone of the problem, and every foot, must see all of it.
+  for (OptimalControlProblem& ocp : sqp->getOcpDefinitions()) {
+    for (const std::string& footName : contactNames_) {
+      const ContactComplementarityConstraint& complementarity =
+          ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_contactComplementarity")
+              .get<ContactComplementarityConstraint>();
+      EXPECT_NEAR(complementarity.getTerrainHeight(), newTerrainHeight, 1e-9) << footName;
+      EXPECT_NEAR(complementarity.getHeightReference(), newHeightReference, 1e-9) << footName;
+
+      const ForceWeightedSlipConstraint& slip =
+          ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_forceWeightedSlip").get<ForceWeightedSlipConstraint>();
+      EXPECT_NEAR(slip.getInverseTwistReference()(0), 1.0 / newVelocityReference, 1e-9) << footName;
+      EXPECT_NEAR(slip.getInverseTwistReference()(1), 1.0 / newVelocityReference, 1e-9) << footName;
+      EXPECT_NEAR(slip.getInverseTwistReference()(2), 1.0 / newAngularVelocityReference, 1e-9) << footName;
+
+      const GroundPenetrationConstraint& penetration =
+          ocp.stateSoftConstraintPtr->get<StateSoftConstraint>(footName + "_groundPenetration").get<GroundPenetrationConstraint>();
+      EXPECT_NEAR(penetration.getTerrainHeight(), newTerrainHeight, 1e-9)
+          << footName << ": the penetration barrier still places the ground somewhere else than the complementarity term does";
     }
   }
 }

@@ -53,6 +53,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/constraint/BasisScalingNonNegativityConstraint.h"
 #include "humanoid_common_mpc/constraint/ContactComplementarityConstraint.h"
 #include "humanoid_common_mpc/constraint/ForceWeightedSlipConstraint.h"
+#include "humanoid_common_mpc/constraint/GroundPenetrationConstraint.h"
 #include "humanoid_common_mpc/constraint/JointLimitsSoftConstraint.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/cost/ComAndAcomTrackingCost.h"
@@ -855,7 +856,7 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
       }
     }
 
-    if (slipWeight >= 0.0 || (velocityReference > 0.0 && angularVelocityReference > 0.0)) {
+    if (slipWeight >= 0.0 || velocityReference > 0.0 || angularVelocityReference > 0.0) {
       vector_t param(1);
       param[0] = slipWeight;
       for (const std::string& footName : contactNames_) {
@@ -866,8 +867,14 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
               penalty->setParameters(param);
             }
           }
-          if (velocityReference > 0.0 && angularVelocityReference > 0.0) {
-            softCon.get<ForceWeightedSlipConstraint>().setTwistReferences(velocityReference, angularVelocityReference);
+          // The setter takes both references at once, so a file carrying only one of them keeps the other at the value
+          // the term already holds rather than dropping the update on the floor.
+          if (velocityReference > 0.0 || angularVelocityReference > 0.0) {
+            ForceWeightedSlipConstraint& constraint = softCon.get<ForceWeightedSlipConstraint>();
+            const vector3_t inverseCurrent = constraint.getInverseTwistReference();
+            const scalar_t velocity = velocityReference > 0.0 ? velocityReference : 1.0 / inverseCurrent(0);
+            const scalar_t angularVelocity = angularVelocityReference > 0.0 ? angularVelocityReference : 1.0 / inverseCurrent(2);
+            constraint.setTwistReferences(velocity, angularVelocity);
           }
         } catch (const std::out_of_range&) {
         } catch (const std::exception& e) {
@@ -877,12 +884,21 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
       }
     }
 
-    if (hasGroundPenetrationBarrier) {
+    // The terrain height has to reach this term as well as the complementarity term. The two are a pair - one says a
+    // foot may not carry load above the ground, the other that it may not go below it - so a height applied to only
+    // one of them leaves the formulation with two disagreeing definitions of where the ground is.
+    if (hasGroundPenetrationBarrier || std::isfinite(terrainHeight)) {
       const vector_t penetrationParams = (vector_t(2) << groundPenetrationBarrier.mu, groundPenetrationBarrier.delta).finished();
-      for (const auto& footName : contactNames_) {
+      for (const std::string& footName : contactNames_) {
         try {
-          auto& softCon = ocp.stateSoftConstraintPtr->get<StateSoftConstraint>(footName + "_groundPenetration");
-          for (auto& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
+          StateSoftConstraint& softCon = ocp.stateSoftConstraintPtr->get<StateSoftConstraint>(footName + "_groundPenetration");
+          if (std::isfinite(terrainHeight)) {
+            softCon.get<GroundPenetrationConstraint>().setTerrainHeight(terrainHeight);
+          }
+          if (!hasGroundPenetrationBarrier) {
+            continue;
+          }
+          for (std::unique_ptr<augmented::AugmentedPenaltyBase>& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
             penalty->setParameters(penetrationParams);
           }
         } catch (const std::out_of_range&) {
