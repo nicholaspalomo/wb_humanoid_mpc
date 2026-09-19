@@ -62,6 +62,24 @@ class ModelSettings {
   };
 
   /**
+   * The nominal foothold reference, used only when no contact planner supplies one.
+   *
+   * Without a planner the swing foot has no horizontal target at all: the foot cost switches its xy position weights
+   * off, and the only thing that ever fixed foot placement was the stance foot being pinned by the zero_velocity
+   * constraint. The contact-implicit formulation removes that pin by design, so with both off nothing in the problem
+   * has an opinion about where the feet go sideways and they drift together until the robot falls.
+   *
+   * A positive `stepWidth` here restores a horizontal target: the foot is placed that far to its own side of the
+   * reference base pose, and follows that pose as it advances, so forward placement still comes from the commanded
+   * motion rather than from a second heuristic. It is a foot placement heuristic, which is exactly what the
+   * reduced-order planner exists to avoid, so it is off by default and is meant for testing the contact-implicit
+   * formulation on its own before the planner is enabled on top of it.
+   */
+  struct NominalFootholdConfig {
+    scalar_t stepWidth{0.0};  // [m] lateral distance between the feet; 0 disables the nominal reference
+  };
+
+  /**
    * Weights of the relaxed complementarity formulation of contact, active when contact_complementarity,
    * force_weighted_slip and ground_penetration are listed in the task file's soft_constraints
    * (humanoid_nmpc/docs/contact_implicit_mpc/README.md). They price the three conditions of rigid contact rather than
@@ -129,6 +147,7 @@ class ModelSettings {
 
   FootConstraintConfig footConstraintConfig;
   ContactImplicitConfig contactImplicitConfig;
+  NominalFootholdConfig nominalFootholdConfig;
 };
 
 }  // namespace ocs2::humanoid

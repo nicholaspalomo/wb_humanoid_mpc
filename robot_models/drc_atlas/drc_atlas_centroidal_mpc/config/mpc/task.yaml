@@ -1,10 +1,10 @@
 # Simulation & Telemetry Configuration
 enableTelemetry: true        # Enable high-rate ROS 2 telemetry publishing for PlotJuggler
-telemetryFrequency: 100      # [Hz] Telemetry publishing frequency (decimated from MRT loop)
+telemetryFrequency: 100  # [Hz] Telemetry publishing frequency (decimated from MRT loop)
 # MuJoCo simulator only (mujoco_sim.launch.py). The viewer's contact timeline ('b' toggles it) shows, per contact point,
 # the contact state the executed MPC policy plans against the simulator's ground truth over a sliding window of time.
-simContactTimelineWindow: 5.0          # [s] width of the sliding window
-simContactForceThreshold: 5.0          # [N] normal force above which a contact point counts as touching (ground truth)
+simContactTimelineWindow: 5  # [s] width of the sliding window
+simContactForceThreshold: 5  # [N] normal force above which a contact point counts as touching (ground truth)
 # Fall recovery: the tilt of the base past which the simulator catches the robot on the gantry, reattaching it upright
 # at the gantry height, switching to JOINT_PD (the whole-body MPC is overconstrained against a pinned base) and
 # resetting the MPC. The remote control follows the same transition and re-centres its joysticks, so a stick left
@@ -12,7 +12,7 @@ simContactForceThreshold: 5.0          # [N] normal force above which a contact 
 # base's own vertical and the world vertical, so it is heading independent: 0 upright, pi/2 on its side, pi upside
 # down. 0 disables the recovery and leaves a fallen robot where it lands, which is what you want when the fall itself
 # is the thing being studied. 1.0 rad (57 deg) is past any recoverable lean.
-simMaxBaseTiltAngle: 1.0                # [rad] 0 disables
+simMaxBaseTiltAngle: 1  # [rad] 0 disables
 # Measured contact state of the controller, by name (robot_model/ContactEstimatorRegistry.h): the MPC observation mode and
 # which planned contact wrenches the inverse dynamics projects into feedforward torques. One of:
 #   cheater_sim        the ground truth of the physics (normal force above simContactForceThreshold); required for the
@@ -65,14 +65,14 @@ useDcmTerminalCost: true         # Set true to end the horizon with the DCM (cap
 # error that the directly measured base pose did not.
 Q_com:
   scaling: 85
-  "(0,0)": 0  # p_com_x (unpenalized, matches p_base_x)
-  "(1,1)": 0  # p_com_y (unpenalized, matches p_base_y)
+  "(0,0)": 25  # p_com_x (unpenalized, matches p_base_x)
+  "(1,1)": 25  # p_com_y (unpenalized, matches p_base_y)
   "(2,2)": 15  # p_com_z (matches p_base_z)
 
 # ACoM rows follow the centroidal state's ZYX Euler convention, the same ordering
 # as Q entries (9,9) through (11,11). Row 0 is yaw, not roll.
 Q_acom:
-  scaling: 50
+  scaling: 100
   "(0,0)": 25  # theta_acom_z / yaw (matches theta_base_z)
   "(1,1)": 50  # theta_acom_y / pitch (matches theta_base_y)
   "(2,2)": 20  # theta_acom_x / roll (matches theta_base_x)
@@ -108,13 +108,31 @@ soft_constraints:
   - force_weighted_slip             # contact-implicit: f_n * v_xy = 0, a loaded foot is held still
   - ground_penetration              # contact-implicit: h >= 0, required alongside contact_complementarity
 
+# The nominal foothold reference, used only when useContactPlanning is false. Without a contact planner the swing foot
+# has no horizontal target at all - the foot cost switches its xy position weights off - and the only thing that ever
+# fixed foot placement was the stance foot being pinned by the zero_velocity constraint. The contact-implicit terms
+# below remove that pin by design, so with both off nothing has an opinion about where the feet go sideways: they drift
+# together until the robot falls. A positive stepWidth restores a target, placing each foot that far to its own side of
+# the reference base pose and letting forward placement follow the commanded motion.
+#
+# It is a foot placement heuristic, which is what the reduced-order planner exists to avoid, so it is 0 (off) by
+# default. Set it to test the contact-implicit formulation on its own, before enabling the contact planner on top.
+#
+# stepWidth is the full distance between the feet: each foot is placed half of it to its own side of the base. How hard
+# the foot is held to that target is task_space_foot_cost_weights.pos_x / pos_y, the same weights the planned foothold
+# uses, so tuning them here carries over to useContactPlanning: true. pos_y is the one that keeps the feet apart.
+# LINT.IfChange(nominal_foothold_config)
+nominal_foothold:
+  stepWidth: 0.45  # [m] lateral distance between the feet; 0 disables the nominal reference
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/common/ModelSettings.cpp:nominal_foothold_yaml_path)
+
 # Weights of the contact-implicit terms above; read whether or not they are listed, ignored when they are not.
 # LINT.IfChange(contact_implicit_config)
 contact_implicit:
-  complementarityWeight: 100.0  # penalty on f_n * h [N m]: the price of carrying load at a height
-  slipWeight: 100.0  # penalty on f_n * v_xy [N m/s]: the price of sliding under load
-  penetrationMu: 0.01  # relaxed barrier weight on h >= 0
-  penetrationDelta: 0.001  # [m] width of that barrier's quadratic relaxation
+  complementarityWeight: 50  # penalty on f_n * h [N m]: the price of carrying load at a height
+  slipWeight: 100  # penalty on f_n * v_xy [N m/s]: the price of sliding under load
+  penetrationMu: 0.1  # relaxed barrier weight on h >= 0
+  penetrationDelta: 0.01  # [m] width of that barrier's quadratic relaxation
   terrainHeight: 0  # [m] ground height under the contact frames
 # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/common/ModelSettings.cpp:contact_implicit_yaml_path)
 
@@ -132,7 +150,7 @@ useGravityCompFeedforward: false
 # previous mode's action is held until the first policy solved after the entry reset is active (the MRT keeps handing out
 # the pre-reset policy until then), and targets, gains and feedforward torques are then ramped linearly into the MPC
 # action over this duration. Try 0.3 to 0.5 once validated in MuJoCo.
-mpcEntryBlendTime: 2.0
+mpcEntryBlendTime: 2
 # Touch-down shaping of the planned contact wrenches in the inverse dynamics of the MRT joint controller. A foot's planned
 # wrench is projected into feedforward torques only while the foot is measured in contact (contactEstimator above). By
 # default it is applied in full from the first control cycle of measured contact, i.e. as a step at the first heel or toe
@@ -144,7 +162,7 @@ mpcEntryBlendTime: 2.0
 # onset stays well inside the phase_resetting debounce of the schedule (earlyTouchdownMinContactDuration) plus one node.
 contact_wrench_gate:
   debounceTime: 0.01  # [s]
-  rampTime: 0.04      # [s]
+  rampTime: 0.04  # [s]
 
 interface:
   verbose: true  # show the loaded parameters
@@ -407,32 +425,32 @@ R:
   scaling: 1
 
   # ; Feet Contact Forces: [LF, RF, LH, RH] ;;
-  "(0,0)": 0.0001  # left_force_x
-  "(1,1)": 0.0002  # left_force_y
-  "(2,2)": 0.0005  # left_force_z
-  "(3,3)": 0.0002  # left_moment_x
-  "(4,4)": 0.0001  # left_moment_y
-  "(5,5)": 0.002  # left_moment_z
-  "(6,6)": 0.0001  # right_force_x
-  "(7,7)": 0.0002  # right_force_y
-  "(8,8)": 0.0005  # right_force_z
-  "(9,9)": 0.0002  # right_moment_x
-  "(10,10)": 0.0001  # right_moment_y
-  "(11,11)": 0.002  # right_moment_z
+  "(0,0)": 0.00001  # left_force_x
+  "(1,1)": 0.00002  # left_force_y
+  "(2,2)": 0.00005  # left_force_z
+  "(3,3)": 0.00002  # left_moment_x
+  "(4,4)": 0.00001  # left_moment_y
+  "(5,5)": 0.0002  # left_moment_z
+  "(6,6)": 0.00001  # right_force_x
+  "(7,7)": 0.00002  # right_force_y
+  "(8,8)": 0.00005  # right_force_z
+  "(9,9)": 0.00002  # right_moment_x
+  "(10,10)": 0.00001  # right_moment_y
+  "(11,11)": 0.0002  # right_moment_z
 
   # ; Joint Velocities ;;
   "(12,12)": 1000  # back_bkz
   "(13,13)": 1000  # back_bky
   "(14,14)": 25  # back_bkx
-  "(15,15)": 10  # l_arm_shz
-  "(16,16)": 10  # l_arm_shx
-  "(17,17)": 20  # l_arm_ely
-  "(18,18)": 20  # l_arm_elx
+  "(15,15)": 1  # l_arm_shz
+  "(16,16)": 1  # l_arm_shx
+  "(17,17)": 2  # l_arm_ely
+  "(18,18)": 2  # l_arm_elx
   "(19,19)": 100  # neck_ry
-  "(20,20)": 10  # r_arm_shz
-  "(21,21)": 10  # r_arm_shx
-  "(22,22)": 20  # r_arm_ely
-  "(23,23)": 20  # r_arm_elx
+  "(20,20)": 1  # r_arm_shz
+  "(21,21)": 1  # r_arm_shx
+  "(22,22)": 2  # r_arm_ely
+  "(23,23)": 2  # r_arm_elx
   "(24,24)": 500  # l_leg_hpz
   "(25,25)": 5  # l_leg_hpx
   "(26,26)": 0.001  # l_leg_hpy
@@ -536,13 +554,22 @@ icp_cost_weights:
 
 task_space_foot_cost_weights:
   activeInStance: false
-  # pos_x / pos_y track the planned swing-foot landing spot and are only applied while a contact plan provides one
-  # (useContactPlanning: true); without a plan the xy position error is switched off inside the cost.
-  # Restored from 0: with useContactPlanning the foot cost takes the planner's xy reference, and the else-branch
-  # heuristic that used to give the swing foot a forward velocity reference is then skipped. At 0 the swing foot had no
-  # longitudinal guidance at all, under-reached, and was still travelling forward when its height reference hit zero.
-  # If the landing target jitters, damp it with contact_planning.previousFootholdWeight / planConsistencyCost rather
-  # than by zeroing these again.
+  # pos_x / pos_y weigh the swing foot against wherever it is being told to land. They are live whenever something
+  # supplies a horizontal target, and switched off inside the cost when nothing does:
+  #
+  #   useContactPlanning: true          the planned foothold (the contact planner decides where the foot goes)
+  #   nominal_foothold.stepWidth > 0    the nominal foothold, half that width to the foot's own side of the reference
+  #                                     base pose (see the nominal_foothold block above)
+  #   neither                           no xy target exists, and these two weights are forced to 0 per solve
+  #
+  # pos_y is what holds the feet apart, and it is competing with the whole-body costs, which would often rather move the
+  # base than swing the leg out; raise it if the feet converge. pos_x tracks the foot to the target's forward position,
+  # which without a planner means following the reference base as it advances, on top of the swing velocity reference
+  # (lin_velocity_x / _y) that the no-target branch would otherwise provide on its own.
+  #
+  # Restored from 0: at 0 the swing foot had no longitudinal guidance at all, under-reached, and was still travelling
+  # forward when its height reference hit zero. If a planned landing target jitters, damp it with
+  # contact_planning.previousFootholdWeight / planConsistencyCost rather than by zeroing these again.
   pos_x: 30
   pos_y: 30
   pos_z: 100

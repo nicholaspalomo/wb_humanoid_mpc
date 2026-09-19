@@ -30,6 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
+#include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
+
 #include <humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h>
 #include <ocs2_core/misc/Numerics.h>
 
@@ -118,6 +120,74 @@ std::optional<vector2_t> SwitchedModelReferenceManager::getSwingFootVelocityRefe
   return getCommandedVelocity(time);
 }
 
+std::optional<vector2_t> SwitchedModelReferenceManager::nominalFoothold(size_t contactIndex, scalar_t time) const {
+  const scalar_t stepWidth = mpcRobotModelPtr_->modelSettings.nominalFootholdConfig.stepWidth;
+  if (stepWidth <= 0.0 || !hasMeasuredState_) return std::nullopt;
+
+  // Measured from the OTHER foot, which is the one on the ground: a whole step width to this foot's side of it, carried
+  // forward at the operator's commanded velocity.
+  //
+  // Not measured from the base. In single support the base sits roughly over the stance foot, so half a step width
+  // from the base is half a step width from the stance foot - half the separation intended - and the base moves
+  // further over the stance foot with every step, so the feet converge. The stance foot is the one landmark in this
+  // problem that does not move while the other foot swings, which is why the reduced-order planner places steps
+  // relative to it too.
+  const size_t stanceIndex = (contactIndex == CONTACT_LEFT_INDEX) ? CONTACT_RIGHT_INDEX : CONTACT_LEFT_INDEX;
+  const vector2_t advance = getCommandedVelocity(time) * (time - lastSolveTime_);
+  const scalar_t side = (contactIndex == CONTACT_LEFT_INDEX) ? 1.0 : -1.0;
+  const scalar_t lateral = side * stepWidth;
+  const vector2_t offsetInWorld(-std::sin(measuredBaseYaw_) * lateral, std::cos(measuredBaseYaw_) * lateral);
+  return vector2_t(liftOffPositions_[stanceIndex] + advance + offsetInWorld);
+}
+
+std::optional<SwingFootReference> SwitchedModelReferenceManager::getSwingFootReference(size_t contactIndex, scalar_t time) const {
+  if (isInContact(time, contactIndex)) return std::nullopt;
+  const std::optional<std::pair<scalar_t, scalar_t>> phase = swingPhaseAtTime(modeSchedule_, contactIndex, time);
+  if (!phase.has_value()) return std::nullopt;
+  const auto [liftOffTime, touchDownTime] = *phase;
+  const scalar_t duration = touchDownTime - liftOffTime;
+  if (duration <= 1e-6) return std::nullopt;
+
+  // The swing starts where the foot actually lifted off, not where the nominal offset would have put it. Blending
+  // between two nominal points describes a path the foot is not on, and the step the cost then demands at lift-off is
+  // whatever error had accumulated by then.
+  const std::optional<vector2_t> target = nominalFoothold(contactIndex, touchDownTime);
+  if (!target.has_value()) return std::nullopt;
+  const vector2_t start = liftOffPositions_[contactIndex];
+
+  // The same cubic blend the planned-foothold path uses: p'(0) = 1, p'(1) = 0, so the foot leaves the ground moving
+  // with the step and settles onto the target instead of arriving at speed.
+  const scalar_t tau = std::clamp((time - liftOffTime) / duration, 0.0, 1.0);
+  const scalar_t tau2 = tau * tau;
+  const scalar_t blend = -tau2 * tau + tau2 + tau;
+  const scalar_t blendRate = (-3.0 * tau2 + 2.0 * tau + 1.0) / duration;
+  const vector2_t delta = *target - start;
+
+  SwingFootReference reference;
+  reference.position.head<2>() = start + blend * delta;
+  reference.position(2) = swingTrajectoryPtr_->getZpositionConstraint(contactIndex, time);
+  reference.linearVelocity.head<2>() = blendRate * delta;
+  reference.linearVelocity(2) = swingTrajectoryPtr_->getZvelocityConstraint(contactIndex, time);
+  return reference;
+}
+
+void SwitchedModelReferenceManager::captureMeasuredState(scalar_t initTime, const vector_t& initState) {
+  if (mpcRobotModelPtr_->modelSettings.nominalFootholdConfig.stepWidth <= 0.0) return;
+  lastSolveTime_ = initTime;
+  measuredBasePosition_ = mpcRobotModelPtr_->getBasePosition(initState).head<2>();
+  measuredBaseYaw_ = mpcRobotModelPtr_->getBaseOrientationEulerZYX(initState)(0);
+
+  // Every foot that is in contact records where it is. The last value a foot recorded before it began to swing is
+  // therefore where it lifted off from, with no event to detect and nothing to reset.
+  const vector_t q = mpcRobotModelPtr_->getGeneralizedCoordinates(initState);
+  const std::vector<vector3_t> feet = computeContactPositions<scalar_t>(q, pinocchioInterface_, *mpcRobotModelPtr_);
+  const contact_flag_t contacts = getContactFlags(initTime);
+  for (size_t foot = 0; foot < N_CONTACTS && foot < feet.size(); ++foot) {
+    if (contacts[foot]) liftOffPositions_[foot] = feet[foot].head<2>();
+  }
+  hasMeasuredState_ = true;
+}
+
 vector2_t SwitchedModelReferenceManager::getCommandedVelocity(scalar_t time) const {
   const TargetTrajectories& targetTrajectories = getTargetTrajectories();
   if (targetTrajectories.empty()) return vector2_t::Zero();
@@ -204,6 +274,7 @@ void SwitchedModelReferenceManager::modifyReferences(scalar_t initTime,
   swingTrajectoryPtr_->update(modeSchedule, terrainHeight);
 
   modeSchedule_ = modeSchedule;
+  captureMeasuredState(initTime, initState);
 }
 
 }  // namespace ocs2::humanoid

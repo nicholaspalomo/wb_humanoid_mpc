@@ -128,7 +128,7 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "State Cost (Q)")
+            tab = self._create_tab(root, "Q")
 
             # Find the first slider and change it
             key = list(tab.slider_rows.keys())[0]
@@ -154,7 +154,7 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "State Cost (Q)")
+            tab = self._create_tab(root, "Q")
 
             # Change a slider value
             key = list(tab.slider_rows.keys())[0]
@@ -183,7 +183,7 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "State Cost (Q)")
+            tab = self._create_tab(root, "Q")
 
             # Change a slider
             key = list(tab.slider_rows.keys())[0]
@@ -207,7 +207,7 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "State Cost (Q)")
+            tab = self._create_tab(root, "Q")
 
             key = list(tab.slider_rows.keys())[0]
             row = tab.slider_rows[key]
@@ -236,7 +236,7 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "State Cost (Q)")
+            tab = self._create_tab(root, "Q")
 
             # Change a slider, then reset
             key = list(tab.slider_rows.keys())[0]
@@ -261,7 +261,7 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "State Cost (Q)")
+            tab = self._create_tab(root, "Q")
 
             key = list(tab.slider_rows.keys())[0]
             row = tab.slider_rows[key]
@@ -286,7 +286,7 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "State Cost (Q)")
+            tab = self._create_tab(root, "Q")
 
             key = list(tab.slider_rows.keys())[0]
             row = tab.slider_rows[key]
@@ -311,7 +311,7 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "State Cost (Q)")
+            tab = self._create_tab(root, "Q")
 
             pub_count_before = self.mock_publisher.publish_count
             tab.reload_file()
@@ -331,7 +331,7 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "State Cost (Q)")
+            tab = self._create_tab(root, "Q")
             tab.reload_file()
 
             self.assertFalse(
@@ -351,7 +351,7 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "State Cost (Q)")
+            tab = self._create_tab(root, "Q")
 
             # Set a known distinctive value on the first slider
             key = list(tab.slider_rows.keys())[0]
@@ -376,7 +376,7 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "State Cost (Q)")
+            tab = self._create_tab(root, "Q")
 
             yaml_str = tab._build_yaml_with_slider_values()
 
@@ -437,7 +437,7 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
                 enable_online_tuning=True,
                 param_publisher=None,  # No publisher
             )
-            tab.active_category.set("State Cost (Q)")
+            tab.active_category.set("Q")
             tab._render_active_category()
 
             # Change a slider and try to publish — should not raise
@@ -457,7 +457,7 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "State Cost (Q)")
+            tab = self._create_tab(root, "Q")
 
             # Change a slider and publish
             key = list(tab.slider_rows.keys())[0]
@@ -490,7 +490,7 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "State Cost (Q)")
+            tab = self._create_tab(root, "Q")
 
             key = list(tab.slider_rows.keys())[0]
             row = tab.slider_rows[key]
@@ -527,7 +527,7 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "Contact Planning")
+            tab = self._create_tab(root, "contact_planning")
             notifications = []
             tab.on_contact_estimator_changed = lambda: notifications.append(
                 tab.selected_contact_estimator()

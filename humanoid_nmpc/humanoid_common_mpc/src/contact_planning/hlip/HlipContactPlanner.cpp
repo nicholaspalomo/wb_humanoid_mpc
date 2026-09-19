@@ -334,21 +334,37 @@ ContactPlan HlipContactPlanner::plan(const ContactPlannerInput& input) {
   return plan;
 }
 
+scalar_t HlipContactPlanner::startUpLateralStep(const ContactPlanningConfig& config) {
+  const HlipModel model = makeModel(config);
+  const HlipParameters& params = config.hlip;
+  // Standing: the centre of mass sits half a step width from the stance foot with no lateral velocity, which is the
+  // worst lateral state the gait ever starts from.
+  const HlipModel::State atLiftOff(0.5 * params.stepWidth, 0.0);
+  const HlipModel::State preImpact = model.flowSingleSupport(atLiftOff, model.sspDuration());
+  const std::pair<HlipModel::State, HlipModel::State> orbit = model.periodTwoOrbit(params.stepWidth, -params.stepWidth);
+  return std::abs(model.deadbeatStepLength(preImpact, orbit.first, params.stepWidth));
+}
+
 std::string HlipContactPlanner::formulationSummary(const ContactPlanningConfig& config) {
   const HlipParameters& params = config.hlip;
   const HlipModel model = makeModel(config);
   const scalar_t stepDuration = model.stepDuration();
-  return absl::StrCat("[HlipContactPlanner] closed-form H-LIP contact planner (arXiv:2502.15630)\n", "  cadence      : single support ",
-                      params.sspDuration, " s, double support ", params.dspDuration, " s, stride ", 2.0 * stepDuration, " s\n",
-                      "  pendulum     : height ", config.shared.comHeight, " m, omega ", model.naturalFrequency(), " 1/s\n",
-                      "  step law     : deadbeat, K = [", model.deadbeatGain()(0), ", ", model.deadbeatGain()(1),
-                      "] (closed form, nothing tuned)\n", "  nominal orbit: period one along the heading, ",
-                      "period two laterally at a step width of ", params.stepWidth, " m\n",
-                      "  step clip    : |dx| <= ", params.maxStepLength, " m, step width in [", params.minStepWidth, ", ",
-                      params.maxStepWidth, "] m\n", "  stand / walk : alpha = tanh(", params.blend.sharpness, " (phi - ",
-                      params.blend.threshold, ")) / 2 + 1/2\n", "  grid         : ", config.planner.numNodes, " intervals x ",
-                      config.planner.dt, " s = ", config.horizon(), " s\n", "  heading model: ", config.usesHeadingModel() ? "on" : "off",
-                      "\n", "  no optimization is performed: no costs, no constraints, no search, no execution rules.");
+  return absl::StrCat(
+      "[HlipContactPlanner] closed-form H-LIP contact planner (arXiv:2502.15630)\n", "  cadence      : single support ", params.sspDuration,
+      " s, double support ", params.dspDuration, " s, stride ", 2.0 * stepDuration, " s\n", "  pendulum     : height ",
+      config.shared.comHeight, " m, omega ", model.naturalFrequency(), " 1/s\n", "  step law     : deadbeat, K = [",
+      model.deadbeatGain()(0), ", ", model.deadbeatGain()(1), "] (closed form, nothing tuned)\n",
+      "  nominal orbit: period one along the heading, ", "period two laterally at a step width of ", params.stepWidth, " m\n",
+      "  step clip    : |dx| <= ", params.maxStepLength, " m, step width in [", params.minStepWidth, ", ", params.maxStepWidth, "] m\n",
+      "  stand / walk : alpha = tanh(", params.blend.sharpness, " (phi - ", params.blend.threshold, ")) / 2 + 1/2\n",
+      "  grid         : ", config.planner.numNodes, " intervals x ", config.planner.dt, " s = ", config.horizon(), " s\n",
+      "  heading model: ", config.usesHeadingModel() ? "on" : "off", "\n", "  start-up     : the first step out of a standstill needs ",
+      startUpLateralStep(config), " m of lateral step, against a maxStepWidth of ", params.maxStepWidth,
+      startUpLateralStep(config) > params.maxStepWidth
+          ? " <-- DOES NOT FIT: the first step is clipped, which costs the deadbeat property and locks "
+            "the gait into an alternating wide/narrow limit cycle. Shorten hlip.sspDuration.\n"
+          : " (fits)\n",
+      "  no optimization is performed: no costs, no constraints, no search, no execution rules.");
 }
 
 }  // namespace ocs2::humanoid

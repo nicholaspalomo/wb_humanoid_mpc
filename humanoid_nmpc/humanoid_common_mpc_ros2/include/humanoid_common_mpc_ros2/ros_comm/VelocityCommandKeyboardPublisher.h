@@ -48,11 +48,15 @@ class VelocityCommandKeyboardPublisher final {
    * @param [in] topicPrefix: The TargetTrajectories will be published on "topicPrefix_mpc_target" topic. Moreover, the latest
    * observation is be expected on "topicPrefix_mpc_observation" topic.
    * @param [in] targetCommandLimits: The limits of the loaded command from command-line (for safety purposes).
+   * @param [in] defaultBaseHeight: The pelvis height a zero height command corresponds to.
+   * @param [in] referenceFile: The reference.yaml the limits were read from, re-read before every command so that an
+   * edit to the file takes effect on the next keypress. Empty keeps the limits fixed at the values passed in.
    */
   VelocityCommandKeyboardPublisher(rclcpp::Node::SharedPtr nodeHandle,
                                    const std::string& topicPrefix,
                                    const scalar_array_t& targetCommandLimits,
-                                   scalar_t defaultBaseHeight);
+                                   scalar_t defaultBaseHeight,
+                                   const std::string& referenceFile = std::string());
 
   // VelocityCommandKeyboardPublisher(const VelocityCommandKeyboardPublisher&) = delete;
 
@@ -68,8 +72,18 @@ class VelocityCommandKeyboardPublisher final {
   /** Gets the target from command line. */
   vector4_t getCommandLine();
 
-  const vector4_t targetCommandLimits_;
-  const scalar_t defaultBaseHeight_;
+  /** Re-reads the command limits from the reference file, so that they match the limits the MPC is currently using.
+   *
+   * The published command is normalised by these limits and the MPC multiplies by its own copy, which
+   * MpcParameterUpdaterModule reloads whenever reference.yaml changes. A stale copy here would therefore not merely
+   * clip differently - it would scale the command by one limit and unscale it by another, and the robot would walk at
+   * a speed nobody asked for. Re-reading costs one small file parse per keypress.
+   */
+  void reloadCommandLimits();
+
+  const std::string referenceFile_;
+  vector4_t targetCommandLimits_;
+  scalar_t defaultBaseHeight_;
 
   rclcpp::Node::SharedPtr node_;
   rclcpp::Publisher<humanoid_mpc_msgs::msg::WalkingVelocityCommand>::SharedPtr commandPublisherPtr_{};

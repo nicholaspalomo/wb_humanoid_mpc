@@ -253,9 +253,14 @@ class TestMpcParamsAutoSaveRoundTrip(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    def test_mpc_params_tab_category_buttons_all_reachable_at_default_window_size(self):
-        """Every category button is laid out inside the GUI's default 960 px wide window; a single packed row needed
-        more than that and tkinter dropped the last buttons ("Contact Planning" was unreachable).
+    def test_mpc_params_tab_every_category_is_reachable_at_default_window_size(self):
+        """Every block of the configuration is selectable inside the GUI's default 960 px window.
+
+        This used to be a row of radio buttons, one per category, and the row overflowed 960 px once the categories
+        became the configuration's own blocks - there are twenty-five of them for this robot - at which point tkinter
+        silently dropped the ones that did not fit and the last blocks could not be reached at all. The selector is a
+        drop-down now, so the property to hold is that it offers every category and fits: a list that has fallen
+        behind `categories`, or a widget wider than the window, is the same bug in the new shape.
         """
         import tkinter as tk
 
@@ -273,18 +278,29 @@ class TestMpcParamsAutoSaveRoundTrip(unittest.TestCase):
             tab.pack(fill="both", expand=True)
             root.update_idletasks()
             root.update()
-            self.assertEqual(len(tab.category_buttons), len(tab.categories))
-            rows = set()
-            for btn in tab.category_buttons:
-                self.assertTrue(
-                    btn.winfo_ismapped(), f"{btn.cget('text')} is not laid out"
-                )
-                right_edge = btn.winfo_x() + btn.winfo_width()
-                self.assertLessEqual(right_edge, 960, f"{btn.cget('text')} is clipped")
-                rows.add(btn.grid_info()["row"])
-            self.assertGreaterEqual(
-                len(rows), 2, "at 960 px the categories need more than one row"
+
+            selector = tab.category_selector
+            self.assertTrue(
+                selector.winfo_ismapped(), "the block selector is not laid out"
             )
+            self.assertLessEqual(
+                selector.winfo_x() + selector.winfo_width(),
+                960,
+                "the block selector is clipped at the default window width",
+            )
+            self.assertEqual(
+                list(selector.cget("values")),
+                list(tab.categories),
+                "the selector must offer every block of the configuration",
+            )
+
+            # And selecting any of them renders it, including the last, which the old button row used to drop.
+            for category in (tab.categories[0], tab.categories[-1]):
+                tab.active_category.set(category)
+                tab._render_active_category()
+                self.assertTrue(
+                    tab.slider_rows, f"selecting {category} rendered no sliders"
+                )
         finally:
             root.destroy()
 

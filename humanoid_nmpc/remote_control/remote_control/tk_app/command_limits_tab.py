@@ -36,6 +36,7 @@ from typing import Dict, Optional, Tuple
 
 from remote_control.tk_app.scrollable_frame import ScrollableFrame
 from remote_control.tk_app.slider_row import SliderRow
+from remote_control.tk_app.yaml_param_tree import tunables as read_tunables
 from remote_control.tk_app.yaml_editor_utils import (
     load_yaml_safe,
     update_yaml_values_in_place,
@@ -52,28 +53,10 @@ class CommandLimitsTab(ttk.Frame):
     the whole mechanism - there is no publisher here - but a running controller does pick the change up, about a
     second later. The keyboard command node is the exception: it reads the file once at start-up.
 
-    Like the contact planner's block in the MPC parameters tab, the rendering is driven by the file: every numeric
-    scalar becomes a slider, so a limit added to ``reference.yaml`` appears here without any code being written. Only
-    the ranges are worth stating by hand, and only where the generic guess would be poor.
+    The rendering is driven by the file, like the MPC parameters tab: every numeric leaf becomes a slider, its label
+    is the trailing comment the file carries next to it and its range comes from its own magnitude, so a limit added to
+    ``reference.yaml`` appears here with no code written anywhere.
     """
-
-    #: Slider ranges (min, max) by dotted path. Absent means the generic 0..4x of the current value.
-    RANGES: Dict[str, Tuple[float, float]] = {
-        "targetDisplacementVelocity": (0.0, 2.0),
-        "targetRotationVelocity": (0.0, 3.0),
-        "maxDisplacementVelocityX": (0.0, 2.0),
-        "maxDisplacementVelocityY": (0.0, 2.0),
-        "maxRotationVelocity": (0.0, 3.0),
-        "maxDeltaPelvisHeight": (0.0, 1.0),
-        "maxLinearAcceleration": (0.0, 5.0),
-        "maxAngularAcceleration": (0.0, 10.0),
-        "defaultBaseHeight": (0.3, 1.5),
-        "targetJointStateInterpolationTimeConstant": (0.0, 10.0),
-    }
-
-    #: Blocks of the file another tab owns. The nominal posture is edited in the Joint Targets tab, where every entry
-    #: is labelled with its joint name; a flat list of thirty numbers here would be worse than useless.
-    OWNED_ELSEWHERE = {"defaultJointState": "edited in the Joint Targets tab"}
 
     def __init__(self, parent, reference_file: Optional[str] = None, *args, **kwargs):
         super().__init__(parent, *args, **kwargs)
@@ -137,59 +120,30 @@ class CommandLimitsTab(ttk.Frame):
         self._render()
         self.status_var.set("")
 
-    @staticmethod
-    def _numeric_leaves(node, prefix: str = "") -> Dict[str, float]:
-        """Every numeric scalar of the file, keyed by its dotted path; booleans are not sliders."""
-        leaves: Dict[str, float] = {}
-        if isinstance(node, dict):
-            for key, value in node.items():
-                child = f"{prefix}.{key}" if prefix else str(key)
-                leaves.update(CommandLimitsTab._numeric_leaves(value, child))
-        elif isinstance(node, bool) or node is None:
-            pass
-        elif isinstance(node, (int, float)):
-            leaves[prefix] = node
-        return leaves
-
     def _render(self):
+        """Sliders for every numeric leaf of the file, labelled from its own trailing comment."""
         frame = ttk.LabelFrame(
             self.scroll_container.scrollable_content,
             text="• Command limits and defaults",
         )
         frame.pack(fill="x", padx=6, pady=4)
-        rendered = 0
-        for key, value in sorted(self._numeric_leaves(self.raw_data).items()):
-            if any(
-                key == owned or key.startswith(owned + ".")
-                for owned in self.OWNED_ELSEWHERE
-            ):
-                continue
-            val = float(value)
-            min_val, max_val = self.RANGES.get(key, (0.0, max(abs(val) * 4.0, 1.0)))
+        found = read_tunables(self.reference_file)
+        for tunable in found:
             row = SliderRow(
                 frame,
-                name=key,
-                initial_value=val,
-                min_val=min(min_val, val),
-                max_val=max(max_val, val),
-                label_width=42,
+                name=tunable.label,
+                initial_value=tunable.value,
+                min_val=tunable.minimum,
+                max_val=tunable.maximum,
+                label_width=46,
                 on_change=self._on_change,
             )
             row.pack(fill="x", padx=4, pady=1)
-            self.slider_rows[key] = row
-            rendered += 1
-        if rendered == 0:
-            ttk.Label(frame, text="reference.yaml carries no scalar parameters.").pack(
+            self.slider_rows[tunable.dotted] = row
+        if not found:
+            ttk.Label(frame, text="reference.yaml carries no numeric parameters.").pack(
                 anchor="w", padx=6, pady=4
             )
-
-        for owned, reason in sorted(self.OWNED_ELSEWHERE.items()):
-            if owned in self.raw_data:
-                ttk.Label(
-                    self.scroll_container.scrollable_content,
-                    text=f"{owned}: {reason}.",
-                    foreground="#888888",
-                ).pack(anchor="w", padx=10, pady=2)
 
     def _on_change(self, name: str, value):
         self.status_var.set("unsaved changes")

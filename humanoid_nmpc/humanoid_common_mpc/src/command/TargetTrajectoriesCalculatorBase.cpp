@@ -58,6 +58,7 @@ void TargetTrajectoriesCalculatorBase::reloadCommandLimits(const std::string& re
     loadData::loadCppDataType(referenceFile, key, value);
     target.store(value);
   };
+  // LINT.IfChange(command_limits)
   load("defaultBaseHeight", defaultBaseHeight_);
   load("targetRotationVelocity", targetRotationVelocity_);
   load("targetDisplacementVelocity", targetDisplacementVelocity_);
@@ -65,6 +66,7 @@ void TargetTrajectoriesCalculatorBase::reloadCommandLimits(const std::string& re
   load("maxDisplacementVelocityY", maxDisplacementVelocityY_);
   load("maxDeltaPelvisHeight", maxDeltaPelvisHeight_);
   load("maxRotationVelocity", maxRotationVelocity_);
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_ros2/src/ros_comm/VelocityCommandKeyboardPublisher.cpp:keyboard_command_limits)
 }
 
 /******************************************************************************************************/

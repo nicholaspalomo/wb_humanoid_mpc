@@ -154,6 +154,20 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
+    def _all_slider_keys(self, root):
+        """Every slider key the tab renders, across all of its categories.
+
+        The categories are the configuration's own top-level blocks, so a check that spans blocks - the barriers, the
+        two leg torque costs, the solver settings - has to render each of them and take the union.
+        """
+        tab = self._create_tab(root)
+        keys = set()
+        for category in tab.categories:
+            tab.active_category.set(category)
+            tab._render_active_category()
+            keys |= set(tab.slider_rows)
+        return keys
+
     def _create_tab(self, root, category=None):
         """Create MpcParamsTab and optionally switch to a category."""
         from remote_control.tk_app.mpc_params_tab import MpcParamsTab
@@ -166,6 +180,20 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
             tab._render_active_category()
         return tab
 
+    def _set(self, tab, key, value):
+        """Sets one slider, rendering whichever block holds it first.
+
+        The categories are the configuration's own top-level blocks, so a check that spans blocks has to switch
+        between them. The values survive the switch: the tab snapshots the rendered rows into `_live_values` before
+        it destroys them, and `save_to_yaml` writes every live value, not only the visible ones.
+        """
+        if key not in tab.slider_rows:
+            self.assertTrue(
+                tab.render_category_containing(key),
+                f"no slider renders for {key}",
+            )
+        tab.slider_rows[key].set_value(value)
+
     # ──────────────────────────────────────────────────────────
     #  Q matrix: scaling + 36 DOFs
     # ──────────────────────────────────────────────────────────
@@ -176,7 +204,7 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "State Cost (Q)")
+            tab = self._create_tab(root, "Q")
             self.assertIn("Q.scaling", tab.slider_rows, "Q.scaling slider missing")
         finally:
             root.destroy()
@@ -188,7 +216,7 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "State Cost (Q)")
+            tab = self._create_tab(root, "Q")
             for i in range(self.NUM_STATE_DOFS):
                 key = f'Q."({i},{i})"'
                 self.assertIn(key, tab.slider_rows, f"Missing slider for {key}")
@@ -202,7 +230,7 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "State Cost (Q)")
+            tab = self._create_tab(root, "Q")
 
             # Set every Q DOF to a unique test value
             test_values = {}
@@ -243,7 +271,7 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "Control Cost (R)")
+            tab = self._create_tab(root, "R")
             self.assertIn("R.scaling", tab.slider_rows, "R.scaling slider missing")
         finally:
             root.destroy()
@@ -255,7 +283,7 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "Control Cost (R)")
+            tab = self._create_tab(root, "R")
             for i in range(self.NUM_INPUT_DOFS):
                 key = f'R."({i},{i})"'
                 self.assertIn(key, tab.slider_rows, f"Missing slider for {key}")
@@ -269,7 +297,7 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "Control Cost (R)")
+            tab = self._create_tab(root, "R")
 
             test_values = {}
             for i in range(self.NUM_INPUT_DOFS):
@@ -305,10 +333,10 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "Terminal Cost (Q_final)")
+            keys = self._all_slider_keys(root)
             self.assertIn(
                 "terminalCostScaling",
-                tab.slider_rows,
+                keys,
                 "terminalCostScaling slider missing",
             )
         finally:
@@ -321,7 +349,7 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "Terminal Cost (Q_final)")
+            tab = self._create_tab(root, "Q_final")
             self.assertIn(
                 "Q_final.scaling",
                 tab.slider_rows,
@@ -337,7 +365,7 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "Terminal Cost (Q_final)")
+            tab = self._create_tab(root, "Q_final")
             for i in range(self.NUM_TERMINAL_DOFS):
                 key = f'Q_final."({i},{i})"'
                 self.assertIn(key, tab.slider_rows, f"Missing slider for {key}")
@@ -351,13 +379,12 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "Terminal Cost (Q_final)")
-            tab.slider_rows["terminalCostScaling"].set_value(8.0)
-            tab.slider_rows["Q_final.scaling"].set_value(3.0)
+            # terminalCostScaling is a top-level scalar of the file, so it does not live in the Q_final block.
+            tab = self._create_tab(root)
+            self._set(tab, "terminalCostScaling", 8.0)
+            self._set(tab, "Q_final.scaling", 3.0)
             for i in range(self.NUM_TERMINAL_DOFS):
-                key = f'Q_final."({i},{i})"'
-                if key in tab.slider_rows:
-                    tab.slider_rows[key].set_value(77.0 + i)
+                self._set(tab, f'Q_final."({i},{i})"', 77.0 + i)
 
             tab.save_to_yaml()
 
@@ -385,7 +412,7 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "Task Space Costs")
+            tab = self._create_tab(root, "task_space_foot_cost_weights")
             for w in self.FOOT_COST_WEIGHTS:
                 key = f"task_space_foot_cost_weights.{w}"
                 self.assertIn(key, tab.slider_rows, f"Missing slider for {key}")
@@ -399,7 +426,7 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "Task Space Costs")
+            tab = self._create_tab(root, "task_space_foot_cost_weights")
             for idx, w in enumerate(self.FOOT_COST_WEIGHTS):
                 key = f"task_space_foot_cost_weights.{w}"
                 if key in tab.slider_rows:
@@ -429,7 +456,7 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "Task Space Costs")
+            tab = self._create_tab(root, "task_space_costs")
             for w in self.TORSO_COST_WEIGHTS:
                 key = f"task_space_costs.torso.weights.{w}"
                 self.assertIn(key, tab.slider_rows, f"Missing slider for {key}")
@@ -443,7 +470,7 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "Task Space Costs")
+            tab = self._create_tab(root, "task_space_costs")
             for idx, w in enumerate(self.TORSO_COST_WEIGHTS):
                 key = f"task_space_costs.torso.weights.{w}"
                 if key in tab.slider_rows:
@@ -478,7 +505,7 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "Task Space Costs")
+            tab = self._create_tab(root, "icp_cost_weights")
             self.assertIn(
                 "icp_cost_weights.icpErrorWeight",
                 tab.slider_rows,
@@ -494,7 +521,7 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "Task Space Costs")
+            tab = self._create_tab(root, "icp_cost_weights")
             key = "icp_cost_weights.icpErrorWeight"
             if key in tab.slider_rows:
                 tab.slider_rows[key].set_value(42.0)
@@ -517,7 +544,7 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "Constraints & Barriers")
+            tab = self._create_tab(root, "model_settings")
             for g in self.FOOT_CONSTRAINT_GAINS:
                 key = f"model_settings.foot_constraint.{g}"
                 self.assertIn(key, tab.slider_rows, f"Missing slider for {key}")
@@ -531,7 +558,7 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "Constraints & Barriers")
+            tab = self._create_tab(root, "swing_trajectory_config")
             for p in self.SWING_TRAJECTORY_PARAMS:
                 key = f"swing_trajectory_config.{p}"
                 self.assertIn(key, tab.slider_rows, f"Missing slider for {key}")
@@ -545,7 +572,7 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "Constraints & Barriers")
+            tab = self._create_tab(root, "contacts")
             for p in self.FRICTION_CONE_PARAMS:
                 key = f"contacts.frictionForceConeSoftConstraint.{p}"
                 self.assertIn(key, tab.slider_rows, f"Missing slider for {key}")
@@ -559,7 +586,7 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "Constraints & Barriers")
+            tab = self._create_tab(root, "jointLimits")
             for p in self.JOINT_LIMITS_PARAMS:
                 key = f"jointLimits.{p}"
                 self.assertIn(key, tab.slider_rows, f"Missing slider for {key}")
@@ -573,7 +600,7 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "Constraints & Barriers")
+            tab = self._create_tab(root, "contacts")
             for p in self.CONTACT_MOMENT_XY_PARAMS:
                 key = f"contacts.contactMomentXYSoftConstraint.{p}"
                 self.assertIn(key, tab.slider_rows, f"Missing slider for {key}")
@@ -587,7 +614,7 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "Constraints & Barriers")
+            tab = self._create_tab(root, "collision_constraint")
             for p in self.COLLISION_CONSTRAINT_PARAMS:
                 key = f"collision_constraint.{p}"
                 self.assertIn(key, tab.slider_rows, f"Missing slider for {key}")
@@ -601,16 +628,12 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "Task Space Costs")
-            self.assertIn("left_leg_torque_cost.weights.scaling", tab.slider_rows)
-            self.assertIn("right_leg_torque_cost.weights.scaling", tab.slider_rows)
+            keys = self._all_slider_keys(root)
+            self.assertIn("left_leg_torque_cost.weights.scaling", keys)
+            self.assertIn("right_leg_torque_cost.weights.scaling", keys)
             for i in range(6):
-                self.assertIn(
-                    f'left_leg_torque_cost.weights."({i},0)"', tab.slider_rows
-                )
-                self.assertIn(
-                    f'right_leg_torque_cost.weights."({i},0)"', tab.slider_rows
-                )
+                self.assertIn(f'left_leg_torque_cost.weights."({i},0)"', keys)
+                self.assertIn(f'right_leg_torque_cost.weights."({i},0)"', keys)
         finally:
             root.destroy()
 
@@ -621,19 +644,13 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "Constraints & Barriers")
+            keys = self._all_slider_keys(root)
             for axis in ["x", "y", "z"]:
-                self.assertIn(
-                    f"contacts.contact_frame_translation.{axis}", tab.slider_rows
-                )
+                self.assertIn(f"contacts.contact_frame_translation.{axis}", keys)
             for k in ["x_min", "x_max", "y_min", "y_max"]:
-                self.assertIn(f"contacts.contact_rectangle.{k}", tab.slider_rows)
-            self.assertIn(
-                "collision_constraint.foot.footCollisionSphereRadius", tab.slider_rows
-            )
-            self.assertIn(
-                "collision_constraint.knee.kneeCollisionSphereRadius", tab.slider_rows
-            )
+                self.assertIn(f"contacts.contact_rectangle.{k}", keys)
+            self.assertIn("collision_constraint.foot.footCollisionSphereRadius", keys)
+            self.assertIn("collision_constraint.knee.kneeCollisionSphereRadius", keys)
         finally:
             root.destroy()
 
@@ -644,12 +661,12 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "Solver & Horizon")
-            self.assertIn("mpc.timeHorizon", tab.slider_rows)
-            self.assertIn("mpc.mpcDesiredFrequency", tab.slider_rows)
-            self.assertIn("mpc.mrtDesiredFrequency", tab.slider_rows)
-            self.assertIn("contact_wrench_gate.debounceTime", tab.slider_rows)
-            self.assertIn("contact_wrench_gate.rampTime", tab.slider_rows)
+            keys = self._all_slider_keys(root)
+            self.assertIn("mpc.timeHorizon", keys)
+            self.assertIn("mpc.mpcDesiredFrequency", keys)
+            self.assertIn("mpc.mrtDesiredFrequency", keys)
+            self.assertIn("contact_wrench_gate.debounceTime", keys)
+            self.assertIn("contact_wrench_gate.rampTime", keys)
             for k in [
                 "sqpIteration",
                 "dt",
@@ -659,9 +676,9 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
                 "inequalityConstraintMu",
                 "inequalityConstraintDelta",
             ]:
-                self.assertIn(f"multiple_shooting.{k}", tab.slider_rows)
-            self.assertIn("model_settings.phaseTransitionStanceTime", tab.slider_rows)
-            self.assertIn("rollout.timeStep", tab.slider_rows)
+                self.assertIn(f"multiple_shooting.{k}", keys)
+            self.assertIn("model_settings.phaseTransitionStanceTime", keys)
+            self.assertIn("rollout.timeStep", keys)
         finally:
             root.destroy()
 
@@ -672,43 +689,39 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            tab = self._create_tab(root, "Constraints & Barriers")
+            # These parameters are spread over five blocks of the file, so the tab renders five different categories
+            # in the course of this test; _set switches to each one and the values persist across the switches.
+            tab = self._create_tab(root)
 
             # Foot constraint gains
             for idx, g in enumerate(self.FOOT_CONSTRAINT_GAINS):
-                key = f"model_settings.foot_constraint.{g}"
-                if key in tab.slider_rows:
-                    tab.slider_rows[key].set_value(1.0 + idx)
+                self._set(tab, f"model_settings.foot_constraint.{g}", 1.0 + idx)
 
             # Swing trajectory
             for idx, p in enumerate(self.SWING_TRAJECTORY_PARAMS):
-                key = f"swing_trajectory_config.{p}"
-                if key in tab.slider_rows:
-                    tab.slider_rows[key].set_value(0.01 * (idx + 1))
+                self._set(tab, f"swing_trajectory_config.{p}", 0.01 * (idx + 1))
 
             # Friction cone barrier
             for idx, p in enumerate(self.FRICTION_CONE_PARAMS):
-                key = f"contacts.frictionForceConeSoftConstraint.{p}"
-                if key in tab.slider_rows:
-                    tab.slider_rows[key].set_value(0.1 * (idx + 1))
+                self._set(
+                    tab,
+                    f"contacts.frictionForceConeSoftConstraint.{p}",
+                    0.1 * (idx + 1),
+                )
 
             # Contact moment XY barrier
             for idx, p in enumerate(self.CONTACT_MOMENT_XY_PARAMS):
-                key = f"contacts.contactMomentXYSoftConstraint.{p}"
-                if key in tab.slider_rows:
-                    tab.slider_rows[key].set_value(0.3 + idx * 0.1)
+                self._set(
+                    tab, f"contacts.contactMomentXYSoftConstraint.{p}", 0.3 + idx * 0.1
+                )
 
             # Joint limits barrier
             for idx, p in enumerate(self.JOINT_LIMITS_PARAMS):
-                key = f"jointLimits.{p}"
-                if key in tab.slider_rows:
-                    tab.slider_rows[key].set_value(500.0 + idx * 100)
+                self._set(tab, f"jointLimits.{p}", 500.0 + idx * 100)
 
             # Collision constraint barrier
             for idx, p in enumerate(self.COLLISION_CONSTRAINT_PARAMS):
-                key = f"collision_constraint.{p}"
-                if key in tab.slider_rows:
-                    tab.slider_rows[key].set_value(1000.0 + idx * 500)
+                self._set(tab, f"collision_constraint.{p}", 1000.0 + idx * 500)
 
             # Force an explicit save
             tab.save_to_yaml()
@@ -776,77 +789,44 @@ class TestDrcAtlasParameterCoverage(unittest.TestCase):
     # ──────────────────────────────────────────────────────────
     #  Summary: total slider count
     # ──────────────────────────────────────────────────────────
-    def test_total_slider_count_across_all_categories(self):
-        """
-        Verify the total number of sliders across all categories matches
-        the expected count for the DRC Atlas configuration.
+    def test_every_numeric_leaf_of_the_file_reaches_exactly_one_slider(self):
+        """The sliders across all blocks are exactly the numeric leaves of the file - no more, no fewer.
 
-        Expected:
-          Q: 1 scaling + 36 DOFs = 37
-          R: 1 scaling + 36 DOFs = 37
-          Q_final: 1 terminalCostScaling + 1 scaling + 12 DOFs = 14
-          Task Space Costs: 18 foot + 18 torso + 1 ICP = 37
-          Constraints & Barriers: 9 foot_constraint + 8 swing + 3 friction_cone
-                                  + 2 contact_moment_xy + 2 joint_limits
-                                  + 2 collision = 26
-          Total: 37 + 37 + 14 + 37 + 26 = 151
+        This used to be a hardcoded total (151 for this robot, split across five hand-written category names), which
+        went stale the moment anybody added a parameter and said nothing about whether it had reached the GUI. The
+        property that actually matters is a bijection between the file and the sliders, and it states itself: a leaf
+        with no slider is a parameter that silently vanished from the GUI, and a slider with no leaf is a parameter
+        the GUI invented.
         """
         import tkinter as tk
+
+        from remote_control.tk_app.yaml_param_tree import tunables as read_tunables
+
+        expected = {tunable.dotted for tunable in read_tunables(self.tmp_task_file)}
+        self.assertGreater(
+            len(expected),
+            100,
+            "this robot's task file should carry well over a hundred tunables; a much smaller number means the "
+            "file failed to parse rather than that the robot got simpler",
+        )
 
         root = tk.Tk()
         root.withdraw()
         try:
-            total_sliders = 0
-            category_counts = {}
-
-            for cat in [
-                "State Cost (Q)",
-                "Control Cost (R)",
-                "Terminal Cost (Q_final)",
-                "Task Space Costs",
-                "Constraints & Barriers",
-            ]:
-                tab = self._create_tab(root, cat)
-                count = len(tab.slider_rows)
-                category_counts[cat] = count
-                total_sliders += count
-                tab.destroy()
-
-            # Verify per-category minimums
-            self.assertGreaterEqual(
-                category_counts["State Cost (Q)"],
-                37,
-                f"Q should have ≥37 sliders, got {category_counts['State Cost (Q)']}",
-            )
-            self.assertGreaterEqual(
-                category_counts["Control Cost (R)"],
-                37,
-                f"R should have ≥37 sliders, got {category_counts['Control Cost (R)']}",
-            )
-            self.assertGreaterEqual(
-                category_counts["Terminal Cost (Q_final)"],
-                14,
-                f"Q_final should have ≥14 sliders, got {category_counts['Terminal Cost (Q_final)']}",
-            )
-            self.assertGreaterEqual(
-                category_counts["Task Space Costs"],
-                37,
-                f"Task Space should have ≥37 sliders, got {category_counts['Task Space Costs']}",
-            )
-            self.assertGreaterEqual(
-                category_counts["Constraints & Barriers"],
-                26,
-                f"Constraints should have ≥26 sliders, got {category_counts['Constraints & Barriers']}",
-            )
-
-            # Total
-            self.assertGreaterEqual(
-                total_sliders,
-                151,
-                f"Total sliders should be ≥149 for DRC Atlas, got {total_sliders}",
-            )
+            rendered = {key.replace('"', "") for key in self._all_slider_keys(root)}
         finally:
             root.destroy()
+
+        self.assertEqual(
+            sorted(expected - rendered),
+            [],
+            "these parameters of the file reach no slider",
+        )
+        self.assertEqual(
+            sorted(rendered - expected),
+            [],
+            "these sliders correspond to nothing in the file",
+        )
 
 
 if __name__ == "__main__":

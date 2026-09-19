@@ -90,6 +90,22 @@ class HlipContactPlanner final : public ContactPlannerInterface {
   /** The same summary for a configuration, without building a planner. */
   static std::string formulationSummary(const ContactPlanningConfig& config);
 
+  /**
+   * The lateral step the deadbeat law demands of the first step out of a standstill, in metres.
+   *
+   * This is the quantity that decides whether the gait can start at all, and it is not obvious from the cadence. A
+   * robot standing still has its centre of mass half a step width from either foot with no lateral velocity, so once
+   * the first foot leaves the ground it falls sideways fast: at the shipped height it reaches the pre-impact instant
+   * far outside the orbit, and catching it takes a step much wider than the nominal one. If that step does not fit
+   * inside `hlip.maxStepWidth` it is clipped, a clipped step is no longer the deadbeat step, the lateral pendulum
+   * amplifies what is left by cosh(omega * sspDuration) every step, and the gait locks into an alternating wide and
+   * narrow limit cycle it can never leave - the feet come together, the robot walks itself sideways and falls.
+   *
+   * Shortening the single support is what shrinks this: less time falling before the foot lands. It drops from 0.55 m
+   * at a 0.35 s single support to 0.42 m at 0.25 s, which is the difference between not fitting and fitting.
+   */
+  static scalar_t startUpLateralStep(const ContactPlanningConfig& config);
+
   const ContactPlanningConfig& getConfig() const { return config_; }
   const HlipModel& getModel() const { return model_; }
   const HlipStandingBlend& getBlend() const { return blend_; }

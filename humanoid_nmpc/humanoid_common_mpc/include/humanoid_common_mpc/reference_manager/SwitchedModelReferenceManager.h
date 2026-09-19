@@ -89,7 +89,33 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    * Task-space reference for a foot that is in swing at `time`, when a contact planner provides one. The default (gait
    * schedule based) reference manager has no foothold targets and returns an empty optional.
    */
-  virtual std::optional<SwingFootReference> getSwingFootReference(size_t /*contactIndex*/, scalar_t /*time*/) const { return std::nullopt; }
+  /**
+   * Task-space reference of a foot in swing at `time`, or empty when nothing has an opinion about where it lands.
+   *
+   * The default is the nominal foothold of `model_settings.nominal_foothold.stepWidth`: the foot placed that far to
+   * its own side of the reference base pose, swept from where that puts it at lift-off to where it puts it at
+   * touch-down, so forward placement follows the commanded motion and only the lateral offset is stated. It is empty
+   * when that width is zero, which is the default and which leaves the foot cost's xy position weights switched off
+   * exactly as before.
+   *
+   * It exists for one configuration: the contact-implicit formulation without a contact planner. That formulation
+   * removes the stance constraint that used to pin each foot where it landed, and without a planner nothing else
+   * places the feet horizontally, so they drift together. A contact planner overrides this with its planned footholds
+   * (ContactPlanningReferenceManager), which is the arrangement that needs no heuristic at all.
+   */
+  virtual std::optional<SwingFootReference> getSwingFootReference(size_t contactIndex, scalar_t time) const;
+
+  /**
+   * The nominal foothold of a foot at `time`: a whole step width to its own side of the **other, stance** foot,
+   * carried forward at the operator's commanded velocity.
+   *
+   * Measured from the stance foot, which is the only landmark that holds still while this foot swings. Not from the
+   * reference base, which is where the operator asked the robot to be rather than where it is - an offset between the
+   * two walks the robot after its own foot targets, and a yaw error between them turns the lateral offset into a
+   * longitudinal one, which is a turn. And not from the measured base either: in single support that sits roughly over
+   * the stance foot, so offsets taken from it give half the intended separation and the feet converge.
+   */
+  std::optional<vector2_t> nominalFoothold(size_t contactIndex, scalar_t time) const;
 
   /**
    * Task-space velocity reference for a foot that is in swing at `time`. The default reference manager returns the
@@ -145,6 +171,18 @@ class SwitchedModelReferenceManager : public ReferenceManager {
   PinocchioInterface pinocchioInterface_;
   const MpcRobotModelBase<scalar_t>* mpcRobotModelPtr_;
   ModeSchedule modeSchedule_;
+
+  /** Records the measured base pose and, per foot in contact, where it currently stands (its lift-off position). */
+  void captureMeasuredState(scalar_t initTime, const vector_t& initState);
+
+  // Measured state of the last solver run, for the nominal foothold. Filled only while it is enabled, so a
+  // configuration without it does exactly the work it did before.
+  bool hasMeasuredState_{false};
+  scalar_t lastSolveTime_{0.0};
+  vector2_t measuredBasePosition_{vector2_t::Zero()};
+  scalar_t measuredBaseYaw_{0.0};
+  /// Where each foot was the last time it was measured in contact, i.e. where it lifted off from.
+  feet_array_t<vector2_t> liftOffPositions_{makeFeetArray(vector2_t(vector2_t::Zero()))};
 
   bool armSwingReferenceActive_{false};
 

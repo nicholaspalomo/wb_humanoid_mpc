@@ -45,11 +45,11 @@ ContactPlanningConfig makeConfig() {
   config.planner.numNodes = 56;
   config.planner.commitTime = 0.05;
   config.shared.comHeight = 0.85;
-  config.shared.gaitLimits.minSwingDuration = 0.3;
-  config.shared.gaitLimits.maxSwingDuration = 0.4;
+  config.shared.gaitLimits.minSwingDuration = 0.25;
+  config.shared.gaitLimits.maxSwingDuration = 0.35;
   config.shared.gaitLimits.minDoubleSupportDuration = 0.0;
-  config.hlip.sspDuration = 0.35;
-  config.hlip.dspDuration = 0.0;
+  config.hlip.sspDuration = 0.25;
+  config.hlip.dspDuration = 0.05;
   config.hlip.stepWidth = kStepWidth;
   config.validate();
   return config;
@@ -170,8 +170,12 @@ TEST(HlipContactPlanner, continuesTheSwingInFlight) {
   ASSERT_FALSE(gait.empty());
   EXPECT_EQ(gait.front().swingFoot, static_cast<int>(CONTACT_LEFT_INDEX));
   EXPECT_NEAR(gait.front().duration(), config.hlip.sspDuration - 0.1, 1e-12);
+  // With a non-zero double support the next single support is not the next phase: the hand-over comes first.
   ASSERT_GE(gait.size(), 2U);
-  EXPECT_EQ(gait[1].swingFoot, static_cast<int>(CONTACT_RIGHT_INDEX));
+  const auto nextSingleSupport =
+      std::find_if(gait.begin() + 1, gait.end(), [](const HlipContactPlanner::GaitPhase& phase) { return phase.isSingleSupport(); });
+  ASSERT_NE(nextSingleSupport, gait.end());
+  EXPECT_EQ(nextSingleSupport->swingFoot, static_cast<int>(CONTACT_RIGHT_INDEX)) << "the feet must alternate";
 }
 
 TEST(HlipContactPlanner, stepsAdvanceByTheCommandedVelocityOnTheOrbit) {
@@ -190,8 +194,12 @@ TEST(HlipContactPlanner, stepsAdvanceByTheCommandedVelocityOnTheOrbit) {
   ContactPlannerInput input = makeStandingInput(vector2_t(velocity, 0.0));
   input.contacts[CONTACT_LEFT_INDEX] = false;
   input.phaseElapsedTime = makeFeetArray(0.0);
-  const HlipModel::State postImpactX = HlipModel::applyStepTransition(orbit, nominalStep);
-  const HlipModel::State postImpactY = HlipModel::applyStepTransition(lateralOrbit.second, -config.hlip.stepWidth);
+  // The state a single support actually begins from is the post-impact state carried through the double support, which
+  // the reduced model drifts at constant velocity.
+  const HlipModel::State postImpactX =
+      HlipModel::flowDoubleSupport(HlipModel::applyStepTransition(orbit, nominalStep), config.hlip.dspDuration);
+  const HlipModel::State postImpactY =
+      HlipModel::flowDoubleSupport(HlipModel::applyStepTransition(lateralOrbit.second, -config.hlip.stepWidth), config.hlip.dspDuration);
   const vector2_t stanceFoot = input.footPositions[CONTACT_RIGHT_INDEX];
   input.comPosition = stanceFoot + vector2_t(postImpactX(0), postImpactY(0));
   input.comVelocity = vector2_t(postImpactX(1), postImpactY(1));
@@ -273,6 +281,10 @@ TEST(HlipContactPlanner, closedLoopTracksTheCommandedVelocity) {
     input.footPositions[swingFoot] = *landing;
     input.comPosition = input.footPositions[stanceFoot] + vector2_t(stateX(0), stateY(0));
     input.comVelocity = vector2_t(stateX(1), stateY(1));
+    // The double support that follows: the reduced model drifts through it at constant velocity. Leaving it out makes
+    // the rolled-out step shorter than the one the planner's own step duration is built on.
+    input.comPosition += config.hlip.dspDuration * input.comVelocity;
+    input.time += config.hlip.dspDuration;
     input.contacts = makeFeetArray(true);
     input.contacts[stanceFoot] = false;  // the roles swap: the old stance foot swings next
     input.phaseElapsedTime = makeFeetArray(0.0);
@@ -281,6 +293,59 @@ TEST(HlipContactPlanner, closedLoopTracksTheCommandedVelocity) {
   }
 
   EXPECT_NEAR(lastStepLength / model.stepDuration(), command, 1e-3);
+}
+
+TEST(HlipContactPlanner, theLateralGaitConvergesFromAStandstillWithoutClipping) {
+  // The regression this guards. Starting to walk from a standstill demands a first lateral step far wider than the
+  // nominal one: the centre of mass is half a step width from the stance foot with no lateral velocity, so it falls
+  // sideways fast once the foot lifts. If that step does not fit inside maxStepWidth it is clipped, and a clipped step
+  // is not the deadbeat step - the lateral pendulum then amplifies what is left every step and the widths lock into an
+  // alternating maxStepWidth / minStepWidth limit cycle: the feet come together and the robot walks itself sideways.
+  const ContactPlanningConfig config = makeConfig();
+  HlipContactPlanner planner(config);
+
+  EXPECT_LT(HlipContactPlanner::startUpLateralStep(config), config.hlip.maxStepWidth)
+      << "the first step out of a standstill must fit inside the reach, or the gait cannot start; shorten sspDuration";
+
+  // Roll the planner and its own reduced model forward laterally, exactly as the closed loop does.
+  const HlipModel& model = planner.getModel();
+  ContactPlannerInput input = makeStandingInput(vector2_t(0.3, 0.0));
+  input.contacts[CONTACT_LEFT_INDEX] = false;  // standing on the right, the left about to swing
+  input.phaseElapsedTime = makeFeetArray(0.0);
+
+  std::vector<scalar_t> widths;
+  for (int step = 0; step < 6; ++step) {
+    const size_t swingFoot = input.contacts[CONTACT_LEFT_INDEX] ? CONTACT_RIGHT_INDEX : CONTACT_LEFT_INDEX;
+    const size_t stanceFoot = swingFoot == CONTACT_LEFT_INDEX ? CONTACT_RIGHT_INDEX : CONTACT_LEFT_INDEX;
+    const ContactPlan plan = planner.plan(input);
+    ASSERT_TRUE(plan.valid);
+    const std::optional<vector2_t> landing = plan.footholdAtTime(swingFoot, input.time + config.hlip.sspDuration);
+    ASSERT_TRUE(landing.has_value());
+
+    HlipModel::State stateX(input.comPosition.x() - input.footPositions[stanceFoot].x(), input.comVelocity.x());
+    HlipModel::State stateY(input.comPosition.y() - input.footPositions[stanceFoot].y(), input.comVelocity.y());
+    stateX = model.flowSingleSupport(stateX, config.hlip.sspDuration);
+    stateY = model.flowSingleSupport(stateY, config.hlip.sspDuration);
+
+    input.time += config.hlip.sspDuration;
+    input.footPositions[swingFoot] = *landing;
+    input.comPosition = input.footPositions[stanceFoot] + vector2_t(stateX(0), stateY(0));
+    input.comVelocity = vector2_t(stateX(1), stateY(1));
+    // The double support: the reduced model drifts at constant velocity through it.
+    input.comPosition += config.hlip.dspDuration * input.comVelocity;
+    input.time += config.hlip.dspDuration;
+    input.contacts = makeFeetArray(true);
+    input.contacts[stanceFoot] = false;
+    input.phaseElapsedTime = makeFeetArray(0.0);
+    input.lastSwungFoot = static_cast<int>(swingFoot);
+    input.committedUntil = input.time;
+
+    widths.push_back(input.footPositions[CONTACT_LEFT_INDEX].y() - input.footPositions[CONTACT_RIGHT_INDEX].y());
+  }
+
+  // The deadbeat law reaches the nominal width and stays there; the limit cycle would alternate the two clips forever.
+  EXPECT_NEAR(widths.back(), config.hlip.stepWidth, 1e-3) << "the lateral gait must settle at the nominal step width";
+  EXPECT_NEAR(widths[widths.size() - 2], config.hlip.stepWidth, 1e-3) << "and stay there, rather than alternating";
 }
 
 TEST(HlipContactPlanner, clipsStepsToTheReachableRegion) {

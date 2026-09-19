@@ -27,7 +27,7 @@ contact_planning:
     dt: 0.025  # [s] planner node duration. The H-LIP cadence is continuous but a mode schedule is not: a phase
                                       #     boundary is rounded to the nearest node, so keep this well below sspDuration.
                                       #     A plan costs microseconds, so a fine grid is free. With lip_miqp use 0.1.
-    numNodes: 56                      # planning horizon = numNodes * dt = 1.4 s, covers mpc.timeHorizon (1 s)
+    numNodes: 56  # planning horizon = numNodes * dt = 1.4 s, covers mpc.timeHorizon (1 s)
     commitTime: 0.05  # [s] the applied schedule is fixed this far ahead; must cover the planner latency (a swing
                                       #     that has started or starts within this window is always executed to its touch-down)
     # Enabled: with minDoubleSupportDuration 0 the swings abut and the boundary walk has nothing to terminate it,
@@ -75,7 +75,7 @@ contact_planning:
     # task.yaml swing_trajectory_config.swingTimeScale must stay <= minSwingDuration or every swing is scaled down in
     # height and velocity by swingDuration / swingTimeScale and the foot lands short and low.
     gait_limits:
-      minSwingDuration: 0.3  # [s] must stay >= task.yaml swing_trajectory_config.swingTimeScale (0.25).
+      minSwingDuration: 0.25  # [s] must stay >= task.yaml swing_trajectory_config.swingTimeScale (0.25).
                                       #     With planner.type: hlip nothing below reads these limits: the cadence is
                                       #     hlip.sspDuration exactly and the execution rules that read them are not
                                       #     listed. They shape the plan only under planner.type: lip_miqp.
@@ -86,7 +86,7 @@ contact_planning:
       # v_y * T_stride to fit inside maxStepWidth - minStepWidth = 0.30 m, so a long stride halves what the gait can
       # deliver sideways. And a 1.0 s swing is most of the 1.2 s horizon, which leaves the planner nothing to plan with
       # and makes maxCommitExtension unusable (the capped boundary would still outrun the plan).
-      maxSwingDuration: 0.4
+      maxSwingDuration: 0.35
       minContactDuration: 0.3  # [s]
       maxContactDuration: 0  # [s] <= 0: no limit (standing allowed)
       minDoubleSupportDuration: 0  # [s] after a touch-down the other foot stays down at least this long. 0 disables the
@@ -102,16 +102,24 @@ contact_planning:
   # weight: every key is either a cadence, a geometry, or the range of a joypad command.
   hlip:
     # [s] single support. The stride is 2 * (sspDuration + dspDuration). This is the single most consequential key
-    # here, because the lateral pendulum amplifies an offset by cosh(omega * sspDuration) every step: 1.79 at 0.35 s,
-    # 2.82 at 0.5 s. At 0.5 s, starting to walk from a standstill demanded a 0.79 m lateral step, which the reach clip
-    # cut to 0.45 m; a clipped step is no longer deadbeat, so the error grew every step until the robot fell.
-    sspDuration: 0.35
+    # here, for two reasons, and both want it short.
+    #
+    # First, the lateral pendulum amplifies an offset by cosh(omega * sspDuration) every step: 1.38 at 0.25 s, 1.79 at
+    # 0.35 s, 2.82 at 0.5 s.
+    #
+    # Second, and the one that decides whether the gait can start at all: a robot standing still has its centre of
+    # mass half a step width from either foot with no lateral velocity, so the moment the first foot leaves the ground
+    # it falls sideways fast. Catching it takes a first step far wider than the nominal one - 0.55 m at 0.35 s, 0.42 m
+    # at 0.25 s - and if that does not fit inside maxStepWidth it is clipped. A clipped step is no longer the deadbeat
+    # step, the residual grows by the factor above every step, and the gait locks into an alternating wide and narrow
+    # limit cycle it cannot leave: the feet come together, the robot walks itself sideways and falls. At 0.35 s with
+    # maxStepWidth 0.45 that is exactly what happened. The planner prints this demand and whether it fits at start-up.
+    sspDuration: 0.25
     # [s] double support. The paper uses 0, an instantaneous exchange of support. Here it is the time the whole-body
     # MPC has to move the centre of mass over the next stance foot before that foot has to carry the robot alone: the
-    # reduced model's double support only drifts at constant velocity and does not represent the transfer itself, so
-    # this is what keeps the single support from starting with the centre of mass still between the feet. It enters
-    # the deadbeat gain in closed form, so nothing else has to be retuned with it.
-    dspDuration: 0.1
+    # reduced model's double support only drifts at constant velocity and does not represent the transfer itself. It
+    # enters the deadbeat gain in closed form, so nothing else has to be retuned with it.
+    dspDuration: 0.05
     stepWidth: 0.25  # [m] lateral distance between the feet of the nominal period-two orbit
     maxStepLength: 0.5  # [m] clip on the step along the heading. This and the two below are the only bounds
                                       #     the planner applies to the deadbeat step: a foothold outside the leg's reach is
@@ -276,7 +284,7 @@ contact_planning:
     iterations: 10  # rounds of event-shift local search on the incumbent (0 disables)
     maxTime: 0.05  # [s]
   heading_relinearisation:
-    passes: 1                         # re-linearisations of the heading frame at the incumbent (0 disables)
+    passes: 1  # re-linearisations of the heading frame at the incumbent (0 disables)
   phase_resetting:
     earlyTouchdownMinSwingRatio: 0.25  # contact during this initial fraction of the nominal swing is ignored (scuffing)
     earlyTouchdownMinContactDuration: 0.02  # [s] contact must persist this long before the swing is ended (sensor debounce)

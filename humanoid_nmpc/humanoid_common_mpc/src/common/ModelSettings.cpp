@@ -222,6 +222,11 @@ ModelSettings::ModelSettings(const std::string& configFile, const std::string& u
   loadData::loadPtreeValue(pt, this->contactImplicitConfig.penetrationDelta, contactImplicitPrefix + "penetrationDelta", verbose);
   loadData::loadPtreeValue(pt, this->contactImplicitConfig.terrainHeight, contactImplicitPrefix + "terrainHeight", verbose);
 
+  // LINT.IfChange(nominal_foothold_yaml_path)
+  const std::string nominalFootholdPrefix = "nominal_foothold.";
+  // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:nominal_foothold_config)
+  loadData::loadPtreeValue(pt, this->nominalFootholdConfig.stepWidth, nominalFootholdPrefix + "stepWidth", verbose);
+
   if (verbose) {
     std::cerr << " #### "
                  "============================================================="
