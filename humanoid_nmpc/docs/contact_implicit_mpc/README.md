@@ -89,24 +89,60 @@ schedule.
 
 ## 4. The three weights
 
+Both products are **normalised before they are penalised**. The residuals the solver sees are
+
+```
+complementarity:  g = (f_n / f_ref) (h / h_ref)
+slip:             g = (f_n / f_ref) [v_x / v_ref, v_y / v_ref, omega_z / w_ref]
+```
+
+with `f_ref` the robot's weight, taken from the model rather than configured so it cannot drift from the URDF.
+
+This is not cosmetic. The penalty around each term is quadratic, so the curvature it puts on the foot height is
+
+```
+d2/dh2 [ w g^2 / 2 ]  =  w f_n^2 / (f_ref h_ref)^2,
+```
+
+proportional to `f_n^2`. Un-normalised, on a 160 kg robot that factor ranges over nine orders of magnitude between a
+foot in flight and a foot carrying the whole body, and **no single weight is right at both ends**. Chosen for the
+loaded foot it is negligible in flight; chosen for the flight foot it dwarfs every other term in the problem — in
+particular the swing height reference. And since `f_n h = 0` is satisfied just as well by pressing the foot down as by
+taking the force off it, an oversized weight buys its reduction by **landing the foot early**. That failure mode is
+not a tuning accident, it is what the un-normalised term asks for.
+
+Normalisation also repairs a second defect in the slip term: two of its rows are linear velocities in m/s and the
+third is a yaw rate in rad/s, and squaring them under one weight declared one rad/s to be exactly as bad as one m/s —
+a statement about SI units, not about the robot. Each row now carries a reference in its own units.
+
 `config/mpc/task.yaml`, block `contact_implicit`:
 
-| Key | Prices |
+| Key | Meaning |
 | --- | --- |
-| `complementarityWeight` | `f_n h` [N m] — carrying load at a height |
-| `slipWeight` | `f_n v_xy` [N m/s] — sliding under load |
-| `penetrationMu`, `penetrationDelta` | the relaxed barrier on `h >= 0`: weight, and the width [m] of its quadratic relaxation |
+| `complementarityWeight` | cost of a foot at `heightReference` carrying full body weight |
+| `slipWeight` | cost of a foot sliding at `velocityReference` under full body weight |
+| `heightReference` | [m] normally `swing_trajectory_config.swingHeight` |
+| `velocityReference`, `angularVelocityReference` | [m/s], [rad/s] a slide and a pivot that would already be failures |
+| `penetrationMu`, `penetrationDelta` | the relaxed barrier on `h >= 0`: weight, and the width [m] of its relaxation |
 | `terrainHeight` | [m] the ground under the contact frames |
 
-All five are sliders in the remote control's MPC Parameters tab, under **Constraints & Barriers**, and are applied to
-the running controller without a restart (`MpcParameterUpdaterModule` sets them on the penalties of each per-thread
-problem). The group's header says whether the three terms are actually listed in `soft_constraints`, since the block is
-read either way.
+Because the residuals are now dimensionless and O(1) at their worst case, the two weights are **directly comparable
+with `task_space_foot_cost_weights`**. That comparison is the tuning rule: `complementarityWeight` above `pos_z` means
+the complementarity term outvotes the swing height reference and the foot will land early; well below it means force
+can linger on a foot in flight. Both shipped values are 100, against `pos_z: 100`.
 
-The two penalties trade against each other in the familiar way: too low a `complementarityWeight` and the solver
-buys force in mid-air; too high and the linearised product dominates the Hessian and the steps shrink. Start from the
-shipped values, watch the contact forces of a foot in flight, and raise `complementarityWeight` until they are
-negligible before touching `slipWeight`.
+### Tuning order
+
+1. **Check `terrainHeight` first.** Log `h` for a foot in stance. If it is not within a few millimetres of zero, the
+   contact frame sits off the sole and every stance foot carries a permanent residual that no weight can fix — set
+   `terrainHeight` to that offset instead.
+2. **Penetration.** `mu = 0.1`, `delta = 0.01` (1 cm of quadratic relaxation, the right order for foot-height noise).
+3. **Complementarity.** Watch the normal force on a foot in flight. Raise the weight until it is negligible; if the
+   foot starts landing early instead, you have passed `pos_z` and should raise `pos_z` rather than the weight.
+4. **Slip, last.** Watch the tangential velocity of a loaded foot.
+
+The four signals worth logging are `h`, `f_n`, `f_n h` and `f_n v_xy` per foot. They separate the two failure modes —
+force in flight versus early touchdown — without guesswork.
 
 ## 5. Switching it on
 
@@ -135,6 +171,12 @@ hovers with force, which means `complementarityWeight` is too low for the scale 
 the normal-force row reads exactly this foot's contact block; each term's value is the product it claims to be; the
 slip term constrains three twist components and leaves the rocking rates free; a consistent configuration (foot down,
 or no load) costs nothing; and every analytic derivative matches a central finite difference of the value.
+
+It also pins the normalisation, which is the part most likely to be undone by accident: the complementarity residual
+is exactly one at the two references, each residual is divided by both of its references, the slip term's yaw row uses
+the angular reference rather than the linear one, and the derivatives still match finite differences once the scales
+are applied — a normalisation applied to the value but not to the Jacobian would pass every other test here and hand
+the solver a wrong gradient.
 
 ## 7. If the robot still walks itself sideways
 

@@ -86,11 +86,19 @@ class ModelSettings {
    * imposing them, which is what lets the solver choose the contact sequence.
    */
   struct ContactImplicitConfig {
-    // Penalty on f_n * h [N m]. Large enough that carrying load at a height is never worth it, small enough that the
-    // linearised product stays a well-conditioned quadratic.
+    // Both residuals are normalised before they are penalised - (f_n / f_ref)(h / h_ref) and (f_n / f_ref)(v / v_ref) -
+    // so these two weights are dimensionless and directly comparable with the task-space weights they compete against.
+    // Each is the cost of the worst configuration its term can describe: a foot at the reference height, or sliding at
+    // the reference speed, while carrying the reference force. See the class comment on ContactComplementarityConstraint
+    // for why the un-normalised products could not be weighted sensibly at all.
     scalar_t complementarityWeight{100.0};
-    // Penalty on f_n * v_xy [N m/s]. This is what holds a loaded foot still, in place of the stance constraint.
-    scalar_t slipWeight{10.0};
+    // What holds a loaded foot still, in place of the mode-scheduled stance constraint.
+    scalar_t slipWeight{100.0};
+    // The references the two residuals are measured in. The force reference is not here: it is the robot's own weight,
+    // taken from the model, because a value that has to agree with the URDF should not be maintained by hand.
+    scalar_t heightReference{0.08};          // [m] normally the swing apex, swing_trajectory_config.swingHeight
+    scalar_t velocityReference{0.3};         // [m/s] a sliding speed that would already be a failure
+    scalar_t angularVelocityReference{1.0};  // [rad/s] a pivot rate that would already be a failure
     // Relaxed barrier on h >= 0: `mu` is the barrier weight, `delta` the width of the quadratic relaxation [m].
     scalar_t penetrationMu{1.0e-2};
     scalar_t penetrationDelta{1.0e-3};

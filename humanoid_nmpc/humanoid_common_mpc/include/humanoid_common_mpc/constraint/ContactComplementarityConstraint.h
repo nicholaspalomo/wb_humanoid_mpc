@@ -60,6 +60,22 @@ namespace ocs2::humanoid {
  *
  * The normal direction is the sole's, i.e. the third component of the model's contact force. For the flat terrain the
  * reduced-order planner assumes, that is the world vertical; on a tilted foot it is the physically correct normal.
+ *
+ * The residual is normalised - it is (f_n / f_ref) (h / h_ref), not f_n h - and that matters more than it looks. The
+ * penalty wrapped around this term is quadratic, so what the solver actually sees is a curvature of
+ *
+ *   d2/dh2 [ w g^2 / 2 ] = w f_n^2 / f_ref^2 / h_ref^2,
+ *
+ * proportional to the square of the normal force. Unnormalised, on a 160 kg robot, f_n^2 spans nine orders of
+ * magnitude between a foot in flight and a foot carrying the whole body, so one weight cannot be right at both ends:
+ * chosen for the loaded foot it is negligible in flight, and chosen for the flight foot it dwarfs every other term in
+ * the problem. It dwarfs, in particular, the swing height reference - and since f_n h = 0 is satisfied just as well by
+ * pressing the foot down as by unloading it, an oversized weight buys its reduction by landing the foot early rather
+ * than by taking the force off it.
+ *
+ * Dividing by a reference force and a reference height makes the residual dimensionless and O(1) at the worst
+ * configuration the robot can reach - a foot at full swing height carrying full body weight - so the weight means the
+ * same thing at every point of the horizon and is directly comparable with the task-space weights it competes against.
  */
 class ContactComplementarityConstraint final : public StateInputConstraint {
  public:
@@ -68,11 +84,15 @@ class ContactComplementarityConstraint final : public StateInputConstraint {
    * @param [in] mpcRobotModel : the robot model, for the input block that carries this contact's force.
    * @param [in] contactPointIndex : the contact this term belongs to.
    * @param [in] terrainHeight : [m] height of the ground under the foot.
+   * @param [in] forceReference : [N] the normal force the residual is measured in, normally the robot's weight.
+   * @param [in] heightReference : [m] the height the residual is measured in, normally the swing apex.
    */
   ContactComplementarityConstraint(const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
                                    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
                                    size_t contactPointIndex,
-                                   scalar_t terrainHeight = 0.0);
+                                   scalar_t terrainHeight = 0.0,
+                                   scalar_t forceReference = 1.0,
+                                   scalar_t heightReference = 1.0);
 
   ~ContactComplementarityConstraint() override = default;
   ContactComplementarityConstraint* clone() const override { return new ContactComplementarityConstraint(*this); }
@@ -86,6 +106,11 @@ class ContactComplementarityConstraint final : public StateInputConstraint {
 
   void setTerrainHeight(scalar_t terrainHeight) { terrainHeight_ = terrainHeight; }
   scalar_t getTerrainHeight() const { return terrainHeight_; }
+  scalar_t getForceReference() const { return 1.0 / inverseForceReference_; }
+  scalar_t getHeightReference() const { return 1.0 / inverseHeightReference_; }
+  /** Retunes the height the residual is measured in, so that the key is live in the tuning dashboard like the weight
+   * beside it. The force reference has no setter on purpose: it is the robot's weight, not a tuning parameter. */
+  void setHeightReference(scalar_t heightReference) { inverseHeightReference_ = 1.0 / heightReference; }
   /** The constant row with f_n = normalForceRow . u; exposed for the tests. */
   const vector_t& getNormalForceRow() const { return normalForceRow_; }
 
@@ -95,6 +120,10 @@ class ContactComplementarityConstraint final : public StateInputConstraint {
   std::unique_ptr<EndEffectorKinematics<scalar_t>> endEffectorKinematicsPtr_;
   size_t contactPointIndex_;
   scalar_t terrainHeight_;
+  // Stored as reciprocals: the residual and its two derivative blocks each need the scale, and a multiplication in the
+  // solver's inner loop is cheaper than a division.
+  scalar_t inverseForceReference_;
+  scalar_t inverseHeightReference_;
   vector_t normalForceRow_;
 };
 

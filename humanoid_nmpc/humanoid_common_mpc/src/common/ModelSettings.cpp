@@ -221,6 +221,10 @@ ModelSettings::ModelSettings(const std::string& configFile, const std::string& u
   loadData::loadPtreeValue(pt, this->contactImplicitConfig.penetrationMu, contactImplicitPrefix + "penetrationMu", verbose);
   loadData::loadPtreeValue(pt, this->contactImplicitConfig.penetrationDelta, contactImplicitPrefix + "penetrationDelta", verbose);
   loadData::loadPtreeValue(pt, this->contactImplicitConfig.terrainHeight, contactImplicitPrefix + "terrainHeight", verbose);
+  loadData::loadPtreeValue(pt, this->contactImplicitConfig.heightReference, contactImplicitPrefix + "heightReference", verbose);
+  loadData::loadPtreeValue(pt, this->contactImplicitConfig.velocityReference, contactImplicitPrefix + "velocityReference", verbose);
+  loadData::loadPtreeValue(pt, this->contactImplicitConfig.angularVelocityReference, contactImplicitPrefix + "angularVelocityReference",
+                           verbose);
 
   // LINT.IfChange(nominal_foothold_yaml_path)
   const std::string nominalFootholdPrefix = "nominal_foothold.";

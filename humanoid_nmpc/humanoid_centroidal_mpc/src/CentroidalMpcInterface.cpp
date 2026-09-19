@@ -497,16 +497,22 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
     // dropped, which loadMpcFormulationTasks enforces) the mode schedule no longer gates any contact constraint and
     // the solver decides where each foot carries load. See humanoid_nmpc/docs/contact_implicit_mpc/README.md.
     const ModelSettings::ContactImplicitConfig& contactImplicit = modelSettings_.contactImplicitConfig;
+    // The force both residuals are measured in is the robot's own weight, read from the model rather than configured,
+    // so it cannot fall out of step with the URDF. It is what makes the two weights mean the same thing on a 40 kg
+    // robot and a 160 kg one.
+    constexpr scalar_t kStandardGravity = 9.81;  // [m/s^2]
+    const scalar_t forceReference = centroidalModelInfo_.robotMass * kStandardGravity;
     if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::ContactComplementarity) && eeKinematicsPtr) {
       std::unique_ptr<StateInputConstraint> complementarity = std::make_unique<ContactComplementarityConstraint>(
-          *eeKinematicsPtr, *effectiveMpcRobotModelPtr_, i, contactImplicit.terrainHeight);
+          *eeKinematicsPtr, *effectiveMpcRobotModelPtr_, i, contactImplicit.terrainHeight, forceReference, contactImplicit.heightReference);
       auto penalty = std::make_unique<QuadraticPenalty>(contactImplicit.complementarityWeight);
       problemPtr_->softConstraintPtr->add(absl::StrCat(footName, "_contactComplementarity"),
                                           std::make_unique<StateInputSoftConstraint>(std::move(complementarity), std::move(penalty)));
     }
     if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::ForceWeightedSlip) && eeKinematicsPtr) {
       std::unique_ptr<StateInputConstraint> slip =
-          std::make_unique<ForceWeightedSlipConstraint>(*eeKinematicsPtr, *effectiveMpcRobotModelPtr_, i);
+          std::make_unique<ForceWeightedSlipConstraint>(*eeKinematicsPtr, *effectiveMpcRobotModelPtr_, i, forceReference,
+                                                        contactImplicit.velocityReference, contactImplicit.angularVelocityReference);
       auto penalty = std::make_unique<QuadraticPenalty>(contactImplicit.slipWeight);
       problemPtr_->softConstraintPtr->add(absl::StrCat(footName, "_forceWeightedSlip"),
                                           std::make_unique<StateInputSoftConstraint>(std::move(slip), std::move(penalty)));

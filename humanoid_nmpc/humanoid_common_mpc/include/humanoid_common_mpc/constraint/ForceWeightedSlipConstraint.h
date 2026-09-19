@@ -60,6 +60,17 @@ namespace ocs2::humanoid {
  *
  * Like the complementarity term this is bilinear in the force and the kinematics, so the linear approximation is
  * exact in closed form and needs no automatic differentiation.
+ *
+ * The residual is normalised, (f_n / f_ref) (v / v_ref), for the reason given at length on
+ * ContactComplementarityConstraint: the penalty is quadratic in the product, so the curvature it puts on the foot
+ * velocity is w f_n^2 / f_ref^2 / v_ref^2, and unnormalised that spans nine orders of magnitude between a foot in
+ * flight and a foot carrying the robot, which no single weight can span.
+ *
+ * Normalising also repairs a second problem the three rows had in common. Two of them are linear velocities in m/s
+ * and the third is a yaw rate in rad/s, and a quadratic penalty over the un-normalised vector adds their squares
+ * together - so the weight silently declared one radian per second to be as bad as one metre per second, a ratio that
+ * has no physical justification and changes meaning with the size of the foot. Each row is now divided by a reference
+ * in its own units before the squares are summed, so the weight applies to three comparable dimensionless numbers.
  */
 class ForceWeightedSlipConstraint final : public StateInputConstraint {
  public:
@@ -67,10 +78,16 @@ class ForceWeightedSlipConstraint final : public StateInputConstraint {
    * @param [in] endEffectorKinematics : kinematics of this foot's contact frame.
    * @param [in] mpcRobotModel : the robot model, for the input block that carries this contact's force.
    * @param [in] contactPointIndex : the contact this term belongs to.
+   * @param [in] forceReference : [N] the normal force the residual is measured in, normally the robot's weight.
+   * @param [in] velocityReference : [m/s] the sliding speed the two tangential rows are measured in.
+   * @param [in] angularVelocityReference : [rad/s] the pivot rate the yaw row is measured in.
    */
   ForceWeightedSlipConstraint(const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
                               const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                              size_t contactPointIndex);
+                              size_t contactPointIndex,
+                              scalar_t forceReference = 1.0,
+                              scalar_t velocityReference = 1.0,
+                              scalar_t angularVelocityReference = 1.0);
 
   ~ForceWeightedSlipConstraint() override = default;
   ForceWeightedSlipConstraint* clone() const override { return new ForceWeightedSlipConstraint(*this); }
@@ -82,11 +99,21 @@ class ForceWeightedSlipConstraint final : public StateInputConstraint {
                                                            const vector_t& input,
                                                            const PreComputation& preComp) const override;
 
+  scalar_t getForceReference() const { return 1.0 / inverseForceReference_; }
+  /** The per-row reciprocal scales, in the row order [v_x, v_y, omega_z]; exposed for the tests. */
+  const vector3_t& getInverseTwistReference() const { return inverseTwistReference_; }
+  /** Retunes the two twist references, so that the keys are live in the tuning dashboard like the weight beside them. */
+  void setTwistReferences(scalar_t velocityReference, scalar_t angularVelocityReference) {
+    inverseTwistReference_ << 1.0 / velocityReference, 1.0 / velocityReference, 1.0 / angularVelocityReference;
+  }
+
  private:
   ForceWeightedSlipConstraint(const ForceWeightedSlipConstraint& rhs);
 
   std::unique_ptr<EndEffectorKinematics<scalar_t>> endEffectorKinematicsPtr_;
   size_t contactPointIndex_;
+  scalar_t inverseForceReference_;
+  vector3_t inverseTwistReference_;
   vector_t normalForceRow_;
 };
 

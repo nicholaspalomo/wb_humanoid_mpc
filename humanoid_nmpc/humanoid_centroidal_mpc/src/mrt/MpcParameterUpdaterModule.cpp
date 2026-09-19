@@ -29,7 +29,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc/mrt/MpcParameterUpdaterModule.h"
 
+#include <cmath>
 #include <fstream>
+#include <limits>
 
 #include <absl/log/log.h>
 
@@ -49,6 +51,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/cost/DcmTerminalCost.h"
 #include "humanoid_centroidal_mpc/cost/ICPCost.h"
 #include "humanoid_common_mpc/constraint/BasisScalingNonNegativityConstraint.h"
+#include "humanoid_common_mpc/constraint/ContactComplementarityConstraint.h"
+#include "humanoid_common_mpc/constraint/ForceWeightedSlipConstraint.h"
 #include "humanoid_common_mpc/constraint/JointLimitsSoftConstraint.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/cost/ComAndAcomTrackingCost.h"
@@ -501,12 +505,23 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
   // ────────────────────────────────────────────────────────────────
   scalar_t complementarityWeight = -1.0;
   scalar_t slipWeight = -1.0;
+  // The residual references and the terrain height, retuned live alongside the weights. Every key of this block
+  // becomes a slider in the tuning dashboard, so one that quietly did nothing until the next launch would be a trap
+  // rather than a parameter; the negative sentinel marks a key the file does not carry.
+  scalar_t heightReference = -1.0;
+  scalar_t velocityReference = -1.0;
+  scalar_t angularVelocityReference = -1.0;
+  scalar_t terrainHeight = std::numeric_limits<scalar_t>::quiet_NaN();
   RelaxedBarrierPenalty::Config groundPenetrationBarrier;
   bool hasGroundPenetrationBarrier = false;
   if (pt.get_child_optional("contact_implicit")) {
     const std::string ciPrefix = "contact_implicit.";
     loadData::loadPtreeValue(pt, complementarityWeight, ciPrefix + "complementarityWeight", false);
     loadData::loadPtreeValue(pt, slipWeight, ciPrefix + "slipWeight", false);
+    loadData::loadPtreeValue(pt, heightReference, ciPrefix + "heightReference", false);
+    loadData::loadPtreeValue(pt, velocityReference, ciPrefix + "velocityReference", false);
+    loadData::loadPtreeValue(pt, angularVelocityReference, ciPrefix + "angularVelocityReference", false);
+    loadData::loadPtreeValue(pt, terrainHeight, ciPrefix + "terrainHeight", false);
 
     if (pt.get_optional<scalar_t>(ciPrefix + "penetrationMu") || pt.get_optional<scalar_t>(ciPrefix + "penetrationDelta")) {
       loadData::loadPtreeValue(pt, groundPenetrationBarrier.mu, ciPrefix + "penetrationMu", false);
@@ -814,14 +829,23 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
     }
 
     // ── Contact implicit soft constraints ──
-    if (complementarityWeight >= 0.0) {
+    if (complementarityWeight >= 0.0 || heightReference > 0.0 || std::isfinite(terrainHeight)) {
       vector_t param(1);
       param[0] = complementarityWeight;
-      for (const auto& footName : contactNames_) {
+      for (const std::string& footName : contactNames_) {
         try {
-          auto& softCon = ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_contactComplementarity");
-          for (auto& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
-            penalty->setParameters(param);
+          StateInputSoftConstraint& softCon = ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_contactComplementarity");
+          if (complementarityWeight >= 0.0) {
+            for (std::unique_ptr<augmented::AugmentedPenaltyBase>& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
+              penalty->setParameters(param);
+            }
+          }
+          ContactComplementarityConstraint& constraint = softCon.get<ContactComplementarityConstraint>();
+          if (heightReference > 0.0) {
+            constraint.setHeightReference(heightReference);
+          }
+          if (std::isfinite(terrainHeight)) {
+            constraint.setTerrainHeight(terrainHeight);
           }
         } catch (const std::out_of_range&) {
         } catch (const std::exception& e) {
@@ -831,14 +855,19 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
       }
     }
 
-    if (slipWeight >= 0.0) {
+    if (slipWeight >= 0.0 || (velocityReference > 0.0 && angularVelocityReference > 0.0)) {
       vector_t param(1);
       param[0] = slipWeight;
-      for (const auto& footName : contactNames_) {
+      for (const std::string& footName : contactNames_) {
         try {
-          auto& softCon = ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_forceWeightedSlip");
-          for (auto& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
-            penalty->setParameters(param);
+          StateInputSoftConstraint& softCon = ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_forceWeightedSlip");
+          if (slipWeight >= 0.0) {
+            for (std::unique_ptr<augmented::AugmentedPenaltyBase>& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
+              penalty->setParameters(param);
+            }
+          }
+          if (velocityReference > 0.0 && angularVelocityReference > 0.0) {
+            softCon.get<ForceWeightedSlipConstraint>().setTwistReferences(velocityReference, angularVelocityReference);
           }
         } catch (const std::out_of_range&) {
         } catch (const std::exception& e) {

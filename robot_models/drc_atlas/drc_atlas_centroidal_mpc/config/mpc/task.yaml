@@ -74,8 +74,8 @@ Q_com:
 Q_acom:
   scaling: 100
   "(0,0)": 25  # theta_acom_z / yaw (matches theta_base_z)
-  "(1,1)": 50  # theta_acom_y / pitch (matches theta_base_y)
-  "(2,2)": 20  # theta_acom_x / roll (matches theta_base_x)
+  "(1,1)": 100  # theta_acom_y / pitch (matches theta_base_y)
+  "(2,2)": 50  # theta_acom_x / roll (matches theta_base_x)
 
 
 # Targeted Pinocchio frames for telemetry logging (position, orientation, twist, accel, wrench)
@@ -129,11 +129,27 @@ nominal_foothold:
 # Weights of the contact-implicit terms above; read whether or not they are listed, ignored when they are not.
 # LINT.IfChange(contact_implicit_config)
 contact_implicit:
-  complementarityWeight: 50  # penalty on f_n * h [N m]: the price of carrying load at a height
-  slipWeight: 100  # penalty on f_n * v_xy [N m/s]: the price of sliding under load
+  # The two residuals are normalised before they are penalised: (f_n/f_ref)(h/h_ref) and (f_n/f_ref)(v/v_ref), with
+  # f_ref the robot's weight taken from the model. So the two weights below are dimensionless, they are directly
+  # comparable with the task_space_foot_cost_weights they compete against, and each is the cost of the worst case its
+  # term can describe - a foot at the reference height, or sliding at the reference speed, carrying full body weight.
+  #
+  # They used to weight the raw products in N m and N m/s, which no single number could do. A quadratic penalty on
+  # f_n h puts a curvature of w f_n^2 on the foot height, and on this robot f_n^2 ranges over nine orders of magnitude
+  # between a foot in flight and a foot carrying all 160 kg. Even at 50, a swing foot leaking 50 N was held in z more
+  # than a thousand times as stiffly as by pos_z - and since f_n h = 0 is satisfied just as well by putting the foot
+  # down as by taking the force off it, the cheapest way to pay was to land early. See
+  # humanoid_nmpc/docs/contact_implicit_mpc/README.md.
+  complementarityWeight: 50  # the price of carrying full body weight at the reference height
+  slipWeight: 150  # the price of sliding at the reference speed under full body weight
   penetrationMu: 0.1  # relaxed barrier weight on h >= 0
   penetrationDelta: 0.01  # [m] width of that barrier's quadratic relaxation
   terrainHeight: 0  # [m] ground height under the contact frames
+  # The references the residuals are measured in. heightReference should track swing_trajectory_config.swingHeight:
+  # it is the height at which a fully loaded foot is as wrong as this term can describe.
+  heightReference: 0.08  # swing trajectory height reference [m]
+  velocityReference: 0.03  # [m/s] a sliding speed that would already be a failure
+  angularVelocityReference: 0.1  # [rad/s] a pivot rate that would already be a failure
 # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/common/ModelSettings.cpp:contact_implicit_yaml_path)
 
 costs:
@@ -388,9 +404,9 @@ Q:
   # ; Joint Positions ;;
   # Reduced for CoM + ACoM tracking: the torso is the main contributor to the
   # learned orientation offset, so it must be free to rotate.
-  "(12,12)": 10  # back_bkz
-  "(13,13)": 25  # back_bky
-  "(14,14)": 25  # back_bkx
+  "(12,12)": 5  # back_bkz
+  "(13,13)": 5  # back_bky
+  "(14,14)": 5  # back_bkx
   "(15,15)": 0.1  # l_arm_shz
   "(16,16)": 0.1  # l_arm_shx
   "(17,17)": 0.1  # l_arm_ely
@@ -425,23 +441,23 @@ R:
   scaling: 1
 
   # ; Feet Contact Forces: [LF, RF, LH, RH] ;;
-  "(0,0)": 0.00001  # left_force_x
-  "(1,1)": 0.00002  # left_force_y
-  "(2,2)": 0.00005  # left_force_z
-  "(3,3)": 0.00002  # left_moment_x
-  "(4,4)": 0.00001  # left_moment_y
+  "(0,0)": 1.0e-05  # left_force_x
+  "(1,1)": 2.0e-05  # left_force_y
+  "(2,2)": 5.0e-05  # left_force_z
+  "(3,3)": 2.0e-05  # left_moment_x
+  "(4,4)": 1.0e-05  # left_moment_y
   "(5,5)": 0.0002  # left_moment_z
-  "(6,6)": 0.00001  # right_force_x
-  "(7,7)": 0.00002  # right_force_y
-  "(8,8)": 0.00005  # right_force_z
-  "(9,9)": 0.00002  # right_moment_x
-  "(10,10)": 0.00001  # right_moment_y
+  "(6,6)": 1.0e-05  # right_force_x
+  "(7,7)": 2.0e-05  # right_force_y
+  "(8,8)": 5.0e-05  # right_force_z
+  "(9,9)": 2.0e-05  # right_moment_x
+  "(10,10)": 1.0e-05  # right_moment_y
   "(11,11)": 0.0002  # right_moment_z
 
   # ; Joint Velocities ;;
-  "(12,12)": 1000  # back_bkz
-  "(13,13)": 1000  # back_bky
-  "(14,14)": 25  # back_bkx
+  "(12,12)": 1  # back_bkz
+  "(13,13)": 1  # back_bky
+  "(14,14)": 1  # back_bkx
   "(15,15)": 1  # l_arm_shz
   "(16,16)": 1  # l_arm_shx
   "(17,17)": 2  # l_arm_ely
@@ -570,9 +586,9 @@ task_space_foot_cost_weights:
   # Restored from 0: at 0 the swing foot had no longitudinal guidance at all, under-reached, and was still travelling
   # forward when its height reference hit zero. If a planned landing target jitters, damp it with
   # contact_planning.previousFootholdWeight / planConsistencyCost rather than by zeroing these again.
-  pos_x: 30
-  pos_y: 30
-  pos_z: 100
+  pos_x: 0
+  pos_y: 0
+  pos_z: 150
   # Raised from 100. This is the only thing holding the swing foot level, and it competes with the joint regularization
   # Q(28,28) = 5 * 85 = 425 that pulls l_leg_aky back to its nominal -0.42 -- which, with the knee more extended than
   # nominal at the end of a long step, IS a toe-down foot. Atlas has a 0.24 m long sole, so every degree of droop drops

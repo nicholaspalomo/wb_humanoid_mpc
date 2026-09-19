@@ -32,19 +32,29 @@ namespace ocs2::humanoid {
 
 ForceWeightedSlipConstraint::ForceWeightedSlipConstraint(const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
                                                          const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                                                         size_t contactPointIndex)
+                                                         size_t contactPointIndex,
+                                                         scalar_t forceReference,
+                                                         scalar_t velocityReference,
+                                                         scalar_t angularVelocityReference)
     : StateInputConstraint(ConstraintOrder::Linear),
       endEffectorKinematicsPtr_(endEffectorKinematics.clone()),
       contactPointIndex_(contactPointIndex),
+      inverseForceReference_(1.0 / forceReference),
+      inverseTwistReference_(1.0 / velocityReference, 1.0 / velocityReference, 1.0 / angularVelocityReference),
       normalForceRow_(normalContactForceRow(mpcRobotModel, contactPointIndex)) {
   CHECK_EQ(endEffectorKinematicsPtr_->getIds().size(), 1U)
       << "[ForceWeightedSlipConstraint] expects exactly one end-effector, the contact frame of this foot";
+  CHECK_GT(forceReference, 0.0) << "[ForceWeightedSlipConstraint] contact_implicit.forceReference must be positive";
+  CHECK_GT(velocityReference, 0.0) << "[ForceWeightedSlipConstraint] contact_implicit.velocityReference must be positive";
+  CHECK_GT(angularVelocityReference, 0.0) << "[ForceWeightedSlipConstraint] contact_implicit.angularVelocityReference must be positive";
 }
 
 ForceWeightedSlipConstraint::ForceWeightedSlipConstraint(const ForceWeightedSlipConstraint& rhs)
     : StateInputConstraint(rhs),
       endEffectorKinematicsPtr_(rhs.endEffectorKinematicsPtr_->clone()),
       contactPointIndex_(rhs.contactPointIndex_),
+      inverseForceReference_(rhs.inverseForceReference_),
+      inverseTwistReference_(rhs.inverseTwistReference_),
       normalForceRow_(rhs.normalForceRow_) {}
 
 vector_t ForceWeightedSlipConstraint::getValue(scalar_t time,
@@ -53,10 +63,10 @@ vector_t ForceWeightedSlipConstraint::getValue(scalar_t time,
                                                const PreComputation& preComp) const {
   const vector3_t velocity = endEffectorKinematicsPtr_->getVelocity(state, input).front();
   const vector3_t angularVelocity = endEffectorKinematicsPtr_->getAngularVelocity(state, input).front();
-  const scalar_t normalForce = normalForceRow_.dot(input);
-  vector_t value(3);
-  value << normalForce * velocity.head<2>(), normalForce * angularVelocity(2);
-  return value;
+  const scalar_t normalForce = normalForceRow_.dot(input) * inverseForceReference_;
+  vector3_t twist;
+  twist << velocity.head<2>(), angularVelocity(2);
+  return vector_t(normalForce * twist.cwiseProduct(inverseTwistReference_));
 }
 
 VectorFunctionLinearApproximation ForceWeightedSlipConstraint::getLinearApproximation(scalar_t time,
@@ -66,21 +76,24 @@ VectorFunctionLinearApproximation ForceWeightedSlipConstraint::getLinearApproxim
   const VectorFunctionLinearApproximation velocity = endEffectorKinematicsPtr_->getVelocityLinearApproximation(state, input).front();
   const VectorFunctionLinearApproximation angularVelocity =
       endEffectorKinematicsPtr_->getAngularVelocityLinearApproximation(state, input).front();
-  const scalar_t normalForce = normalForceRow_.dot(input);
+  const scalar_t normalForce = normalForceRow_.dot(input) * inverseForceReference_;
 
-  // The constrained components of the twist: the two tangential linear velocities and the spin about the normal.
-  vector_t twist(3);
-  twist << velocity.f.head<2>(), angularVelocity.f(2);
+  // The constrained components of the twist: the two tangential linear velocities and the spin about the normal, each
+  // divided by a reference in its own units so that the three rows are comparable dimensionless numbers.
+  const vector3_t twist = (vector3_t() << velocity.f.head<2>(), angularVelocity.f(2)).finished().cwiseProduct(inverseTwistReference_);
   matrix_t dTwistdx(3, velocity.dfdx.cols());
   dTwistdx << velocity.dfdx.topRows<2>(), angularVelocity.dfdx.row(2);
+  dTwistdx = inverseTwistReference_.asDiagonal() * dTwistdx;
   matrix_t dTwistdu(3, velocity.dfdu.cols());
   dTwistdu << velocity.dfdu.topRows<2>(), angularVelocity.dfdu.row(2);
+  dTwistdu = inverseTwistReference_.asDiagonal() * dTwistdu;
 
   VectorFunctionLinearApproximation approximation;
   approximation.f = normalForce * twist;
   approximation.dfdx = normalForce * dTwistdx;
-  // d(f_n v) / du = f_n dv/du + v (df_n/du), the second term being the constant normal-force row.
-  approximation.dfdu = normalForce * dTwistdu + twist * normalForceRow_.transpose();
+  // d(f_hat v_hat) / du = f_hat dv_hat/du + v_hat (df_hat/du), the second term being the constant normal-force row
+  // carrying the force scale.
+  approximation.dfdu = normalForce * dTwistdu + (twist * inverseForceReference_) * normalForceRow_.transpose();
   return approximation;
 }
 

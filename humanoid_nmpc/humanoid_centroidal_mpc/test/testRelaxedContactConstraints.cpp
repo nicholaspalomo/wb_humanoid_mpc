@@ -27,6 +27,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <memory>
 #include <string>
 
@@ -174,6 +175,46 @@ TEST_F(RelaxedContactConstraintsTest, ComplementarityDerivativesMatchFiniteDiffe
       ContactComplementarityConstraint(*eeKinematics_, *robotModel_, CONTACT_LEFT_INDEX, terrainHeight));
 }
 
+TEST_F(RelaxedContactConstraintsTest, ComplementarityResidualIsOneAtTheReferences) {
+  // The anchor that makes the weight interpretable: a foot carrying exactly the reference force at exactly the
+  // reference height produces a residual of one, so the configured weight is the cost of that worst case and can be
+  // compared directly with the task-space weights the term competes against. If this stops holding, the weight in
+  // task.yaml silently changes meaning.
+  const scalar_t footHeight = eeKinematics_->getPosition(state_).front()(2);
+  const scalar_t heightReference = 0.08;
+  const scalar_t terrainHeight = footHeight - heightReference;
+  const scalar_t forceReference = robotModel_->getContactForce(input_, CONTACT_LEFT_INDEX)(2);
+  ASSERT_GT(forceReference, 0.0) << "the fixture's input must load this foot for the test to mean anything";
+
+  const ContactComplementarityConstraint term(*eeKinematics_, *robotModel_, CONTACT_LEFT_INDEX, terrainHeight, forceReference,
+                                              heightReference);
+  const PreComputation preComp;
+  EXPECT_NEAR(term.getValue(0.0, state_, input_, preComp)(0), 1.0, 1e-9);
+}
+
+TEST_F(RelaxedContactConstraintsTest, ComplementarityResidualIsNormalisedByBothReferences) {
+  const scalar_t footHeight = eeKinematics_->getPosition(state_).front()(2);
+  const scalar_t terrainHeight = footHeight - 0.03;
+  const scalar_t forceReference = 1500.0;
+  const scalar_t heightReference = 0.08;
+  const ContactComplementarityConstraint term(*eeKinematics_, *robotModel_, CONTACT_LEFT_INDEX, terrainHeight, forceReference,
+                                              heightReference);
+
+  const PreComputation preComp;
+  const scalar_t normalForce = robotModel_->getContactForce(input_, CONTACT_LEFT_INDEX)(2);
+  EXPECT_NEAR(term.getValue(0.0, state_, input_, preComp)(0), (normalForce / forceReference) * (0.03 / heightReference), 1e-9);
+  EXPECT_NEAR(term.getForceReference(), forceReference, 1e-9);
+  EXPECT_NEAR(term.getHeightReference(), heightReference, 1e-9);
+}
+
+TEST_F(RelaxedContactConstraintsTest, ComplementarityDerivativesMatchFiniteDifferencesUnderNormalisation) {
+  // The scales multiply both derivative blocks, so a normalisation applied to the value but not to the Jacobian would
+  // pass every value test above and quietly hand the solver a wrong gradient.
+  const scalar_t terrainHeight = eeKinematics_->getPosition(state_).front()(2) - 0.03;
+  expectDerivativesMatchFiniteDifferences(
+      ContactComplementarityConstraint(*eeKinematics_, *robotModel_, CONTACT_LEFT_INDEX, terrainHeight, 1500.0, 0.08));
+}
+
 TEST_F(RelaxedContactConstraintsTest, SlipIsTheForceTimesTheConstrainedTwist) {
   const ForceWeightedSlipConstraint term(*eeKinematics_, *robotModel_, CONTACT_LEFT_INDEX);
   const PreComputation preComp;
@@ -203,6 +244,36 @@ TEST_F(RelaxedContactConstraintsTest, SlipLeavesTheRockingRatesFree) {
 
 TEST_F(RelaxedContactConstraintsTest, SlipDerivativesMatchFiniteDifferences) {
   expectDerivativesMatchFiniteDifferences(ForceWeightedSlipConstraint(*eeKinematics_, *robotModel_, CONTACT_LEFT_INDEX));
+}
+
+TEST_F(RelaxedContactConstraintsTest, SlipScalesEachRowInItsOwnUnits) {
+  // Two rows are linear velocities and the third is a yaw rate. Penalising them together without separate references
+  // declares one radian per second to be exactly as bad as one metre per second, which is not a statement about the
+  // robot but about the choice of SI units.
+  const scalar_t forceReference = 1500.0;
+  const scalar_t velocityReference = 0.3;
+  const scalar_t angularVelocityReference = 1.0;
+  const ForceWeightedSlipConstraint term(*eeKinematics_, *robotModel_, CONTACT_LEFT_INDEX, forceReference, velocityReference,
+                                         angularVelocityReference);
+
+  const PreComputation preComp;
+  const vector_t value = term.getValue(0.0, state_, input_, preComp);
+  const vector3_t velocity = eeKinematics_->getVelocity(state_, input_).front();
+  const vector3_t angularVelocity = eeKinematics_->getAngularVelocity(state_, input_).front();
+  const scalar_t normalisedForce = robotModel_->getContactForce(input_, CONTACT_LEFT_INDEX)(2) / forceReference;
+
+  EXPECT_NEAR(value(0), normalisedForce * velocity(0) / velocityReference, 1e-9);
+  EXPECT_NEAR(value(1), normalisedForce * velocity(1) / velocityReference, 1e-9);
+  EXPECT_NEAR(value(2), normalisedForce * angularVelocity(2) / angularVelocityReference, 1e-9);
+
+  // And the yaw row must not pick up the linear scale: with the two references different, swapping them would change
+  // the third component, which is exactly the bug this guards.
+  EXPECT_GT(std::abs(1.0 / velocityReference - 1.0 / angularVelocityReference), 1e-9)
+      << "choose different references or this assertion proves nothing";
+}
+
+TEST_F(RelaxedContactConstraintsTest, SlipDerivativesMatchFiniteDifferencesUnderNormalisation) {
+  expectDerivativesMatchFiniteDifferences(ForceWeightedSlipConstraint(*eeKinematics_, *robotModel_, CONTACT_LEFT_INDEX, 1500.0, 0.3, 1.0));
 }
 
 TEST_F(RelaxedContactConstraintsTest, PenetrationIsTheHeightAboveTheTerrain) {

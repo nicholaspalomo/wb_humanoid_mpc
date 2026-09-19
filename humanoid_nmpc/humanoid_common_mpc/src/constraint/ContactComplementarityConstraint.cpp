@@ -51,14 +51,20 @@ vector_t normalContactForceRow(const MpcRobotModelBase<scalar_t>& mpcRobotModel,
 ContactComplementarityConstraint::ContactComplementarityConstraint(const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
                                                                    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
                                                                    size_t contactPointIndex,
-                                                                   scalar_t terrainHeight)
+                                                                   scalar_t terrainHeight,
+                                                                   scalar_t forceReference,
+                                                                   scalar_t heightReference)
     : StateInputConstraint(ConstraintOrder::Linear),
       endEffectorKinematicsPtr_(endEffectorKinematics.clone()),
       contactPointIndex_(contactPointIndex),
       terrainHeight_(terrainHeight),
+      inverseForceReference_(1.0 / forceReference),
+      inverseHeightReference_(1.0 / heightReference),
       normalForceRow_(normalContactForceRow(mpcRobotModel, contactPointIndex)) {
   CHECK_EQ(endEffectorKinematicsPtr_->getIds().size(), 1U)
       << "[ContactComplementarityConstraint] expects exactly one end-effector, the contact frame of this foot";
+  CHECK_GT(forceReference, 0.0) << "[ContactComplementarityConstraint] contact_implicit.forceReference must be positive";
+  CHECK_GT(heightReference, 0.0) << "[ContactComplementarityConstraint] contact_implicit.heightReference must be positive";
 }
 
 ContactComplementarityConstraint::ContactComplementarityConstraint(const ContactComplementarityConstraint& rhs)
@@ -66,14 +72,16 @@ ContactComplementarityConstraint::ContactComplementarityConstraint(const Contact
       endEffectorKinematicsPtr_(rhs.endEffectorKinematicsPtr_->clone()),
       contactPointIndex_(rhs.contactPointIndex_),
       terrainHeight_(rhs.terrainHeight_),
+      inverseForceReference_(rhs.inverseForceReference_),
+      inverseHeightReference_(rhs.inverseHeightReference_),
       normalForceRow_(rhs.normalForceRow_) {}
 
 vector_t ContactComplementarityConstraint::getValue(scalar_t time,
                                                     const vector_t& state,
                                                     const vector_t& input,
                                                     const PreComputation& preComp) const {
-  const scalar_t height = endEffectorKinematicsPtr_->getPosition(state).front()(2) - terrainHeight_;
-  const scalar_t normalForce = normalForceRow_.dot(input);
+  const scalar_t height = (endEffectorKinematicsPtr_->getPosition(state).front()(2) - terrainHeight_) * inverseHeightReference_;
+  const scalar_t normalForce = normalForceRow_.dot(input) * inverseForceReference_;
   return (vector_t(1) << normalForce * height).finished();
 }
 
@@ -82,13 +90,15 @@ VectorFunctionLinearApproximation ContactComplementarityConstraint::getLinearApp
                                                                                            const vector_t& input,
                                                                                            const PreComputation& preComp) const {
   const VectorFunctionLinearApproximation position = endEffectorKinematicsPtr_->getPositionLinearApproximation(state).front();
-  const scalar_t height = position.f(2) - terrainHeight_;
-  const scalar_t normalForce = normalForceRow_.dot(input);
+  // Both factors are carried in their normalised form, so each derivative block picks up the scale of the factor that
+  // survives the product rule: d(f_hat h_hat)/dx = f_hat dh_hat/dx, and dh_hat/dx is dh/dx over the reference height.
+  const scalar_t height = (position.f(2) - terrainHeight_) * inverseHeightReference_;
+  const scalar_t normalForce = normalForceRow_.dot(input) * inverseForceReference_;
 
   VectorFunctionLinearApproximation approximation;
   approximation.f = (vector_t(1) << normalForce * height).finished();
-  approximation.dfdx = normalForce * position.dfdx.row(2);
-  approximation.dfdu = height * normalForceRow_.transpose();
+  approximation.dfdx = (normalForce * inverseHeightReference_) * position.dfdx.row(2);
+  approximation.dfdu = (height * inverseForceReference_) * normalForceRow_.transpose();
   return approximation;
 }
 
