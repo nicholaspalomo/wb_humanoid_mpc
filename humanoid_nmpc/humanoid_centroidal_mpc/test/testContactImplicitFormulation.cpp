@@ -182,6 +182,39 @@ TEST_F(ContactImplicitFormulationTest, theHardNormalVelocityConstraintIsRefusedA
   EXPECT_NE(std::string(tasks.status().message()).find("normal_velocity"), std::string::npos) << tasks.status().message();
 }
 
+TEST_F(ContactImplicitFormulationTest, complementarityWithoutTheSlipTermIsRefused) {
+  // The three relaxed complementarity conditions are a set. The complementarity product and the penetration hinge are
+  // both POSITIONAL - one forbids load above the ground, the other the foot below it - so with force_weighted_slip
+  // missing nothing holds a loaded foot still and a foot carrying full body weight may slide frictionlessly. The
+  // loader already refused complementarity without ground_penetration; this is the same argument for the third term.
+  std::vector<std::string> soft = contactImplicitSoftConstraints();
+  soft.erase(std::remove(soft.begin(), soft.end(), std::string("force_weighted_slip")), soft.end());
+  const std::string taskFile = writeTaskFile("noSlip", {}, soft);
+  const absl::StatusOr<MpcFormulationTasks> tasks = loadMpcFormulationTasks(taskFile, false);
+  ASSERT_FALSE(tasks.ok()) << "a loaded foot would be free to slide";
+  EXPECT_NE(std::string(tasks.status().message()).find("force_weighted_slip"), std::string::npos) << tasks.status().message();
+}
+
+TEST_F(ContactImplicitFormulationTest, complementarityCannotBePairedWithAScheduleGatedStanceConstraint) {
+  // Reached transitively: requiring force_weighted_slip above makes the existing force_weighted_slip / zero_velocity
+  // exclusion fire, so complementarity alongside a schedule-gated zero_velocity is now refused as well. Before that
+  // rule it was accepted, which left the solver told to choose contact by one term and told it by the schedule by
+  // another.
+  const std::string taskFile = writeTaskFile("complementarityWithZeroVelocity", {"zero_velocity"}, contactImplicitSoftConstraints());
+  const absl::StatusOr<MpcFormulationTasks> tasks = loadMpcFormulationTasks(taskFile, false);
+  ASSERT_FALSE(tasks.ok());
+  EXPECT_NE(std::string(tasks.status().message()).find("zero_velocity"), std::string::npos) << tasks.status().message();
+}
+
+TEST_F(ContactImplicitFormulationTest, groundPenetrationOnItsOwnIsAcceptedAndThatIsDeliberate) {
+  // Reported as a validation gap; it is not one. h >= 0 is a meaningful standalone statement - keep the feet out of
+  // the floor - and it carries no claim about contact forces that could be half-satisfied. Refusing it would block a
+  // legitimate configuration to guard against nothing, so this test records the decision rather than a defect.
+  const std::string taskFile = writeTaskFile("penetrationOnly", {}, {"joint_limits", "contact_wrench_cone", "ground_penetration"});
+  const absl::StatusOr<MpcFormulationTasks> tasks = loadMpcFormulationTasks(taskFile, false);
+  EXPECT_TRUE(tasks.ok()) << tasks.status().message();
+}
+
 TEST_F(ContactImplicitFormulationTest, theTaskFileInTheWorkingTreeIsSelfConsistent) {
   // Whatever the file is currently set to - the formulation ships off, but an engineer testing it has it on - the
   // loader must accept it and the contact-constraint gate must agree with it. Asserting the formulation is OFF here

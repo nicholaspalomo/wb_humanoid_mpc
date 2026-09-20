@@ -98,6 +98,7 @@ class RelaxedContactConstraintsTest : public ::testing::Test {
     // The footprint corners: the geometry the complementarity product and the penetration hinge share. Both terms are
     // built on this one object in CentroidalMpcInterface, so the tests build them that way too.
     const ContactRectangle footprint = ContactRectangle::loadContactRectangle(taskFile, *modelSettings_, CONTACT_LEFT_INDEX, false);
+    footprintHalfLength_ = 0.5 * (footprint.getBounds().x_max - footprint.getBounds().x_min);
     std::vector<std::string> cornerFrames;
     cornerFrames.reserve(footprint.getNumberOfContactPoints());
     for (size_t corner = 0; corner < footprint.getNumberOfContactPoints(); ++corner) {
@@ -176,6 +177,8 @@ class RelaxedContactConstraintsTest : public ::testing::Test {
   std::unique_ptr<CentroidalModelPinocchioMappingCppAd> mappingCppAd_;
   std::unique_ptr<PinocchioEndEffectorKinematicsCppAd> eeKinematics_;
   std::unique_ptr<FootprintCornerHeights> cornerHeights_;
+  /** [m] half the fore-aft extent of the footprint: the largest lever arm a rocking foot can have. */
+  scalar_t footprintHalfLength_ = 0.0;
   vector_t state_;
   vector_t input_;
 };
@@ -316,6 +319,49 @@ TEST_F(RelaxedContactConstraintsTest, SlipIsTheForceTimesTheConstrainedTwist) {
   // An unloaded foot may slide and pivot as it likes: the penalty is on the product, not on the motion.
   const vector_t noForce = vector_t::Zero(robotModel_->getInputDim());
   EXPECT_NEAR(term.getValue(0.0, state_, noForce, preComp).norm(), 0.0, 1e-12);
+}
+
+TEST_F(RelaxedContactConstraintsTest, SlipMeasuredAtTheSoleCentreCouplesPitchIntoTangentialSlip) {
+  // A reported "rocking foot paradox": the twist is read at the contact frame, so when the foot rocks about an edge
+  // the sole centre moves even though the contact line does not, and the term charges for slip that is not
+  // happening. It is real, and this test pins HOW BIG it is, because the size is what decides whether it matters.
+  //
+  // The contact frame sits ON the sole (contact_frame_translation.z = -0.082 puts it at the bottom of the foot), so
+  // the lever arm is a*sin(theta) and not a fixed offset: the coupling is zero at a flat foot and grows with tilt.
+  // The alternative reading - a fixed vertical offset between the sole centre and the contact point - would make the
+  // coupling survive a flat foot, and this test would catch that if the frame ever moved off the sole.
+  const ForceWeightedSlipConstraint term(*eeKinematics_, *robotModel_, CONTACT_LEFT_INDEX, 1.0, 1.0, 1.0);
+  const PreComputation preComp;
+
+  // A pure ankle-pitch rate, everything else still, on an otherwise flat foot.
+  vector_t pitchOnly = vector_t::Zero(robotModel_->getInputDim());
+  vector6_t wrench = vector6_t::Zero();
+  wrench(WRENCH_FORCE_Z_INDEX) = 800.0;
+  robotModel_->setContactWrench(pitchOnly, wrench, CONTACT_LEFT_INDEX);
+  pitchOnly(anklePitchStateIndex() - static_cast<long>(robotModel_->getJointStartindex()) +
+            static_cast<long>(robotModel_->getJointVelocitiesStartindex())) = 1.0;
+
+  const vector_t flatValue = term.getValue(0.0, state_, pitchOnly, preComp);
+  const vector3_t flatVelocity = eeKinematics_->getVelocity(state_, pitchOnly).front();
+
+  // Tilt the foot and repeat: the same joint rate now produces more tangential velocity at the sole centre.
+  vector_t pitched = state_;
+  pitched(anklePitchStateIndex()) += 0.30;
+  const vector3_t tiltedVelocity = eeKinematics_->getVelocity(pitched, pitchOnly).front();
+  const vector_t tiltedValue = term.getValue(0.0, pitched, pitchOnly, preComp);
+
+  // The coupling grows with tilt - that is the whole mechanism, and it is what a fixed-offset reading would not do.
+  EXPECT_GT(std::abs(tiltedVelocity(0)), std::abs(flatVelocity(0)))
+      << "the lever arm is a*sin(theta); tilting the foot must increase the spurious tangential velocity";
+  EXPECT_GT(tiltedValue.head<2>().norm(), flatValue.head<2>().norm());
+
+  // And it stays bounded by the geometry: half a footprint of lever at one radian per second is 0.12 m/s, so with
+  // unit references the tangential rows cannot exceed the load times that. This is the bound that makes the term
+  // negligible at the shipped 0.08 rad of swing pitch and non-negligible at an aggressive heel-to-toe roll.
+  ASSERT_GT(footprintHalfLength_, 0.0);
+  const scalar_t load = robotModel_->getContactForce(pitchOnly, CONTACT_LEFT_INDEX)(2);
+  EXPECT_LT(tiltedValue.head<2>().norm(), load * footprintHalfLength_ * 1.5)
+      << "the spurious slip must stay within the lever arm the footprint allows";
 }
 
 TEST_F(RelaxedContactConstraintsTest, SlipLeavesTheRockingRatesFree) {

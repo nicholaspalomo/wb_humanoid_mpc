@@ -51,6 +51,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/cost/CentroidalMpcEndEffectorFootCost.h"
 #include "humanoid_centroidal_mpc/cost/DcmTerminalCost.h"
 #include "humanoid_centroidal_mpc/cost/ICPCost.h"
+#include "humanoid_common_mpc/HumanoidPreComputation.h"
 #include "humanoid_common_mpc/constraint/BasisScalingNonNegativityConstraint.h"
 #include "humanoid_common_mpc/constraint/ContactComplementarityConstraint.h"
 #include "humanoid_common_mpc/constraint/ContactMomentXYConstraintCppAd.h"
@@ -988,6 +989,19 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
 
     // ── Foot constraint error gains ──
     if (hasFootConstraintGains) {
+      // positionErrorGain_z has to reach the PRE-COMPUTATION as well as the zeroVelocity twist config below, and
+      // that is not a refinement: under the contact-implicit formulation zeroVelocity is not built at all, so the
+      // block below writes the gain into a term that does not exist while the term that does - the soft
+      // normal-velocity servo - reads it from here. Without this the task-file key, and the slider the dashboard
+      // renders for it, silently did nothing until the next launch.
+      //
+      // Each worker thread owns its own PreComputation, so writing it per OCP is also what keeps this race-free;
+      // mutating the shared ModelSettings would not be.
+      HumanoidPreComputation* preComputationPtr = dynamic_cast<HumanoidPreComputation*>(ocp.preComputationPtr.get());
+      if (preComputationPtr != nullptr) {
+        preComputationPtr->setNormalVelocityPositionErrorGain(footCfg.positionErrorGain_z);
+      }
+
       for (const auto& footName : contactNames_) {
         // Hard constraint path
         try {

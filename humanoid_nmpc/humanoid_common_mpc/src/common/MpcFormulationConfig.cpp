@@ -342,6 +342,20 @@ absl::StatusOr<MpcFormulationTasks> loadMpcFormulationTasks(absl::string_view ta
         "choose. Remove 'normal_velocity' from hard_constraints to run the contact-implicit formulation "
         "(humanoid_nmpc/docs/contact_implicit_mpc/README.md).");
   }
+  // The three relaxed complementarity conditions are a set, not a menu. Without 'force_weighted_slip' nothing holds a
+  // LOADED foot still: 'zero_velocity' is the term it replaces, and the two other contact-implicit terms are purely
+  // positional - one forbids load above the ground, the other the foot below it, and neither says anything about
+  // tangential motion. A foot could then carry full body weight and slide frictionlessly, which is not a degraded
+  // formulation but a different and wrong one. This also closes the door on 'contact_complementarity' alongside a
+  // schedule-gated 'zero_velocity', because requiring 'force_weighted_slip' makes the check below it fire.
+  if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::ContactComplementarity) &&
+      !formulationTasks.hasSoftConstraint(MpcSoftConstraintType::ForceWeightedSlip)) {
+    return absl::InvalidArgumentError(
+        "[loadMpcFormulationTasks] 'contact_complementarity' needs 'force_weighted_slip' alongside it: the complementarity product "
+        "and the ground-penetration hinge are both positional, so without it nothing holds a loaded foot still and a foot carrying "
+        "full body weight may slide freely. It is the term that replaces the schedule-gated 'zero_velocity' "
+        "(humanoid_nmpc/docs/contact_implicit_mpc/README.md).");
+  }
   if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::ContactComplementarity) &&
       !formulationTasks.hasSoftConstraint(MpcSoftConstraintType::GroundPenetration)) {
     return absl::InvalidArgumentError(

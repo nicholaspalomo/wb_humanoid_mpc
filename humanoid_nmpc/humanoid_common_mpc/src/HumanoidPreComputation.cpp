@@ -48,7 +48,8 @@ HumanoidPreComputation::HumanoidPreComputation(PinocchioInterface pinocchioInter
                                                const MpcRobotModelBase<scalar_t>& mpcRobotModel)
     : pinocchioInterface_(std::move(pinocchioInterface)),
       swingTrajectoryPlannerPtr_(&swingTrajectoryPlanner),
-      mpcRobotModelPtr_(&mpcRobotModel) {
+      mpcRobotModelPtr_(&mpcRobotModel),
+      positionErrorGainZ_(mpcRobotModel.modelSettings.footConstraintConfig.positionErrorGain_z) {
   eeNormalVelConConfigs_.resize(N_CONTACTS);
   R_world_to_contacts_.resize(N_CONTACTS);
   footHeightReferences_.resize(N_CONTACTS);
@@ -68,7 +69,10 @@ HumanoidPreComputation::HumanoidPreComputation(const HumanoidPreComputation& rhs
       mpcRobotModelPtr_(rhs.mpcRobotModelPtr_),
       R_world_to_contacts_(rhs.R_world_to_contacts_),
       eeNormalVelConConfigs_(rhs.eeNormalVelConConfigs_),
-      footHeightReferences_(rhs.footHeightReferences_) {}
+      footHeightReferences_(rhs.footHeightReferences_),
+      // Carried across the clone the SQP solver makes per worker thread; dropping it would reset every worker's gain
+      // to the launch value on the next retune, which is the class of bug this member exists to close.
+      positionErrorGainZ_(rhs.positionErrorGainZ_) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -105,15 +109,26 @@ void HumanoidPreComputation::request(RequestSet request, scalar_t t, const vecto
     EndEffectorKinematicsLinearVelConstraint::Config config;
     config.b = (vector_t(1) << -swingTrajectoryPlannerPtr_->getZvelocityConstraint(footIndex, t)).finished();
     config.Av = (matrix_t(1, 3) << 0.0, 0.0, 1.0).finished();
-    const ModelSettings::FootConstraintConfig& footConstraintCfg = mpcRobotModelPtr_->modelSettings.footConstraintConfig;
-    if (!numerics::almost_eq(footConstraintCfg.positionErrorGain_z, 0.0)) {
-      config.b(0) -= footConstraintCfg.positionErrorGain_z * swingTrajectoryPlannerPtr_->getZpositionConstraint(footIndex, t);
-      config.Ax = (matrix_t(1, 3) << 0.0, 0.0, footConstraintCfg.positionErrorGain_z).finished();
+    // The gain comes from this object, not from the shared ModelSettings, so that the parameter updater can retune it
+    // per worker thread while the controller runs; see setNormalVelocityPositionErrorGain.
+    if (!numerics::almost_eq(positionErrorGainZ_, 0.0)) {
+      config.b(0) -= positionErrorGainZ_ * swingTrajectoryPlannerPtr_->getZpositionConstraint(footIndex, t);
+      config.Ax = (matrix_t(1, 3) << 0.0, 0.0, positionErrorGainZ_).finished();
     }
     return config;
   };
 
-  if (request.contains(Request::Constraint)) {
+  // Widened from `contains(Request::Constraint)` deliberately. Today every OCS2 call site that evaluates a
+  // state-input term - setupIntermediateNode, LinearQuadraticApproximator, MetricsComputation - requests
+  // Request::Constraint unconditionally as a `constexpr`, so the narrower gate was not actually leaving anything
+  // stale; the paths that omit it, setupTerminalNode and setupEventNode, go through requestFinal / requestPreJump,
+  // which this class does not override and where no state-input term is evaluated.
+  //
+  // It is widened anyway because the coupling is invisible and the formulation moved underneath it: the soft
+  // normal-velocity servo is a SOFT constraint that reads eeNormalVelConConfigs_, so a caller that one day asks for
+  // soft constraints alone would silently evaluate it against a stale swing reference rather than fail. One extra
+  // flag in the guard removes that trap for the cost of two frame lookups on a cost-only request.
+  if (request.containsAny(Request::Constraint + Request::SoftConstraint)) {
     for (size_t i = 0; i < N_CONTACTS; i++) {
       eeNormalVelConConfigs_[i] = eeNormalVelConConfig(i);
       pinocchio::FrameIndex frameID = pinocchioInterface_.getModel().getFrameId(mpcRobotModelPtr_->modelSettings.contactNames6DoF[i]);

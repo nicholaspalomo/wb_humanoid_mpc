@@ -63,6 +63,22 @@ class HumanoidPreComputation : public PreComputation {
   }
   scalar_t getFootReferenceHeight(size_t contactIndex) const { return footHeightReferences_[contactIndex]; }
 
+  /**
+   * Retunes the proportional gain on the swing foot's height error, live.
+   *
+   * The normal-velocity term's residual is `v_z - zdot_ref + k (z - z_ref)`, so this `k` sets how hard the swing foot
+   * is pulled back onto its height profile - and because it enters the residual linearly it enters the curvature
+   * SQUARED. It is the strongest single knob on swing-foot tracking, and under the contact-implicit formulation it is
+   * the only one that reaches the term at all, `zero_velocity` not being built.
+   *
+   * It lives here rather than being read from ModelSettings on every request because ModelSettings is shared by every
+   * worker thread's copy of the problem, whereas each thread owns its own PreComputation. Writing it here is how the
+   * parameter updater retunes the gain without a data race, and without it the task-file key silently did nothing
+   * until the next launch.
+   */
+  void setNormalVelocityPositionErrorGain(scalar_t gain) { positionErrorGainZ_ = gain; }
+  scalar_t getNormalVelocityPositionErrorGain() const { return positionErrorGainZ_; }
+
   PinocchioInterface& getPinocchioInterface() { return pinocchioInterface_; }
   const PinocchioInterface& getPinocchioInterface() const { return pinocchioInterface_; }
 
@@ -79,6 +95,8 @@ class HumanoidPreComputation : public PreComputation {
 
   std::vector<EndEffectorKinematicsLinearVelConstraint::Config> eeNormalVelConConfigs_;
   std::vector<scalar_t> footHeightReferences_;
+  /** Seeded from ModelSettings at construction; see setNormalVelocityPositionErrorGain. */
+  scalar_t positionErrorGainZ_;
 };
 
 }  // namespace ocs2::humanoid

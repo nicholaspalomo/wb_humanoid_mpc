@@ -55,6 +55,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/cost/DcmTerminalCost.h"
 #include "humanoid_centroidal_mpc/cost/ICPCost.h"
 #include "humanoid_centroidal_mpc/mrt/MpcParameterUpdaterModule.h"
+#include "humanoid_common_mpc/HumanoidPreComputation.h"
 #include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/constraint/BasisScalingNonNegativityConstraint.h"
@@ -1094,6 +1095,42 @@ TEST_F(MpcParameterUpdaterModuleTest, ContactImplicitTuningReachesEveryTerm) {
       EXPECT_NEAR(penetration.getTerrainHeight(), newTerrainHeight, 1e-9)
           << footName << ": the penetration barrier still places the ground somewhere else than the complementarity term does";
     }
+  }
+}
+
+TEST_F(MpcParameterUpdaterModuleTest, ThePositionErrorGainReachesTheSoftNormalVelocityTerm) {
+  // positionErrorGain_z was loaded into a local FootConstraintConfig and written into the zeroVelocity twist config -
+  // but under the contact-implicit formulation zeroVelocity is not built at all, and the term that DOES use the gain,
+  // the soft normal-velocity servo, reads it from the PreComputation. So the slider moved a term that did not exist
+  // while the one that did kept its launch value. The gain enters the residual v_z - zdot_ref + k (z - z_ref)
+  // linearly, hence the curvature SQUARED: it is the strongest single knob on swing-foot tracking, and it was inert.
+  SqpSolver* sqp = getSqpSolver();
+  ASSERT_NE(sqp, nullptr);
+
+  const scalar_t newGain = 3.5;
+  {
+    std::ifstream in(tmpTaskFile_);
+    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.close();
+    const std::string key = "\n    positionErrorGain_z:";
+    const size_t keyPos = content.find(key);
+    ASSERT_NE(keyPos, std::string::npos) << "the task file has no model_settings.foot_constraint.positionErrorGain_z";
+    const size_t valueStart = keyPos + key.size();
+    const size_t lineEnd = content.find('\n', valueStart);
+    content.replace(valueStart, lineEnd - valueStart, " " + std::to_string(newGain));
+    std::ofstream out(tmpTaskFile_);
+    out << content;
+  }
+
+  MpcParameterUpdaterModule updater(mpc_.get(), tmpTaskFile_, urdfFile_, referenceFile_, stateDim_, inputDim_, contactNames_, nullptr,
+                                    basisCostTransform_);
+  touchTaskFileAndRunUpdater(updater);
+
+  // Every per-thread clone has to see it: the gain lives on the PreComputation precisely because each worker owns one.
+  for (OptimalControlProblem& ocp : sqp->getOcpDefinitions()) {
+    const HumanoidPreComputation* preComputationPtr = dynamic_cast<const HumanoidPreComputation*>(ocp.preComputationPtr.get());
+    ASSERT_NE(preComputationPtr, nullptr) << "the centroidal MPC is expected to use HumanoidPreComputation";
+    EXPECT_NEAR(preComputationPtr->getNormalVelocityPositionErrorGain(), newGain, 1e-9);
   }
 }
 

@@ -58,6 +58,30 @@ namespace ocs2::humanoid {
  * its heel and toe edges under load is how a heel-to-toe strike happens, which is one of the behaviours the
  * contact-implicit formulation exists to allow (arXiv:2502.15630, Fig. 3).
  *
+ * WHERE AND IN WHICH FRAME the twist is measured, since both have been raised as defects and the answers differ.
+ *
+ * The FRAME is the world's, and that is correct rather than an oversight. The contact whose slip this prices is
+ * between the foot and the GROUND, and every layer of this stack assumes the ground is flat - `terrainHeight` is a
+ * single configured scalar, and the reduced-order planner assumes it most of all. So the contact normal is the world
+ * vertical no matter how the foot is oriented, `velocity.head<2>()` really is the tangential velocity in the contact
+ * plane, and `angularVelocity(2)` really is the spin about the contact normal. Rotating the twist into the FOOT's
+ * frame, as one might expect from the name "contact frame", would be the bug: it would price the foot's own pitch
+ * and roll as tangential slip. On sloped terrain this reasoning stops holding and the twist would have to be rotated
+ * into the terrain frame - but so would the wrench cone, the penetration hinge and the swing planner, and none of
+ * them support a slope either.
+ *
+ * The POINT is the contact frame, which `contact_frame_translation` places on the sole. That is an approximation,
+ * and unlike the frame question it is a real one: when the foot rocks about an edge, the sole centre moves even
+ * though the contact line does not, and the term charges for slip that is not happening. Because the contact frame
+ * sits ON the sole, the lever arm is a * sin(theta) rather than a fixed offset, so the coupling vanishes at a flat
+ * foot and grows with the tilt: v_x = omega_y * a * sin(theta) with a = 0.12 m on this robot. At the shipped 0.08 rad
+ * of swing pitch and 1 rad/s that is 9.6 mm/s, a residual of 0.032 and a cost of 0.077 at full load - negligible. At
+ * an aggressive 0.3 rad heel-to-toe roll at 2 rad/s it is 71 mm/s, a residual of 0.24 and a cost of 4.2, which is no
+ * longer negligible and does resist the roll. Measuring the twist at the softmin-weighted contact point, the way
+ * FootprintCornerHeights already measures the gap, would remove it; that is a change to the closed-loop behaviour and
+ * belongs in its own validated step rather than folded into a tuning pass. testRelaxedContactConstraints pins the
+ * magnitude so the trade-off stays visible.
+ *
  * Like the complementarity term this is bilinear in the force and the kinematics, so the linear approximation is
  * exact in closed form and needs no automatic differentiation.
  *
