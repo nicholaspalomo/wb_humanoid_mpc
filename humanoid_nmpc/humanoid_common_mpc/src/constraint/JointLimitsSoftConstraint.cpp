@@ -52,7 +52,10 @@ JointLimitsSoftConstraint::JointLimitsSoftConstraint(const JointLimitsSoftConstr
     : jointPositionPenaltyPtr_(rhs.jointPositionPenaltyPtr_->clone()),
       positionLimits_(rhs.positionLimits_),
       mpcRobotModelPtr_(rhs.mpcRobotModelPtr_),
-      offset_(rhs.offset_) {}
+      offset_(rhs.offset_),
+      // isActive_ is copied deliberately: the SQP solver clones the whole problem once per worker thread,
+      // and a copy constructor that dropped this flag silently reverted a deactivated term to active.
+      isActive_(rhs.isActive_) {}
 
 scalar_t JointLimitsSoftConstraint::getValue(scalar_t time,
                                              const vector_t& state,

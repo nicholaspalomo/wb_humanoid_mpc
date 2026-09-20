@@ -86,9 +86,12 @@ CentroidalMpcEndEffectorFootCost::CentroidalMpcEndEffectorFootCost(const Centroi
     : StateInputCostGaussNewtonAd(other),
       referenceManagerPtr_(other.referenceManagerPtr_),
       sqrtWeights_(other.sqrtWeights_),
+      // isActive_ is copied deliberately: the SQP solver clones the whole problem once per worker thread,
+      // and a copy constructor that dropped this flag silently reverted a deactivated term to active.
+      isActive_(other.isActive_),
       activeInStance_(other.activeInStance_),
-      frameID_(other.frameID_),
       contactIndex_(other.contactIndex_),
+      frameID_(other.frameID_),
       pinocchioInterfaceCppAd_(other.pinocchioInterfaceCppAd_),
       mpcRobotModelAdPtr_(other.mpcRobotModelAdPtr_->clone()) {}
 

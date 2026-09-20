@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <optional>
 #include <regex>
 #include <stdexcept>
@@ -443,10 +444,14 @@ TEST_F(MpcParameterUpdaterModuleTest, SqpSettingsUpdated) {
     std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     in.close();
 
-    auto pos = content.find("sqpIteration:");
+    // Anchored to the start of an indented line, not a bare substring: a COMMENT elsewhere in the task file that
+    // happens to mention `sqpIteration:` would otherwise be found first and rewritten instead of the setting, which
+    // is exactly what happened once.
+    const std::string key = "\n  sqpIteration:";
+    const size_t pos = content.find(key);
     ASSERT_NE(pos, std::string::npos);
-    auto valueStart = pos + std::string("sqpIteration:").size();
-    auto lineEnd = content.find('\n', valueStart);
+    const size_t valueStart = pos + key.size();
+    const size_t lineEnd = content.find('\n', valueStart);
     content.replace(valueStart, lineEnd - valueStart, " 15");
 
     std::ofstream out(tmpTaskFile_);
@@ -1041,10 +1046,18 @@ TEST_F(MpcParameterUpdaterModuleTest, ContactImplicitTuningReachesEveryTerm) {
     std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     in.close();
 
-    const auto setKey = [&content](const std::string& key, scalar_t value) {
-      const size_t keyPos = content.find("\n  " + key + ":");
-      ASSERT_NE(keyPos, std::string::npos) << key << " not found under contact_implicit";
-      const size_t valueStart = keyPos + key.size() + 4;  // past the newline, the two-space indent, the key and the colon
+    // `terrainHeight` is a TOP-LEVEL key of the task file, while the rest of this block is indented under
+    // `contact_implicit`. Searching only for the indented spelling silently stopped finding it when the ground height
+    // was made a single source of truth, so the setter accepts either indentation and asserts it found one.
+    const std::function<void(const std::string&, scalar_t)> setKey = [&content](const std::string& key, scalar_t value) {
+      size_t indent = 2;
+      size_t keyPos = content.find("\n  " + key + ":");
+      if (keyPos == std::string::npos) {
+        indent = 0;
+        keyPos = content.find("\n" + key + ":");
+      }
+      ASSERT_NE(keyPos, std::string::npos) << key << " not found at the top level or under contact_implicit";
+      const size_t valueStart = keyPos + 1 + indent + key.size() + 1;  // past the newline, the indent, the key and the colon
       const size_t lineEnd = content.find('\n', valueStart);
       content.replace(valueStart, lineEnd - valueStart, " " + std::to_string(value));
     };

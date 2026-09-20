@@ -27,6 +27,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import argparse
 import os
+import re
 import shutil
 
 from humanoid_learning.acom.dataset_generator import AcomDatasetGenerator
@@ -71,6 +72,38 @@ _CPP_HEADER_INSTALL_DIR = (
     "humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/acom"
 )
 
+# The hidden width of the shipped headers, and therefore the default. Used only when the installed header cannot be
+# read, so that the guard still has something to compare against.
+_SHIPPED_HIDDEN_DIM = 64
+
+
+def _header_path(robot: str) -> str:
+    """Workspace-relative path of the installed weight header for `robot`."""
+    return os.path.join(
+        _CPP_HEADER_INSTALL_DIR, f"AcomSirenWeights{robot.capitalize()}.h"
+    )
+
+
+def _installed_hidden_dim(robot: str):
+    """The hidden width of the weight header currently installed, or None if it cannot be determined.
+
+    Read out of the generated `W0_rows` constant rather than tracked separately, so the guard compares against what is
+    really on disk and keeps working after a deliberate architecture change.
+    """
+    ws_dir = os.environ.get("BUILD_WORKSPACE_DIRECTORY", "")
+    if not ws_dir:
+        return _SHIPPED_HIDDEN_DIM
+    path = os.path.join(ws_dir, _header_path(robot))
+    try:
+        with open(path, "r", encoding="utf-8") as header:
+            for line in header:
+                match = re.search(r"W0_rows\s*=\s*(\d+)", line)
+                if match:
+                    return int(match.group(1))
+    except OSError:
+        return None
+    return None
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -91,11 +124,20 @@ def main():
         help="Path to URDF file for joint order alignment with Pinocchio. "
         "If not given, inferred from --robot.",
     )
+    # These three defaults are the recipe that produced the SHIPPED weight headers, and they are defaults rather than
+    # values the README asks you to type because getting them wrong is silent: the C++ loader is width-agnostic, so a
+    # 16-wide header compiles, loads and runs, and simply approximates the connection about twice as badly. The only
+    # thing that catches it is
+    # //humanoid_nmpc/humanoid_common_mpc:testAcomAngularVelocityConsistency, after the header is already installed.
     parser.add_argument(
-        "--num_samples", type=int, default=5000, help="Number of dataset samples"
+        "--num_samples", type=int, default=20000, help="Number of dataset samples"
     )
     parser.add_argument(
-        "--hidden_dim", type=int, default=16, help="SIREN hidden dimension"
+        "--hidden_dim",
+        type=int,
+        default=_SHIPPED_HIDDEN_DIM,
+        help="SIREN hidden dimension. The shipped headers are "
+        f"{_SHIPPED_HIDDEN_DIM}-wide; --install_header refuses anything else unless --force_architecture is given.",
     )
     parser.add_argument(
         "--num_layers",
@@ -104,7 +146,7 @@ def main():
         help="Number of SIREN sinusoidal layers, excluding the linear readout. "
         f"The C++ evaluator only loads {_CPP_SUPPORTED_NUM_LAYERS}.",
     )
-    parser.add_argument("--epochs", type=int, default=30, help="Training epochs")
+    parser.add_argument("--epochs", type=int, default=150, help="Training epochs")
     parser.add_argument(
         "--output_dir", type=str, default="/tmp/acom_export", help="Output directory"
     )
@@ -125,6 +167,12 @@ def main():
         action="store_true",
         help="Disable TensorBoard logging",
     )
+    parser.add_argument(
+        "--force_architecture",
+        action="store_true",
+        help="Allow --install_header to overwrite a header whose architecture differs from the one being trained. "
+        "Only pass this when the architecture change is the point.",
+    )
     args = parser.parse_args()
 
     if args.install_header and args.num_layers != _CPP_SUPPORTED_NUM_LAYERS:
@@ -134,6 +182,20 @@ def main():
             f"{_CPP_SUPPORTED_NUM_LAYERS} sinusoidal layers plus one linear "
             f"readout, so a header with {args.num_layers} would fail to compile."
         )
+
+    # The layer count is caught above because a wrong one fails to COMPILE. The hidden width is not: every layer is
+    # Eigen::Map'd at runtime from the dimensions the header declares, so a narrower network installs, builds and runs,
+    # and is only ever noticed as degraded tracking. Compare against the header actually on disk rather than against a
+    # constant, so this keeps working after a deliberate architecture change.
+    if args.install_header and not args.force_architecture:
+        installed_width = _installed_hidden_dim(args.robot)
+        if installed_width is not None and installed_width != args.hidden_dim:
+            parser.error(
+                f"--install_header would replace the {installed_width}-wide "
+                f"{_header_path(args.robot)} with a {args.hidden_dim}-wide network. The C++ loader is "
+                "width-agnostic, so this would build and run while approximating the centroidal connection worse. "
+                f"Pass --hidden_dim {installed_width} to match, or --force_architecture if the change is intended."
+            )
 
     # Determine XML and URDF paths
     robot_cfg = _ROBOT_CONFIGS.get(args.robot, {})
@@ -198,7 +260,14 @@ def main():
         joint_names=generator.active_joint_names,
     )
 
-    print(f"Training complete. Final validation RMSE: {history['val_rmse'][-1]:.5f}")
+    # The RMSE of the epoch whose parameters were actually exported, which is the best one and not necessarily the
+    # last. Reporting the final epoch's number here while exporting a different epoch's weights would misdescribe the
+    # artefact by exactly the gap the training loop just printed.
+    best_epoch = int(history["best_epoch"][0])
+    exported_rmse = history["val_rmse"][best_epoch]
+    print(
+        f"Training complete. Exported validation RMSE: {exported_rmse:.5f} (epoch {best_epoch})"
+    )
     print(f"  Exported JSON to: {json_path}")
     print(f"  Exported C++ header to: {cpp_path}")
 

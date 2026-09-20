@@ -49,8 +49,15 @@ contact_planning:
     maxBranchAndBoundNodes: 200  # relaxations per plan
     maxSolveTime: 0.1  # [s] anytime limit, the best plan found so far is returned
     maxQpIterations: 60
-    runInBackgroundThread: true       # false: plan synchronously in the MPC pre-solve hook
-    planningFrequency: 10  # [Hz] upper bound on the background planning rate
+    # false: plan synchronously in the MPC pre-solve hook, which is right for planner.type: hlip. That planner solves
+    # nothing - a fixed cadence and a closed-form deadbeat step over 56 nodes - so it costs microseconds, and the
+    # background thread buys nothing while costing the one thing a feedback law cannot afford: its plan is posted at
+    # planningFrequency and handed over a cycle later, so at 10 Hz against a 50 Hz MPC the footholds are computed from
+    # a state up to 100 ms old - two fifths of the 0.25 s single support they are meant to correct. With
+    # planner.type: lip_miqp the opposite holds: a mixed-integer solve takes tens of milliseconds and must not block
+    # the solver, so that planner needs true. ContactPlanningConfig::validate() warns about the mismatch.
+    runInBackgroundThread: false      # true: plan on a worker thread (required for lip_miqp)
+    planningFrequency: 50  # [Hz] upper bound on the background planning rate; ignored when planning synchronously
     verbose: false
     logPlans: true                    # one log line per plan: objective, relaxations, solve time, NODE-LIMIT / TIME-LIMIT when the
                                       # search was cut short, CoM velocity at both ends of the horizon, and per foot the phase
@@ -136,8 +143,10 @@ contact_planning:
       maxCommandedVelocityX: 0.7  # [m/s]
       maxCommandedVelocityY: 0.3  # [m/s]
       maxCommandedYawRate: 0.61  # [rad/s] (35 deg/s)
-      maxBaseVelocityX: 0.5  # [m/s]
-      maxBaseVelocityY: 0.4  # [m/s]
+      # The measured velocity phi is normalised by. The paper writes v_b for the base velocity; what the planner
+      # actually measures and feeds the blend is the CENTRE-OF-MASS velocity, so the keys are named for that.
+      maxComVelocityX: 0.5  # [m/s]
+      maxComVelocityY: 0.4  # [m/s]
 
   # ---- the formulation: what the planner is assembled from (planner.type: lip_miqp only) ----
   # Every list below and every per-term block after it belongs to the mixed-integer planner. With planner.type: hlip

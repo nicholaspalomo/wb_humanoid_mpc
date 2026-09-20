@@ -306,13 +306,21 @@ class AcomDatasetGenerator:
         """
         # Place the base at a nominal height with identity orientation.
         #
-        # A MuJoCo free joint expresses qvel[3:6] in the base-local frame, so both
-        # I_G and A_omega_j come out in the base frame, and A_bar_omega is therefore
-        # exactly invariant to the base orientation: it is a pure function of the
-        # joint angles. That invariance is what makes the additive decomposition
-        # theta_acom = theta_base + Delta_theta(q_j) consistent, and it is why
-        # sampling at a single base orientation loses no information. Identity is
-        # chosen so the sampled configurations read naturally, not out of necessity.
+        # The identity orientation is LOAD-BEARING, not cosmetic. A_bar_omega is
+        # exactly invariant to base TRANSLATION - angular momentum about the CoM
+        # does not see it - which is why the nominal height below is free. It is
+        # NOT invariant to base ROTATION: under a base rotation R the locked
+        # inertia becomes R I_G R^T and the joint block becomes R A_omega_j, so
+        # A_bar_omega transforms as R A_bar_omega.
+        #
+        # Sampling at the identity is therefore what makes Delta_theta a pure
+        # function of the joint angles, which is exactly the premise the additive
+        # decomposition theta_acom = theta_base + Delta_theta(q_j) rests on: the
+        # network is fitted to the connection expressed in the BASE frame, and
+        # the C++ runtime adds it to the base Euler angles on that understanding.
+        # Sampling a spread of base orientations here would not enrich the
+        # dataset, it would make the target multivalued in q_j and the fit would
+        # collapse towards the rotational average.
         self.data.qpos[:] = 0.0
         self.data.qpos[2] = _NOMINAL_BASE_HEIGHT
         self.data.qpos[3] = 1.0  # Quaternion w component.

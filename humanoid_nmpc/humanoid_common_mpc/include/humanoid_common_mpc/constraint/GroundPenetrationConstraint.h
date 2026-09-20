@@ -28,37 +28,50 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 
 #include <ocs2_core/constraint/StateConstraint.h>
-#include <ocs2_robotic_tools/end_effector/EndEffectorKinematics.h>
 
 #include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/contact/FootprintCornerHeights.h"
 
 namespace ocs2::humanoid {
 
 /**
  * The unilateral side of the contact condition: g(x) = h(x) - terrainHeight >= 0, the foot may not go through the
- * ground.
+ * ground. One row per point of the foot it is given.
  *
  * With the mode-scheduled stance constraint gone (see ForceWeightedSlipConstraint), nothing else holds a foot above
  * the terrain: the complementarity term only forbids force at a height, and a foot pushed below the ground would be a
  * free lunch of contact force. Together the three terms are the relaxed complementarity conditions of rigid contact,
- * and this is the one that is a genuine inequality; it is wrapped in a relaxed barrier penalty, so a small numerical
- * penetration is expensive but not fatal, as it must be for a solver that linearises.
+ * and this is the one that is a genuine inequality; it is wrapped in a one-sided squared hinge, which is zero in value
+ * AND gradient on the ground and quadratic below it, so it says nothing at all about a foot that is merely resting.
  *
- * The height is that of the contact frame, so the terrain height configured for it is the height of the ground plus
- * whatever offset the contact frame has from the sole.
+ * WHICH points matter. Given the contact frame alone this term constrains the CENTRE of the sole, and that is not
+ * enough: the contact-implicit formulation deliberately leaves the foot's rocking rates free, because rolling over the
+ * heel and the toe under load is how a heel-to-toe strike happens. A foot free to pitch about a sole centre held at
+ * ground level has its toe and heel below ground for nothing. On the DRC Atlas the corners sit 0.12 m fore and aft, so
+ * the shipped 0.08 rad of swing-foot pitch alone buries the toe by about 10 mm. The FootprintCornerHeights this term
+ * is built with therefore carries the footprint's CORNER frames - which createPinocchioModel() already adds, one per
+ * point of the contact polygon - and the corner heights are exact kinematics rather than a small-angle correction of
+ * the centre's.
+ *
+ * It shares that object with ContactComplementarityConstraint of the same foot, so the two terms cannot end up
+ * disagreeing about where the foot is; see the class comment there.
  */
 class GroundPenetrationConstraint final : public StateConstraint {
  public:
   /**
-   * @param [in] endEffectorKinematics : kinematics of this foot's contact frame.
+   * @param [in] cornerHeights : the points of this foot that may not go below the ground, normally the footprint's
+   *        corner frames; the contact frame alone leaves the toe and the heel unconstrained.
    * @param [in] terrainHeight : [m] height of the ground under the foot.
    */
-  GroundPenetrationConstraint(const EndEffectorKinematics<scalar_t>& endEffectorKinematics, scalar_t terrainHeight = 0.0);
+  explicit GroundPenetrationConstraint(const FootprintCornerHeights& cornerHeights, scalar_t terrainHeight = 0.0);
 
   ~GroundPenetrationConstraint() override = default;
   GroundPenetrationConstraint* clone() const override { return new GroundPenetrationConstraint(*this); }
 
-  size_t getNumConstraints(scalar_t time) const override { return 1; }
+  size_t getNumConstraints(scalar_t time) const override { return numPoints_; }
+
+  /** The number of points of the foot this term keeps above the ground. */
+  size_t getNumPoints() const { return numPoints_; }
   vector_t getValue(scalar_t time, const vector_t& state, const PreComputation& preComp) const override;
   VectorFunctionLinearApproximation getLinearApproximation(scalar_t time,
                                                            const vector_t& state,
@@ -70,7 +83,8 @@ class GroundPenetrationConstraint final : public StateConstraint {
  private:
   GroundPenetrationConstraint(const GroundPenetrationConstraint& rhs);
 
-  std::unique_ptr<EndEffectorKinematics<scalar_t>> endEffectorKinematicsPtr_;
+  std::unique_ptr<FootprintCornerHeights> cornerHeightsPtr_;
+  size_t numPoints_;
   scalar_t terrainHeight_;
 };
 

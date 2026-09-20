@@ -30,19 +30,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-scalar_t HlipStandingBlend::activity(const vector2_t& velocityCommand, scalar_t yawRateCommand, const vector2_t& baseVelocity) const {
+scalar_t HlipStandingBlend::activity(const vector2_t& velocityCommand, scalar_t yawRateCommand, const vector2_t& comVelocity) const {
   const HlipBlendParameters& p = parameters_;
   const std::function<scalar_t(scalar_t, scalar_t)> squaredRatio = [](scalar_t value, scalar_t threshold) {
     const scalar_t ratio = value / threshold;
     return ratio * ratio;
   };
   return squaredRatio(velocityCommand(0), p.maxCommandedVelocityX) + squaredRatio(velocityCommand(1), p.maxCommandedVelocityY) +
-         squaredRatio(yawRateCommand, p.maxCommandedYawRate) + squaredRatio(baseVelocity(0), p.maxBaseVelocityX) +
-         squaredRatio(baseVelocity(1), p.maxBaseVelocityY);
+         squaredRatio(yawRateCommand, p.maxCommandedYawRate) + squaredRatio(comVelocity(0), p.maxComVelocityX) +
+         squaredRatio(comVelocity(1), p.maxComVelocityY);
 }
 
-scalar_t HlipStandingBlend::weight(const vector2_t& velocityCommand, scalar_t yawRateCommand, const vector2_t& baseVelocity) const {
-  const scalar_t phi = activity(velocityCommand, yawRateCommand, baseVelocity);
+scalar_t HlipStandingBlend::weight(const vector2_t& velocityCommand, scalar_t yawRateCommand, const vector2_t& comVelocity) const {
+  const scalar_t phi = activity(velocityCommand, yawRateCommand, comVelocity);
   return 0.5 * std::tanh(parameters_.sharpness * (phi - parameters_.threshold)) + 0.5;
 }
 

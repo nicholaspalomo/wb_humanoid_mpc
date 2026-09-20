@@ -62,6 +62,27 @@ size_t otherFoot(size_t foot) {
   return foot == CONTACT_LEFT_INDEX ? CONTACT_RIGHT_INDEX : CONTACT_LEFT_INDEX;
 }
 
+/** The foot in flight in a contact state, or -1 when both feet are down (and when neither is). */
+int swingFootOf(const contact_flag_t& contacts) {
+  if (contacts[CONTACT_LEFT_INDEX] && contacts[CONTACT_RIGHT_INDEX]) return -1;
+  if (!contacts[CONTACT_LEFT_INDEX] && !contacts[CONTACT_RIGHT_INDEX]) return -1;
+  return contacts[CONTACT_LEFT_INDEX] ? static_cast<int>(CONTACT_RIGHT_INDEX) : static_cast<int>(CONTACT_LEFT_INDEX);
+}
+
+/**
+ * [s] how long the robot has already been in the contact state it is in at `input.time`.
+ *
+ * In double support the newly landed foot is the one that dates the phase, so the smaller of the two elapsed times is
+ * the age of the double support; in single support it is how long the swinging foot has been in flight.
+ */
+scalar_t elapsedInCurrentPhase(const ContactPlannerInput& input) {
+  const int swingFoot = swingFootOf(input.contacts);
+  if (swingFoot < 0) {
+    return std::min(input.phaseElapsedTime[CONTACT_LEFT_INDEX], input.phaseElapsedTime[CONTACT_RIGHT_INDEX]);
+  }
+  return input.phaseElapsedTime[static_cast<size_t>(swingFoot)];
+}
+
 }  // namespace
 
 HlipModel HlipContactPlanner::makeModel(const ContactPlanningConfig& config) {
@@ -116,6 +137,15 @@ std::vector<HlipContactPlanner::GaitPhase> HlipContactPlanner::buildGait(const C
   const std::function<scalar_t(scalar_t, scalar_t, const contact_flag_t&, int)> append =
       [&gait](scalar_t startTime, scalar_t duration, const contact_flag_t& contacts, int swingFoot) {
         if (duration <= kMinPhaseDuration) return startTime;
+        // A phase that merely continues the one before it is the SAME phase. This matters beyond tidiness: the
+        // deadbeat step is evaluated once per single-support phase, at the pre-impact state that phase ends in, so a
+        // swing split into two adjacent phases would have its landing spot computed twice - the first time from a
+        // pre-impact state flowed only part of the way. The split arises naturally now that the committed window is
+        // emitted first and the remainder of the same swing is appended after it.
+        if (!gait.empty() && gait.back().contacts == contacts && gait.back().swingFoot == swingFoot) {
+          gait.back().endTime = startTime + duration;
+          return gait.back().endTime;
+        }
         GaitPhase phase;
         phase.startTime = startTime;
         phase.endTime = startTime + duration;
@@ -125,17 +155,54 @@ std::vector<HlipContactPlanner::GaitPhase> HlipContactPlanner::buildGait(const C
         return phase.endTime;
       };
 
+  // 1. The committed window, taken verbatim from the executed schedule.
+  //
+  // These intervals are not the planner's to choose: the reference manager merges the applied schedule over them
+  // anyway, and a plan that disagreed with it there would be dropped as inconsistent. They used to be stamped over
+  // `plan.contacts` at the very END of plan(), AFTER the centre of mass and the footholds had been rolled out against
+  // a gait built as if the window were free. The two then described different gaits. The worst case is the one the
+  // robot starts every walk from: out of a long stance, `dspDuration - elapsed` is negative, so the nominal cadence
+  // lifted a foot at node 0 while the commit window held both feet down for the first two intervals - a lift-off 0.05 s
+  // out of a 0.25 s single support away from where the footholds assumed it.
+  const scalar_t dt = config_.planner.dt;
+  const int numCommitted = std::min(static_cast<int>(input.committedContacts.size()), config_.planner.numNodes);
   scalar_t time = input.time;
+  contact_flag_t contacts = input.contacts;
+  scalar_t elapsed = elapsedInCurrentPhase(input);
+  int lastSwungFoot = input.lastSwungFoot;
+
+  if (numCommitted > 0) {
+    int interval = 0;
+    while (interval < numCommitted) {
+      int runEnd = interval;
+      while (runEnd < numCommitted && input.committedContacts[runEnd] == input.committedContacts[interval]) ++runEnd;
+      const contact_flag_t& runContacts = input.committedContacts[interval];
+      const int runSwingFoot = swingFootOf(runContacts);
+      time = append(time, dt * static_cast<scalar_t>(runEnd - interval), runContacts, runSwingFoot);
+      if (runSwingFoot >= 0) lastSwungFoot = runSwingFoot;
+      interval = runEnd;
+    }
+    // Where the nominal cadence picks up: the state at the end of the window, and how long it has held. A trailing run
+    // that reaches back to the first interval is the phase already in progress at `input.time`, so its age includes
+    // the time spent in it before the plan began.
+    contacts = input.committedContacts[numCommitted - 1];
+    int runStart = numCommitted - 1;
+    while (runStart > 0 && input.committedContacts[runStart - 1] == contacts) --runStart;
+    elapsed = dt * static_cast<scalar_t>(numCommitted - runStart);
+    if (runStart == 0 && contacts == input.contacts) elapsed += elapsedInCurrentPhase(input);
+    time = input.time + dt * static_cast<scalar_t>(numCommitted);
+  }
+
+  // 2. Continue the cadence from there, finishing whatever phase the committed window left in progress.
   size_t swingFoot = 0;
-  if (input.contacts[CONTACT_LEFT_INDEX] && input.contacts[CONTACT_RIGHT_INDEX]) {
+  const int currentSwingFoot = swingFootOf(contacts);
+  if (currentSwingFoot < 0) {
     // Double support: serve out what is left of it, then lift the foot whose turn it is.
-    const scalar_t elapsed = std::min(input.phaseElapsedTime[CONTACT_LEFT_INDEX], input.phaseElapsedTime[CONTACT_RIGHT_INDEX]);
     time = append(time, std::max(0.0, dspDuration - elapsed), makeFeetArray(true), -1);
-    swingFoot = nextSwingFoot(input);
+    swingFoot = lastSwungFoot >= 0 ? otherFoot(static_cast<size_t>(lastSwungFoot)) : nextSwingFoot(input);
   } else {
     // Single support: finish the swing in flight, keeping the cadence of the executed schedule, then hand over.
-    swingFoot = input.contacts[CONTACT_LEFT_INDEX] ? CONTACT_RIGHT_INDEX : CONTACT_LEFT_INDEX;
-    const scalar_t elapsed = input.phaseElapsedTime[swingFoot];
+    swingFoot = static_cast<size_t>(currentSwingFoot);
     time = append(time, std::max(0.0, sspDuration - elapsed), stanceOnly(otherFoot(swingFoot)), static_cast<int>(swingFoot));
     time = append(time, dspDuration, makeFeetArray(true), -1);
     swingFoot = otherFoot(swingFoot);
@@ -229,12 +296,25 @@ ContactPlan HlipContactPlanner::plan(const ContactPlannerInput& input) {
   feet_array_t<scalar_t> footYaws = input.footYaws;
 
   // The foot positions and yaws during each phase, so that the per-interval contacts and ZMP can be filled afterwards
-  // from the phase that covers the interval's midpoint.
+  // from the phase the interval belongs to.
   std::vector<feet_array_t<vector2_t>> phaseFeet;
   phaseFeet.reserve(gait.size());
 
+  // The one rule that says which phase an index belongs to. The cadence is continuous but a plan is not, so every
+  // phase boundary is rounded to the nearest node ONCE, here, and both the per-node quantities (the centre of mass,
+  // the footholds, the heading) and the per-interval ones (the contacts, the ZMP) are then filled from the same
+  // integer boundaries. They used to be filled from two different rules - nodes compared the node's own time against
+  // the boundary, intervals compared their midpoint - which put interval k in the next phase while node k was still in
+  // the current one at every phase boundary in the plan.
+  std::vector<int> phaseEndNode(gait.size(), numNodes);
+  for (size_t index = 0; index < gait.size(); ++index) {
+    const scalar_t boundary = (gait[index].endTime - input.time) / dt;
+    phaseEndNode[index] = std::clamp(static_cast<int>(std::lround(boundary)), 0, numNodes);
+  }
+
   int node = 0;
-  for (const GaitPhase& phase : gait) {
+  for (size_t phaseIndex = 0; phaseIndex < gait.size(); ++phaseIndex) {
+    const GaitPhase& phase = gait[phaseIndex];
     const scalar_t phaseHeading = headingAt(input, phase.endTime, blendWeight);
     const Rotation2 world_R_phase = rotation(phaseHeading);
 
@@ -261,10 +341,10 @@ ContactPlan HlipContactPlanner::plan(const ContactPlannerInput& input) {
 
     // Sample the nodes that fall inside this phase. The last phase takes whatever is left, so that a horizon the
     // whole phases overshoot or fall short of is always fully covered.
-    const bool isLastPhase = &phase == &gait.back();
+    const bool isLastPhase = phaseIndex + 1 == gait.size();
     for (; node < numNodes; ++node) {
+      if (!isLastPhase && node >= phaseEndNode[phaseIndex]) break;
       const scalar_t nodeTime = input.time + dt * static_cast<scalar_t>(node);
-      if (!isLastPhase && nodeTime >= phase.endTime - kMinPhaseDuration) break;
       const scalar_t elapsed = std::max(0.0, nodeTime - phase.startTime);
       vector2_t nodePosition;
       vector2_t nodeVelocity;
@@ -303,17 +383,26 @@ ContactPlan HlipContactPlanner::plan(const ContactPlannerInput& input) {
   // blended against a static standing reference, the centre of the support. Without it a standing plan would hand the
   // controller the measured drift as its centre-of-mass reference and ask it to keep drifting, since the reduced
   // model's double support has no way to decelerate; with it, standing asks for a centre of mass at rest over the feet.
-  const vector2_t supportCentre = 0.5 * (input.footPositions[CONTACT_LEFT_INDEX] + input.footPositions[CONTACT_RIGHT_INDEX]);
-  for (int node = 0; node < numNodes; ++node) {
-    plan.comPosition[node] = blendWeight * plan.comPosition[node] + (1.0 - blendWeight) * supportCentre;
-    plan.comVelocity[node] *= blendWeight;
+  //
+  // It applies ONLY while standing. A stepping plan must publish the trajectory its own footholds were placed for:
+  // planned_com_override writes this into the whole-body MPC's reference, and the deadbeat step was computed against
+  // the unblended roll-out. Blending a stepping plan asked the controller for a smaller lateral sway than the step
+  // assumed, which is the conflict section 3c of the README calls fatal, at reduced amplitude - and with the shipped
+  // blend it bit exactly in the 0.10-0.17 m/s band a first cautious walk is commanded in. There is a step in the
+  // reference across alpha = 0.5, but the gait itself already steps there (one long double support on one side, a
+  // stepping cadence on the other) and so does the roll-out that produced it.
+  if (!walking) {
+    const vector2_t supportCentre = 0.5 * (input.footPositions[CONTACT_LEFT_INDEX] + input.footPositions[CONTACT_RIGHT_INDEX]);
+    for (int node = 0; node < numNodes; ++node) {
+      plan.comPosition[node] = blendWeight * plan.comPosition[node] + (1.0 - blendWeight) * supportCentre;
+      plan.comVelocity[node] *= blendWeight;
+    }
   }
 
-  // Contacts and ZMP per interval, from the phase that covers the interval's midpoint.
+  // Contacts and ZMP per interval, from the same integer phase boundaries the nodes were filled from.
   size_t phaseIndex = 0;
   for (int interval = 0; interval < numIntervals; ++interval) {
-    const scalar_t midTime = input.time + dt * (static_cast<scalar_t>(interval) + 0.5);
-    while (phaseIndex + 1 < gait.size() && midTime >= gait[phaseIndex].endTime) ++phaseIndex;
+    while (phaseIndex + 1 < gait.size() && interval >= phaseEndNode[phaseIndex]) ++phaseIndex;
     const GaitPhase& phase = gait[phaseIndex];
     plan.contacts[interval] = phase.contacts;
     if (phase.isSingleSupport()) {
@@ -323,12 +412,8 @@ ContactPlan HlipContactPlanner::plan(const ContactPlannerInput& input) {
     }
   }
 
-  // The executed schedule wins inside the commit window: the reference manager merges it over the plan anyway, and a
-  // plan that disagrees with it there would be dropped as inconsistent.
-  const int numCommitted = std::min(static_cast<int>(input.committedContacts.size()), numIntervals);
-  for (int interval = 0; interval < numCommitted; ++interval) {
-    plan.contacts[interval] = input.committedContacts[interval];
-  }
+  // The committed window is no longer stamped over the contacts here: buildGait() now starts FROM it, so the contact
+  // sequence, the footholds and the centre-of-mass roll-out all describe the one gait.
 
   plan.solveTime = std::chrono::duration<scalar_t>(std::chrono::steady_clock::now() - startedAt).count();
   return plan;

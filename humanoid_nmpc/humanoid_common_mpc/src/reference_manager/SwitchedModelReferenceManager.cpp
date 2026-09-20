@@ -201,12 +201,13 @@ vector2_t SwitchedModelReferenceManager::getCommandedVelocity(scalar_t time) con
 /******************************************************************************************************/
 /******************************************************************************************************/
 scalar_t SwitchedModelReferenceManager::adaptToCurrentGroundHeight(TargetTrajectories& targetTrajectories,
-                                                                   const vector_t& initState,
-                                                                   size_t initMode) {
-  scalar_t terrainHeight = computeGroundHeightEstimate(pinocchioInterface_, *mpcRobotModelPtr_,
-                                                       mpcRobotModelPtr_->getGeneralizedCoordinates(initState), initMode);
-
-  terrainHeight = 0.0;
+                                                                   const vector_t& /*initState*/,
+                                                                   size_t /*initMode*/) {
+  // The configured ground, and the only definition of it in the controller. This used to call
+  // computeGroundHeightEstimate() and then overwrite the result with a hard-coded 0 on the next line, which left a
+  // reader believing the swing trajectories tracked a measured ground height when they tracked a constant - and left
+  // the contact-implicit terms free to be configured against a different constant entirely.
+  const scalar_t terrainHeight = mpcRobotModelPtr_->modelSettings.terrainHeight;
 
   // adapt target Trajectories to current terrain height
   // Since they are published in the past the current observations ground height might have drifted.

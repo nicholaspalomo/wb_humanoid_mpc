@@ -46,6 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_core/cost/QuadraticStateCost.h>
 #include <ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h>
 #include <ocs2_core/penalties/penalties/RelaxedBarrierPenalty.h>
+#include <ocs2_core/penalties/penalties/SquaredHingePenalty.h>
 #include <ocs2_core/soft_constraint/StateInputSoftConstraint.h>
 #include <ocs2_core/soft_constraint/StateSoftConstraint.h>
 
@@ -92,7 +93,8 @@ HumanoidCostConstraintFactory::HumanoidCostConstraintFactory(const std::string& 
                                                              const MpcRobotModelBase<scalar_t>& mpcRobotModel,
                                                              const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
                                                              const ModelSettings& modelSettings,
-                                                             bool verbose)
+                                                             bool verbose,
+                                                             bool scheduleGatedContactConstraints)
     : taskFile_(taskFile),
       referenceFile_(referenceFile),
       referenceManagerPtr_(&referenceManager),
@@ -100,7 +102,49 @@ HumanoidCostConstraintFactory::HumanoidCostConstraintFactory(const std::string& 
       mpcRobotModelPtr_(&mpcRobotModel),
       mpcRobotModelADPtr_(&mpcRobotModelAD),
       modelSettings_(modelSettings),
-      verbose_(verbose) {}
+      verbose_(verbose),
+      scheduleGatedContactConstraints_(scheduleGatedContactConstraints) {}
+
+namespace {
+
+/**
+ * The penalty a contact cone is wrapped in.
+ *
+ * A schedule-gated cone is only ever evaluated on a foot the schedule has declared loaded, where the slack is
+ * comfortably positive and a relaxed log barrier is the right object. An always-active cone is also evaluated on a
+ * foot in flight, which sits exactly ON the boundary of the homogeneous cone. A relaxed log barrier has value
+ * -mu*ln(delta) - mu/2 and derivative -2*mu/delta there - with the shipped centre-of-pressure settings, mu = 0.6 and
+ * delta = 0.03, that is a derivative of -40 per row - so it would pay the solver to leave the origin, i.e. to invent a
+ * normal force on a foot in the air. That is precisely the failure that dropping `minNormalForce` and the friction
+ * cone's parabolic margin exists to remove, and a log barrier would put it straight back.
+ *
+ * The squared hinge is zero in value AND zero in derivative at zero slack, and quadratic below it, which is what a
+ * unilateral condition whose solution lies on the boundary needs. `delta` is 0 for exactly that reason: a positive
+ * delta shifts the hinge's zero into the interior and reintroduces the bias. It is DROPPED, not converted - the
+ * barrier's `delta` is a smoothing width in the units of the constraint row, while the hinge's is the offset of its
+ * zero, and the two have nothing to do with one another beyond the name.
+ *
+ * `mu` IS REUSED, AND IT MEANS SOMETHING DIFFERENT IN THE TWO PENALTIES, so the substitution is not scale-preserving
+ * and that has to be stated rather than discovered. In the barrier `mu` is a log coefficient whose gradient near the
+ * boundary goes as mu/delta; in the hinge it is the quadratic stiffness of `0.5 * mu * h^2`. With the shipped cone
+ * settings (mu = 0.2, delta = 5, rows in newtons) the hinge is the STRONGER of the two everywhere a violation is
+ * worth caring about - equal at 0.42 N, 2.3x the barrier's restoring gradient at 1 N, 12.5x at 10 N, 22.7x at 100 N,
+ * and 25x its curvature throughout. Carrying `mu` across therefore tightens the cone rather than loosening it, which
+ * is the safe direction for a bound that is the ONLY thing holding a wrench inside the cone once the schedule gate is
+ * gone. Matching the barrier's curvature instead would mean mu/delta^2 = 0.008, an eightyfold softening, and is not
+ * what is wanted here.
+ */
+std::unique_ptr<PenaltyBase> makeContactConePenalty(const RelaxedBarrierPenalty::Config& barrierConfig, bool scheduleGated) {
+  if (scheduleGated) {
+    return std::unique_ptr<PenaltyBase>(new RelaxedBarrierPenalty(barrierConfig));
+  }
+  LOG(INFO) << "[HumanoidCostConstraintFactory] Un-gated cone: squared hinge with stiffness mu = " << barrierConfig.mu
+            << " (cost 0.5*mu*h^2 below the cone, zero on and above it). The configured barrier delta of " << barrierConfig.delta
+            << " is deliberately not carried over; see makeContactConePenalty().";
+  return std::unique_ptr<PenaltyBase>(new SquaredHingePenalty(SquaredHingePenalty::Config(barrierConfig.mu, 0.0)));
+}
+
+}  // namespace
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -295,9 +339,9 @@ std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getContactMomentX
 
   std::unique_ptr<ContactMomentXYConstraintCppAd> contactMomentXYConstraintPtr(new ContactMomentXYConstraintCppAd(
       *referenceManagerPtr_, ContactRectangle::loadContactRectangle(taskFile_, mpcRobotModelPtr_->modelSettings, contactPointIndex),
-      contactPointIndex, *pinocchioInterfacePtr_, *mpcRobotModelADPtr_, name, modelSettings_));
+      contactPointIndex, *pinocchioInterfacePtr_, *mpcRobotModelADPtr_, name, modelSettings_, scheduleGatedContactConstraints_));
 
-  std::unique_ptr<PenaltyBase> penalty(new RelaxedBarrierPenalty(barrierPenaltyConfig));
+  std::unique_ptr<PenaltyBase> penalty = makeContactConePenalty(barrierPenaltyConfig, scheduleGatedContactConstraints_);
 
   return std::unique_ptr<StateInputCost>(new StateInputSoftConstraint(std::move(contactMomentXYConstraintPtr), std::move(penalty)));
 }
@@ -329,9 +373,9 @@ std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getContactWrenchC
 
   std::unique_ptr<ContactWrenchConeConstraint> contactWrenchConeConstraintPtr(new ContactWrenchConeConstraint(
       *referenceManagerPtr_, ContactRectangle::loadContactRectangle(taskFile_, mpcRobotModelPtr_->modelSettings, contactPointIndex),
-      contactPointIndex, *pinocchioInterfacePtr_, *mpcRobotModelPtr_, config));
+      contactPointIndex, *pinocchioInterfacePtr_, *mpcRobotModelPtr_, config, scheduleGatedContactConstraints_));
 
-  std::unique_ptr<PenaltyBase> penalty(new RelaxedBarrierPenalty(barrierPenaltyConfig));
+  std::unique_ptr<PenaltyBase> penalty = makeContactConePenalty(barrierPenaltyConfig, scheduleGatedContactConstraints_);
 
   return std::unique_ptr<StateInputCost>(new StateInputSoftConstraint(std::move(contactWrenchConeConstraintPtr), std::move(penalty)));
 }
@@ -367,10 +411,10 @@ std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getFrictionForceC
   }
 
   FrictionForceConeConstraint::Config frictionConeConConfig(frictionCoefficient);
-  std::unique_ptr<FrictionForceConeConstraint> frictionForceConeConstraintPtr(
-      new FrictionForceConeConstraint(*referenceManagerPtr_, std::move(frictionConeConConfig), contactPointIndex, *mpcRobotModelPtr_));
+  std::unique_ptr<FrictionForceConeConstraint> frictionForceConeConstraintPtr(new FrictionForceConeConstraint(
+      *referenceManagerPtr_, std::move(frictionConeConConfig), contactPointIndex, *mpcRobotModelPtr_, scheduleGatedContactConstraints_));
 
-  std::unique_ptr<PenaltyBase> penalty(new RelaxedBarrierPenalty(barrierPenaltyConfig));
+  std::unique_ptr<PenaltyBase> penalty = makeContactConePenalty(barrierPenaltyConfig, scheduleGatedContactConstraints_);
 
   return std::unique_ptr<StateInputCost>(new StateInputSoftConstraint(std::move(frictionForceConeConstraintPtr), std::move(penalty)));
 }

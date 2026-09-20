@@ -78,6 +78,9 @@ ICPCost::ICPCost(const ICPCost& other)
     : StateInputCostGaussNewtonAd(other),
       referenceManagerPtr_(other.referenceManagerPtr_),
       sqrtWeights_(other.sqrtWeights_),
+      // isActive_ is copied deliberately: the SQP solver clones the whole problem once per worker thread,
+      // and a copy constructor that dropped this flag silently reverted a deactivated term to active.
+      isActive_(other.isActive_),
       pinocchioInterfaceCppAd_(other.pinocchioInterfaceCppAd_),
       mpcRobotModelAdPtr_(other.mpcRobotModelAdPtr_->clone()) {}
 

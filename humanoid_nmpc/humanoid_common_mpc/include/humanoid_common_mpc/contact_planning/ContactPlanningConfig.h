@@ -129,8 +129,8 @@ struct HlipBlendParameters {
   scalar_t maxCommandedVelocityX = 0.7;  // [m/s]
   scalar_t maxCommandedVelocityY = 0.3;  // [m/s]
   scalar_t maxCommandedYawRate = 0.61;   // [rad/s] (35 deg/s)
-  scalar_t maxBaseVelocityX = 0.5;       // [m/s]
-  scalar_t maxBaseVelocityY = 0.4;       // [m/s]
+  scalar_t maxComVelocityX = 0.5;        // [m/s]
+  scalar_t maxComVelocityY = 0.4;        // [m/s]
 };
 
 /**

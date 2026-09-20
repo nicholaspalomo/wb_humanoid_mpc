@@ -44,7 +44,12 @@ JointMimicKinematicConstraint::JointMimicKinematicConstraint(const MpcRobotModel
 /******************************************************************************************************/
 
 JointMimicKinematicConstraint::JointMimicKinematicConstraint(const JointMimicKinematicConstraint& rhs)
-    : StateInputConstraint(rhs), mpcRobotModelPtr_(rhs.mpcRobotModelPtr_), config_(rhs.config_) {}
+    : StateInputConstraint(rhs),
+      mpcRobotModelPtr_(rhs.mpcRobotModelPtr_),
+      config_(rhs.config_),
+      // isActive_ is copied deliberately: the SQP solver clones the whole problem once per worker thread,
+      // and a copy constructor that dropped this flag silently reverted a deactivated term to active.
+      isActive_(rhs.isActive_) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/

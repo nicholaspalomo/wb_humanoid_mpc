@@ -582,17 +582,23 @@ ContactPlannerInput ContactPlanningReferenceManager::makePlannerInput(scalar_t i
     input.footPositions[i] = feet[i].head<2>();
   }
 
+  // The operator's commanded yaw rate is filled whether or not the heading model is on. It is not part of the heading
+  // MODEL - it is part of the COMMAND, and the standing/walking blend reads it to decide whether the robot should be
+  // stepping at all. Left inside the heading-model branch, a robot without that model contributed nothing from the yaw
+  // stick to the blend's activity, so `alpha` never crossed its half point on yaw alone and the robot would not start
+  // stepping to turn in place however hard it was asked.
+  input.headingRateCommand = commandedYawRate();
+
   const ContactPlanningConfig config = getConfig();
   if (config.usesHeadingModel()) {
-    // Heading model: the whole-body heading, its rate from the angular momentum about the vertical, the commanded yaw
-    // rate, and the foot yaws unwrapped near the heading. The planning frame is the heading.
+    // Heading model: the whole-body heading, its rate from the angular momentum about the vertical, and the foot yaws
+    // unwrapped near the heading. The planning frame is the heading.
     const feet_array_t<scalar_t> yaws = readFootYaws();
     input.heading = computeHeading(initState);
     input.yaw = input.heading;
     input.yawInertia = computeYawInertia(initState);
     const scalar_t angularMomentumZ = totalMass_ * mpcRobotModelPtr_->getBaseComVelocity(initState)(5);
     input.headingRate = input.yawInertia > 0.0 ? angularMomentumZ / input.yawInertia : 0.0;
-    input.headingRateCommand = commandedYawRate();
     for (size_t i = 0; i < N_CONTACTS; ++i) {
       input.footYaws[i] = moduloAngleWithReference(yaws[i], input.heading);
     }

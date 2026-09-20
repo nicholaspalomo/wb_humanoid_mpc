@@ -63,11 +63,16 @@ useDcmTerminalCost: true         # Set true to end the horizon with the DCM (cap
 # lowering Q_acom. Expect Q_acom to need reducing relative to the base pose
 # weights it replaces, because the learned coordinate carries roughly 17% model
 # error that the directly measured base pose did not.
+# Every entry here is multiplied by `scaling`, so the effective weights are 2125, 2125 and 1275. The x and y entries
+# carried the word "unpenalized" while sitting at 2125 - they were 0 until the tuning pass in 4a94058 raised them, and
+# the comment was not updated. They are NOT unpenalized: the horizontal CoM is regulated hard against p_com(q_ref),
+# which for a walking robot is a moving target the gait is meant to be free to lead or lag. If stepping feels like it
+# is fighting a horizontal spring, this is the first place to look.
 Q_com:
   scaling: 85
-  "(0,0)": 25  # p_com_x (unpenalized, matches p_base_x)
-  "(1,1)": 25  # p_com_y (unpenalized, matches p_base_y)
-  "(2,2)": 15  # p_com_z (matches p_base_z)
+  "(0,0)": 25  # p_com_x - effective weight 2125, matches p_base_x
+  "(1,1)": 25  # p_com_y - effective weight 2125, matches p_base_y
+  "(2,2)": 15  # p_com_z - effective weight 1275, matches p_base_z
 
 # ACoM rows follow the centroidal state's ZYX Euler convention, the same ordering
 # as Q entries (9,9) through (11,11). Row 0 is yaw, not roll.
@@ -93,17 +98,36 @@ centroidalModelType: 0  # 0: FullCentroidalDynamics, 1: Single Rigid Body Dynami
 # depart from that schedule. The contact-implicit alternative below replaces those two with the relaxed complementarity
 # conditions of rigid contact and lets the solver decide where each foot carries load, which is the second half of
 # arXiv:2502.15630 (humanoid_nmpc/docs/contact_implicit_mpc/README.md). It changes the closed loop, so it is off until it
-# has been validated in MuJoCo: to switch, drop zero_wrench and zero_velocity below and add the three terms marked
-# `contact-implicit` to soft_constraints. loadMpcFormulationTasks refuses the half-way combinations.
+# has been validated in MuJoCo: to switch, drop zero_wrench, zero_velocity AND normal_velocity below and add the three
+# terms marked `contact-implicit` to soft_constraints. loadMpcFormulationTasks refuses the half-way combinations.
+#
+# normal_velocity has to go from hard_constraints with the other two. It is a HARD equality on the contact frame's
+# vertical velocity for every foot the schedule calls a swing foot, so - the foot's height at lift-off being given - it
+# fixes the entire height profile of the swing. The solver can then neither land early, nor land late, nor keep a foot
+# down, which are the three freedoms the contact-implicit formulation exists to provide; and where it does want load
+# early, the only variable left is the normal force, so the complementarity product gets driven to zero by removing the
+# force instead of by closing the gap.
+#
+# But it must be LISTED IN soft_constraints in its place, and that is not optional either. Deleting it outright leaves
+# nothing with the authority to lift a foot: the only remaining vertical term is task_space_foot_cost_weights.pos_z at
+# 150, against the leg-joint entries of Q, which regularise the swing leg towards a standing crouch whose reference is
+# the foot ON THE FLOOR. That is roughly a 100:1 fight, the static equilibrium swing height is a couple of millimetres,
+# and - because the same leg is about eighty times more compliant horizontally than vertically at this crouch - the
+# solver slides the foot instead of lifting it. The robot shuffles. As a soft constraint the same row shapes the swing
+# and is overruled whenever anything else pays more, which is what the formulation wants of a schedule-derived
+# reference; its weight is model_settings.foot_constraint.normalVelocitySoftConstraintWeight.
 hard_constraints:
   # - zero_wrench                       # remove for the contact-implicit formulation
-  - normal_velocity
+  # - normal_velocity                   # remove for the contact-implicit formulation
   # - zero_velocity                     # remove for the contact-implicit formulation
 
 soft_constraints:
   - joint_limits
   - foot_collision
   - contact_wrench_cone
+  - normal_velocity                 # contact-implicit: the swing-foot vertical servo, PRICED instead of imposed.
+                                    #   Required whenever normal_velocity is dropped from hard_constraints above, or
+                                    #   nothing has the authority to lift a foot and the robot shuffles.
   - contact_complementarity         # contact-implicit: f_n * h = 0, load only where the foot touches the ground
   - force_weighted_slip             # contact-implicit: f_n * v_xy = 0, a loaded foot is held still
   - ground_penetration              # contact-implicit: h >= 0, required alongside contact_complementarity
@@ -126,6 +150,16 @@ nominal_foothold:
   stepWidth: 0.45  # [m] lateral distance between the feet; 0 disables the nominal reference
 # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/common/ModelSettings.cpp:nominal_foothold_yaml_path)
 
+# [m] Where the ground is, for everything that needs to know: the swing trajectories, the landing targets, and the
+# contact-implicit complementarity and ground-penetration terms. There used to be two answers - the reference manager
+# computed an estimate from the stance feet and discarded it, returning a hard-coded 0, while the contact-implicit
+# terms read their own `contact_implicit.terrainHeight`. They agreed only because both were pinned to the same
+# constant. A constant is correct here because every layer of this stack assumes flat ground, the reduced-order contact
+# planner most of all; a measured estimator would belong here as a named selection, not as a second constant.
+# LINT.IfChange(terrain_height_config)
+terrainHeight: 0
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/common/ModelSettings.cpp:terrain_height_yaml_path, //humanoid_nmpc/humanoid_centroidal_mpc/src/mrt/MpcParameterUpdaterModule.cpp:terrain_height_updater_yaml_path)
+
 # Weights of the contact-implicit terms above; read whether or not they are listed, ignored when they are not.
 # LINT.IfChange(contact_implicit_config)
 contact_implicit:
@@ -142,14 +176,40 @@ contact_implicit:
   # humanoid_nmpc/docs/contact_implicit_mpc/README.md.
   complementarityWeight: 50  # the price of carrying full body weight at the reference height
   slipWeight: 150  # the price of sliding at the reference speed under full body weight
-  penetrationMu: 0.1  # relaxed barrier weight on h >= 0
-  penetrationDelta: 0.01  # [m] width of that barrier's quadratic relaxation
-  terrainHeight: 0  # [m] ground height under the contact frames
+  # Weight of the one-sided quadratic hinge on h >= 0: the cost is penetrationWeight * h^2 / 2 below the ground and
+  # exactly zero on or above it. This was a relaxed log barrier (mu 0.1, delta 0.01), which is the wrong object for a
+  # condition whose solution lies ON the boundary: a log barrier never reaches zero, so its derivative at h = 0 was
+  # -2*mu/delta = -20, constant and upward. The only term pulling a foot back down was the complementarity penalty, and
+  # balancing the two left a fully loaded foot 2.6 mm off the ground and a foot at half body weight - i.e. both feet,
+  # throughout double support - a full centimetre off it, carrying a permanent complementarity residual that no weight
+  # could tune away. The hinge is zero in value AND gradient at h = 0, so it simply does nothing until the foot is
+  # actually below ground.
+  #
+  # 5e4 puts a 1 cm penetration at a gradient of 500, decisively above everything that could push a foot down there
+  # (task_space_foot_cost_weights.pos_z contributes about 1 at that depth), while its curvature is the same order as
+  # the complementarity term's own (complementarityWeight / heightReference^2 = 7.8e3), so it does not wreck the QP's
+  # conditioning.
+  penetrationWeight: 5.0e4  # weight of the hinge on h >= 0
+  # Where the ground is is NOT here: it is the top-level `terrainHeight` below, so that the complementarity conditions
+  # and the swing trajectories cannot be configured against two different grounds.
   # The references the residuals are measured in. heightReference should track swing_trajectory_config.swingHeight:
   # it is the height at which a fully loaded foot is as wrong as this term can describe.
   heightReference: 0.08  # swing trajectory height reference [m]
-  velocityReference: 0.03  # [m/s] a sliding speed that would already be a failure
-  angularVelocityReference: 0.1  # [rad/s] a pivot rate that would already be a failure
+  # A slide and a pivot that would already be failures. These are what make the residual dimensionless, so they belong
+  # at the scale of a real failure rather than at the scale of solver noise: at 0.03 m/s the slip term's curvature on a
+  # loaded foot's tangential velocity is slipWeight / 0.03^2 = 1.7e5, which is effectively a hard constraint and a
+  # hundred times the scale the normalisation argument in the README was written for.
+  velocityReference: 0.3  # [m/s] a sliding speed that would already be a failure
+  angularVelocityReference: 1.0  # [rad/s] a pivot rate that would already be a failure
+  # The gap in the complementarity product is the height of the LOWEST footprint corner, the same points the
+  # penetration hinge uses - not the centre of the sole. A foot rocked onto its heel reads a positive centre height
+  # while it is carrying the whole robot, and the product then charges for a contact that physically exists. The exact
+  # minimum of the four corners is not differentiable at a flat foot, which is most of stance, so it is blended over
+  # this length. The blend never reports less clearance than the true minimum, and over-reports by
+  # gapSmoothing * log(4 / k) where k is how many corners are down: nothing for a flat foot, 0.69 mm for an edge - the
+  # ordinary heel strike - and 1.39 mm in the worst case of a single corner. The penetration hinge answers those with
+  # about 0.09 mm and 0.19 mm of penetration respectively.
+  gapSmoothing: 1.0e-3  # [m] length scale the footprint corners' minimum height is blended over
 # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/common/ModelSettings.cpp:contact_implicit_yaml_path)
 
 costs:
@@ -211,6 +271,23 @@ model_settings:
     linearAccelerationErrorGain_xy: 0
     angularAccelerationErrorGain: 0
     softConstraintWeight: 250
+    # Weight of the SOFT `normal_velocity` term, when it is listed in soft_constraints. The residual is the same row
+    # the hard constraint imposes - v_z - zdot_ref - positionErrorGain_z * (z_ref - z) - so this one number buys the
+    # swing-foot vertical servo as a cost the solver can trade off, instead of an equality it cannot.
+    #
+    # Why one weight rather than two task-space weights: the hard row combines a velocity feedforward and a position
+    # feedback in a fixed ratio, and the foot cost cannot reproduce that at ANY pair of pos_z / lin_velocity_z, because
+    # only its velocity rows are faded by the impact-proximity factor while its position rows are not. Splitting the
+    # servo across two differently-faded channels gives a different controller at every point of the swing.
+    #
+    # Sizing: the residual is in m/s and is essentially affine in the input (the joint velocities ARE inputs of the
+    # centroidal model), so a large Gauss-Newton weight here is well conditioned even with a single SQP iteration per solve. A foot stuck
+    # on the ground at mid-swing has a residual of -positionErrorGain_z * swingHeight = -0.16 m/s. The term has to
+    # outbid the leg-joint entries of Q, which regularise the swing leg towards the standing crouch - a posture whose
+    # reference is the foot ON THE FLOOR (defaultBaseHeight equals the pelvis-to-sole distance at defaultJointState),
+    # so every millimetre of lift is charged against Q at an effective vertical stiffness of order 1e4.
+    # 500 is a starting point, not a tuned value. Sweep it; it is hot-reloadable.
+    normalVelocitySoftConstraintWeight: 500
     constrainOrientation: true
     # The orientation error to the ground plane only measures the tilt of the foot normal, so with constrainOrientation
     # the last row of the 6D stance constraint is identically zero and the foot may pivot about the contact normal.

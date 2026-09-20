@@ -75,6 +75,12 @@ class SquaredHingePenalty final : public PenaltyBase {
   scalar_t getDerivative(scalar_t t, scalar_t h) const override;
   scalar_t getSecondDerivative(scalar_t t, scalar_t h) const override;
 
+  void setConfig(const Config& config) { config_ = config; }
+  void getConfig(Config& config) const { config = config_; }
+
+  void setParameters(const vector_t& parameters) override;
+  void getParameters(vector_t& parameters) const override;
+
  private:
   SquaredHingePenalty(const SquaredHingePenalty& other) = default;
 

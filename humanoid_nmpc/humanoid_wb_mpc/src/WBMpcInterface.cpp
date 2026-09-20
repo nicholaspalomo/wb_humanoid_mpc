@@ -149,9 +149,25 @@ absl::StatusOr<std::unique_ptr<WBMpcInterface>> WBMpcInterface::Create(const std
 /******************************************************************************************************/
 
 absl::Status WBMpcInterface::setupOptimalControlProblem() {
+  // Loaded before the factory is built: the factory needs to know whether the contact cones it creates may gate
+  // themselves on the mode schedule, and that follows the hard `zero_wrench` constraint.
+  ASSIGN_OR_RETURN(const MpcFormulationTasks formulationTasks, loadMpcFormulationTasks(taskFile_, verbose_));
+
+  // The contact-implicit formulation is implemented for the centroidal MPC only: this interface builds none of its
+  // three terms. Accepting the combination here would silently give a whole-body task file the WORST half of it - the
+  // loader has already forced `zero_wrench` out, so the swing foot's wrench would be unbounded - with none of the
+  // complementarity conditions that are supposed to replace it.
+  if (usesContactImplicitFormulation(formulationTasks)) {
+    return absl::InvalidArgumentError(
+        "[WBMpcInterface] the contact-implicit formulation (contact_complementarity / force_weighted_slip / "
+        "ground_penetration) is implemented for the centroidal MPC only; this interface builds none of those terms, so listing "
+        "them would remove the hard 'zero_wrench' constraint and put nothing in its place "
+        "(humanoid_nmpc/docs/contact_implicit_mpc/README.md).");
+  }
+
   HumanoidCostConstraintFactory factory =
       HumanoidCostConstraintFactory(taskFile_, referenceFile_, *referenceManagerPtr_, *pinocchioInterfacePtr_, *mpcRobotModelPtr_,
-                                    *mpcRobotModelADPtr_, modelSettings_, verbose_);
+                                    *mpcRobotModelADPtr_, modelSettings_, verbose_, contactConstraintsAreScheduleGated(formulationTasks));
 
   // Optimal control problem
   problemPtr_.reset(new OptimalControlProblem);
@@ -162,9 +178,6 @@ absl::Status WBMpcInterface::setupOptimalControlProblem() {
   dynamicsPtr.reset(new WBAccelDynamicsAD(*pinocchioInterfacePtr_, *mpcRobotModelADPtr_, modelName, modelSettings_));
 
   problemPtr_->dynamicsPtr = std::move(dynamicsPtr);
-
-  // Load configured MPC formulation tasks
-  ASSIGN_OR_RETURN(const MpcFormulationTasks formulationTasks, loadMpcFormulationTasks(taskFile_, verbose_));
 
   // Cost terms
   if (formulationTasks.hasCost(MpcCostType::StateInputQuadraticCost)) {
@@ -204,6 +217,7 @@ absl::Status WBMpcInterface::setupOptimalControlProblem() {
     bool needsEeDynamics = formulationTasks.hasHardConstraint(MpcHardConstraintType::ZeroVelocity) ||
                            formulationTasks.hasSoftConstraint(MpcSoftConstraintType::ZeroVelocity) ||
                            formulationTasks.hasHardConstraint(MpcHardConstraintType::NormalVelocity) ||
+                           formulationTasks.hasSoftConstraint(MpcSoftConstraintType::NormalVelocity) ||
                            formulationTasks.hasCost(MpcCostType::TaskSpaceFootCost);
     if (needsEeDynamics) {
       eeDynamicsPtr.reset(new PinocchioEndEffectorDynamicsCppAd(*pinocchioInterfacePtr_, *mpcRobotModelADPtr_, {footName}, footName,
@@ -236,6 +250,14 @@ absl::Status WBMpcInterface::setupOptimalControlProblem() {
     }
     if (formulationTasks.hasHardConstraint(MpcHardConstraintType::NormalVelocity) && eeDynamicsPtr) {
       problemPtr_->equalityConstraintPtr->add(absl::StrCat(footName, "_normalVelocity"), getNormalVelocityConstraint(*eeDynamicsPtr, i));
+    }
+    // The same row as a cost; see CentroidalMpcInterface for why the hard form cannot coexist with a solver that is
+    // meant to choose its own touch-down.
+    if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::NormalVelocity) && eeDynamicsPtr) {
+      auto penalty = std::make_unique<QuadraticPenalty>(modelSettings_.footConstraintConfig.normalVelocitySoftConstraintWeight);
+      problemPtr_->softConstraintPtr->add(
+          absl::StrCat(footName, "_normalVelocitySoft"),
+          std::make_unique<StateInputSoftConstraint>(getNormalVelocityConstraint(*eeDynamicsPtr, i), std::move(penalty)));
     }
     if (formulationTasks.hasHardConstraint(MpcHardConstraintType::KneeJointMimic)) {
       problemPtr_->equalityConstraintPtr->add(absl::StrCat(footName, "_kneeJointMimic"), getJointMimicConstraint(i));

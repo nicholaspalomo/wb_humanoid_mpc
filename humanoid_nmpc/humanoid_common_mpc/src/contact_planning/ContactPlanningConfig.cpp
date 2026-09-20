@@ -34,6 +34,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_core/misc/LoadData.h>
 
+#include "absl/log/log.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlannerFactory.h"
+
 namespace ocs2::humanoid {
 
 void ContactPlanningConfig::validate() const {
@@ -105,8 +108,20 @@ void ContactPlanningConfig::validate() const {
   if (h.minStepWidth <= 0.0 || h.maxStepWidth < h.minStepWidth) fail("need 0 < hlip.minStepWidth <= hlip.maxStepWidth");
   if (h.stepWidth < h.minStepWidth || h.stepWidth > h.maxStepWidth) fail("hlip.stepWidth must lie within the hlip step width bounds");
   if (h.blend.sharpness <= 0.0) fail("hlip.blend.sharpness must be positive");
+  // The H-LIP deadbeat step is a feedback law on the measured state, and a plan costs microseconds because nothing is
+  // solved. Running it on a background thread at a fraction of the MPC rate therefore buys nothing and costs the one
+  // thing the law depends on: a plan posted at 10 Hz and handed over a cycle later is up to 100 ms stale, which is two
+  // fifths of a 0.25 s single support. This is a warning rather than an error because the threading is the operator's
+  // call and the mixed-integer planner genuinely needs the background thread.
+  if (canonicalPlannerName(p.type) == planner::kHlip && p.runInBackgroundThread) {
+    LOG(WARNING) << "[ContactPlanningConfig] planner.type: hlip with planner.runInBackgroundThread: true. The closed-form H-LIP "
+                    "planner costs microseconds, so the background thread only adds latency to a feedback law: its plan reaches the "
+                    "solver a cycle late and at most planner.planningFrequency ("
+                 << p.planningFrequency
+                 << " Hz) times a second. Set planner.runInBackgroundThread: false to plan in the pre-solve hook at the MPC rate.";
+  }
   if (h.blend.maxCommandedVelocityX <= 0.0 || h.blend.maxCommandedVelocityY <= 0.0 || h.blend.maxCommandedYawRate <= 0.0 ||
-      h.blend.maxBaseVelocityX <= 0.0 || h.blend.maxBaseVelocityY <= 0.0) {
+      h.blend.maxComVelocityX <= 0.0 || h.blend.maxComVelocityY <= 0.0) {
     fail("every hlip.blend command threshold must be positive");
   }
   if (energyCadenceModulation.deadband < 0.0) fail("energy_cadence_modulation.deadband must be non-negative");
@@ -284,8 +299,8 @@ void loadStructured(const ptree& pt, const ptree& block, const std::string& pref
   load(h.blend.maxCommandedVelocityX, "hlip.blend.maxCommandedVelocityX");
   load(h.blend.maxCommandedVelocityY, "hlip.blend.maxCommandedVelocityY");
   load(h.blend.maxCommandedYawRate, "hlip.blend.maxCommandedYawRate");
-  load(h.blend.maxBaseVelocityX, "hlip.blend.maxBaseVelocityX");
-  load(h.blend.maxBaseVelocityY, "hlip.blend.maxBaseVelocityY");
+  load(h.blend.maxComVelocityX, "hlip.blend.maxComVelocityX");
+  load(h.blend.maxComVelocityY, "hlip.blend.maxComVelocityY");
 
   ContactPlanningFormulation& f = config.formulation;
   bool present = false;

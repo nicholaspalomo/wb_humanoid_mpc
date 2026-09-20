@@ -78,7 +78,10 @@ ExternalTorqueQuadraticCostAD::ExternalTorqueQuadraticCostAD(const ExternalTorqu
       activeJointNames_(other.activeJointNames_),
       referenceManagerPtr_(other.referenceManagerPtr_),
       pinocchioInterfaceCppAd_(other.pinocchioInterfaceCppAd_),
-      mpcRobotModelADPtr(other.mpcRobotModelADPtr->clone()) {}
+      mpcRobotModelADPtr(other.mpcRobotModelADPtr->clone()),
+      // isActive_ is copied deliberately: the SQP solver clones the whole problem once per worker thread,
+      // and a copy constructor that dropped this flag silently reverted a deactivated term to active.
+      isActive_(other.isActive_) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/

@@ -29,28 +29,30 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-GroundPenetrationConstraint::GroundPenetrationConstraint(const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
-                                                         scalar_t terrainHeight)
-    : StateConstraint(ConstraintOrder::Linear), endEffectorKinematicsPtr_(endEffectorKinematics.clone()), terrainHeight_(terrainHeight) {
-  CHECK_EQ(endEffectorKinematicsPtr_->getIds().size(), 1U)
-      << "[GroundPenetrationConstraint] expects exactly one end-effector, the contact frame of this foot";
+GroundPenetrationConstraint::GroundPenetrationConstraint(const FootprintCornerHeights& cornerHeights, scalar_t terrainHeight)
+    : StateConstraint(ConstraintOrder::Linear),
+      cornerHeightsPtr_(cornerHeights.clone()),
+      numPoints_(cornerHeights.numCorners()),
+      terrainHeight_(terrainHeight) {
+  CHECK_GT(numPoints_, 0U) << "[GroundPenetrationConstraint] needs at least one point of the foot to keep above the ground";
 }
 
 GroundPenetrationConstraint::GroundPenetrationConstraint(const GroundPenetrationConstraint& rhs)
-    : StateConstraint(rhs), endEffectorKinematicsPtr_(rhs.endEffectorKinematicsPtr_->clone()), terrainHeight_(rhs.terrainHeight_) {}
+    : StateConstraint(rhs),
+      cornerHeightsPtr_(rhs.cornerHeightsPtr_->clone()),
+      numPoints_(rhs.numPoints_),
+      terrainHeight_(rhs.terrainHeight_) {}
 
 vector_t GroundPenetrationConstraint::getValue(scalar_t time, const vector_t& state, const PreComputation& preComp) const {
-  const scalar_t height = endEffectorKinematicsPtr_->getPosition(state).front()(2) - terrainHeight_;
-  return (vector_t(1) << height).finished();
+  return cornerHeightsPtr_->getHeights(state).array() - terrainHeight_;
 }
 
 VectorFunctionLinearApproximation GroundPenetrationConstraint::getLinearApproximation(scalar_t time,
                                                                                       const vector_t& state,
                                                                                       const PreComputation& preComp) const {
-  const VectorFunctionLinearApproximation position = endEffectorKinematicsPtr_->getPositionLinearApproximation(state).front();
   VectorFunctionLinearApproximation approximation;
-  approximation.f = (vector_t(1) << position.f(2) - terrainHeight_).finished();
-  approximation.dfdx = position.dfdx.row(2);
+  approximation.f = cornerHeightsPtr_->getHeights(state).array() - terrainHeight_;
+  approximation.dfdx = cornerHeightsPtr_->getHeightsJacobian(state);
   return approximation;
 }
 

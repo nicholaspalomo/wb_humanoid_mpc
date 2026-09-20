@@ -51,15 +51,21 @@ class HlipStandingBlend {
  public:
   explicit HlipStandingBlend(const HlipBlendParameters& parameters) : parameters_(parameters) {}
 
-  /** phi: the squared norm of the commands and the measured base velocity under the threshold metric P. */
-  scalar_t activity(const vector2_t& velocityCommand, scalar_t yawRateCommand, const vector2_t& baseVelocity) const;
+  /**
+   * phi: the squared norm of the commands and the measured CENTRE-OF-MASS velocity under the threshold metric P.
+   *
+   * The paper writes v_b for the base velocity, and the thresholds used to be named for it, but what the planner
+   * actually measures and passes in here is the centre-of-mass velocity (ContactPlannerInput::comVelocity, filled from
+   * ContactPlanningReferenceManager::computeComState). The names follow the quantity rather than the paper.
+   */
+  scalar_t activity(const vector2_t& velocityCommand, scalar_t yawRateCommand, const vector2_t& comVelocity) const;
 
   /** alpha in (0, 1): 0 stands still, 1 walks the full H-LIP gait. */
-  scalar_t weight(const vector2_t& velocityCommand, scalar_t yawRateCommand, const vector2_t& baseVelocity) const;
+  scalar_t weight(const vector2_t& velocityCommand, scalar_t yawRateCommand, const vector2_t& comVelocity) const;
 
   /** Whether the blend asks for a stepping gait rather than a standing one. */
-  bool isWalking(const vector2_t& velocityCommand, scalar_t yawRateCommand, const vector2_t& baseVelocity) const {
-    return weight(velocityCommand, yawRateCommand, baseVelocity) >= 0.5;
+  bool isWalking(const vector2_t& velocityCommand, scalar_t yawRateCommand, const vector2_t& comVelocity) const {
+    return weight(velocityCommand, yawRateCommand, comVelocity) >= 0.5;
   }
 
   const HlipBlendParameters& getParameters() const { return parameters_; }

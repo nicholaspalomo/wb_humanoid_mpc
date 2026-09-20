@@ -53,7 +53,10 @@ NormalVelocityConstraintCppAd::NormalVelocityConstraintCppAd(const NormalVelocit
     : StateInputConstraint(rhs),
       referenceManagerPtr_(rhs.referenceManagerPtr_),
       eeLinearConstraintPtr_(rhs.eeLinearConstraintPtr_->clone()),
-      contactPointIndex_(rhs.contactPointIndex_) {}
+      contactPointIndex_(rhs.contactPointIndex_),
+      // isActive_ is copied deliberately: the SQP solver clones the whole problem once per worker thread,
+      // and a copy constructor that dropped this flag silently reverted a deactivated term to active.
+      isActive_(rhs.isActive_) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/

@@ -88,12 +88,30 @@ class ContactWrenchConeConstraint final : public StateInputConstraint {
     vector3_t patchOffset;
   };
 
+  /**
+   * @param scheduleGated  When true (the historical behaviour) the term switches itself off while the mode schedule
+   *                       calls this foot a swing foot, because the hard `zero_wrench` constraint has already pinned
+   *                       its wrench to zero. When false - the contact-implicit formulation, which removes
+   *                       `zero_wrench` - the cone is enforced at every node, and the two affine offsets that assume a
+   *                       loaded foot (`minNormalForce`, `gripperForce`) are dropped, because a foot in flight carries
+   *                       no wrench and must not be asked for a minimum normal force. What is left is the homogeneous
+   *                       cone, which the zero wrench satisfies exactly and which is the same set
+   *                       ContactWrenchConeBasisMatrix verifies its generators against.
+   *                       See humanoid_nmpc/docs/contact_implicit_mpc/README.md.
+   */
   ContactWrenchConeConstraint(const SwitchedModelReferenceManager& referenceManager,
                               const ContactRectangle& contactRectangle,
                               size_t contactPointIndex,
                               const PinocchioInterface& pinocchioInterface,
                               const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                              Config config = Config());
+                              Config config = Config(),
+                              bool scheduleGated = true);
+
+  /** Whether this term is gated on the mode schedule's contact flag; see the constructor. */
+  bool isScheduleGated() const { return scheduleGated_; }
+
+  /** The offsets a non-gated cone drops, so that a caller can state what it asked for. */
+  static Config withoutLoadedFootOffsets(Config config);
 
   ~ContactWrenchConeConstraint() override = default;
   ContactWrenchConeConstraint(const ContactWrenchConeConstraint& other);
@@ -130,6 +148,9 @@ class ContactWrenchConeConstraint final : public StateInputConstraint {
 
   size_t numConstraints_;
   bool isActive_ = true;
+  // Fixed by the formulation at load time rather than tuned, so it is const and the parallel solve reads it without
+  // synchronisation. It has to survive the copy the SQP solver makes of the whole problem per worker thread.
+  const bool scheduleGated_;
 
   /// Matrix of linear constraint coefficients multiplying the local 3D contact force vector (f_local in R^3).
   /// Enforces friction cone pyramid facets, normal force lower bounds, and CoP/torsional force couplings.

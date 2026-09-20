@@ -95,6 +95,17 @@ systems rather than approximated:
 The planner then rolls the measured centre-of-mass state forward to the pre-impact instant of each step in the
 horizon and places the foot at `stance + R(heading) u` with `u = u* + K (x - x*)` per axis.
 
+**The roll-out starts from the committed window, not from the planning instant.** The first few intervals of a plan are
+not the planner's to choose: the reference manager merges the executed schedule over them, and a plan that disagreed
+with it there would be dropped as inconsistent. They used to be stamped over the contact sequence at the very end,
+*after* the centre of mass and the footholds had been rolled out against a gait built as if the window were free, so
+the two described different gaits. The worst case is the one every walk starts from: out of a long stance the nominal
+cadence lifted a foot at the first node while the commit window held both feet down for the first two intervals - a
+lift-off 0.05 s out of a 0.25 s single support away from where the footholds assumed it. `buildGait()` now emits the
+committed intervals first and continues the cadence from the state they leave behind, so the contact sequence, the
+footholds and the centre-of-mass roll-out are one gait. A phase boundary is rounded to the nearest node exactly once,
+and both the per-node quantities and the per-interval ones are filled from those same integer boundaries.
+
 **A note on the first step.** From a standstill with a forward command the law places the first foot *behind* the
 centre of mass. That is not a defect: stepping short is how an inverted pendulum accelerates, and the deadbeat gain
 reaches the commanded orbit within two steps. The commanded velocity is ramped upstream, so the robot is not usually
@@ -239,7 +250,17 @@ nearest node.
 | `hlip.stepWidth` | [m] lateral distance between the feet of the nominal period-two orbit |
 | `hlip.maxStepLength`, `hlip.maxStepWidth`, `hlip.minStepWidth` | [m] the reachability clip, the only bound applied to the deadbeat step |
 | `hlip.blend.sharpness`, `hlip.blend.threshold` | `rho_1`, `rho_2` of `alpha(phi)` |
-| `hlip.blend.max*` | the command and base-velocity ranges that normalise `phi` |
+| `hlip.blend.maxCommanded*` | the command ranges that normalise `phi` |
+| `hlip.blend.maxComVelocity*` | the measured centre-of-mass velocity ranges that normalise `phi`. The paper writes `v_b` for the base velocity, but what the planner measures and feeds the blend is the centre-of-mass velocity, so the keys are named for that |
+
+`planner.runInBackgroundThread` is **false** for this planner, and that is not an oversight. A plan solves nothing - a
+fixed cadence and a closed-form step over 56 nodes - so it costs microseconds, and the worker thread buys nothing while
+costing the one thing a feedback law cannot afford: the plan is posted at `planner.planningFrequency` and handed over a
+cycle later, so at the 10 Hz that used to be configured, against a 50 Hz MPC, the footholds were computed from a state
+up to 100 ms old. That is two fifths of the 0.25 s single support they exist to correct, in a law whose whole claim is
+that it is deadbeat on the measured state. `lip_miqp` is the opposite case - a mixed-integer solve takes tens of
+milliseconds and must not block the solver - so it needs `true`, and `ContactPlanningConfig::validate()` warns when the
+two are mismatched.
 
 Every key of the `hlip` block is a slider in the remote control's MPC Parameters tab, under **Contact Planning**, and
 is hot-reloadable: the parameter updater re-parses the file and hands the configuration to the planner, which rebuilds
@@ -257,4 +278,5 @@ follows `dynamics: [... heading_double_integrator]`, because that is what the re
 | `humanoid_common_mpc:testHlipModel` | `A + BK` nilpotent; the period-one fixed point; the period-two orbit; recovery in two steps; the flow and the S2S map agree |
 | `humanoid_common_mpc:testHlipContactPlanner` | alternation, cadence, the committed window, steady-state step length `v T`, standing at rest, the reachability clip, plan well-formedness |
 | `humanoid_common_mpc:testContactPlannerFactory` | both planner names resolve; an unknown one is rejected with the valid names |
-| `humanoid_centroidal_mpc:testHlipPlanningIntegration` | the shipped configuration end to end: stands at rest, walks and alternates when commanded, advances at the commanded order of velocity |
+| `humanoid_common_mpc:testHlipPlanConsistency` | the gait is built FROM the committed window rather than having it stamped over the contacts afterwards; the published contacts agree with the gait the roll-out used; a swing already in flight keeps the time it has already spent there; a foot's landing target moves on the same node its contact flag says it left the ground; a stepping plan publishes the unblended roll-out and starts at the measured state; a standing plan still asks for a centre of mass at rest over the feet |
+| `humanoid_centroidal_mpc:testHlipPlanningIntegration` | the shipped configuration end to end: stands at rest, walks and alternates when commanded, advances at the commanded order of velocity, and the commanded yaw rate reaches the planner whether or not the heading model is on |

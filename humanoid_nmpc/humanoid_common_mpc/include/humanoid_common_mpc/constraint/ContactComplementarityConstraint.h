@@ -28,10 +28,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 
 #include <ocs2_core/constraint/StateInputConstraint.h>
-#include <ocs2_robotic_tools/end_effector/EndEffectorKinematics.h>
 
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/contact/FootprintCornerHeights.h"
 
 namespace ocs2::humanoid {
 
@@ -61,6 +61,18 @@ namespace ocs2::humanoid {
  * The normal direction is the sole's, i.e. the third component of the model's contact force. For the flat terrain the
  * reduced-order planner assumes, that is the world vertical; on a tilted foot it is the physically correct normal.
  *
+ * WHICH HEIGHT. h is the GAP - the height of the LOWEST point of the footprint above the terrain - and not the height
+ * of the sole's centre. The two differ whenever the foot is pitched or rolled, which this formulation makes the normal
+ * case rather than an exceptional one: ForceWeightedSlipConstraint deliberately leaves the rocking rates free so that
+ * the foot can roll from heel to toe under load. Measured at the centre, a foot up on its heel reads a positive height
+ * while it is carrying the whole robot, and this term then penalises the force it is physically holding - it pays for
+ * a contact that exists. It also disagreed with GroundPenetrationConstraint, which had already been moved to the
+ * corners; the two now share one FootprintCornerHeights, so they cannot disagree again.
+ *
+ * The gap is the smoothMinimumHeight() of the corner heights rather than their exact minimum, because the exact
+ * minimum is non-differentiable precisely at the flat-footed stance where the robot spends most of its time; see that
+ * function for why the normalisation inside it is not cosmetic.
+ *
  * The residual is normalised - it is (f_n / f_ref) (h / h_ref), not f_n h - and that matters more than it looks. The
  * penalty wrapped around this term is quadratic, so what the solver actually sees is a curvature of
  *
@@ -80,19 +92,22 @@ namespace ocs2::humanoid {
 class ContactComplementarityConstraint final : public StateInputConstraint {
  public:
   /**
-   * @param [in] endEffectorKinematics : kinematics of this foot's contact frame.
+   * @param [in] cornerHeights : the points of this foot whose lowest height is the gap. Pass the same object given to
+   *        this foot's GroundPenetrationConstraint.
    * @param [in] mpcRobotModel : the robot model, for the input block that carries this contact's force.
    * @param [in] contactPointIndex : the contact this term belongs to.
    * @param [in] terrainHeight : [m] height of the ground under the foot.
    * @param [in] forceReference : [N] the normal force the residual is measured in, normally the robot's weight.
    * @param [in] heightReference : [m] the height the residual is measured in, normally the swing apex.
+   * @param [in] gapSmoothing : [m] the length scale over which the corners' minimum is smoothed.
    */
-  ContactComplementarityConstraint(const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
+  ContactComplementarityConstraint(const FootprintCornerHeights& cornerHeights,
                                    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
                                    size_t contactPointIndex,
                                    scalar_t terrainHeight = 0.0,
                                    scalar_t forceReference = 1.0,
-                                   scalar_t heightReference = 1.0);
+                                   scalar_t heightReference = 1.0,
+                                   scalar_t gapSmoothing = 1.0e-3);
 
   ~ContactComplementarityConstraint() override = default;
   ContactComplementarityConstraint* clone() const override { return new ContactComplementarityConstraint(*this); }
@@ -111,15 +126,20 @@ class ContactComplementarityConstraint final : public StateInputConstraint {
   /** Retunes the height the residual is measured in, so that the key is live in the tuning dashboard like the weight
    * beside it. The force reference has no setter on purpose: it is the robot's weight, not a tuning parameter. */
   void setHeightReference(scalar_t heightReference) { inverseHeightReference_ = 1.0 / heightReference; }
+  scalar_t getGapSmoothing() const { return gapSmoothing_; }
+  void setGapSmoothing(scalar_t gapSmoothing);
+  /** [m] the gap between the lowest point of the footprint and the terrain, as this term sees it. */
+  scalar_t getGap(const vector_t& state) const;
   /** The constant row with f_n = normalForceRow . u; exposed for the tests. */
   const vector_t& getNormalForceRow() const { return normalForceRow_; }
 
  private:
   ContactComplementarityConstraint(const ContactComplementarityConstraint& rhs);
 
-  std::unique_ptr<EndEffectorKinematics<scalar_t>> endEffectorKinematicsPtr_;
+  std::unique_ptr<FootprintCornerHeights> cornerHeightsPtr_;
   size_t contactPointIndex_;
   scalar_t terrainHeight_;
+  scalar_t gapSmoothing_;
   // Stored as reciprocals: the residual and its two derivative blocks each need the scale, and a multiplication in the
   // solver's inner loop is cheaper than a division.
   scalar_t inverseForceReference_;

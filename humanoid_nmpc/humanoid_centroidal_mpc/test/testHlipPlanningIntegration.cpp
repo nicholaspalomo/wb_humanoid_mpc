@@ -161,6 +161,40 @@ class HlipPlanningIntegrationTest : public ::testing::Test {
   std::shared_ptr<ContactPlannerModule> module_;
 };
 
+/**
+ * Audit finding B6. The operator's commanded yaw rate used to be copied into the planner's input only inside the
+ * `if (config.usesHeadingModel())` branch of makePlannerInput(). It is not part of the heading MODEL, it is part of
+ * the COMMAND, and HlipStandingBlend reads it to decide whether the robot should be stepping at all. Left in that
+ * branch, a robot without the heading model contributed nothing from the yaw stick to the blend's activity, so alpha
+ * never crossed its half point on yaw alone and the robot would not start stepping to turn in place however hard it
+ * was asked.
+ */
+TEST_F(HlipPlanningIntegrationTest, TheCommandedYawRateReachesThePlannerWithoutTheHeadingModel) {
+  const vector_t state = interface_->getInitialState();
+  const scalar_t horizon = interface_->mpcSettings().timeHorizon_;
+  const size_t inputDim = interface_->getEffectiveMpcRobotModel().getInputDim();
+
+  // A pure yaw command: no linear velocity at all, so the blend has nothing but the yaw rate to go on.
+  const scalar_t commandedYawRate = 0.5;  // [rad/s], well above the blend's half point on its own
+  const scalar_t yawInertia = 40.0;       // any positive value; the target carries m * I_zz * omega / m
+  vector_t target = vector_t::Zero(state.size());
+  target.segment(6, 6) = state.segment(6, 6);
+  target(5) = yawInertia * commandedYawRate / interface_->getCentroidalModelInfo().robotMass;
+
+  for (const bool headingModel : {true, false}) {
+    ContactPlanningConfig config = referenceManager_->getConfig();
+    config.setHeadingModel(headingModel);
+    referenceManager_->setConfig(config);
+    referenceManager_->setTargetTrajectories(TargetTrajectories({0.0}, {target}, {vector_t::Zero(inputDim)}));
+    referenceManager_->preSolverRun(0.0, horizon, state, ModeNumber::STANCE);
+
+    const ContactPlannerInput input = referenceManager_->makePlannerInput(0.0, state, referenceManager_->commandedVelocity());
+    EXPECT_NEAR(input.headingRateCommand, referenceManager_->commandedYawRate(), 1e-9) << "heading model " << (headingModel ? "on" : "off");
+    EXPECT_GT(std::abs(input.headingRateCommand), 1e-6)
+        << "the yaw command must reach the planner with the heading model " << (headingModel ? "on" : "off");
+  }
+}
+
 TEST_F(HlipPlanningIntegrationTest, TheShippedPlannerIsTheClosedFormHlip) {
   const ContactPlanningConfig config = referenceManager_->getConfig();
   EXPECT_EQ(canonicalPlannerName(config.planner.type), planner::kHlip);

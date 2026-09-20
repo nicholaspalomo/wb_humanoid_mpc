@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cmath>
 #include <fstream>
+#include <functional>
 #include <limits>
 
 #include <absl/log/log.h>
@@ -52,7 +53,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/cost/ICPCost.h"
 #include "humanoid_common_mpc/constraint/BasisScalingNonNegativityConstraint.h"
 #include "humanoid_common_mpc/constraint/ContactComplementarityConstraint.h"
+#include "humanoid_common_mpc/constraint/ContactMomentXYConstraintCppAd.h"
+#include "humanoid_common_mpc/constraint/ContactWrenchConeConstraint.h"
 #include "humanoid_common_mpc/constraint/ForceWeightedSlipConstraint.h"
+#include "humanoid_common_mpc/constraint/FrictionForceConeConstraint.h"
 #include "humanoid_common_mpc/constraint/GroundPenetrationConstraint.h"
 #include "humanoid_common_mpc/constraint/JointLimitsSoftConstraint.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
@@ -512,9 +516,19 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
   scalar_t heightReference = -1.0;
   scalar_t velocityReference = -1.0;
   scalar_t angularVelocityReference = -1.0;
+  // The length scale the footprint corners' minimum is blended over; see ContactImplicitConfig::gapSmoothing.
+  scalar_t gapSmoothing = -1.0;
+  // Where the ground is: one top-level key, shared with the swing trajectories, rather than a second definition
+  // inside the contact_implicit block. NaN marks a file that does not carry it.
+  // LINT.IfChange(terrain_height_updater_yaml_path)
   scalar_t terrainHeight = std::numeric_limits<scalar_t>::quiet_NaN();
-  RelaxedBarrierPenalty::Config groundPenetrationBarrier;
-  bool hasGroundPenetrationBarrier = false;
+  loadData::loadPtreeValue(pt, terrainHeight, "terrainHeight", false);
+  // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:terrain_height_config)
+  // The hinge's two parameters. `delta` is structurally zero: it is the offset of the hinge's zero, and the whole
+  // point of using a hinge for h >= 0 is that its zero sits exactly on the ground. A positive delta would demand
+  // clearance from a foot that is supposed to be resting on the floor.
+  scalar_t penetrationWeight = -1.0;
+  bool hasPenetrationWeight = false;
   if (pt.get_child_optional("contact_implicit")) {
     const std::string ciPrefix = "contact_implicit.";
     loadData::loadPtreeValue(pt, complementarityWeight, ciPrefix + "complementarityWeight", false);
@@ -522,12 +536,11 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
     loadData::loadPtreeValue(pt, heightReference, ciPrefix + "heightReference", false);
     loadData::loadPtreeValue(pt, velocityReference, ciPrefix + "velocityReference", false);
     loadData::loadPtreeValue(pt, angularVelocityReference, ciPrefix + "angularVelocityReference", false);
-    loadData::loadPtreeValue(pt, terrainHeight, ciPrefix + "terrainHeight", false);
+    loadData::loadPtreeValue(pt, gapSmoothing, ciPrefix + "gapSmoothing", false);
 
-    if (pt.get_optional<scalar_t>(ciPrefix + "penetrationMu") || pt.get_optional<scalar_t>(ciPrefix + "penetrationDelta")) {
-      loadData::loadPtreeValue(pt, groundPenetrationBarrier.mu, ciPrefix + "penetrationMu", false);
-      loadData::loadPtreeValue(pt, groundPenetrationBarrier.delta, ciPrefix + "penetrationDelta", false);
-      hasGroundPenetrationBarrier = true;
+    if (pt.get_optional<scalar_t>(ciPrefix + "penetrationWeight")) {
+      loadData::loadPtreeValue(pt, penetrationWeight, ciPrefix + "penetrationWeight", false);
+      hasPenetrationWeight = penetrationWeight >= 0.0;
     }
   }
 
@@ -537,6 +550,11 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
   // positive value.
   scalar_t zeroVelWeight = -1.0;
   loadData::loadPtreeValue(pt, zeroVelWeight, "model_settings.foot_constraint.softConstraintWeight", false);
+  // The weight of the SOFT normal-velocity term, which is what shapes the swing under the contact-implicit
+  // formulation and is therefore the knob an operator reaches for first. It was missing here while its neighbour
+  // above was present, so the task file told the operator to tune a key that took effect only on the next launch.
+  scalar_t normalVelSoftWeight = -1.0;
+  loadData::loadPtreeValue(pt, normalVelSoftWeight, "model_settings.foot_constraint.normalVelocitySoftConstraintWeight", false);
   // clang-format off
   // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:foot_constraint_section, //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.yaml:foot_constraint_section)
   // clang-format on
@@ -741,17 +759,28 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
     // ── Soft constraints: wrench cone, friction cone, contact moment XY ──
     // Penalties are wrapped in PenaltyBaseWrapper (AugmentedPenaltyBase), so we use
     // setParameters(vector_t{mu, delta}) which delegates through to the inner PenaltyBase.
-    const vector_t wrenchConeParams = (vector_t(2) << wrenchConeBarrier.mu, wrenchConeBarrier.delta).finished();
-    const vector_t frictionConeParams = (vector_t(2) << frictionConeBarrier.mu, frictionConeBarrier.delta).finished();
-    const vector_t contactMomentParams = (vector_t(2) << contactMomentBarrier.mu, contactMomentBarrier.delta).finished();
+    //
+    // WHICH delta is written depends on the penalty that is actually installed, not on the YAML. A schedule-gated cone
+    // is wrapped in a RelaxedBarrierPenalty, whose `delta` is the width of its quadratic relaxation and is read
+    // straight from the file. An UN-gated cone - the contact-implicit formulation - is wrapped in a
+    // SquaredHingePenalty built with delta = 0, because a hinge's delta is the OFFSET of its zero, and the whole point
+    // of the hinge there is that its zero sits exactly on the cone that a foot at zero wrench lies on. Writing the
+    // barrier's delta into it would move that zero into the interior and reinstate the very force floor that dropping
+    // `minNormalForce` and the friction cone's parabolic margin exists to remove: with the shipped friction settings
+    // (mu 0.2, delta 5) a foot in flight would be charged 2.5 with a gradient of -1.0 pushing its normal force up.
+    const std::function<vector_t(const RelaxedBarrierPenalty::Config&, bool)> coneParameters =
+        [](const RelaxedBarrierPenalty::Config& barrier, bool scheduleGated) {
+          return vector_t((vector_t(2) << barrier.mu, scheduleGated ? barrier.delta : 0.0).finished());
+        };
 
-    for (const auto& footName : contactNames_) {
+    for (const std::string& footName : contactNames_) {
       // Contact wrench cone
       if (hasWrenchConeBarrier) {
         try {
-          auto& softCon = ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_contactWrenchCone");
-          for (auto& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
-            penalty->setParameters(wrenchConeParams);
+          StateInputSoftConstraint& softCon = ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_contactWrenchCone");
+          const vector_t parameters = coneParameters(wrenchConeBarrier, softCon.get<ContactWrenchConeConstraint>().isScheduleGated());
+          for (std::unique_ptr<augmented::AugmentedPenaltyBase>& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
+            penalty->setParameters(parameters);
           }
         } catch (const std::exception& e) {
           LOG(WARNING) << "Failed to update " << footName << "_contactWrenchCone: " << e.what();
@@ -763,9 +792,10 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
       // Friction force cone
       if (hasFrictionConeBarrier) {
         try {
-          auto& softCon = ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_frictionForceCone");
-          for (auto& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
-            penalty->setParameters(frictionConeParams);
+          StateInputSoftConstraint& softCon = ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_frictionForceCone");
+          const vector_t parameters = coneParameters(frictionConeBarrier, softCon.get<FrictionForceConeConstraint>().isScheduleGated());
+          for (std::unique_ptr<augmented::AugmentedPenaltyBase>& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
+            penalty->setParameters(parameters);
           }
         } catch (const std::exception& e) {
           LOG(WARNING) << "Failed to update " << footName << "_frictionForceCone: " << e.what();
@@ -777,9 +807,10 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
       // Contact moment XY
       if (hasContactMomentBarrier) {
         try {
-          auto& softCon = ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_contactMomentXY");
-          for (auto& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
-            penalty->setParameters(contactMomentParams);
+          StateInputSoftConstraint& softCon = ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_contactMomentXY");
+          const vector_t parameters = coneParameters(contactMomentBarrier, softCon.get<ContactMomentXYConstraintCppAd>().isScheduleGated());
+          for (std::unique_ptr<augmented::AugmentedPenaltyBase>& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
+            penalty->setParameters(parameters);
           }
         } catch (const std::exception& e) {
           LOG(WARNING) << "Failed to update " << footName << "_contactMomentXY: " << e.what();
@@ -830,7 +861,7 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
     }
 
     // ── Contact implicit soft constraints ──
-    if (complementarityWeight >= 0.0 || heightReference > 0.0 || std::isfinite(terrainHeight)) {
+    if (complementarityWeight >= 0.0 || heightReference > 0.0 || gapSmoothing > 0.0 || std::isfinite(terrainHeight)) {
       vector_t param(1);
       param[0] = complementarityWeight;
       for (const std::string& footName : contactNames_) {
@@ -844,6 +875,9 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
           ContactComplementarityConstraint& constraint = softCon.get<ContactComplementarityConstraint>();
           if (heightReference > 0.0) {
             constraint.setHeightReference(heightReference);
+          }
+          if (gapSmoothing > 0.0) {
+            constraint.setGapSmoothing(gapSmoothing);
           }
           if (std::isfinite(terrainHeight)) {
             constraint.setTerrainHeight(terrainHeight);
@@ -887,15 +921,16 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
     // The terrain height has to reach this term as well as the complementarity term. The two are a pair - one says a
     // foot may not carry load above the ground, the other that it may not go below it - so a height applied to only
     // one of them leaves the formulation with two disagreeing definitions of where the ground is.
-    if (hasGroundPenetrationBarrier || std::isfinite(terrainHeight)) {
-      const vector_t penetrationParams = (vector_t(2) << groundPenetrationBarrier.mu, groundPenetrationBarrier.delta).finished();
+    if (hasPenetrationWeight || std::isfinite(terrainHeight)) {
+      // SquaredHingePenalty::setParameters takes (mu, delta); delta stays 0 so the hinge's zero stays on the ground.
+      const vector_t penetrationParams = (vector_t(2) << penetrationWeight, 0.0).finished();
       for (const std::string& footName : contactNames_) {
         try {
           StateSoftConstraint& softCon = ocp.stateSoftConstraintPtr->get<StateSoftConstraint>(footName + "_groundPenetration");
           if (std::isfinite(terrainHeight)) {
             softCon.get<GroundPenetrationConstraint>().setTerrainHeight(terrainHeight);
           }
-          if (!hasGroundPenetrationBarrier) {
+          if (!hasPenetrationWeight) {
             continue;
           }
           for (std::unique_ptr<augmented::AugmentedPenaltyBase>& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
@@ -925,6 +960,28 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
           LOG(WARNING) << "Failed to update " << footName << "_zeroVelocity (soft): " << e.what();
         } catch (...) {
           LOG(WARNING) << "Failed to update " << footName << "_zeroVelocity (soft): unknown exception";
+        }
+      }
+    }
+
+    // ── Normal velocity soft constraint weight ──
+    if (normalVelSoftWeight > 0.0) {
+      vector_t scaleParam(1);
+      scaleParam[0] = normalVelSoftWeight;
+      for (const std::string& footName : contactNames_) {
+        try {
+          StateInputSoftConstraint& softCon = ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_normalVelocitySoft");
+          for (std::unique_ptr<augmented::AugmentedPenaltyBase>& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
+            penalty->setParameters(scaleParam);
+          }
+        } catch (const std::out_of_range&) {
+          // The term is absent whenever normal_velocity is not listed as a soft constraint, which is every
+          // schedule-gated configuration. That is not a failure and must not warn, or the log fills up once per foot
+          // per slider drag.
+        } catch (const std::exception& e) {
+          LOG(WARNING) << "Failed to update " << footName << "_normalVelocitySoft: " << e.what();
+        } catch (...) {
+          LOG(WARNING) << "Failed to update " << footName << "_normalVelocitySoft: unknown exception";
         }
       }
     }
