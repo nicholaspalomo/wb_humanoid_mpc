@@ -34,6 +34,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_core/misc/LoadData.h>
 
+#include "absl/log/log.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlannerFactory.h"
+
 namespace ocs2::humanoid {
 
 void ContactPlanningConfig::validate() const {
@@ -97,6 +100,30 @@ void ContactPlanningConfig::validate() const {
   if (dcmStepAdjustment.gain < 0.0) fail("dcm_step_adjustment.gain must be non-negative");
   if (dcmStepAdjustment.maxOffset < 0.0) fail("dcm_step_adjustment.maxOffset must be non-negative");
   if (energyCadenceModulation.gain < 0.0) fail("energy_cadence_modulation.gain must be non-negative");
+  const HlipParameters& h = hlip;
+  if (h.sspDuration <= 0.0) fail("hlip.sspDuration must be positive");
+  if (h.dspDuration < 0.0) fail("hlip.dspDuration must be non-negative");
+  if (h.stepWidth <= 0.0) fail("hlip.stepWidth must be positive");
+  if (h.maxStepLength <= 0.0) fail("hlip.maxStepLength must be positive");
+  if (h.minStepWidth <= 0.0 || h.maxStepWidth < h.minStepWidth) fail("need 0 < hlip.minStepWidth <= hlip.maxStepWidth");
+  if (h.stepWidth < h.minStepWidth || h.stepWidth > h.maxStepWidth) fail("hlip.stepWidth must lie within the hlip step width bounds");
+  if (h.blend.sharpness <= 0.0) fail("hlip.blend.sharpness must be positive");
+  // The H-LIP deadbeat step is a feedback law on the measured state, and a plan costs microseconds because nothing is
+  // solved. Running it on a background thread at a fraction of the MPC rate therefore buys nothing and costs the one
+  // thing the law depends on: a plan posted at 10 Hz and handed over a cycle later is up to 100 ms stale, which is two
+  // fifths of a 0.25 s single support. This is a warning rather than an error because the threading is the operator's
+  // call and the mixed-integer planner genuinely needs the background thread.
+  if (canonicalPlannerName(p.type) == planner::kHlip && p.runInBackgroundThread) {
+    LOG(WARNING) << "[ContactPlanningConfig] planner.type: hlip with planner.runInBackgroundThread: true. The closed-form H-LIP "
+                    "planner costs microseconds, so the background thread only adds latency to a feedback law: its plan reaches the "
+                    "solver a cycle late and at most planner.planningFrequency ("
+                 << p.planningFrequency
+                 << " Hz) times a second. Set planner.runInBackgroundThread: false to plan in the pre-solve hook at the MPC rate.";
+  }
+  if (h.blend.maxCommandedVelocityX <= 0.0 || h.blend.maxCommandedVelocityY <= 0.0 || h.blend.maxCommandedYawRate <= 0.0 ||
+      h.blend.maxComVelocityX <= 0.0 || h.blend.maxComVelocityY <= 0.0) {
+    fail("every hlip.blend command threshold must be positive");
+  }
   if (energyCadenceModulation.deadband < 0.0) fail("energy_cadence_modulation.deadband must be non-negative");
   if (yawTorqueBudget.torsionalFrictionTorque < 0.0 || yawTorqueBudget.doubleSupportYawCouple < 0.0) fail("yaw torque limits must be >= 0");
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
@@ -186,8 +213,9 @@ constexpr std::array<const char*, 61> kLegacyKeys{"dt",
                                                   "doubleSupportYawCouple"};
 
 /** Keys of the structured layout that identify it (the block names besides the term blocks). */
-constexpr std::array<const char*, 10> kStructuredKeys{"planner",          "shared",      "dynamics",         "costs",  "soft_constraints",
-                                                      "hard_constraints", "logic_rules", "assignment_costs", "search", "execution"};
+constexpr std::array<const char*, 11> kStructuredKeys{"planner",          "shared",           "hlip",        "dynamics",         "costs",
+                                                      "soft_constraints", "hard_constraints", "logic_rules", "assignment_costs", "search",
+                                                      "execution"};
 
 bool hasAnyKey(const ptree& block, const char* const* keys, size_t count) {
   for (size_t i = 0; i < count; ++i) {
@@ -245,6 +273,7 @@ void loadStructured(const ptree& pt, const ptree& block, const std::string& pref
   load(p.planningFrequency, "planner.planningFrequency");
   load(p.verbose, "planner.verbose");
   load(p.logPlans, "planner.logPlans");
+  load(p.type, "planner.type");
 
   SharedParameters& s = config.shared;
   load(s.gravity, "shared.gravity");
@@ -257,6 +286,21 @@ void loadStructured(const ptree& pt, const ptree& block, const std::string& pref
   load(s.gaitLimits.minContactDuration, "shared.gait_limits.minContactDuration");
   load(s.gaitLimits.maxContactDuration, "shared.gait_limits.maxContactDuration");
   load(s.gaitLimits.minDoubleSupportDuration, "shared.gait_limits.minDoubleSupportDuration");
+
+  HlipParameters& h = config.hlip;
+  load(h.sspDuration, "hlip.sspDuration");
+  load(h.dspDuration, "hlip.dspDuration");
+  load(h.stepWidth, "hlip.stepWidth");
+  load(h.maxStepLength, "hlip.maxStepLength");
+  load(h.maxStepWidth, "hlip.maxStepWidth");
+  load(h.minStepWidth, "hlip.minStepWidth");
+  load(h.blend.sharpness, "hlip.blend.sharpness");
+  load(h.blend.threshold, "hlip.blend.threshold");
+  load(h.blend.maxCommandedVelocityX, "hlip.blend.maxCommandedVelocityX");
+  load(h.blend.maxCommandedVelocityY, "hlip.blend.maxCommandedVelocityY");
+  load(h.blend.maxCommandedYawRate, "hlip.blend.maxCommandedYawRate");
+  load(h.blend.maxComVelocityX, "hlip.blend.maxComVelocityX");
+  load(h.blend.maxComVelocityY, "hlip.blend.maxComVelocityY");
 
   ContactPlanningFormulation& f = config.formulation;
   bool present = false;

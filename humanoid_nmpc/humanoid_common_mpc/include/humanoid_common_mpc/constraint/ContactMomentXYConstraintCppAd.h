@@ -54,7 +54,8 @@ class ContactMomentXYConstraintCppAd final : public StateInputConstraintCppAd {
                                  const PinocchioInterface& pinocchioInterface,
                                  const MpcRobotModelBase<ad_scalar_t>& mpcRobotModel,
                                  std::string costName,
-                                 const ModelSettings& modelSettings);
+                                 const ModelSettings& modelSettings,
+                                 bool scheduleGated = true);
 
   ~ContactMomentXYConstraintCppAd() override = default;
   ContactMomentXYConstraintCppAd* clone() const override { return new ContactMomentXYConstraintCppAd(*this); }
@@ -63,6 +64,17 @@ class ContactMomentXYConstraintCppAd final : public StateInputConstraintCppAd {
   void setActive(bool isActive) override { isActive_ = isActive; }
   bool getActive() const override { return isActive_; }
   size_t getNumConstraints(scalar_t time) const override { return numConstraints_; };
+
+  /**
+   * Whether this term is gated on the mode schedule's contact flag.
+   *
+   * False is the contact-implicit formulation, which removes the hard `zero_wrench` constraint that used to make the
+   * gate sound. Unlike the friction and wrench cones, the four centre-of-pressure rows are homogeneous in the wrench,
+   * so the zero wrench already satisfies them exactly and nothing about the rows has to change when the gate goes;
+   * only the penalty does, because a relaxed log barrier has a large negative derivative at zero slack and would pay
+   * a foot in flight to leave the origin. See humanoid_nmpc/docs/contact_implicit_mpc/README.md.
+   */
+  bool isScheduleGated() const { return scheduleGated_; }
 
  private:
   ContactMomentXYConstraintCppAd(const ContactMomentXYConstraintCppAd& other);
@@ -80,6 +92,9 @@ class ContactMomentXYConstraintCppAd final : public StateInputConstraintCppAd {
 
   const static size_t numConstraints_ = 4;
   bool isActive_ = true;
+  // Fixed by the formulation at load time rather than tuned, so it is const and the parallel solve reads it without
+  // synchronisation. It has to survive the copy the SQP solver makes of the whole problem per worker thread.
+  const bool scheduleGated_;
 };
 
 }  // namespace ocs2::humanoid

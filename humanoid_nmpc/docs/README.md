@@ -12,6 +12,15 @@ Both were added because a fixed, pre-scheduled contact sequence is the first bot
 pushes, on uneven ground or with changing speed commands the rigid schedule causes scuffing, early impacts and infeasible
 terminal states.
 
+The contact planner itself is chosen by name in `config/mpc/contact_planning.yaml` (`planner.type`), and the
+whole-body formulation by the term lists of `task.yaml`. Two further documents cover the implementation of
+[arXiv:2502.15630](https://arxiv.org/abs/2502.15630) in this repository:
+
+* [hlip_contact_planner](hlip_contact_planner/README.md) — the closed-form H-LIP contact planner, which is the
+  shipped default (`planner.type: hlip`) and replaces the mixed-integer planner described in section 2 below.
+* [contact_implicit_mpc](contact_implicit_mpc/README.md) — the relaxed complementarity formulation of contact in the
+  whole-body NMPC, which lets the solver depart from the planner's nominal contact sequence. Off by default.
+
 ---
 
 ## 1. DCM terminal cost (`useDcmTerminalCost`)
@@ -47,6 +56,11 @@ The DCM terminal cost replaces it with the physically meaningful quantity. At th
 $$\ell_T(\mathbf{x}_T) = \tfrac{1}{2}\, \big(\boldsymbol{\xi}_T - \boldsymbol{\xi}^{\mathrm{ref}}_T\big)^\top W \big(\boldsymbol{\xi}_T - \boldsymbol{\xi}^{\mathrm{ref}}_T\big),
 \qquad
 \boldsymbol{\xi}^{\mathrm{ref}}_T = \mathbf{p}_{\mathrm{support}}(\mathbf{q}_T) + \beta \frac{\mathbf{v}_{\mathrm{cmd}}}{\omega},$$
+
+Under an online contact plan this reference is replaced by the plan's own DCM, $\mathbf{c}(T) + \dot{\mathbf{c}}(T)/\omega$
+(`SwitchedModelReferenceManager::getPlannedDcm`): the reduced-order model decides where the horizon should end, and a
+second capturability reference of its own would fight the footholds the planner is placing. See
+[hlip_contact_planner](hlip_contact_planner/README.md). Without a plan the support-centre reference below stands.
 
 where
 

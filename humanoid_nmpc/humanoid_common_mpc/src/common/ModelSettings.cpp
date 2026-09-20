@@ -209,9 +209,32 @@ ModelSettings::ModelSettings(const std::string& configFile, const std::string& u
   loadData::loadPtreeValue(pt, this->footConstraintConfig.angularAccelerationErrorGain,
                            footConstraintPrefix + "angularAccelerationErrorGain", verbose);
   loadData::loadPtreeValue(pt, this->footConstraintConfig.softConstraintWeight, footConstraintPrefix + "softConstraintWeight", verbose);
+  loadData::loadPtreeValue(pt, this->footConstraintConfig.normalVelocitySoftConstraintWeight,
+                           footConstraintPrefix + "normalVelocitySoftConstraintWeight", verbose);
   loadData::loadPtreeValue(pt, this->footConstraintConfig.constrainOrientation, footConstraintPrefix + "constrainOrientation", verbose);
   loadData::loadPtreeValue(pt, this->footConstraintConfig.constrainYawRateAboutContactNormal,
                            footConstraintPrefix + "constrainYawRateAboutContactNormal", verbose);
+
+  // LINT.IfChange(terrain_height_yaml_path)
+  loadData::loadPtreeValue(pt, this->terrainHeight, "terrainHeight", verbose);
+  // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:terrain_height_config)
+
+  // LINT.IfChange(contact_implicit_yaml_path)
+  const std::string contactImplicitPrefix = "contact_implicit.";
+  // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:contact_implicit_config)
+  loadData::loadPtreeValue(pt, this->contactImplicitConfig.complementarityWeight, contactImplicitPrefix + "complementarityWeight", verbose);
+  loadData::loadPtreeValue(pt, this->contactImplicitConfig.slipWeight, contactImplicitPrefix + "slipWeight", verbose);
+  loadData::loadPtreeValue(pt, this->contactImplicitConfig.penetrationWeight, contactImplicitPrefix + "penetrationWeight", verbose);
+  loadData::loadPtreeValue(pt, this->contactImplicitConfig.heightReference, contactImplicitPrefix + "heightReference", verbose);
+  loadData::loadPtreeValue(pt, this->contactImplicitConfig.velocityReference, contactImplicitPrefix + "velocityReference", verbose);
+  loadData::loadPtreeValue(pt, this->contactImplicitConfig.angularVelocityReference, contactImplicitPrefix + "angularVelocityReference",
+                           verbose);
+  loadData::loadPtreeValue(pt, this->contactImplicitConfig.gapSmoothing, contactImplicitPrefix + "gapSmoothing", verbose);
+
+  // LINT.IfChange(nominal_foothold_yaml_path)
+  const std::string nominalFootholdPrefix = "nominal_foothold.";
+  // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:nominal_foothold_config)
+  loadData::loadPtreeValue(pt, this->nominalFootholdConfig.stepWidth, nominalFootholdPrefix + "stepWidth", verbose);
 
   if (verbose) {
     std::cerr << " #### "

@@ -88,11 +88,28 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
    * @param [in] config : Friction model settings.
    * @param [in] contactPointIndex : The 3 DoF contact index.
    * @param [in] info : The centroidal model information.
+   * @param [in] scheduleGated : When true (the historical behaviour) the term switches itself off while the mode
+   *             schedule calls this foot a swing foot, which is only sound because the hard `zero_wrench` constraint
+   *             has already pinned its wrench to zero. When false - the contact-implicit formulation, which removes
+   *             `zero_wrench` - the cone is enforced at every node. Two things then have to change, or an always-on
+   *             cone reports a permanent violation on a foot in flight: `gripperForce` is dropped, because a foot in
+   *             flight has no adhesion to offer, and the constant `sqrt(regularization)` is added back to the value so
+   *             that the zero force sits exactly on the cone rather than `sqrt(regularization)` inside it. Neither
+   *             touches the gradient or the Hessian, so the smoothing the regularization exists for is untouched and
+   *             only its parabolic safety margin - a statement about a loaded foot - is removed.
+   *             See humanoid_nmpc/docs/contact_implicit_mpc/README.md.
    */
   FrictionForceConeConstraint(const SwitchedModelReferenceManager& referenceManager,
                               Config config,
                               size_t contactPointIndex,
-                              const MpcRobotModelBase<scalar_t>& mpcRobotModel);
+                              const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+                              bool scheduleGated = true);
+
+  /** Whether this term is gated on the mode schedule's contact flag; see the constructor. */
+  bool isScheduleGated() const { return scheduleGated_; }
+
+  /** The adhesion a non-gated cone drops, so that a caller can state what it asked for. */
+  static Config withoutAdhesion(Config config);
 
   ~FrictionForceConeConstraint() override = default;
   FrictionForceConeConstraint* clone() const override { return new FrictionForceConeConstraint(*this); }
@@ -153,6 +170,12 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
   matrix3_t t_R_w = matrix3_t::Identity();
 
   bool isActive_ = true;
+  // Fixed by the formulation at load time rather than tuned, so it is const and the parallel solve reads it without
+  // synchronisation. It has to survive the copy the SQP solver makes of the whole problem per worker thread.
+  const bool scheduleGated_;
+  // sqrt(regularization) when the term is not schedule gated, 0 otherwise; added to the cone value so that the zero
+  // force lies exactly on the cone. See the constructor.
+  const scalar_t coneValueOffset_;
 };
 
 }  // namespace ocs2::humanoid

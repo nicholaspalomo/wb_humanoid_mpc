@@ -63,6 +63,17 @@ enum class MpcSoftConstraintType {
   ContactMomentXY,
   ContactWrenchCone,
   ZeroVelocity,
+  // The swing-foot vertical servo of the hard `normal_velocity` constraint, priced instead of imposed. The hard form
+  // fixes the whole height profile of a scheduled swing, so the solver can neither land early nor late - fatal under
+  // the contact-implicit formulation, which exists to give it exactly that freedom. As a cost it shapes the swing and
+  // is overruled whenever anything else pays more, which is what a reduced-order plan's guidance should be.
+  NormalVelocity,
+  // The relaxed complementarity conditions of rigid contact, which replace the schedule-gated zero_wrench and
+  // zero_velocity constraints and let the MPC decide contact itself
+  // (humanoid_nmpc/docs/contact_implicit_mpc/README.md).
+  ContactComplementarity,
+  ForceWeightedSlip,
+  GroundPenetration,
 };
 
 /**
@@ -89,6 +100,32 @@ struct MpcFormulationTasks {
 
   bool hasHardConstraint(MpcHardConstraintType type) const { return hardConstraints.contains(type); }
 };
+
+/**
+ * @brief Whether the contact constraints may be gated on the mode schedule's contact flags.
+ *
+ * The friction cone, the wrench cone, the centre-of-pressure limits and the non-negativity of the basis scalings were
+ * all written to switch themselves off while the schedule calls a foot a swing foot. That was only ever sound because
+ * the hard `zero_wrench` constraint pinned the swinging foot's wrench to zero, so there was nothing left for a cone to
+ * bound. The contact-implicit formulation removes `zero_wrench` - loadMpcFormulationTasks() insists on it - and with
+ * it the reason those terms could be switched off. Left gated, a foot the schedule calls a swing foot would carry an
+ * unbounded wrench: adhesion, unlimited friction, a centre of pressure anywhere.
+ *
+ * So the gate follows `zero_wrench` rather than the contact-implicit terms themselves. That is the narrower and the
+ * stronger condition: it is also correct for a task file that drops `zero_wrench` without listing the
+ * contact-implicit terms, which the loader permits and which keying off those terms would leave unguarded.
+ *
+ * See humanoid_nmpc/docs/contact_implicit_mpc/README.md.
+ */
+bool contactConstraintsAreScheduleGated(const MpcFormulationTasks& formulationTasks);
+
+/**
+ * @brief Whether the task file selects the contact-implicit formulation, i.e. lists any of its three terms.
+ *
+ * The three are listed together or not at all - loadMpcFormulationTasks() rejects `contact_complementarity` without
+ * `ground_penetration` - so this is a single question about the formulation rather than about one term.
+ */
+bool usesContactImplicitFormulation(const MpcFormulationTasks& formulationTasks);
 
 // String to Enum conversions (supports snake_case and camelCase, case-insensitive)
 absl::StatusOr<MpcCostType> stringToMpcCostType(absl::string_view name);

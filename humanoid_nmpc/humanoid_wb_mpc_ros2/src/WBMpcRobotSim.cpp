@@ -130,6 +130,8 @@ int main(int argc, char** argv) {
   // ContactEstimatorRegistry: MPC observation mode and the contact wrenches the inverse dynamics projects).
   std::string contactEstimatorName = robot::mujoco_sim_interface::kCheaterSimContactEstimatorName;
   double simContactForceThreshold = 5.0;
+  // [rad] tilt of the base past which the robot is caught on the gantry; 0 leaves a fallen robot where it lands.
+  double simMaxBaseTiltAngle = 0.0;
   double simContactTimelineWindow = 5.0;
   // Viewer visualizations by name (VisualizationRegistry.h); absent: the viewer's default set.
   std::vector<std::string> simVisualizations = robot::mujoco_sim_interface::defaultVisualizationNames();
@@ -137,11 +139,14 @@ int main(int argc, char** argv) {
     YAML::Node taskYaml = YAML::LoadFile(taskFile);
     if (taskYaml["contactEstimator"]) contactEstimatorName = taskYaml["contactEstimator"].as<std::string>();
     if (taskYaml["simContactForceThreshold"]) simContactForceThreshold = taskYaml["simContactForceThreshold"].as<double>();
+    if (taskYaml["simMaxBaseTiltAngle"]) simMaxBaseTiltAngle = taskYaml["simMaxBaseTiltAngle"].as<double>();
     if (taskYaml["simContactTimelineWindow"]) simContactTimelineWindow = taskYaml["simContactTimelineWindow"].as<double>();
     if (taskYaml["simVisualizations"]) simVisualizations = taskYaml["simVisualizations"].as<std::vector<std::string>>();
   } catch (const std::exception& e) {
     LOG(WARNING) << "Failed to read the simulator contact settings from " << taskFile << ": " << e.what();
   }
+
+  fsmBridge.setMaxBaseTiltAngle(simMaxBaseTiltAngle);
 
   robot::mujoco_sim_interface::MujocoSimConfig config;
 
@@ -296,7 +301,26 @@ int main(int argc, char** argv) {
     }
 
     rclcpp::spin_some(nodeHandle);
+    const bool gantryBefore = robotInterface.isGantryLocked();
+    // A robot that has tipped past the configured tilt is caught on the gantry and put in JOINT_PD. Placed before
+    // processCommands() so that the lock is part of the same transition the block below reacts to.
+    fsmBridge.recoverFromFall(robotInterface.getRobotState(), robotInterface, currentModeName);
     fsmBridge.processCommands(currentModeName, robotInterface);
+    const bool gantryAfter = robotInterface.isGantryLocked();
+
+    // The gantry changing state invalidates the solver's warm start either way: locking pins the floating base the
+    // trajectory was solved for, unlocking releases a base the solver still believes is pinned.
+    if (gantryBefore != gantryAfter) {
+      mpcJointController.requestMpcReset();
+      if (gantryAfter) {
+        // Locked: the whole-body MPC is overconstrained against a pinned base, so hold the posture instead.
+        currentModeName = "JOINT_PD";
+        fsmBridge.publishFsmState(currentModeName, gantryAfter);
+        LOG(INFO) << "Gantry locked — switching to JOINT_PD mode and resetting MPC.";
+      } else {
+        LOG(INFO) << "Gantry unlocked — resetting MPC.";
+      }
+    }
 
     auto currentTime = std::chrono::steady_clock::now();
     if (currentTime > targetTimeForNextIteration) {

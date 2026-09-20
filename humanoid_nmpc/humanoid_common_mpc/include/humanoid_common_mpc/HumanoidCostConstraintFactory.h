@@ -62,7 +62,8 @@ class HumanoidCostConstraintFactory {
                                 const MpcRobotModelBase<scalar_t>& mpcRobotModel,
                                 const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
                                 const ModelSettings& modelSettings,
-                                bool verbose = false);
+                                bool verbose = false,
+                                bool scheduleGatedContactConstraints = true);
 
   ~HumanoidCostConstraintFactory() = default;
   HumanoidCostConstraintFactory(const HumanoidCostConstraintFactory& other) = delete;
@@ -124,6 +125,15 @@ class HumanoidCostConstraintFactory {
   const MpcRobotModelBase<ad_scalar_t>* mpcRobotModelADPtr_;
   const ModelSettings& modelSettings_;
   const bool verbose_;
+  /**
+   * Whether the contact cones this factory builds may switch themselves off while the mode schedule calls a foot a
+   * swing foot. See contactConstraintsAreScheduleGated() in common/MpcFormulationConfig.h: it follows the hard
+   * `zero_wrench` constraint, which is what used to make the gate sound, and the contact-implicit formulation removes
+   * it. When false the cones are also built with a squared-hinge penalty instead of a relaxed log barrier, because a
+   * log barrier has a large negative derivative at zero slack and would pay a foot in flight to leave the origin -
+   * i.e. would reinvent the force floor that dropping the affine cone offsets exists to remove.
+   */
+  const bool scheduleGatedContactConstraints_;
 
   /// Optional: when set, R is loaded in wrench dims then transformed to basis-vector space.
   std::optional<matrix_t> basisToWrenchMap_;  // M: wrenchInputDim × basisInputDim

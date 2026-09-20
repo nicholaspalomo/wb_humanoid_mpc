@@ -126,6 +126,9 @@ class MpcRobotModelBase {
 
   virtual void setBaseOrientationEulerZYX(VECTOR_T<SCALAR_T>& state, const VECTOR3_T<SCALAR_T>& eulerAnglesZYX) const = 0;
 
+  /** The counterpart of getBaseComLinearVelocity(), with the same meaning in each model's state layout. */
+  virtual void setBaseComLinearVelocity(VECTOR_T<SCALAR_T>& state, const VECTOR3_T<SCALAR_T>& velocity) const = 0;
+
   virtual void setJointAngles(VECTOR_T<SCALAR_T>& state, const VECTOR_T<SCALAR_T>& jointAngles) const = 0;
 
   virtual void setJointVelocities(VECTOR_T<SCALAR_T>& state,

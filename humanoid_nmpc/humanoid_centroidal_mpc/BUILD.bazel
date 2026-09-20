@@ -138,6 +138,172 @@ cc_test(
 )
 
 cc_test(
+    name = "testHlipPlanningIntegration",
+    size = "large",
+    srcs = ["test/testHlipPlanningIntegration.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+        "-DBOOST_VARIANT_LIMIT_TYPES=50",
+        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+    ],
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":humanoid_centroidal_mpc",
+        "@googletest//:gtest_main",
+        "@ros2_ament_index_cpp",
+    ],
+)
+
+# Shared fixture for the contact-term tests: the DRC Atlas model in both input parameterizations, a reference manager
+# whose contact flags the test dictates, and the finite-difference derivative check. Several tests need "a reference
+# manager that says swing while I check a constraint is still active", and duplicating that setup per test file is how
+# the fixtures drift apart.
+cc_library(
+    name = "contact_test_support",
+    testonly = True,
+    srcs = ["test/support/DrcAtlasContactTestModel.cpp"],
+    hdrs = [
+        "test/support/DrcAtlasContactTestModel.h",
+        "test/support/FiniteDifferenceChecks.h",
+    ],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+        "-DBOOST_VARIANT_LIMIT_TYPES=50",
+        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+    ],
+    strip_include_prefix = "test",
+    deps = [
+        ":humanoid_centroidal_mpc",
+        "@googletest//:gtest",
+        "@ros2_ament_index_cpp",
+    ],
+)
+
+cc_test(
+    name = "testContactImplicitFormulation",
+    size = "large",
+    srcs = ["test/testContactImplicitFormulation.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+        "-DBOOST_VARIANT_LIMIT_TYPES=50",
+        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+    ],
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":humanoid_centroidal_mpc",
+        "@googletest//:gtest_main",
+        "@ros2_ament_index_cpp",
+    ],
+)
+
+cc_test(
+    name = "testContactImplicitTermsOnBasisInputs",
+    size = "large",
+    srcs = ["test/testContactImplicitTermsOnBasisInputs.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+        "-DBOOST_VARIANT_LIMIT_TYPES=50",
+        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+    ],
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":contact_test_support",
+        ":humanoid_centroidal_mpc",
+        "@googletest//:gtest_main",
+        "@ros2_ament_index_cpp",
+    ],
+)
+
+cc_test(
+    name = "testContactConstraintScheduleGating",
+    size = "large",
+    srcs = ["test/testContactConstraintScheduleGating.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+        "-DBOOST_VARIANT_LIMIT_TYPES=50",
+        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+    ],
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":contact_test_support",
+        ":humanoid_centroidal_mpc",
+        "@googletest//:gtest_main",
+        "@ros2_ament_index_cpp",
+    ],
+)
+
+cc_test(
+    name = "testRelaxedContactConstraints",
+    # Deliberately "large" even though a warm run takes about 70 s, which makes Bazel suggest "medium". The first run
+    # on a clean tree generates the footprint-corner CppAD model, and code generation in this repository routinely runs
+    # for several hundred seconds; a 300 s timeout would make the test flaky exactly when the cache is cold.
+    size = "large",
+    srcs = ["test/testRelaxedContactConstraints.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+        "-DBOOST_VARIANT_LIMIT_TYPES=50",
+        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+    ],
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":humanoid_centroidal_mpc",
+        "@googletest//:gtest_main",
+        "@ros2_ament_index_cpp",
+    ],
+)
+
+cc_test(
     name = "testContactPlanningIntegration",
     size = "large",
     srcs = ["test/testContactPlanningIntegration.cpp"],

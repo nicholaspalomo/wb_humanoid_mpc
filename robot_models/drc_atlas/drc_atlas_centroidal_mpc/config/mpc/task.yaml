@@ -1,10 +1,18 @@
 # Simulation & Telemetry Configuration
 enableTelemetry: true        # Enable high-rate ROS 2 telemetry publishing for PlotJuggler
-telemetryFrequency: 100      # [Hz] Telemetry publishing frequency (decimated from MRT loop)
+telemetryFrequency: 100  # [Hz] Telemetry publishing frequency (decimated from MRT loop)
 # MuJoCo simulator only (mujoco_sim.launch.py). The viewer's contact timeline ('b' toggles it) shows, per contact point,
 # the contact state the executed MPC policy plans against the simulator's ground truth over a sliding window of time.
-simContactTimelineWindow: 5.0          # [s] width of the sliding window
-simContactForceThreshold: 5.0          # [N] normal force above which a contact point counts as touching (ground truth)
+simContactTimelineWindow: 5  # [s] width of the sliding window
+simContactForceThreshold: 5  # [N] normal force above which a contact point counts as touching (ground truth)
+# Fall recovery: the tilt of the base past which the simulator catches the robot on the gantry, reattaching it upright
+# at the gantry height, switching to JOINT_PD (the whole-body MPC is overconstrained against a pinned base) and
+# resetting the MPC. The remote control follows the same transition and re-centres its joysticks, so a stick left
+# forward cannot keep commanding a walk into a robot hanging from the harness. The measure is the angle between the
+# base's own vertical and the world vertical, so it is heading independent: 0 upright, pi/2 on its side, pi upside
+# down. 0 disables the recovery and leaves a fallen robot where it lands, which is what you want when the fall itself
+# is the thing being studied. 1.0 rad (57 deg) is past any recoverable lean.
+simMaxBaseTiltAngle: 1  # [rad] 0 disables
 # Measured contact state of the controller, by name (robot_model/ContactEstimatorRegistry.h): the MPC observation mode and
 # which planned contact wrenches the inverse dynamics projects into feedforward torques. One of:
 #   cheater_sim        the ground truth of the physics (normal force above simContactForceThreshold); required for the
@@ -38,7 +46,7 @@ simVisualizations:
 enableOnlineTuning: true     # Enable runtime parameter and gain tuning in Controller GUI
 useContactBasisVectorInputs: true  # Set true to use basis-vector scalings λ as MPC contact inputs (instead of direct wrenches)
 useComAndAcomTracking: true      # Set true to regulate CoM + Angular Center of Mass (ACoM) instead of base pose
-useContactPlanning: true        # Set true to plan the contact sequence, timing and footholds online with the mixed-integer contact planner (replaces the gait schedule)
+useContactPlanning: false        # Set true to plan the contact sequence, timing and footholds online with the mixed-integer contact planner (replaces the gait schedule)
 # The planner's parameters are the contact_planning block of contact_planning.yaml next to this file (hot-reloaded and
 # edited by the tuning GUI like this file).
 useDcmTerminalCost: true         # Set true to end the horizon with the DCM (capture point) viability cost; Q_final / terminal_cost are then ignored
@@ -55,19 +63,24 @@ useDcmTerminalCost: true         # Set true to end the horizon with the DCM (cap
 # lowering Q_acom. Expect Q_acom to need reducing relative to the base pose
 # weights it replaces, because the learned coordinate carries roughly 17% model
 # error that the directly measured base pose did not.
+# Every entry here is multiplied by `scaling`, so the effective weights are 2125, 2125 and 1275. The x and y entries
+# carried the word "unpenalized" while sitting at 2125 - they were 0 until the tuning pass in 4a94058 raised them, and
+# the comment was not updated. They are NOT unpenalized: the horizontal CoM is regulated hard against p_com(q_ref),
+# which for a walking robot is a moving target the gait is meant to be free to lead or lag. If stepping feels like it
+# is fighting a horizontal spring, this is the first place to look.
 Q_com:
   scaling: 85
-  "(0,0)": 0  # p_com_x (unpenalized, matches p_base_x)
-  "(1,1)": 0  # p_com_y (unpenalized, matches p_base_y)
-  "(2,2)": 15  # p_com_z (matches p_base_z)
+  "(0,0)": 25  # p_com_x - effective weight 2125, matches p_base_x
+  "(1,1)": 25  # p_com_y - effective weight 2125, matches p_base_y
+  "(2,2)": 15  # p_com_z - effective weight 1275, matches p_base_z
 
 # ACoM rows follow the centroidal state's ZYX Euler convention, the same ordering
 # as Q entries (9,9) through (11,11). Row 0 is yaw, not roll.
 Q_acom:
-  scaling: 50
+  scaling: 100
   "(0,0)": 25  # theta_acom_z / yaw (matches theta_base_z)
-  "(1,1)": 50  # theta_acom_y / pitch (matches theta_base_y)
-  "(2,2)": 20  # theta_acom_x / roll (matches theta_base_x)
+  "(1,1)": 150  # theta_acom_y / pitch (matches theta_base_y)
+  "(2,2)": 50  # theta_acom_x / roll (matches theta_base_x)
 
 
 # Targeted Pinocchio frames for telemetry logging (position, orientation, twist, accel, wrench)
@@ -80,15 +93,124 @@ telemetryFrames:
 centroidalModelType: 0  # 0: FullCentroidalDynamics, 1: Single Rigid Body Dynamics
 
 # MPC Problem Formulation Tasks
+# Which contact formulation runs. As shipped the mode schedule gates the contact constraints: the swing foot's wrench is
+# forced to zero and the stance foot is held still, both from the schedule the contact planner produced, so the MPC cannot
+# depart from that schedule. The contact-implicit alternative below replaces those two with the relaxed complementarity
+# conditions of rigid contact and lets the solver decide where each foot carries load, which is the second half of
+# arXiv:2502.15630 (humanoid_nmpc/docs/contact_implicit_mpc/README.md). It changes the closed loop, so it is off until it
+# has been validated in MuJoCo: to switch, drop zero_wrench, zero_velocity AND normal_velocity below and add the three
+# terms marked `contact-implicit` to soft_constraints. loadMpcFormulationTasks refuses the half-way combinations.
+#
+# normal_velocity has to go from hard_constraints with the other two. It is a HARD equality on the contact frame's
+# vertical velocity for every foot the schedule calls a swing foot, so - the foot's height at lift-off being given - it
+# fixes the entire height profile of the swing. The solver can then neither land early, nor land late, nor keep a foot
+# down, which are the three freedoms the contact-implicit formulation exists to provide; and where it does want load
+# early, the only variable left is the normal force, so the complementarity product gets driven to zero by removing the
+# force instead of by closing the gap.
+#
+# But it must be LISTED IN soft_constraints in its place, and that is not optional either. Deleting it outright leaves
+# nothing with the authority to lift a foot: the only remaining vertical term is task_space_foot_cost_weights.pos_z at
+# 150, against the leg-joint entries of Q, which regularise the swing leg towards a standing crouch whose reference is
+# the foot ON THE FLOOR. That is roughly a 100:1 fight, the static equilibrium swing height is a couple of millimetres,
+# and - because the same leg is about eighty times more compliant horizontally than vertically at this crouch - the
+# solver slides the foot instead of lifting it. The robot shuffles. As a soft constraint the same row shapes the swing
+# and is overruled whenever anything else pays more, which is what the formulation wants of a schedule-derived
+# reference; its weight is model_settings.foot_constraint.normalVelocitySoftConstraintWeight.
 hard_constraints:
-  - zero_wrench
-  - normal_velocity
-  - zero_velocity
+  - zero_wrench                       # remove for the contact-implicit formulation
+  - normal_velocity                   # remove for the contact-implicit formulation
+  - zero_velocity                     # remove for the contact-implicit formulation
 
 soft_constraints:
   - joint_limits
   - foot_collision
   - contact_wrench_cone
+  # - normal_velocity                 # contact-implicit: the swing-foot vertical servo, PRICED instead of imposed.
+                                    #   Required whenever normal_velocity is dropped from hard_constraints above, or
+                                    #   nothing has the authority to lift a foot and the robot shuffles.
+  # - contact_complementarity         # contact-implicit: f_n * h = 0, load only where the foot touches the ground
+  # - force_weighted_slip             # contact-implicit: f_n * v_xy = 0, a loaded foot is held still
+  # - ground_penetration              # contact-implicit: h >= 0, required alongside contact_complementarity
+
+# The nominal foothold reference, used only when useContactPlanning is false. Without a contact planner the swing foot
+# has no horizontal target at all - the foot cost switches its xy position weights off - and the only thing that ever
+# fixed foot placement was the stance foot being pinned by the zero_velocity constraint. The contact-implicit terms
+# below remove that pin by design, so with both off nothing has an opinion about where the feet go sideways: they drift
+# together until the robot falls. A positive stepWidth restores a target, placing each foot that far to its own side of
+# the reference base pose and letting forward placement follow the commanded motion.
+#
+# It is a foot placement heuristic, which is what the reduced-order planner exists to avoid, so it is 0 (off) by
+# default. Set it to test the contact-implicit formulation on its own, before enabling the contact planner on top.
+#
+# stepWidth is the full distance between the feet: each foot is placed half of it to its own side of the base. How hard
+# the foot is held to that target is task_space_foot_cost_weights.pos_x / pos_y, the same weights the planned foothold
+# uses, so tuning them here carries over to useContactPlanning: true. pos_y is the one that keeps the feet apart.
+# LINT.IfChange(nominal_foothold_config)
+nominal_foothold:
+  stepWidth: 0.45  # [m] lateral distance between the feet; 0 disables the nominal reference
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/common/ModelSettings.cpp:nominal_foothold_yaml_path)
+
+# [m] Where the ground is, for everything that needs to know: the swing trajectories, the landing targets, and the
+# contact-implicit complementarity and ground-penetration terms. There used to be two answers - the reference manager
+# computed an estimate from the stance feet and discarded it, returning a hard-coded 0, while the contact-implicit
+# terms read their own `contact_implicit.terrainHeight`. They agreed only because both were pinned to the same
+# constant. A constant is correct here because every layer of this stack assumes flat ground, the reduced-order contact
+# planner most of all; a measured estimator would belong here as a named selection, not as a second constant.
+# LINT.IfChange(terrain_height_config)
+terrainHeight: 0
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/common/ModelSettings.cpp:terrain_height_yaml_path, //humanoid_nmpc/humanoid_centroidal_mpc/src/mrt/MpcParameterUpdaterModule.cpp:terrain_height_updater_yaml_path)
+
+# Weights of the contact-implicit terms above; read whether or not they are listed, ignored when they are not.
+# LINT.IfChange(contact_implicit_config)
+contact_implicit:
+  # The two residuals are normalised before they are penalised: (f_n/f_ref)(h/h_ref) and (f_n/f_ref)(v/v_ref), with
+  # f_ref the robot's weight taken from the model. So the two weights below are dimensionless, they are directly
+  # comparable with the task_space_foot_cost_weights they compete against, and each is the cost of the worst case its
+  # term can describe - a foot at the reference height, or sliding at the reference speed, carrying full body weight.
+  #
+  # They used to weight the raw products in N m and N m/s, which no single number could do. A quadratic penalty on
+  # f_n h puts a curvature of w f_n^2 on the foot height, and on this robot f_n^2 ranges over nine orders of magnitude
+  # between a foot in flight and a foot carrying all 160 kg. Even at 50, a swing foot leaking 50 N was held in z more
+  # than a thousand times as stiffly as by pos_z - and since f_n h = 0 is satisfied just as well by putting the foot
+  # down as by taking the force off it, the cheapest way to pay was to land early. See
+  # humanoid_nmpc/docs/contact_implicit_mpc/README.md.
+  complementarityWeight: 50  # the price of carrying full body weight at the reference height
+  slipWeight: 150  # the price of sliding at the reference speed under full body weight
+  # Weight of the one-sided quadratic hinge on h >= 0: the cost is penetrationWeight * h^2 / 2 below the ground and
+  # exactly zero on or above it. This was a relaxed log barrier (mu 0.1, delta 0.01), which is the wrong object for a
+  # condition whose solution lies ON the boundary: a log barrier never reaches zero, so its derivative at h = 0 was
+  # -2*mu/delta = -20, constant and upward. The only term pulling a foot back down was the complementarity penalty, and
+  # balancing the two left a fully loaded foot 2.6 mm off the ground and a foot at half body weight - i.e. both feet,
+  # throughout double support - a full centimetre off it, carrying a permanent complementarity residual that no weight
+  # could tune away. The hinge is zero in value AND gradient at h = 0, so it simply does nothing until the foot is
+  # actually below ground.
+  #
+  # 5e4 puts a 1 cm penetration at a gradient of 500, decisively above everything that could push a foot down there
+  # (task_space_foot_cost_weights.pos_z contributes about 1 at that depth), while its curvature is the same order as
+  # the complementarity term's own (complementarityWeight / heightReference^2 = 7.8e3), so it does not wreck the QP's
+  # conditioning.
+  penetrationWeight: 5.0e4  # weight of the hinge on h >= 0
+  # Where the ground is is NOT here: it is the top-level `terrainHeight` below, so that the complementarity conditions
+  # and the swing trajectories cannot be configured against two different grounds.
+  # The references the residuals are measured in. heightReference should track swing_trajectory_config.swingHeight:
+  # it is the height at which a fully loaded foot is as wrong as this term can describe.
+  heightReference: 0.08  # swing trajectory height reference [m]
+  # A slide and a pivot that would already be failures. These are what make the residual dimensionless, so they belong
+  # at the scale of a real failure rather than at the scale of solver noise: at 0.03 m/s the slip term's curvature on a
+  # loaded foot's tangential velocity is slipWeight / 0.03^2 = 1.7e5, which is effectively a hard constraint and a
+  # hundred times the scale the normalisation argument in the README was written for.
+  velocityReference: 0.3  # [m/s] a sliding speed that would already be a failure
+  angularVelocityReference: 1.0  # [rad/s] a pivot rate that would already be a failure
+  # The gap in the complementarity product is the height of the LOWEST footprint corner, the same points the
+  # penetration hinge uses - not the centre of the sole. A foot rocked onto its heel reads a positive centre height
+  # while it is carrying the whole robot, and the product then charges for a contact that physically exists. The exact
+  # minimum of the four corners is not differentiable at a flat foot, which is most of stance, so it is blended over
+  # this length. The blend never reports less clearance than the true minimum, and over-reports by
+  # gapSmoothing * log(4 / k) where k is how many corners are down: nothing for a flat foot, 0.69 mm for an edge - the
+  # ordinary heel strike - and 1.39 mm in the worst case of a single corner. The penetration hinge answers those with
+  # about 0.09 mm and 0.19 mm of penetration respectively.
+  gapSmoothing: 1.0e-3  # [m] length scale the footprint corners' minimum height is blended over
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/common/ModelSettings.cpp:contact_implicit_yaml_path)
 
 costs:
   - state_quadratic_cost
@@ -104,7 +226,7 @@ useGravityCompFeedforward: false
 # previous mode's action is held until the first policy solved after the entry reset is active (the MRT keeps handing out
 # the pre-reset policy until then), and targets, gains and feedforward torques are then ramped linearly into the MPC
 # action over this duration. Try 0.3 to 0.5 once validated in MuJoCo.
-mpcEntryBlendTime: 2.0
+mpcEntryBlendTime: 2
 # Touch-down shaping of the planned contact wrenches in the inverse dynamics of the MRT joint controller. A foot's planned
 # wrench is projected into feedforward torques only while the foot is measured in contact (contactEstimator above). By
 # default it is applied in full from the first control cycle of measured contact, i.e. as a step at the first heel or toe
@@ -116,7 +238,7 @@ mpcEntryBlendTime: 2.0
 # onset stays well inside the phase_resetting debounce of the schedule (earlyTouchdownMinContactDuration) plus one node.
 contact_wrench_gate:
   debounceTime: 0.01  # [s]
-  rampTime: 0.04      # [s]
+  rampTime: 0.04  # [s]
 
 interface:
   verbose: true  # show the loaded parameters
@@ -140,7 +262,7 @@ model_settings:
     # velocity was 5x the tracking lag, so the foot kicked into the ground and the
     # zero_velocity constraint then had to absorb that velocity in one 0.02 s
     # shooting interval, which threw the body upward once per step.
-    positionErrorGain_z: 2.0
+    positionErrorGain_z: 5.0
     orientationErrorGain: 0.1
     linearVelocityErrorGain_z: 0.1
     linearVelocityErrorGain_xy: 0.1
@@ -149,6 +271,23 @@ model_settings:
     linearAccelerationErrorGain_xy: 0
     angularAccelerationErrorGain: 0
     softConstraintWeight: 250
+    # Weight of the SOFT `normal_velocity` term, when it is listed in soft_constraints. The residual is the same row
+    # the hard constraint imposes - v_z - zdot_ref - positionErrorGain_z * (z_ref - z) - so this one number buys the
+    # swing-foot vertical servo as a cost the solver can trade off, instead of an equality it cannot.
+    #
+    # Why one weight rather than two task-space weights: the hard row combines a velocity feedforward and a position
+    # feedback in a fixed ratio, and the foot cost cannot reproduce that at ANY pair of pos_z / lin_velocity_z, because
+    # only its velocity rows are faded by the impact-proximity factor while its position rows are not. Splitting the
+    # servo across two differently-faded channels gives a different controller at every point of the swing.
+    #
+    # Sizing: the residual is in m/s and is essentially affine in the input (the joint velocities ARE inputs of the
+    # centroidal model), so a large Gauss-Newton weight here is well conditioned even with a single SQP iteration per solve. A foot stuck
+    # on the ground at mid-swing has a residual of -positionErrorGain_z * swingHeight = -0.16 m/s. The term has to
+    # outbid the leg-joint entries of Q, which regularise the swing leg towards the standing crouch - a posture whose
+    # reference is the foot ON THE FLOOR (defaultBaseHeight equals the pelvis-to-sole distance at defaultJointState),
+    # so every millimetre of lift is charged against Q at an effective vertical stiffness of order 1e4.
+    # 500 is a starting point, not a tuned value. Sweep it; it is hot-reloadable.
+    normalVelocitySoftConstraintWeight: 500
     constrainOrientation: true
     # The orientation error to the ground plane only measures the tilt of the foot normal, so with constrainOrientation
     # the last row of the 6D stance constraint is identically zero and the foot may pivot about the contact normal.
@@ -204,7 +343,7 @@ swing_trajectory_config:
   # to come from positionErrorGain_z acting on the tracking error.
   touchDownVelocity: -0.05
   swingHeight: 0.08  # was 0.16; the higher apex made the descent steeper and widened the foot-pitch excursion
-  touchDownHeightOffset: -0.001
+  touchDownHeightOffset: 0.02
   # Swings shorter than this are scaled down in height AND velocity by swingDuration / swingTimeScale
   # (SwingTrajectoryPlanner::swingTrajectoryScaling). It must therefore stay <= contact_planning.yaml
   # minSwingDuration, or lowering the swing duration to raise the cadence silently shrinks the foot clearance:
@@ -265,46 +404,46 @@ mpc:
 
 initialState:
   # ; Normalized Centroidal Momentum: [linear, angular] ;;
-  "(0,0)": 0.0  # h_com_x / robotMass
-  "(1,0)": 0.0  # h_com_y / robotMass
-  "(2,0)": 0.0  # h_com_z / robotMass
-  "(3,0)": 0.0  # L_x / robotMass
-  "(4,0)": 0.0  # L_y / robotMass
-  "(5,0)": 0.0  # L_z / robotMass
+  "(0,0)": 0  # h_com_x / robotMass
+  "(1,0)": 0  # h_com_y / robotMass
+  "(2,0)": 0  # h_com_z / robotMass
+  "(3,0)": 0  # L_x / robotMass
+  "(4,0)": 0  # L_y / robotMass
+  "(5,0)": 0  # L_z / robotMass
 
   # ; Base Pose: [position, orientation] ;;
-  "(6,0)": 0.0  # p_base_x
-  "(7,0)": 0.0  # p_base_y
+  "(6,0)": 0  # p_base_x
+  "(7,0)": 0  # p_base_y
   "(8,0)": 0.8952  # p_base_z
-  "(9,0)": 0.0  # theta_base_z
-  "(10,0)": 0.0  # theta_base_y
-  "(11,0)": 0.0  # theta_base_x
+  "(9,0)": 0  # theta_base_z
+  "(10,0)": 0  # theta_base_y
+  "(11,0)": 0  # theta_base_x
 
   # ; Joint Positions: ;;
-  "(12,0)": 0.0  # back_bkz
-  "(13,0)": 0.0  # back_bky
-  "(14,0)": 0.0  # back_bkx
+  "(12,0)": 0  # back_bkz
+  "(13,0)": 0  # back_bky
+  "(14,0)": 0  # back_bkx
   "(15,0)": 0.3  # l_arm_shz
   "(16,0)": -1.2  # l_arm_shx
   "(17,0)": 2.2  # l_arm_ely
   "(18,0)": 0.55  # l_arm_elx
-  "(19,0)": 0.0  # neck_ry
+  "(19,0)": 0  # neck_ry
   "(20,0)": -0.3  # r_arm_shz
   "(21,0)": 1.2  # r_arm_shx
   "(22,0)": 2.2  # r_arm_ely
   "(23,0)": -0.55  # r_arm_elx
-  "(24,0)": 0.0  # l_leg_hpz
-  "(25,0)": 0.0  # l_leg_hpx
+  "(24,0)": 0  # l_leg_hpz
+  "(25,0)": 0  # l_leg_hpx
   "(26,0)": -0.42  # l_leg_hpy
   "(27,0)": 0.84  # l_leg_kny
   "(28,0)": -0.42  # l_leg_aky
-  "(29,0)": 0.0  # l_leg_akx
-  "(30,0)": 0.0  # r_leg_hpz
-  "(31,0)": 0.0  # r_leg_hpx
+  "(29,0)": 0  # l_leg_akx
+  "(30,0)": 0  # r_leg_hpz
+  "(31,0)": 0  # r_leg_hpx
   "(32,0)": -0.42  # r_leg_hpy
   "(33,0)": 0.84  # r_leg_kny
   "(34,0)": -0.42  # r_leg_aky
-  "(35,0)": 0.0  # r_leg_akx
+  "(35,0)": 0  # r_leg_akx
 
 # standard state weight matrix
 Q:
@@ -324,9 +463,9 @@ Q:
   # locked angular velocity, so penalising angular momentum heavily fights the
   # torso and arm counter-rotation the aCOM cost is there to produce. What is
   # left provides damping only; orientation itself is regulated by Q_acom.
-  "(3,3)": 5  # L_x / robotMass
+  "(3,3)": 20  # L_x / robotMass
   "(4,4)": 25  # L_y / robotMass
-  "(5,5)": 2  # L_z / robotMass
+  "(5,5)": 5  # L_z / robotMass
 
   # ; Base Pose: [position, orientation] ;;
   # Ignored while useComAndAcomTracking is true: the factory zeroes this 6x6
@@ -342,9 +481,9 @@ Q:
   # ; Joint Positions ;;
   # Reduced for CoM + ACoM tracking: the torso is the main contributor to the
   # learned orientation offset, so it must be free to rotate.
-  "(12,12)": 10  # back_bkz
-  "(13,13)": 25  # back_bky
-  "(14,14)": 25  # back_bkx
+  "(12,12)": 5  # back_bkz
+  "(13,13)": 5  # back_bky
+  "(14,14)": 15  # back_bkx
   "(15,15)": 0.1  # l_arm_shz
   "(16,16)": 0.1  # l_arm_shx
   "(17,17)": 0.1  # l_arm_ely
@@ -379,32 +518,32 @@ R:
   scaling: 1
 
   # ; Feet Contact Forces: [LF, RF, LH, RH] ;;
-  "(0,0)": 0.0001  # left_force_x
-  "(1,1)": 0.0002  # left_force_y
-  "(2,2)": 0.0005  # left_force_z
-  "(3,3)": 0.0002  # left_moment_x
-  "(4,4)": 0.0001  # left_moment_y
-  "(5,5)": 0.002  # left_moment_z
-  "(6,6)": 0.0001  # right_force_x
-  "(7,7)": 0.0002  # right_force_y
-  "(8,8)": 0.0005  # right_force_z
-  "(9,9)": 0.0002  # right_moment_x
-  "(10,10)": 0.0001  # right_moment_y
-  "(11,11)": 0.002  # right_moment_z
+  "(0,0)": 1.0e-05  # left_force_x
+  "(1,1)": 2.0e-05  # left_force_y
+  "(2,2)": 5.0e-05  # left_force_z
+  "(3,3)": 2.0e-05  # left_moment_x
+  "(4,4)": 1.0e-05  # left_moment_y
+  "(5,5)": 0.0002  # left_moment_z
+  "(6,6)": 1.0e-05  # right_force_x
+  "(7,7)": 2.0e-05  # right_force_y
+  "(8,8)": 5.0e-05  # right_force_z
+  "(9,9)": 2.0e-05  # right_moment_x
+  "(10,10)": 1.0e-05  # right_moment_y
+  "(11,11)": 0.0002  # right_moment_z
 
   # ; Joint Velocities ;;
-  "(12,12)": 1000  # back_bkz
-  "(13,13)": 1000  # back_bky
-  "(14,14)": 25  # back_bkx
-  "(15,15)": 10  # l_arm_shz
-  "(16,16)": 10  # l_arm_shx
-  "(17,17)": 20  # l_arm_ely
-  "(18,18)": 20  # l_arm_elx
+  "(12,12)": 1  # back_bkz
+  "(13,13)": 1  # back_bky
+  "(14,14)": 1  # back_bkx
+  "(15,15)": 1  # l_arm_shz
+  "(16,16)": 1  # l_arm_shx
+  "(17,17)": 2  # l_arm_ely
+  "(18,18)": 2  # l_arm_elx
   "(19,19)": 100  # neck_ry
-  "(20,20)": 10  # r_arm_shz
-  "(21,21)": 10  # r_arm_shx
-  "(22,22)": 20  # r_arm_ely
-  "(23,23)": 20  # r_arm_elx
+  "(20,20)": 1  # r_arm_shz
+  "(21,21)": 1  # r_arm_shx
+  "(22,22)": 2  # r_arm_ely
+  "(23,23)": 2  # r_arm_elx
   "(24,24)": 500  # l_leg_hpz
   "(25,25)": 5  # l_leg_hpx
   "(26,26)": 0.001  # l_leg_hpy
@@ -508,16 +647,25 @@ icp_cost_weights:
 
 task_space_foot_cost_weights:
   activeInStance: false
-  # pos_x / pos_y track the planned swing-foot landing spot and are only applied while a contact plan provides one
-  # (useContactPlanning: true); without a plan the xy position error is switched off inside the cost.
-  # Restored from 0: with useContactPlanning the foot cost takes the planner's xy reference, and the else-branch
-  # heuristic that used to give the swing foot a forward velocity reference is then skipped. At 0 the swing foot had no
-  # longitudinal guidance at all, under-reached, and was still travelling forward when its height reference hit zero.
-  # If the landing target jitters, damp it with contact_planning.previousFootholdWeight / planConsistencyCost rather
-  # than by zeroing these again.
-  pos_x: 30
-  pos_y: 30
-  pos_z: 100
+  # pos_x / pos_y weigh the swing foot against wherever it is being told to land. They are live whenever something
+  # supplies a horizontal target, and switched off inside the cost when nothing does:
+  #
+  #   useContactPlanning: true          the planned foothold (the contact planner decides where the foot goes)
+  #   nominal_foothold.stepWidth > 0    the nominal foothold, half that width to the foot's own side of the reference
+  #                                     base pose (see the nominal_foothold block above)
+  #   neither                           no xy target exists, and these two weights are forced to 0 per solve
+  #
+  # pos_y is what holds the feet apart, and it is competing with the whole-body costs, which would often rather move the
+  # base than swing the leg out; raise it if the feet converge. pos_x tracks the foot to the target's forward position,
+  # which without a planner means following the reference base as it advances, on top of the swing velocity reference
+  # (lin_velocity_x / _y) that the no-target branch would otherwise provide on its own.
+  #
+  # Restored from 0: at 0 the swing foot had no longitudinal guidance at all, under-reached, and was still travelling
+  # forward when its height reference hit zero. If a planned landing target jitters, damp it with
+  # contact_planning.previousFootholdWeight / planConsistencyCost rather than by zeroing these again.
+  pos_x: 0
+  pos_y: 0
+  pos_z: 150
   # Raised from 100. This is the only thing holding the swing foot level, and it competes with the joint regularization
   # Q(28,28) = 5 * 85 = 425 that pulls l_leg_aky back to its nominal -0.42 -- which, with the knee more extended than
   # nominal at the end of a long step, IS a toe-down foot. Atlas has a 0.24 m long sole, so every degree of droop drops

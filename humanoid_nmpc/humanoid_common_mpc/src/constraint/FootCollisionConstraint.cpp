@@ -72,7 +72,10 @@ FootCollisionConstraint::FootCollisionConstraint(const FootCollisionConstraint& 
       pinocchioInterfaceCppAd_(other.pinocchioInterfaceCppAd_),
       mpcRobotModelPtr_(other.mpcRobotModelPtr_),
       cfg_(other.cfg_),
-      numConstraints_(other.numConstraints_) {}
+      numConstraints_(other.numConstraints_),
+      // isActive_ is copied deliberately: the SQP solver clones the whole problem once per worker thread,
+      // and a copy constructor that dropped this flag silently reverted a deactivated term to active.
+      isActive_(other.isActive_) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/

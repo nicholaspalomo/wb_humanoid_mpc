@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlannerInterface.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/MixedIntegerOcpQp.h"
 #include "humanoid_common_mpc/contact_planning/logic/ContactLogicState.h"
@@ -63,7 +64,7 @@ namespace ocs2::humanoid {
  * and, with the heading block, x += [theta, omega, psi_L, psi_R], u += [tau_L, tau_R, dpsi_L, dpsi_R]. The enums below
  * are the indices of the first two blocks, which are always first.
  */
-class LipContactPlanner {
+class LipContactPlanner final : public ContactPlannerInterface {
  public:
   enum StateIndex : int { CX = 0, CY, VX, VY, PLX, PLY, PRX, PRY, STATE_DIM };
   enum InputIndex : int { ZX = 0, ZY, DLX, DLY, DRX, DRY, CL, CR, INPUT_DIM };
@@ -82,18 +83,18 @@ class LipContactPlanner {
 
   /** Plans from the given input. The previous plan (if any) seeds the incumbent. Never throws on solver failure: an invalid
    * plan is returned instead. */
-  ContactPlan plan(const ContactPlannerInput& input);
+  ContactPlan plan(const ContactPlannerInput& input) override;
 
   /**
    * Replaces the configuration (validated) and re-assembles the problem and the stages from its term lists. The warm
    * start (the previous plan and its assignment) survives unless the grid or the variable layout changed: dropping it on
    * every hot reload made the plan after each edit start from scratch and move footholds and timing abruptly.
    */
-  void setConfig(const ContactPlanningConfig& config);
+  void setConfig(const ContactPlanningConfig& config) override;
   const ContactPlanningConfig& getConfig() const { return config_; }
 
   /** Drops the warm start. */
-  void reset();
+  void reset() override;
 
   const MiqpResult& getLastResult() const { return lastResult_; }
   const OcpQpProblem& getLastProblem() const { return lastProblem_; }
@@ -102,7 +103,7 @@ class LipContactPlanner {
   const TermCollection<SearchStage>& getSearchStages() const { return searchStages_; }
 
   /** The assembled formulation: layout, every term with its description, the search stages and the planner settings. */
-  std::string getFormulationSummary() const;
+  std::string getFormulationSummary() const override;
   /** The same for a configuration, without a planner (what a planner built from it would print). */
   static std::string formulationSummary(const ContactPlanningConfig& config);
 

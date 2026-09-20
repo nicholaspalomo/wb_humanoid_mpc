@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_core/misc/CommandLine.h>
 #include <ocs2_core/misc/Display.h>
+#include <ocs2_core/misc/LoadData.h>
 
 namespace ocs2::humanoid {
 
@@ -41,8 +42,10 @@ namespace ocs2::humanoid {
 VelocityCommandKeyboardPublisher::VelocityCommandKeyboardPublisher(rclcpp::Node::SharedPtr nodeHandle,
                                                                    const std::string& topicPrefix,
                                                                    const scalar_array_t& targetCommandLimits,
-                                                                   scalar_t defaultBaseHeight)
-    : targetCommandLimits_(Eigen::Map<const vector_t>(targetCommandLimits.data(), targetCommandLimits.size())),
+                                                                   scalar_t defaultBaseHeight,
+                                                                   const std::string& referenceFile)
+    : referenceFile_(referenceFile),
+      targetCommandLimits_(Eigen::Map<const vector_t>(targetCommandLimits.data(), targetCommandLimits.size())),
       defaultBaseHeight_(defaultBaseHeight),
       node_(nodeHandle) {
   assert(targetCommandLimits_.size() == 4);
@@ -56,6 +59,10 @@ VelocityCommandKeyboardPublisher::VelocityCommandKeyboardPublisher(rclcpp::Node:
 /******************************************************************************************************/
 void VelocityCommandKeyboardPublisher::publishKeyboardCommand(const std::string& commadMsg) {
   while (rclcpp::ok()) {
+    // Before reading a command, so that a limit the operator has just changed in reference.yaml - through the tuning
+    // dashboard or by hand - applies to the command they are about to type.
+    reloadCommandLimits();
+
     // get command line
     std::cout << commadMsg << ": ";
     const vector4_t commandLineInput = getCommandLine().cwiseMin(targetCommandLimits_).cwiseMax(-targetCommandLimits_);
@@ -72,6 +79,21 @@ void VelocityCommandKeyboardPublisher::publishKeyboardCommand(const std::string&
     // publish TargetTrajectories
     commandPublisherPtr_->publish(msg);
   }  // end of while loop
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+void VelocityCommandKeyboardPublisher::reloadCommandLimits() {
+  if (referenceFile_.empty()) return;
+
+  // LINT.IfChange(keyboard_command_limits)
+  loadData::loadCppDataType(referenceFile_, "maxDisplacementVelocityX", targetCommandLimits_[0]);
+  loadData::loadCppDataType(referenceFile_, "maxDisplacementVelocityY", targetCommandLimits_[1]);
+  loadData::loadCppDataType(referenceFile_, "maxDeltaPelvisHeight", targetCommandLimits_[2]);
+  loadData::loadCppDataType(referenceFile_, "maxRotationVelocity", targetCommandLimits_[3]);
+  loadData::loadCppDataType(referenceFile_, "defaultBaseHeight", defaultBaseHeight_);
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/command/TargetTrajectoriesCalculatorBase.cpp:command_limits)
 }
 
 /******************************************************************************************************/

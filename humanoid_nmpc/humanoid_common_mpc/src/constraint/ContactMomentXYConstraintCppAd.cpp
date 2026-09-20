@@ -49,13 +49,15 @@ ContactMomentXYConstraintCppAd::ContactMomentXYConstraintCppAd(const SwitchedMod
                                                                const PinocchioInterface& pinocchioInterface,
                                                                const MpcRobotModelBase<ad_scalar_t>& mpcRobotModel,
                                                                std::string costName,
-                                                               const ModelSettings& modelSettings)
+                                                               const ModelSettings& modelSettings,
+                                                               bool scheduleGated)
     : StateInputConstraintCppAd(ConstraintOrder::Linear),
       referenceManagerPtr_(&referenceManager),
       mpcRobotModelPtr_(&mpcRobotModel),
       contactRectangle_(contactRectangle),
       contactPointIndex_(contactPointIndex),
-      pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()) {
+      pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
+      scheduleGated_(scheduleGated) {
   initialize(mpcRobotModelPtr_->getStateDim(), mpcRobotModelPtr_->getInputDim(), 0, costName, modelSettings.modelFolderCppAd,
              modelSettings.recompileLibrariesCppAd, modelSettings.verboseCppAd);
 }
@@ -69,13 +71,20 @@ ContactMomentXYConstraintCppAd::ContactMomentXYConstraintCppAd(const ContactMome
       mpcRobotModelPtr_(other.mpcRobotModelPtr_),
       contactRectangle_(other.contactRectangle_),
       contactPointIndex_(other.contactPointIndex_),
-      pinocchioInterfaceCppAd_(other.pinocchioInterfaceCppAd_) {}
+      pinocchioInterfaceCppAd_(other.pinocchioInterfaceCppAd_),
+      // isActive_ was dropped here, so every per-thread copy the SQP solver makes of the problem silently reverted a
+      // deactivated term to active.
+      isActive_(other.isActive_),
+      scheduleGated_(other.scheduleGated_) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 bool ContactMomentXYConstraintCppAd::isActive(scalar_t time) const {
   if (!isActive_) return false;
+  // Under the contact-implicit formulation the mode schedule no longer decides which foot carries load, so it cannot
+  // be allowed to decide whose centre of pressure is bounded either; see contactConstraintsAreScheduleGated().
+  if (!scheduleGated_) return true;
   return referenceManagerPtr_->getContactFlags(time)[contactPointIndex_];
 }
 

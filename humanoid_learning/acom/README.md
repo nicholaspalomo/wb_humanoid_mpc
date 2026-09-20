@@ -289,17 +289,23 @@ humanoid_nmpc/humanoid_common_mpc/
 ```bash
 # Train on Unitree G1 (23 active joints after fixing the wrists)
 bazel run //humanoid_learning/acom:train_main -- \
-    --robot g1 --num_samples 20000 --epochs 150 --output_dir /tmp/acom_g1
+    --robot g1 --output_dir /tmp/acom_g1
 
 # Train on DRC Atlas (24 active joints) and install weights into the C++ source tree
 bazel run //humanoid_learning/acom:train_main -- \
-    --robot atlas --num_samples 20000 --epochs 150 \
-    --output_dir /tmp/acom_atlas --install_header
+    --robot atlas --output_dir /tmp/acom_atlas --install_header
 ```
+
+The defaults — `--num_samples 20000 --hidden_dim 64 --epochs 150` — are the recipe that produced the shipped headers, so the commands above reproduce them and there is nothing to remember. They used to be 5000 / 16 / 30, which meant following this section verbatim installed a network about twice as inaccurate as the one it replaced.
 
 The `--install_header` flag copies the generated `AcomSirenWeights<Robot>.h` directly into the C++ include path, ready for the next `bazel build`. It requires `BUILD_WORKSPACE_DIRECTORY`, which `bazel run` sets.
 
-`--num_layers` counts **sinusoidal layers only**, excluding the linear readout, and defaults to 2. The C++ loader hard-codes that architecture, so `--install_header` refuses any other value rather than emitting a header that fails to compile. `--hidden_dim` is free; the shipped weights use 64.
+Two guards sit on that flag, and they exist because the two ways of getting the architecture wrong fail very differently:
+
+* `--num_layers` counts **sinusoidal layers only**, excluding the linear readout, and defaults to 2. The C++ loader `static_assert`s on it, so a wrong value fails to **compile** — loud, and caught immediately.
+* `--hidden_dim` is **not** checked by the compiler. Every layer is `Eigen::Map`'d at runtime from the dimensions the header declares, so a narrower network installs, builds and runs perfectly while approximating the centroidal connection worse. `--install_header` therefore reads `W0_rows` out of the header currently on disk and refuses to replace it with a different width unless `--force_architecture` is given.
+
+Training returns the parameters at the **lowest validation loss**, not those of the final epoch, and prints both so the gap is visible. On a run that is allowed to finish, that gap is small — the learning rate is cosine-annealed over exactly `--epochs`, so the last iterate is already the converged one, and on the shipped recipe best-versus-final is under 0.1 % of RMSE against a 1.8 % spread across seeds. It matters for runs that are interrupted, that diverge, or that are given an architecture which trains unstably: a wider network is not automatically a better one, and at `--hidden_dim 256` the validation curve oscillates by more than an order of magnitude between epochs.
 
 ### 6.2 Monitoring Training in TensorBoard
 
@@ -335,7 +341,61 @@ bazel test //humanoid_learning/acom/tests:test_acom
 # C++: analytical Jacobian, equivariance, conventions, and dimension guards
 bazel test //humanoid_nmpc/humanoid_common_mpc:testAngularCenterOfMass
 bazel test //humanoid_nmpc/humanoid_common_mpc:testComAndAcomTrackingCost
+
+# C++: does the SHIPPED weight header actually approximate the centroidal angular velocity?
+bazel test //humanoid_nmpc/humanoid_common_mpc:testAcomAngularVelocityConsistency
 ```
+
+#### What the tests do and do not establish
+
+Everything in the first two C++ targets, and everything in the Python suite bar the synthetic-data convergence test, is
+**structural**: shapes, floating-base equivariance, the analytic Jacobian against finite differences, the XYZ-to-ZYX row
+permutation, the joint ordering recorded in the generated header. All of it passes just as happily with an untrained
+network, with zeroed weights, or with a header exported for a different robot — none of it looks at the quantity the
+network was fit to.
+
+`testAcomAngularVelocityConsistency` is the acceptance test for the **training**, evaluated through the exported header
+the robot actually runs rather than through the JAX parameters. It states the defining property directly:
+
+$$\dot{\boldsymbol{\theta}}_{\text{aCOM}} \;\approx\; \boldsymbol{\omega}_{\text{locked}} = \mathbf{I}_G^{-1}\mathbf{L}_G$$
+
+and, via the equivariant decomposition whose base block is exact by construction, reduces it to the joint block
+$\mathbf{J}_{\Delta\theta} \approx \bar{\mathbf{A}}_{\omega,j}$ — the Frobenius objective of section 1.2, recomputed
+with Pinocchio's `ccrba` on the reduced MPC model, over configurations drawn uniformly from the joint-limit box (the same
+distribution `dataset_generator.py` samples).
+
+**Measured on the Atlas weights currently in `AcomSirenWeightsAtlas.h`:**
+
+| quantity | mean | worst |
+|---|---|---|
+| relative Frobenius error $\|\mathbf{J}_{\Delta\theta}-\bar{\mathbf{A}}_{\omega,j}\|_F / \|\bar{\mathbf{A}}_{\omega,j}\|_F$ | 0.219 | 0.375 |
+| relative rate error $\|\dot{\boldsymbol{\theta}}_{\text{aCOM}}-\boldsymbol{\omega}_{\text{locked}}\| / (\|\bar{\mathbf{A}}_{\omega,j}\|_F\|\dot{\mathbf{q}}_j\|)$ | 0.042 | 0.138 |
+
+Two remarks on reading those numbers. First, the residual has a **floor**: the connection has non-zero curvature, so no
+exact integrable whole-body orientation exists at all — that is the premise of the paper, and these are acceptance
+bounds on fit quality, not tolerances on an identity. Second, the test reports two baselines that need no training:
+$\Delta\theta \equiv 0$ (the base orientation used as the whole-body orientation) scores exactly 1.0, and the best
+**constant** Jacobian $\mathbb{E}[\bar{\mathbf{A}}_{\omega,j}]$ — a single matrix, no network — scores 0.378. The
+trained SIREN's 0.219 therefore captures about 42 % of the configuration-dependent variation that a constant matrix
+misses. That is a real improvement and the test asserts it, but it is also the number to beat when retraining.
+
+**How much headroom is left in data and optimisation: very little.** The current weights come from 80 000 samples over
+300 epochs, four times the data and twice the epochs of the previous recipe. That moved the mean relative Frobenius
+error from 0.224 to 0.219 — about 2 %, against a 1.8 % spread across training seeds. The validation loss did improve
+consistently (0.04493 to 0.04372), so the run is not noise, but the conclusion is that this error is not
+sample-limited or optimiser-limited. What remains is the curvature obstruction itself — no exact integrable
+whole-body orientation exists — plus the choice of hypothesis class and, most likely, the **sampling distribution**:
+training draws each joint i.i.d. and uniform over its full range, where mean $\|\Delta\theta\|$ is about 19°, while
+the Atlas nominal stance sits at 2.17°. Nearly every training sample is a posture the robot never adopts.
+Concentrating the distribution around the operating region, or mixing uniform samples with a nominal-centred ball,
+is the lever with real headroom left; it trades tail accuracy for operating-point accuracy, so it is a deliberate
+design choice rather than a free win.
+
+The rate error is much smaller than the Frobenius error because contracting a matrix error with a velocity averages over
+its directions. Note that it is measured against $\|\bar{\mathbf{A}}_{\omega,j}\|_F\|\dot{\mathbf{q}}_j\|$ rather
+than against $\|\boldsymbol{\omega}_{\text{locked}}\|$: the latter passes arbitrarily close to zero for velocity
+directions near the connection's null space, so that ratio is unbounded for a fixed, perfectly good network and the test
+would fail on the random seed rather than on the weights.
 
 ### 6.4 C++ Real-Time Integration
 

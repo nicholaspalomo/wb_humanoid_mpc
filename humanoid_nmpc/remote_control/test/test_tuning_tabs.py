@@ -33,6 +33,7 @@ import tempfile
 import unittest
 import yaml
 
+from remote_control.tk_app import yaml_param_tree
 from remote_control.tk_app.yaml_editor_utils import (
     load_yaml_safe,
     update_yaml_values_in_place,
@@ -253,9 +254,14 @@ class TestMpcParamsAutoSaveRoundTrip(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    def test_mpc_params_tab_category_buttons_all_reachable_at_default_window_size(self):
-        """Every category button is laid out inside the GUI's default 960 px wide window; a single packed row needed
-        more than that and tkinter dropped the last buttons ("Contact Planning" was unreachable).
+    def test_mpc_params_tab_every_category_is_reachable_at_default_window_size(self):
+        """Every block of the configuration is selectable inside the GUI's default 960 px window.
+
+        This used to be a row of radio buttons, one per category, and the row overflowed 960 px once the categories
+        became the configuration's own blocks - there are twenty-five of them for this robot - at which point tkinter
+        silently dropped the ones that did not fit and the last blocks could not be reached at all. The selector is a
+        drop-down now, so the property to hold is that it offers every category and fits: a list that has fallen
+        behind `categories`, or a widget wider than the window, is the same bug in the new shape.
         """
         import tkinter as tk
 
@@ -273,18 +279,29 @@ class TestMpcParamsAutoSaveRoundTrip(unittest.TestCase):
             tab.pack(fill="both", expand=True)
             root.update_idletasks()
             root.update()
-            self.assertEqual(len(tab.category_buttons), len(tab.categories))
-            rows = set()
-            for btn in tab.category_buttons:
-                self.assertTrue(
-                    btn.winfo_ismapped(), f"{btn.cget('text')} is not laid out"
-                )
-                right_edge = btn.winfo_x() + btn.winfo_width()
-                self.assertLessEqual(right_edge, 960, f"{btn.cget('text')} is clipped")
-                rows.add(btn.grid_info()["row"])
-            self.assertGreaterEqual(
-                len(rows), 2, "at 960 px the categories need more than one row"
+
+            selector = tab.category_selector
+            self.assertTrue(
+                selector.winfo_ismapped(), "the block selector is not laid out"
             )
+            self.assertLessEqual(
+                selector.winfo_x() + selector.winfo_width(),
+                960,
+                "the block selector is clipped at the default window width",
+            )
+            self.assertEqual(
+                list(selector.cget("values")),
+                list(tab.categories),
+                "the selector must offer every block of the configuration",
+            )
+
+            # And selecting any of them renders it, including the last, which the old button row used to drop.
+            for category in (tab.categories[0], tab.categories[-1]):
+                tab.active_category.set(category)
+                tab._render_active_category()
+                self.assertTrue(
+                    tab.slider_rows, f"selecting {category} rendered no sliders"
+                )
         finally:
             root.destroy()
 
@@ -504,6 +521,47 @@ class TestJointPdAutoSaveRoundTrip(unittest.TestCase):
                 )
         finally:
             root.destroy()
+
+
+class LabelFormattingTest(unittest.TestCase):
+    """The label a slider carries: `key [trailing comment]`."""
+
+    def test_label_pairs_the_key_with_the_comment(self):
+        self.assertEqual(
+            yaml_param_tree.label_for(
+                "complementarityWeight", "the price of carrying full body weight"
+            ),
+            "complementarityWeight [the price of carrying full body weight]",
+        )
+
+    def test_a_key_with_no_comment_is_shown_bare(self):
+        # No empty brackets: a key the file does not describe reads as itself, not as "someKey []".
+        self.assertEqual(yaml_param_tree.label_for("someKey", None), "someKey")
+        self.assertEqual(yaml_param_tree.label_for("someKey", ""), "someKey")
+
+    def test_a_matrix_key_is_readable_only_because_of_the_comment(self):
+        # This is the case the format exists for. "(2,2)" alone says nothing; the comment alone cannot be grepped
+        # for in the task file. Both halves are needed.
+        label = yaml_param_tree.label_for(
+            "(2,2)", "p_com_z - effective weight 1275, matches p_base_z"
+        )
+        self.assertTrue(label.startswith("(2,2) ["))
+        self.assertIn("p_com_z", label)
+
+    def test_labels_come_out_of_a_real_file_in_that_shape(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "params.yaml")
+            with open(path, "w") as handle:
+                handle.write(
+                    'aBlock:\n  weighted: 3.0  # what it means\n  bare: 4.0\n  "(1,1)": 5.0  # a matrix entry\n'
+                )
+            found = {
+                tunable.path[-1]: tunable.label
+                for tunable in yaml_param_tree.tunables(path)
+            }
+            self.assertEqual(found["weighted"], "weighted [what it means]")
+            self.assertEqual(found["bare"], "bare")
+            self.assertEqual(found["(1,1)"], "(1,1) [a matrix entry]")
 
 
 if __name__ == "__main__":

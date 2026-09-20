@@ -30,6 +30,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/constraint/FrictionForceConeConstraint.h"
 
+#include <cmath>
+
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 
 /******************************************************************************************************/
@@ -38,12 +42,25 @@ namespace ocs2::humanoid {
 FrictionForceConeConstraint::FrictionForceConeConstraint(const SwitchedModelReferenceManager& referenceManager,
                                                          Config config,
                                                          size_t contactPointIndex,
-                                                         const MpcRobotModelBase<scalar_t>& mpcRobotModel)
+                                                         const MpcRobotModelBase<scalar_t>& mpcRobotModel,
+                                                         bool scheduleGated)
     : StateInputConstraint(ConstraintOrder::Quadratic),
       referenceManagerPtr_(&referenceManager),
-      config_(std::move(config)),
       mpcRobotModelPtr_(&mpcRobotModel),
-      contactPointIndex_(contactPointIndex) {}
+      config_(scheduleGated ? std::move(config) : withoutAdhesion(std::move(config))),
+      contactPointIndex_(contactPointIndex),
+      scheduleGated_(scheduleGated),
+      coneValueOffset_(scheduleGated ? 0.0 : std::sqrt(config_.regularization)) {}
+
+FrictionForceConeConstraint::Config FrictionForceConeConstraint::withoutAdhesion(Config config) {
+  if (config.gripperForce > 0.0) {
+    LOG(WARNING) << "[FrictionForceConeConstraint] the contact-implicit formulation drops "
+                 << "contacts.frictionForceConeSoftConstraint.gripperForce (" << config.gripperForce
+                 << " N): an always-active cone cannot credit a foot in flight with adhesion.";
+  }
+  config.gripperForce = 0.0;
+  return config;
+}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -52,9 +69,14 @@ FrictionForceConeConstraint::FrictionForceConeConstraint(const SwitchedModelRefe
 FrictionForceConeConstraint::FrictionForceConeConstraint(const FrictionForceConeConstraint& rhs)
     : StateInputConstraint(rhs),
       referenceManagerPtr_(rhs.referenceManagerPtr_),
-      config_(rhs.config_),
       mpcRobotModelPtr_(rhs.mpcRobotModelPtr_),
-      contactPointIndex_(rhs.contactPointIndex_) {}
+      config_(rhs.config_),
+      contactPointIndex_(rhs.contactPointIndex_),
+      // isActive_ was dropped here, so every per-thread copy the SQP solver makes of the problem silently reverted a
+      // deactivated cone to active.
+      isActive_(rhs.isActive_),
+      scheduleGated_(rhs.scheduleGated_),
+      coneValueOffset_(rhs.coneValueOffset_) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -69,6 +91,9 @@ void FrictionForceConeConstraint::setSurfaceNormalInWorld(const vector3_t& surfa
 /******************************************************************************************************/
 bool FrictionForceConeConstraint::isActive(scalar_t time) const {
   if (!isActive_) return false;
+  // Under the contact-implicit formulation the mode schedule no longer decides which foot carries load, so it cannot
+  // be allowed to decide which foot's force is bounded either; see contactConstraintsAreScheduleGated().
+  if (!scheduleGated_) return true;
   return referenceManagerPtr_->getContactFlags(time)[contactPointIndex_];
 }
 
@@ -172,9 +197,15 @@ FrictionForceConeConstraint::ConeLocalDerivatives FrictionForceConeConstraint::c
 /******************************************************************************************************/
 /******************************************************************************************************/
 vector_t FrictionForceConeConstraint::coneConstraint(const vector3_t& localForces) const {
-  const auto F_tangent_square = localForces.x() * localForces.x() + localForces.y() * localForces.y() + config_.regularization;
-  const auto F_tangent_norm = sqrt(F_tangent_square);
-  const scalar_t coneConstraint = config_.frictionCoefficient * (localForces.z() + config_.gripperForce) - F_tangent_norm;
+  const scalar_t F_tangent_square = localForces.x() * localForces.x() + localForces.y() * localForces.y() + config_.regularization;
+  const scalar_t F_tangent_norm = std::sqrt(F_tangent_square);
+  // `coneValueOffset_` is sqrt(regularization) when the term is not schedule gated and zero otherwise. It restores the
+  // cone's zero at the zero force, which an always-active term is evaluated at on every foot in flight; without it the
+  // term would report -sqrt(regularization) there and the penalty would buy that off by inventing a normal force. The
+  // offset is a constant, so neither the gradient nor the Hessian below changes: only the parabolic safety margin,
+  // which is a statement about a loaded foot, is removed.
+  const scalar_t coneConstraint =
+      config_.frictionCoefficient * (localForces.z() + config_.gripperForce) - F_tangent_norm + coneValueOffset_;
   return (vector_t(1) << coneConstraint).finished();
 }
 

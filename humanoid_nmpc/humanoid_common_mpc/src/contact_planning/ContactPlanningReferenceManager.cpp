@@ -43,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_core/misc/LinearInterpolation.h>
 
 #include "humanoid_common_mpc/contact_planning/ContactPlanningTermFactory.h"
+#include "humanoid_common_mpc/contact_planning/execution/PlannedComOverride.h"
 #include "humanoid_common_mpc/contact_planning/execution/PlannedHeadingOverride.h"
 #include "humanoid_common_mpc/contact_planning/execution/ScheduleAdaptationPipeline.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
@@ -73,13 +74,21 @@ void ContactPlanningReferenceManager::rebuildExecutionRules(const ContactPlannin
   executionRules_ =
       ContactPlanningTermFactory::buildExecutionRules(config, [this](const std::string& name) -> std::unique_ptr<ExecutionRule> {
         if (name == term::kPlannedHeadingOverride) return std::make_unique<PlannedHeadingOverride>(*mpcRobotModelPtr_, &acom_);
+        if (name == term::kPlannedComOverride) return std::make_unique<PlannedComOverride>(*mpcRobotModelPtr_);
         return nullptr;
       });
 }
 
 bool ContactPlanningReferenceManager::rulesNeedPredictedTrajectory() const {
-  for (const auto& rule : executionRules_) {
+  for (const std::unique_ptr<ExecutionRule>& rule : executionRules_) {
     if (rule->needsPredictedTrajectory()) return true;
+  }
+  return false;
+}
+
+bool ContactPlanningReferenceManager::rulesNeedComState() const {
+  for (const std::unique_ptr<ExecutionRule>& rule : executionRules_) {
+    if (rule->needsComState()) return true;
   }
   return false;
 }
@@ -118,20 +127,49 @@ scalar_t ContactPlanningReferenceManager::computeYawInertia(const vector_t& stat
   return data.Ig.inertia().matrix()(2, 2);
 }
 
-void ContactPlanningReferenceManager::captureCommandedYawRate(scalar_t initTime,
-                                                              const vector_t& initState,
-                                                              const TargetTrajectories& targetTrajectories) {
-  // The target carries the operator's yaw rate as the angular momentum of a rigid turn about the vertical, h_z = I_zz
-  // omega / m, with the same locked inertia this manager derives from the model. The momentum channel is the one place
-  // the command survives untouched: the target's base yaw blends the measured yaw rate into its first stretch and is
-  // rewritten by the planned heading override.
+void ContactPlanningReferenceManager::setTargetTrajectories(const TargetTrajectories& targetTrajectories) {
+  operatorTarget_.setBuffer(targetTrajectories);
+  SwitchedModelReferenceManager::setTargetTrajectories(targetTrajectories);
+}
+
+void ContactPlanningReferenceManager::setTargetTrajectories(TargetTrajectories&& targetTrajectories) {
+  operatorTarget_.setBuffer(targetTrajectories);
+  SwitchedModelReferenceManager::setTargetTrajectories(std::move(targetTrajectories));
+}
+
+void ContactPlanningReferenceManager::captureOperatorCommand(scalar_t initTime, const vector_t& initState) {
+  // Both commands are read off the momentum channel of the target: the linear part is the commanded CoM velocity, and
+  // the angular part carries the yaw rate as the momentum of a rigid turn about the vertical, h_z = I_zz omega / m,
+  // with the same locked inertia this manager derives from the model. The target's base yaw is not usable for the
+  // latter - it blends the measured yaw rate into its first stretch, and the planned heading override rewrites it.
+  //
+  // The copy read here is the one the operator published, not the live target: the rules rewrite the live one (the
+  // heading override its base yaw, the centre-of-mass override the very momentum channel read here) and that rewrite
+  // survives into the next solver run, so reading the live target would feed each planner its own previous output.
   commandedYawRate_ = 0.0;
-  if (targetTrajectories.empty()) return;
+  commandedVelocity_.setZero();
+  operatorTarget_.updateFromBuffer();
+  const TargetTrajectories& operatorTarget = operatorTarget_.get();
+  if (operatorTarget.empty()) return;
+  const vector_t desiredState = operatorTarget.getDesiredState(initTime);
+  if (desiredState.size() < 6) return;
+  // The linear part of the same channel is the commanded CoM velocity. It has to be read here, before the rules run,
+  // for the same reason the yaw rate does and then some: planned_com_override rewrites exactly this channel with the
+  // plan's own CoM velocity, so a planner that read the command back off the target afterwards would be fed its own
+  // output. At rest that reads as a zero command however far the operator pushes the stick, the standing blend never
+  // crosses its half point, and the robot never starts walking.
+  commandedVelocity_ = mpcRobotModelPtr_->getBaseComLinearVelocity(desiredState).head<2>();
   const scalar_t yawInertia = computeYawInertia(initState);
   if (yawInertia <= 0.0) return;
-  const vector_t desiredState = targetTrajectories.getDesiredState(initTime);
-  if (desiredState.size() < 6) return;
   commandedYawRate_ = totalMass_ * mpcRobotModelPtr_->getBaseComVelocity(desiredState)(5) / yawInertia;
+}
+
+std::optional<vector2_t> ContactPlanningReferenceManager::getPlannedDcm(scalar_t time, scalar_t omega) const {
+  if (!hasActivePlan() || omega <= 0.0) return std::nullopt;
+  const std::optional<vector2_t> position = activePlan_->comPositionAtTime(time);
+  const std::optional<vector2_t> velocity = activePlan_->comVelocityAtTime(time);
+  if (!position.has_value() || !velocity.has_value()) return std::nullopt;
+  return vector2_t(*position + *velocity / omega);
 }
 
 void ContactPlanningReferenceManager::setContactPlan(const ContactPlan& plan) {
@@ -149,6 +187,7 @@ void ContactPlanningReferenceManager::setConfig(const ContactPlanningConfig& con
   TermCollection<ExecutionRule> rules =
       ContactPlanningTermFactory::buildExecutionRules(config, [this](const std::string& name) -> std::unique_ptr<ExecutionRule> {
         if (name == term::kPlannedHeadingOverride) return std::make_unique<PlannedHeadingOverride>(*mpcRobotModelPtr_, &acom_);
+        if (name == term::kPlannedComOverride) return std::make_unique<PlannedComOverride>(*mpcRobotModelPtr_);
         return nullptr;
       });
   std::lock_guard<std::mutex> lock(configMutex_);
@@ -320,8 +359,10 @@ void ContactPlanningReferenceManager::modifyReferences(scalar_t initTime,
   ctx.activePlan = activePlan_.has_value() ? &*activePlan_ : nullptr;
   // Only the rules that compare the centre of mass with the NMPC's prediction need the kinematics; skip them when none is
   // listed so that the default configuration does exactly the work it did before they existed.
-  if (rulesNeedPredictedTrajectory()) {
+  if (rulesNeedComState()) {
     std::tie(comState_[0], comState_[1]) = computeComState(initState);
+  }
+  if (rulesNeedPredictedTrajectory()) {
     updatePredictedComState(initTime);
   } else {
     hasPredictedComState_ = false;
@@ -329,6 +370,7 @@ void ContactPlanningReferenceManager::modifyReferences(scalar_t initTime,
   ctx.hasPredictedComState = hasPredictedComState_;
   ctx.com = comState_[0];
   ctx.comVelocity = comState_[1];
+  ctx.basePosition = mpcRobotModelPtr_->getBasePosition(initState).head<2>();
   ctx.predictedCom = predictedComState_[0];
   ctx.predictedComVelocity = predictedComState_[1];
 
@@ -363,7 +405,25 @@ void ContactPlanningReferenceManager::modifyReferences(scalar_t initTime,
     schedule = gaitSchedulePtr_->getModeSchedule(lowerBoundTime, upperBoundTime);
   }
 
-  captureCommandedYawRate(initTime, initState, targetTrajectories);
+  captureOperatorCommand(initTime, initState);
+
+  if (hasActivePlan() && !targetTrajectories.empty() && !executionRules_.empty()) {
+    const ContactPlan& plan = *activePlan_;
+    TargetTrajectories denseTarget;
+    const size_t numNodes = plan.comPosition.size();
+    denseTarget.timeTrajectory.reserve(numNodes);
+    denseTarget.stateTrajectory.reserve(numNodes);
+    const bool hasInput = !targetTrajectories.inputTrajectory.empty();
+    if (hasInput) denseTarget.inputTrajectory.reserve(numNodes);
+    for (size_t i = 0; i < numNodes; ++i) {
+      const scalar_t time = plan.startTime + static_cast<scalar_t>(i) * plan.dt;
+      denseTarget.timeTrajectory.push_back(time);
+      denseTarget.stateTrajectory.push_back(targetTrajectories.getDesiredState(time));
+      if (hasInput) denseTarget.inputTrajectory.push_back(targetTrajectories.getDesiredInput(time));
+    }
+    targetTrajectories = std::move(denseTarget);
+  }
+
   for (const auto& rule : executionRules_) rule->overrideTarget(ctx, targetTrajectories);
   const scalar_t terrainHeight = adaptToCurrentGroundHeight(targetTrajectories, initState, initMode);
   updateSwingTrajectories(schedule, ctx, terrainHeight);
@@ -522,17 +582,23 @@ ContactPlannerInput ContactPlanningReferenceManager::makePlannerInput(scalar_t i
     input.footPositions[i] = feet[i].head<2>();
   }
 
+  // The operator's commanded yaw rate is filled whether or not the heading model is on. It is not part of the heading
+  // MODEL - it is part of the COMMAND, and the standing/walking blend reads it to decide whether the robot should be
+  // stepping at all. Left inside the heading-model branch, a robot without that model contributed nothing from the yaw
+  // stick to the blend's activity, so `alpha` never crossed its half point on yaw alone and the robot would not start
+  // stepping to turn in place however hard it was asked.
+  input.headingRateCommand = commandedYawRate();
+
   const ContactPlanningConfig config = getConfig();
   if (config.usesHeadingModel()) {
-    // Heading model: the whole-body heading, its rate from the angular momentum about the vertical, the commanded yaw
-    // rate, and the foot yaws unwrapped near the heading. The planning frame is the heading.
+    // Heading model: the whole-body heading, its rate from the angular momentum about the vertical, and the foot yaws
+    // unwrapped near the heading. The planning frame is the heading.
     const feet_array_t<scalar_t> yaws = readFootYaws();
     input.heading = computeHeading(initState);
     input.yaw = input.heading;
     input.yawInertia = computeYawInertia(initState);
     const scalar_t angularMomentumZ = totalMass_ * mpcRobotModelPtr_->getBaseComVelocity(initState)(5);
     input.headingRate = input.yawInertia > 0.0 ? angularMomentumZ / input.yawInertia : 0.0;
-    input.headingRateCommand = commandedYawRate();
     for (size_t i = 0; i < N_CONTACTS; ++i) {
       input.footYaws[i] = moduloAngleWithReference(yaws[i], input.heading);
     }

@@ -99,6 +99,40 @@ class SimFsmBridge {
   bool processCommands(std::string& currentModeName, robot::mujoco_sim_interface::MujocoSimInterface& robotInterface);
 
   /**
+   * @brief Sets the tilt beyond which the robot is caught by the gantry, in radians; <= 0 disables the recovery.
+   *
+   * The measure is the angle between the base's own vertical and the world vertical, which is zero when the robot
+   * stands upright whatever its heading, and pi when it is upside down. A humanoid that has passed about a radian has
+   * no way back on its own, and leaving it to thrash on the floor teaches the controller nothing; catching it puts it
+   * back on the gantry ready for the next run.
+   */
+  void setMaxBaseTiltAngle(scalar_t maxBaseTiltAngle) { maxBaseTiltAngle_ = maxBaseTiltAngle; }
+  scalar_t getMaxBaseTiltAngle() const { return maxBaseTiltAngle_; }
+
+  /** The angle between the base's vertical and the world vertical, in radians (0 upright, pi upside down). */
+  static scalar_t baseTiltAngle(const quaternion_t& baseRotationLocalToWorld);
+
+  /**
+   * @brief Catches a fallen robot: locks the gantry and puts the robot in JOINT_PD when the base has tilted past
+   *        setMaxBaseTiltAngle().
+   *
+   * Locking the gantry is the reattachment - it pins the base upright at the gantry height - and JOINT_PD is the only
+   * mode that is safe there, since the whole-body MPC is overconstrained against a pinned base. Publishing the new
+   * state is what lets the remote control follow: it tracks the same `/humanoid/fsm_state` transition to re-centre its
+   * joysticks, so a stick left forward cannot keep commanding a walk into a robot hanging from the harness.
+   *
+   * The caller keeps whatever else a gantry lock means for it; the simulation loops additionally reset the MPC, which
+   * needs a handle this bridge does not have. Call this once per control cycle before processCommands(), so the lock
+   * is part of the same unlocked-to-locked transition those loops already watch for. Does nothing while the gantry is
+   * already locked, or while the recovery is disabled.
+   *
+   * @return true when this call caught the robot.
+   */
+  bool recoverFromFall(const robot::model::RobotState& robotState,
+                       robot::mujoco_sim_interface::MujocoSimInterface& robotInterface,
+                       std::string& currentModeName);
+
+  /**
    * @brief Access the captured nominal joint positions.
    */
   const std::vector<scalar_t>& getNominalJointPositions() const { return nominalJointPositions_; }
@@ -116,6 +150,9 @@ class SimFsmBridge {
   void applyJointTargetUpdates();
 
  private:
+  /// [rad] tilt past which recoverFromFall() catches the robot; <= 0 disables it.
+  scalar_t maxBaseTiltAngle_{0.0};
+
   void fsmCommandCallback(const std_msgs::msg::String::ConstSharedPtr& msg);
   void walkingVelocityCallback(const humanoid_mpc_msgs::msg::WalkingVelocityCommand::ConstSharedPtr& msg);
 

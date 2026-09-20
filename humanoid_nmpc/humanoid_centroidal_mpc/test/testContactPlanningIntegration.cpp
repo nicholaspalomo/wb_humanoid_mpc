@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <optional>
 #include <regex>
 #include <string>
+#include <system_error>
 #include <thread>
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
@@ -59,6 +60,10 @@ namespace ocs2::humanoid {
  * End-to-end test of the contact planning path on the DRC Atlas model: the interface builds the planning reference
  * manager and module from a task file with useContactPlanning: true, the module plans synchronously from the interface's
  * initial state, and the reference manager turns the plan into a mode schedule and swing-foot references.
+ *
+ * These tests cover the mixed-integer planner and the execution rules of the reference manager, so the fixture pins
+ * planner.type to lip_miqp and restores the execution list the shipped file used to carry, whatever the shipped file
+ * selects today. The shipped default (the closed-form H-LIP planner) is covered by testHlipPlanningIntegration.cpp.
  */
 class ContactPlanningIntegrationTest : public ::testing::Test {
  protected:
@@ -78,19 +83,31 @@ class ContactPlanningIntegrationTest : public ::testing::Test {
     };
     std::string content = readFile(taskFile);
     content = std::regex_replace(content, std::regex("useContactPlanning: *(true|false)"), "useContactPlanning: true");
-    tmpTaskFile_ = (std::filesystem::path(testing::TempDir()) / "contact_planning_task.yaml").string();
+    // Its own directory, because the planner configuration has to be called contact_planning.yaml to be found next to
+    // the task file, and testHlipPlanningIntegration writes a file of that name too - with the other planner selected.
+    tmpDir_ = (std::filesystem::path(testing::TempDir()) / "contact_planning_integration").string();
+    std::filesystem::create_directories(tmpDir_);
+
+    tmpTaskFile_ = (std::filesystem::path(tmpDir_) / "contact_planning_task.yaml").string();
     std::ofstream out(tmpTaskFile_);
     out << content;
     out.close();
 
     std::string planning = readFile(resolveContactPlanningConfigFile(taskFile));
     ASSERT_NE(planning.find("contact_planning:"), std::string::npos) << "the shipped planner configuration was not found";
+    planning = std::regex_replace(planning, std::regex("\n *type: *hlip"), "\n    type: lip_miqp");
+    planning = std::regex_replace(planning, std::regex("- planned_com_override"), "- planned_heading_override");
     planning = std::regex_replace(planning, std::regex("runInBackgroundThread: *(true|false)"), "runInBackgroundThread: false");
+    planning = std::regex_replace(planning, std::regex("\n *dt: *[0-9.]+"), "\n    dt: 0.1");
+    planning = std::regex_replace(planning, std::regex("numNodes: *[0-9]+"), "numNodes: 12");
+    planning = std::regex_replace(planning, std::regex("commitTime: *[0-9.]+"), "commitTime: 0.3");
+    planning = std::regex_replace(planning, std::regex("minSwingDuration: *[0-9.]+"), "minSwingDuration: 0.4");
+    planning = std::regex_replace(planning, std::regex("maxSwingDuration: *[0-9.]+"), "maxSwingDuration: 0.5");
     planning = std::regex_replace(planning, std::regex("maxSolveTime: *[0-9.]+"), "maxSolveTime: 5.0");
     planning = std::regex_replace(planning, std::regex("maxBranchAndBoundNodes: *[0-9]+"), "maxBranchAndBoundNodes: 2000");
     planning = std::regex_replace(planning, std::regex("useAcomDynamics: *(true|false)"), "useAcomDynamics: true");
     planning = std::regex_replace(planning, std::regex("planHeadingOverridesTarget: *(true|false)"), "planHeadingOverridesTarget: true");
-    tmpContactPlanningFile_ = (std::filesystem::path(testing::TempDir()) / kContactPlanningConfigFileName).string();
+    tmpContactPlanningFile_ = (std::filesystem::path(tmpDir_) / kContactPlanningConfigFileName).string();
     std::ofstream planningOut(tmpContactPlanningFile_);
     planningOut << planning;
     planningOut.close();
@@ -102,11 +119,11 @@ class ContactPlanningIntegrationTest : public ::testing::Test {
   }
 
   void TearDown() override {
-    std::remove(tmpTaskFile_.c_str());
-    std::remove(tmpContactPlanningFile_.c_str());
+    std::error_code ignored;
+    std::filesystem::remove_all(tmpDir_, ignored);
   }
 
-  std::string referenceFile_, urdfFile_, tmpTaskFile_, tmpContactPlanningFile_;
+  std::string referenceFile_, urdfFile_, tmpDir_, tmpTaskFile_, tmpContactPlanningFile_;
   std::unique_ptr<CentroidalMpcInterface> interface_;
 };
 

@@ -62,6 +62,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/model/FootholdIntegrator.h"
 #include "humanoid_common_mpc/contact_planning/model/HeadingDoubleIntegrator.h"
 #include "humanoid_common_mpc/contact_planning/model/LipComDynamics.h"
+#include "humanoid_common_mpc/contact_planning/search/CadenceStretchStage.h"
 #include "humanoid_common_mpc/contact_planning/search/DivingStage.h"
 #include "humanoid_common_mpc/contact_planning/search/EventShiftLocalSearchStage.h"
 #include "humanoid_common_mpc/contact_planning/search/HeadingRelinearisationStage.h"
@@ -158,6 +159,7 @@ std::unique_ptr<SearchStage> ContactPlanningTermFactory::makeSearchStage(const s
   if (canonical == term::kDiving) return std::make_unique<DivingStage>();
   if (canonical == term::kEventShiftLocalSearch) return std::make_unique<EventShiftLocalSearchStage>();
   if (canonical == term::kHeadingRelinearisation) return std::make_unique<HeadingRelinearisationStage>();
+  if (canonical == term::kCadenceStretch) return std::make_unique<CadenceStretchStage>();
   unknown(TermKind::SEARCH_STAGE, name);
 }
 

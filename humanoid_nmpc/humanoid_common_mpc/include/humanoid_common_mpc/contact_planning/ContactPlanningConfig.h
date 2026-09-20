@@ -67,6 +67,11 @@ struct GaitLimits {
 
 /** Properties of the planner, not of a term. */
 struct PlannerSettings {
+  // Implementation that plans the contacts, resolved by ContactPlannerFactory. `hlip` is the closed-form
+  // reduced-order stepper of arXiv:2502.15630 (humanoid_nmpc/docs/hlip_contact_planner/README.md); `lip_miqp` is the
+  // mixed-integer program of LipContactPlanner. Only the blocks the selected planner reads are used: `hlip` ignores
+  // the term lists of `formulation` and every per-term block, and `lip_miqp` ignores the `hlip` block.
+  std::string type = "hlip";
   scalar_t dt = 0.1;           // [s] planner node duration
   int numNodes = 12;           // planning horizon = numNodes * dt, should cover the MPC horizon
   scalar_t commitTime = 0.25;  // [s] contacts within this window keep the applied schedule (must cover planner latency)
@@ -98,6 +103,53 @@ struct SharedParameters {
   scalar_t bigM = 1.0;        // [m] big-M of the ZMP / foothold disjunctions (must exceed foot_separation.maxStepLength)
   SlackPenalty slackPenalty;  // default of every soft constraint without a penalty of its own
   GaitLimits gaitLimits;
+};
+
+/**
+ * Blend between standing and walking, equations (15) - (17) of arXiv:2502.15630.
+ *
+ * The activity phi is the squared norm of the commanded and the measured planar velocity, each component divided by
+ * the largest value that component is expected to take, and the blend weight is alpha = tanh(sharpness (phi -
+ * threshold)) / 2 + 1/2. The planner stands while alpha is below a half and steps above it, and scales the commanded
+ * velocity it plans for by alpha, so that the step length grows out of standing instead of jumping to its full value
+ * at the first non-zero command.
+ *
+ * The paper's phi also contains the commanded centre of mass height divided by a minimum height. That term is an
+ * absolute height, not a deviation, so it alone exceeds one for any upright robot and would saturate alpha at one; it
+ * is left out here. Every remaining threshold is a command range, not a tuning weight.
+ *
+ * Dropping that term also moves where phi sits, so `sharpness` and `threshold` are not the paper's 5.0 and 0.5. The
+ * defaults below put the half point at about a tenth of the maximum command (0.1 m/s forward) and saturate by a fifth
+ * of it, which is what "walk when asked to walk, stand when asked to stand" means for a humanoid: at a tenth of full
+ * stick the robot is being asked to move, not to hold station.
+ */
+struct HlipBlendParameters {
+  scalar_t sharpness = 40.0;             // rho_1
+  scalar_t threshold = 0.02;             // rho_2
+  scalar_t maxCommandedVelocityX = 0.7;  // [m/s]
+  scalar_t maxCommandedVelocityY = 0.3;  // [m/s]
+  scalar_t maxCommandedYawRate = 0.61;   // [rad/s] (35 deg/s)
+  scalar_t maxComVelocityX = 0.5;        // [m/s]
+  scalar_t maxComVelocityY = 0.4;        // [m/s]
+};
+
+/**
+ * The closed-form H-LIP contact planner (`planner.type: hlip`), the reduced-order layer of arXiv:2502.15630.
+ *
+ * The gait is a fixed cadence: single support of `sspDuration` alternating between the feet, separated by a double
+ * support of `dspDuration`. The footholds come from the deadbeat step-to-step controller of the H-LIP, which has no
+ * gain to tune (HlipModel). The only quantities below that are neither a cadence nor a command range are the step
+ * bounds, which exist so that a foothold the deadbeat law asks for outside the leg's reach is clipped instead of
+ * handed to the whole-body MPC.
+ */
+struct HlipParameters {
+  scalar_t sspDuration = 0.35;   // [s] single support duration
+  scalar_t dspDuration = 0.0;    // [s] double support duration; 0 exchanges support in one instant, as in the paper
+  scalar_t stepWidth = 0.25;     // [m] lateral distance between the feet of the nominal period-two orbit
+  scalar_t maxStepLength = 0.5;  // [m] clip on the planned step along the heading
+  scalar_t maxStepWidth = 0.45;  // [m] clip on the lateral distance between the feet
+  scalar_t minStepWidth = 0.15;  // [m] self-collision margin on that distance
+  HlipBlendParameters blend;
 };
 
 // ---- per-term parameter blocks, named as the terms ----
@@ -247,6 +299,8 @@ struct ContactPlanningConfig {
   PlannerSettings planner;
   SharedParameters shared;
   ContactPlanningFormulation formulation;
+
+  HlipParameters hlip;
 
   RegularizationParameters regularization;
   PreviousFootholdConsistencyParameters previousFootholdConsistency;

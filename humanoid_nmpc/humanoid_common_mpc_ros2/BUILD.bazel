@@ -1,5 +1,6 @@
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
 # humanoid_common_mpc_ros2 - ROS2 interface library for humanoid MPC
 
 package(default_visibility = ["//visibility:public"])
@@ -71,4 +72,14 @@ cc_binary(
     name = "velocity_keyboard_command_node",
     srcs = ["src/MpcKeyboardVelocityCommandNode.cpp"],
     deps = [":humanoid_common_mpc_ros2"],
+)
+
+cc_test(
+    name = "testBaseTiltAngle",
+    size = "small",
+    srcs = ["test/testBaseTiltAngle.cpp"],
+    deps = [
+        ":humanoid_common_mpc_ros2",
+        "@googletest//:gtest_main",
+    ],
 )

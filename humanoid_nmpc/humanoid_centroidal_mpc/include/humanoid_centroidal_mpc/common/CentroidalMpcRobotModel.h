@@ -136,6 +136,11 @@ class CentroidalMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
     return state.head(6);
   };
 
+  void setBaseComLinearVelocity(VECTOR_T<SCALAR_T>& state, const VECTOR3_T<SCALAR_T>& velocity) const override {
+    assert(state.size() == this->state_dim);
+    state.head(3) = velocity;
+  };
+
   VECTOR_T<SCALAR_T> getJointAngles(const VECTOR_T<SCALAR_T>& state) const override {
     assert(state.size() == this->state_dim);
     return state.tail(this->modelSettings.mpc_joint_dim);

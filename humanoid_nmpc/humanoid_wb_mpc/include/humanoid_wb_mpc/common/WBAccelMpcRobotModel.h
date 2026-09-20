@@ -133,6 +133,11 @@ class WBAccelMpcRobotModel : public MpcRobotModelBase<SCALAR_T> {
     return state.segment((6 + this->modelSettings.mpc_joint_dim), 6);
   };
 
+  void setBaseComLinearVelocity(VECTOR_T<SCALAR_T>& state, const VECTOR3_T<SCALAR_T>& velocity) const override {
+    assert(state.size() == this->state_dim);
+    state.segment((6 + this->modelSettings.mpc_joint_dim), 3) = velocity;
+  };
+
   VECTOR3_T<SCALAR_T> getBaseEulerZYXDerivatives(const VECTOR_T<SCALAR_T>& state) const {
     assert(state.size() == this->state_dim);
     return state.segment((6 + this->modelSettings.mpc_joint_dim) + 3, 3);

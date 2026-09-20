@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_core/penalties/penalties/SquaredHingePenalty.h>
 
+#include <stdexcept>
+
 namespace ocs2 {
 
 /******************************************************************************************************/
@@ -63,6 +65,26 @@ scalar_t SquaredHingePenalty::getSecondDerivative(scalar_t t, scalar_t h) const 
   } else {
     return 0;
   }
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+void SquaredHingePenalty::setParameters(const vector_t& parameters) {
+  if (parameters.size() != 2) {
+    throw std::runtime_error("SquaredHingePenalty::setParameters: Invalid number of parameters.");
+  }
+  config_.mu = parameters[0];
+  config_.delta = parameters[1];
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+void SquaredHingePenalty::getParameters(vector_t& parameters) const {
+  parameters.resize(2);
+  parameters[0] = config_.mu;
+  parameters[1] = config_.delta;
 }
 
 }  // namespace ocs2

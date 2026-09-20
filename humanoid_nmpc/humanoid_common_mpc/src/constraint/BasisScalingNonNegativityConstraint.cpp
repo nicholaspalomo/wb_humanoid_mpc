@@ -25,9 +25,32 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/constraint/BasisScalingNonNegativityConstraint.h"
 
-#include <iostream>
+#include <memory>
+#include <utility>
+
+#include <ocs2_core/penalties/penalties/SquaredHingePenalty.h>
 
 namespace ocs2::humanoid {
+
+namespace {
+/**
+ * The penalty that bounds λ from below.
+ *
+ * Gated, the configured barrier: the term is off during swing anyway, and its small negative gradient inside
+ * [0, delta] cannot be reached where it would matter.
+ *
+ * Un-gated, a one-sided squared hinge with its zero exactly on λ = 0. The barrier's derivative at λ = 0 is
+ * `-mu * delta / 2 < 0`, which pays the solver to lift λ off zero - a bribe to invent contact force on a foot in
+ * flight. See the class documentation, and makeContactConePenalty() in HumanoidCostConstraintFactory.cpp, which makes
+ * the identical substitution for the three un-gated cone terms.
+ */
+std::unique_ptr<PenaltyBase> makeLambdaPenalty(const PieceWisePolynomialBarrierPenalty::Config& barrierSettings, bool scheduleGated) {
+  if (scheduleGated) {
+    return std::unique_ptr<PenaltyBase>(new PieceWisePolynomialBarrierPenalty(barrierSettings));
+  }
+  return std::unique_ptr<PenaltyBase>(new SquaredHingePenalty(SquaredHingePenalty::Config(barrierSettings.mu, 0.0)));
+}
+}  // namespace
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -37,18 +60,23 @@ BasisScalingNonNegativityConstraint::BasisScalingNonNegativityConstraint(const S
                                                                          size_t contactIndex,
                                                                          size_t lambdaStartIdx,
                                                                          size_t numBasis,
-                                                                         PieceWisePolynomialBarrierPenalty::Config barrierSettings)
+                                                                         PieceWisePolynomialBarrierPenalty::Config barrierSettings,
+                                                                         bool scheduleGated)
     : referenceManagerPtr_(&referenceManager),
       contactIndex_(contactIndex),
       lambdaStartIdx_(lambdaStartIdx),
       numBasis_(numBasis),
-      penaltyPtr_(new PieceWisePolynomialBarrierPenalty(barrierSettings)) {}
+      scheduleGated_(scheduleGated),
+      barrierConfig_(barrierSettings),
+      penaltyPtr_(makeLambdaPenalty(barrierSettings, scheduleGated)) {}
 
 BasisScalingNonNegativityConstraint::BasisScalingNonNegativityConstraint(const BasisScalingNonNegativityConstraint& rhs)
     : referenceManagerPtr_(rhs.referenceManagerPtr_),
       contactIndex_(rhs.contactIndex_),
       lambdaStartIdx_(rhs.lambdaStartIdx_),
       numBasis_(rhs.numBasis_),
+      scheduleGated_(rhs.scheduleGated_),
+      barrierConfig_(rhs.barrierConfig_),
       penaltyPtr_(rhs.penaltyPtr_->clone()) {}
 
 /******************************************************************************************************/
@@ -56,8 +84,11 @@ BasisScalingNonNegativityConstraint::BasisScalingNonNegativityConstraint(const B
 /******************************************************************************************************/
 
 bool BasisScalingNonNegativityConstraint::isActive(scalar_t time) const {
-  // Only active when the foot is in contact — swing-phase λ are already
-  // zeroed by the ZeroWrench hard equality constraint.
+  // Under the contact-implicit formulation this is the only bound on λ, and the mode schedule must not be allowed to
+  // switch it off for a foot the solver may choose to load; see contactConstraintsAreScheduleGated().
+  if (!scheduleGated_) return true;
+  // Otherwise only active when the foot is in contact — swing-phase λ are already zeroed by the ZeroWrench hard
+  // equality constraint, which is what makes the gate sound.
   return referenceManagerPtr_->getContactFlags(time)[contactIndex_];
 }
 
@@ -112,13 +143,12 @@ ScalarFunctionQuadraticApproximation BasisScalingNonNegativityConstraint::getQua
 }
 
 void BasisScalingNonNegativityConstraint::setBarrierPenalty(const PieceWisePolynomialBarrierPenalty::Config& barrierSettings) {
-  penaltyPtr_->setConfig(barrierSettings);
-}
-
-PieceWisePolynomialBarrierPenalty::Config BasisScalingNonNegativityConstraint::getBarrierConfig() const {
-  PieceWisePolynomialBarrierPenalty::Config config;
-  penaltyPtr_->getConfig(config);
-  return config;
+  barrierConfig_ = barrierSettings;
+  // Both penalties take (mu, delta). Un-gated the hinge's delta stays 0: it is the offset of the hinge's zero, and the
+  // whole point of using a hinge for λ >= 0 is that its zero sits exactly on λ = 0. Writing the barrier's smoothing
+  // width there would demand a positive λ from every generator and reinstate the bribe this term exists to remove.
+  const vector_t parameters = (vector_t(2) << barrierSettings.mu, scheduleGated_ ? barrierSettings.delta : 0.0).finished();
+  penaltyPtr_->setParameters(parameters);
 }
 
 }  // namespace ocs2::humanoid

@@ -33,6 +33,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <utility>
 
+#include <ocs2_core/thread_support/BufferedValue.h>
+
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
@@ -76,6 +78,18 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
   bool usesContactPlanning() const override { return true; }
   std::optional<SwingFootReference> getSwingFootReference(size_t contactIndex, scalar_t time) const override;
 
+  /**
+   * The operator's target is kept as it arrives, before any execution rule rewrites it.
+   *
+   * planned_com_override replaces the momentum channel of the live target with the plan's own centre-of-mass velocity,
+   * and that rewrite survives into the next solver run because a target is only replaced when a new one is published.
+   * A command read back off the live target would therefore be the planner's own output one cycle later: at rest it
+   * reads as zero however far the operator pushes the stick, the standing blend never crosses its half point, and the
+   * robot never starts walking. These overrides keep an untouched copy for commandedVelocity() / commandedYawRate().
+   */
+  void setTargetTrajectories(const TargetTrajectories& targetTrajectories) override;
+  void setTargetTrajectories(TargetTrajectories&& targetTrajectories) override;
+
   /** Hands a new plan over (thread-safe). It becomes active at the next solver run. */
   void setContactPlan(const ContactPlan& plan);
 
@@ -110,6 +124,19 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
    * shortfall of the plan against the command was re-issued as the next command and the turn decayed. Solver thread only.
    */
   scalar_t commandedYawRate() const { return commandedYawRate_; }
+
+  /**
+   * The operator's commanded CoM velocity as of the last modifyReferences(), read off the same momentum channel
+   * before the execution rules run. The planner module must use this and not the target trajectory it could read
+   * itself: planned_com_override replaces that channel with the plan's own CoM velocity, so reading it afterwards
+   * feeds the planner its own output, which at rest reads as a zero command and stops the robot ever starting to
+   * walk. Solver thread only.
+   */
+  const vector2_t& commandedVelocity() const { return commandedVelocity_; }
+  /** The same command, for the terms that ask through the base class. Solver thread only. */
+  vector2_t getCommandedVelocity(scalar_t /*time*/) const override { return commandedVelocity_; }
+  /** The plan's own DCM, so that the terminal capturability cost aims where the footholds are going. Solver thread only. */
+  std::optional<vector2_t> getPlannedDcm(scalar_t time, scalar_t omega) const override;
 
   /** True while a plan handed over by setContactPlan() has not been activated by the solver thread yet (thread-safe). */
   bool hasPendingPlan() const;
@@ -182,6 +209,8 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
   /** Builds the execution rules of the configuration's list (the heading override with this manager's model). */
   void rebuildExecutionRules(const ContactPlanningConfig& config);
   bool rulesNeedPredictedTrajectory() const;
+  /** True when a listed rule reads the measured centre of mass of the cycle (which the prediction rules also do). */
+  bool rulesNeedComState() const;
 
   /** Foot positions from the state; latches the lift-off position of every foot while it is in contact. */
   void updateFootBookkeeping(scalar_t initTime, const vector_t& initState);
@@ -190,8 +219,11 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
   feet_array_t<scalar_t> readFootYaws() const;
   /** Whole-body inertia about the vertical through the centre of mass at `state`. */
   scalar_t computeYawInertia(const vector_t& state);
-  /** Refreshes commandedYawRate_ from the momentum channel of the target at `initTime`, with the yaw inertia at `initState`. */
-  void captureCommandedYawRate(scalar_t initTime, const vector_t& initState, const TargetTrajectories& targetTrajectories);
+  /**
+   * Refreshes commandedVelocity_ and commandedYawRate_ from the momentum channel of the target at `initTime` (the yaw
+   * rate with the yaw inertia at `initState`), before the execution rules are allowed to rewrite that channel.
+   */
+  void captureOperatorCommand(scalar_t initTime, const vector_t& initState);
 
   /** CoM position and velocity (xy) of the full model at `state`. */
   std::pair<vector2_t, vector2_t> computeComState(const vector_t& state);
@@ -237,7 +269,11 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
   // Heading model.
   std::shared_ptr<AngularCenterOfMass> acom_;
   scalar_t totalMass_ = 0.0;
-  scalar_t commandedYawRate_ = 0.0;  // [rad/s] operator command, from the target's momentum channel
+  scalar_t commandedYawRate_ = 0.0;                  // [rad/s] operator command, from the target's momentum channel
+  vector2_t commandedVelocity_ = vector2_t::Zero();  // [m/s] operator command, from the same channel
+  // The target as published, before any rule rewrote it. BufferedValue has no default constructor: it is seeded with
+  // an empty target, which captureOperatorCommand() reads as "no command yet".
+  BufferedValue<TargetTrajectories> operatorTarget_{TargetTrajectories()};
   feet_array_t<scalar_t> footYaws_ = makeFeetArray(0.0);
   feet_array_t<scalar_t> liftOffYaws_ = makeFeetArray(0.0);
 

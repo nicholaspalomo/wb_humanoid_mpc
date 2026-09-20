@@ -40,6 +40,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <stdexcept>
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 
 namespace {
@@ -66,15 +68,34 @@ ContactWrenchConeConstraint::ContactWrenchConeConstraint(const SwitchedModelRefe
                                                          size_t contactPointIndex,
                                                          const PinocchioInterface& pinocchioInterface,
                                                          const MpcRobotModelBase<scalar_t>& mpcRobotModel,
-                                                         Config config)
+                                                         Config config,
+                                                         bool scheduleGated)
     : StateInputConstraint(ConstraintOrder::Linear),
       referenceManagerPtr_(&referenceManager),
       pinocchioInterfacePtr_(&pinocchioInterface),
       mpcRobotModelPtr_(mpcRobotModel.clone()),
       contactRectangle_(contactRectangle),
       contactPointIndex_(contactPointIndex),
-      config_(std::move(config)) {
+      config_(scheduleGated ? std::move(config) : withoutLoadedFootOffsets(std::move(config))),
+      scheduleGated_(scheduleGated) {
   initializeLocalConstraintMatrix();
+}
+
+ContactWrenchConeConstraint::Config ContactWrenchConeConstraint::withoutLoadedFootOffsets(Config config) {
+  // `minNormalForce` and `gripperForce` are the only two entries of `b` (the others are homogeneous rows). Both are
+  // statements about a foot the mode schedule has declared loaded: the first demands a normal force the foot cannot
+  // produce in flight, the second offers an adhesion it does not have. An always-active cone evaluated on a foot at
+  // zero wrench would report `-minNormalForce`, i.e. a permanent violation, and the penalty would buy it off by
+  // inventing a normal force. Dropping them leaves the homogeneous cone, which the zero wrench satisfies exactly.
+  if (config.minNormalForce > 0.0 || config.gripperForce > 0.0) {
+    LOG(WARNING) << "[ContactWrenchConeConstraint] the contact-implicit formulation drops "
+                 << "contacts.contactWrenchConeSoftConstraint.minNormalForce (" << config.minNormalForce << " N) and .gripperForce ("
+                 << config.gripperForce << " N): an always-active cone cannot demand either of a foot in flight. "
+                 << "The homogeneous friction, centre-of-pressure and torsional limits are unchanged.";
+  }
+  config.minNormalForce = 0.0;
+  config.gripperForce = 0.0;
+  return config;
 }
 
 ContactWrenchConeConstraint::ContactWrenchConeConstraint(const ContactWrenchConeConstraint& other)
@@ -87,6 +108,7 @@ ContactWrenchConeConstraint::ContactWrenchConeConstraint(const ContactWrenchCone
       config_(other.config_),
       numConstraints_(other.numConstraints_),
       isActive_(other.isActive_),
+      scheduleGated_(other.scheduleGated_),
       A_f_local_(other.A_f_local_),
       A_tau_local_(other.A_tau_local_),
       b_local_(other.b_local_) {}
@@ -94,6 +116,11 @@ ContactWrenchConeConstraint::ContactWrenchConeConstraint(const ContactWrenchCone
 bool ContactWrenchConeConstraint::isActive(scalar_t time) const {
   if (!isActive_) {
     return false;
+  }
+  // Under the contact-implicit formulation the mode schedule no longer decides which foot carries load, so it cannot
+  // be allowed to decide which foot's wrench is bounded either; see contactConstraintsAreScheduleGated().
+  if (!scheduleGated_) {
+    return true;
   }
   return referenceManagerPtr_->getContactFlags(time)[contactPointIndex_];
 }

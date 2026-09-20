@@ -45,6 +45,9 @@ struct ExecutionContext {
   bool hasPredictedComState = false;
   vector2_t com = vector2_t::Zero();  // measured CoM position / velocity at this cycle
   vector2_t comVelocity = vector2_t::Zero();
+  // Measured base position at this cycle. A rule that wants to command a centre-of-mass motion has to write it into a
+  // reference state that carries the base pose, and com - basePosition is the horizontal offset between the two.
+  vector2_t basePosition = vector2_t::Zero();
   vector2_t predictedCom = vector2_t::Zero();  // the NMPC's own prediction for this cycle
   vector2_t predictedComVelocity = vector2_t::Zero();
   scalar_t totalMass = 0.0;

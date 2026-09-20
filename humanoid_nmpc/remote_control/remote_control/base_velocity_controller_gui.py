@@ -48,6 +48,7 @@ from remote_control.tk_app import (
     JointPdGainsTab,
     JointTargetsTab,
     MpcParamsTab,
+    CommandLimitsTab,
 )
 
 
@@ -210,6 +211,15 @@ class App(tk.Tk):
             param_publisher=self.joint_targets_publisher,
         )
         self.joint_targets_tab.pack(fill="both", expand=True)
+
+        # Tab 5: Command Limits (reference.yaml). Read by the controller at start-up rather than through the
+        # parameter topic, so this tab saves the file and the change applies at the next launch.
+        tab_limits = ttk.Frame(self.notebook)
+        self.notebook.add(tab_limits, text="🎚️ Command Limits")
+        self.command_limits_tab = CommandLimitsTab(
+            tab_limits, reference_file=self.reference_file
+        )
+        self.command_limits_tab.pack(fill="both", expand=True)
 
         # Build Tab 1: Base Controller contents
         self.auto_center_var = tk.BooleanVar(value=False)
@@ -501,6 +511,13 @@ class App(tk.Tk):
                 target_gantry = gantry_state == "GANTRY_LOCKED"
                 if self.gantry_var.get() != target_gantry:
                     self.gantry_var.set(target_gantry)
+                    if target_gantry:
+                        # The gantry locked without this checkbox asking for it, which is what the simulator's fall
+                        # recovery does when the base tips past simMaxBaseTiltAngle. Re-centre the sticks for the same
+                        # reason _on_gantry_toggle does: a stick left forward would keep commanding a walk into a robot
+                        # that is now hanging from the harness, and the operator never let go of it.
+                        self.joystick_left.set_position()
+                        self.joystick_right.set_position()
         except Exception:
             pass
 

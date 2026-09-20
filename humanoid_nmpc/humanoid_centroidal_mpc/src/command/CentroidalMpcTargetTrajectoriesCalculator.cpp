@@ -137,7 +137,7 @@ TargetTrajectories CentroidalMpcTargetTrajectoriesCalculator::commandedVelocityT
   averageVel(1) = (baseVel[1] + commVelTargetGlobal[1]) / 2;
   averageVel(2) = (baseVel[5] + commVelTargetGlobal[3]) / 2;
 
-  scalar_t targetHeight = (commVelTargetGlobal[2] > 0.1) ? commVelTargetGlobal[2] : defaultBaseHeight_;
+  scalar_t targetHeight = (commVelTargetGlobal[2] > 0.1) ? commVelTargetGlobal[2] : scalar_t(defaultBaseHeight_);
   currentPoseTarget[2] = targetHeight;
   scalar_t intermediateTargetTime = 0.7 * mpcHorizon_;
   vector6_t intermediateTargetPose = integrateTargetBasePose(currentPoseTarget, averageVel, targetHeight, intermediateTargetTime);

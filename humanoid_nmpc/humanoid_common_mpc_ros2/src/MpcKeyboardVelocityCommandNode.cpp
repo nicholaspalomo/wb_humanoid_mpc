@@ -61,13 +61,15 @@ int main(int argc, char* argv[]) {
   scalar_array_t relativeBaseLimit{0.5, 0.3, 0.4, 0.5};
   scalar_t defaultBaseHeight = 0.7;
 
+  // The file is passed on as well as read here: the publisher re-reads it before every command, so that a limit
+  // changed while the robot is running applies to the next command typed rather than to the next launch.
   loadData::loadCppDataType(referenceFile, "maxDisplacementVelocityX", relativeBaseLimit[0]);
   loadData::loadCppDataType(referenceFile, "maxDisplacementVelocityY", relativeBaseLimit[1]);
   loadData::loadCppDataType(referenceFile, "maxDeltaPelvisHeight", relativeBaseLimit[2]);
   loadData::loadCppDataType(referenceFile, "maxRotationVelocity", relativeBaseLimit[3]);
   loadData::loadCppDataType(referenceFile, "defaultBaseHeight", defaultBaseHeight);
 
-  VelocityCommandKeyboardPublisher targetVelCommand(node, "humanoid", relativeBaseLimit, defaultBaseHeight);
+  VelocityCommandKeyboardPublisher targetVelCommand(node, "humanoid", relativeBaseLimit, defaultBaseHeight, referenceFile);
 
   const std::string commandMsg = "Enter v_x [m/s], v_y [m/s], delta_height [m], ang_vel_z [rad/s] of the PELVIS, separated by spaces";
   targetVelCommand.publishKeyboardCommand(commandMsg);

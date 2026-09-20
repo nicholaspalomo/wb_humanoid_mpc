@@ -68,7 +68,21 @@ std::pair<vector_t, vector_t> StateInputQuadraticCost::getStateInputDeviation(sc
                                                                               const vector_t& state,
                                                                               const vector_t& input,
                                                                               const TargetTrajectories& targetTrajectories) const {
-  const auto contactFlags = referenceManagerPtr_->getContactFlags(time);
+  // The nominal input hands the robot's weight to the feet the mode schedule calls stance feet, and none to a swinging
+  // one. This stays schedule-derived under the contact-implicit formulation, deliberately.
+  //
+  // It is tempting to see it as a soft `zero_wrench` and remove it along with the hard one. That is a mistake, and an
+  // expensive one: it is the difference between a schedule-derived CONSTRAINT, which makes departing from the plan
+  // impossible, and a schedule-derived REFERENCE, which is how the reduced-order plan is supposed to guide the
+  // whole-body MPC in the first place. The solver overrules this reference whenever anything else pays more.
+  //
+  // Removing it leaves the contact problem symmetric, so the solver has no reason to prefer lifting either foot. Worse,
+  // spreading the weight over ALL feet makes the nominal force on the foot that should be in the air half the body
+  // weight, and the complementarity penalty's curvature on that foot's height is
+  // complementarityWeight * (f_n/f_ref)^2 / heightReference^2 - about 1950 at half body weight, against the swing
+  // height reference's 150. The foot then rises a few millimetres and stops, which is what was observed on hardware-like
+  // simulation when this was tried.
+  const contact_flag_t contactFlags = referenceManagerPtr_->getContactFlags(time);
   vector_t xNominal = referenceManagerPtr_->getDesiredState(targetTrajectories, state, time);
 
   // All reference stuff should eventually be moved out of here.

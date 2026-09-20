@@ -5,6 +5,7 @@ from .slider_row import SliderRow
 from .joint_pd_tab import JointPdGainsTab
 from .joint_targets_tab import JointTargetsTab
 from .mpc_params_tab import MpcParamsTab
+from .command_limits_tab import CommandLimitsTab
 
 __all__ = [
     "JoystickGui",
@@ -14,4 +15,5 @@ __all__ = [
     "JointPdGainsTab",
     "JointTargetsTab",
     "MpcParamsTab",
+    "CommandLimitsTab",
 ]

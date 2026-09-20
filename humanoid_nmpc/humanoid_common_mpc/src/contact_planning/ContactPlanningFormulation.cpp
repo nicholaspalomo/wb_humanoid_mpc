@@ -87,7 +87,7 @@ const std::vector<std::string>& knownTermNames(TermKind kind) {
   static const std::vector<std::string> search{term::kWarmStartPreviousPlan, term::kDiving, term::kEventShiftLocalSearch,
                                                term::kHeadingRelinearisation, term::kCadenceStretch};
   static const std::vector<std::string> execution{term::kPhaseResetting, term::kEnergyCadenceModulation, term::kDcmStepAdjustment,
-                                                  term::kPlannedHeadingOverride};
+                                                  term::kPlannedHeadingOverride, term::kPlannedComOverride};
   // clang-format off
   // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/contact_planning/ContactPlanningTermFactory.cpp:term_factory, //robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/contact_planning.yaml:contact_planning_config)
   // clang-format on

@@ -56,7 +56,10 @@ ZeroVelocityConstraintCppAd::ZeroVelocityConstraintCppAd(const ZeroVelocityConst
       referenceManagerPtr_(rhs.referenceManagerPtr_),
       eeTwistConstraintPtr_(rhs.eeTwistConstraintPtr_->clone()),
       contactPointIndex_(rhs.contactPointIndex_),
-      numConstraints_(rhs.numConstraints_) {}
+      numConstraints_(rhs.numConstraints_),
+      // isActive_ is copied deliberately: the SQP solver clones the whole problem once per worker thread,
+      // and a copy constructor that dropped this flag silently reverted a deactivated term to active.
+      isActive_(rhs.isActive_) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/

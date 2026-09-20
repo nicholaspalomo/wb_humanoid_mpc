@@ -29,8 +29,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <gtest/gtest.h>
 
+#include <chrono>
+#include <filesystem>
 #include <fstream>
+#include <functional>
 #include <optional>
+#include <regex>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -45,15 +49,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_sqp/SqpSolver.h>
 
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
+#include "humanoid_centroidal_mpc/command/CentroidalMpcTargetTrajectoriesCalculator.h"
 #include "humanoid_centroidal_mpc/constraint/ZeroVelocityConstraintCppAd.h"
 #include "humanoid_centroidal_mpc/cost/CentroidalMpcEndEffectorFootCost.h"
 #include "humanoid_centroidal_mpc/cost/DcmTerminalCost.h"
 #include "humanoid_centroidal_mpc/cost/ICPCost.h"
 #include "humanoid_centroidal_mpc/mrt/MpcParameterUpdaterModule.h"
+#include "humanoid_common_mpc/HumanoidPreComputation.h"
 #include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/constraint/BasisScalingNonNegativityConstraint.h"
+#include "humanoid_common_mpc/constraint/ContactComplementarityConstraint.h"
 #include "humanoid_common_mpc/constraint/EndEffectorKinematicsTwistConstraint.h"
+#include "humanoid_common_mpc/constraint/ForceWeightedSlipConstraint.h"
+#include "humanoid_common_mpc/constraint/GroundPenetrationConstraint.h"
 #include "humanoid_common_mpc/constraint/JointLimitsSoftConstraint.h"
 #include "humanoid_common_mpc/cost/ComAndAcomTrackingCost.h"
 #include "humanoid_common_mpc/cost/EndEffectorKinematicsQuadraticCost.h"
@@ -436,10 +445,14 @@ TEST_F(MpcParameterUpdaterModuleTest, SqpSettingsUpdated) {
     std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     in.close();
 
-    auto pos = content.find("sqpIteration:");
+    // Anchored to the start of an indented line, not a bare substring: a COMMENT elsewhere in the task file that
+    // happens to mention `sqpIteration:` would otherwise be found first and rewritten instead of the setting, which
+    // is exactly what happened once.
+    const std::string key = "\n  sqpIteration:";
+    const size_t pos = content.find(key);
     ASSERT_NE(pos, std::string::npos);
-    auto valueStart = pos + std::string("sqpIteration:").size();
-    auto lineEnd = content.find('\n', valueStart);
+    const size_t valueStart = pos + key.size();
+    const size_t lineEnd = content.find('\n', valueStart);
     content.replace(valueStart, lineEnd - valueStart, " 15");
 
     std::ofstream out(tmpTaskFile_);
@@ -602,6 +615,30 @@ TEST_F(MpcParameterUpdaterModuleTest, FootConstraintGainsUpdated) {
   auto* sqp = getSqpSolver();
   ASSERT_NE(sqp, nullptr);
 
+  // The gains live on the zero-velocity twist constraint, which the contact-implicit formulation replaces with the
+  // relaxed complementarity terms (humanoid_nmpc/docs/contact_implicit_mpc/README.md). With that formulation selected
+  // there is no such constraint to update, and the hot reload of these gains is simply not applicable.
+  const bool hasZeroVelocityConstraint = [&]() {
+    for (auto& ocp : sqp->getOcpDefinitions()) {
+      for (const auto& footName : contactNames_) {
+        try {
+          ocp.equalityConstraintPtr->get<ZeroVelocityConstraintCppAd>(footName + "_zeroVelocity");
+          return true;
+        } catch (...) {
+        }
+        try {
+          ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_zeroVelocity");
+          return true;
+        } catch (...) {
+        }
+      }
+    }
+    return false;
+  }();
+  if (!hasZeroVelocityConstraint) {
+    GTEST_SKIP() << "zero_velocity is not in this configuration's constraint lists (contact-implicit formulation)";
+  }
+
   // Mutate model_settings.foot_constraint.linearVelocityErrorGain_xy to 99.0
   {
     std::ifstream in(tmpTaskFile_);
@@ -656,6 +693,86 @@ TEST_F(MpcParameterUpdaterModuleTest, FootConstraintGainsUpdated) {
     if (foundUpdated) break;
   }
   EXPECT_TRUE(foundUpdated) << "Av(0,0) should have been updated to 99.0 (linearVelocityErrorGain_xy)";
+}
+
+/******************************************************************************************************/
+// Test: a change to reference.yaml reaches the registered reloaders, so the command limits and ramps can be tuned on
+// a running controller instead of needing a restart (the remote control's Command Limits tab writes that file).
+/******************************************************************************************************/
+TEST_F(MpcParameterUpdaterModuleTest, ReferenceFileChangeReachesTheRegisteredReloaders) {
+  const std::string tmpReferenceFile = (std::filesystem::path(testing::TempDir()) / "updater_reference.yaml").string();
+  {
+    std::ifstream in(referenceFile_);
+    std::ofstream out(tmpReferenceFile);
+    out << std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  }
+
+  MpcParameterUpdaterModule updater(mpc_.get(), tmpTaskFile_, urdfFile_, tmpReferenceFile, stateDim_, inputDim_, contactNames_, nullptr,
+                                    basisCostTransform_);
+  std::vector<std::string> reloadedWith;
+  updater.addReferenceFileReloader([&reloadedWith](const std::string& file) { reloadedWith.push_back(file); });
+
+  const vector_t dummyState = vector_t::Zero(stateDim_);
+  // The file is polled once every hundred solves; nothing has changed yet, so nothing is reloaded.
+  for (size_t i = 0; i < 101; ++i) {
+    updater.preSolverRun(0.0, 1.0, dummyState, *interface_->getReferenceManagerPtr());
+  }
+  EXPECT_TRUE(reloadedWith.empty()) << "an untouched reference file must not trigger a reload";
+
+  {
+    std::ofstream out(tmpReferenceFile, std::ios::app);
+    out << "\n# touched by the test\n";
+  }
+  std::filesystem::last_write_time(tmpReferenceFile, std::filesystem::file_time_type::clock::now() + std::chrono::seconds(1));
+  for (size_t i = 0; i < 101; ++i) {
+    updater.preSolverRun(0.0, 1.0, dummyState, *interface_->getReferenceManagerPtr());
+  }
+  ASSERT_EQ(reloadedWith.size(), 1U) << "a changed reference file must reload exactly once";
+  EXPECT_EQ(reloadedWith.front(), tmpReferenceFile);
+
+  std::remove(tmpReferenceFile.c_str());
+}
+
+/******************************************************************************************************/
+// Test: the values a reload reads are the ones the command path then uses. The pelvis height is the observable one:
+// commandedPositionToTargetTrajectories clamps the commanded delta to maxDeltaPelvisHeight and adds defaultBaseHeight,
+// so both reloaded values appear directly in the target it returns.
+/******************************************************************************************************/
+TEST_F(MpcParameterUpdaterModuleTest, ReloadingCommandLimitsChangesTheTargetItProduces) {
+  const std::string tmpReferenceFile = (std::filesystem::path(testing::TempDir()) / "updater_limits.yaml").string();
+  const auto writeWith = [&tmpReferenceFile, this](scalar_t maxDeltaPelvisHeight, scalar_t defaultBaseHeight) {
+    std::ifstream in(referenceFile_);
+    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.close();
+    content = std::regex_replace(content, std::regex("maxDeltaPelvisHeight: *[0-9.]+"),
+                                 "maxDeltaPelvisHeight: " + std::to_string(maxDeltaPelvisHeight));
+    content =
+        std::regex_replace(content, std::regex("defaultBaseHeight: *[0-9.]+"), "defaultBaseHeight: " + std::to_string(defaultBaseHeight));
+    std::ofstream out(tmpReferenceFile);
+    out << content;
+  };
+
+  writeWith(0.10, 0.90);
+  CentroidalMpcTargetTrajectoriesCalculator calculator(tmpReferenceFile, interface_->getEffectiveMpcRobotModel(),
+                                                       interface_->getPinocchioInterface(), interface_->getCentroidalModelInfo(),
+                                                       interface_->mpcSettings().timeHorizon_);
+
+  // A crouch far beyond the limit, so the returned height is the clamp itself: defaultBaseHeight - maxDeltaPelvisHeight.
+  const vector_t state = interface_->getInitialState();
+  const vector4_t deepCrouch(0.0, 0.0, -10.0, 0.0);
+  const TargetTrajectories before = calculator.commandedPositionToTargetTrajectories(deepCrouch, 0.0, state);
+  ASSERT_FALSE(before.stateTrajectory.empty());
+  const scalar_t heightBefore = interface_->getEffectiveMpcRobotModel().getBasePosition(before.stateTrajectory.back())(2);
+  EXPECT_NEAR(heightBefore, 0.90 - 0.10, 1e-6);
+
+  writeWith(0.25, 0.80);
+  calculator.reloadCommandLimits(tmpReferenceFile);
+  const TargetTrajectories after = calculator.commandedPositionToTargetTrajectories(deepCrouch, 0.0, state);
+  ASSERT_FALSE(after.stateTrajectory.empty());
+  const scalar_t heightAfter = interface_->getEffectiveMpcRobotModel().getBasePosition(after.stateTrajectory.back())(2);
+  EXPECT_NEAR(heightAfter, 0.80 - 0.25, 1e-6) << "the reloaded limits must be the ones the target is built from";
+
+  std::remove(tmpReferenceFile.c_str());
 }
 
 /******************************************************************************************************/
@@ -806,13 +923,19 @@ TEST_F(MpcParameterUpdaterModuleTest, ComAndAcomTrackingWeightsUpdated) {
                                     basisCostTransform_);
   touchTaskFileAndRunUpdater(updater);
 
+  // Each matrix is premultiplied by its own `scaling` entry, and the two are not the same number in every robot's
+  // task file. Read them rather than hard-coding, or this test rots the next time either is retuned.
+  scalar_t comScaling = 1.0;
+  scalar_t acomScaling = 1.0;
+  loadData::loadCppDataType(tmpTaskFile_, "Q_com.scaling", comScaling);
+  loadData::loadCppDataType(tmpTaskFile_, "Q_acom.scaling", acomScaling);
+
   // Every per-thread clone of the problem must see the update, not just the first.
   for (auto& ocp : sqp->getOcpDefinitions()) {
     auto& cost = ocp.stateCostPtr->get<ComAndAcomTrackingCost>("comAndAcomTrackingCost");
-    // Both matrices are premultiplied by their respective `scaling` entry, 85.
-    EXPECT_NEAR(cost.getQCom()(2, 2), 85.0 * 999.0, 1e-3);
+    EXPECT_NEAR(cost.getQCom()(2, 2), comScaling * 999.0, 1e-3);
     // Row 0 of Q_acom is yaw, in the centroidal state's ZYX Euler convention.
-    EXPECT_NEAR(cost.getQAcom()(0, 0), 85.0 * 777.0, 1e-3);
+    EXPECT_NEAR(cost.getQAcom()(0, 0), acomScaling * 777.0, 1e-3);
   }
 }
 
@@ -894,6 +1017,120 @@ TEST_F(MpcParameterUpdaterModuleTest, BasisNonNegativityBarrierUpdated) {
       auto& con = ocp.costPtr->get<BasisScalingNonNegativityConstraint>(footName + "_basisNonNegativity");
       EXPECT_NEAR(con.getBarrierConfig().mu, 0.42, 1e-4);
     }
+  }
+}
+
+/******************************************************************************************************/
+// Test: ContactImplicitTuningReachesEveryTerm
+/******************************************************************************************************/
+TEST_F(MpcParameterUpdaterModuleTest, ContactImplicitTuningReachesEveryTerm) {
+  // The contact-implicit block has three terms and two of them share the terrain height: one says a foot may not carry
+  // load above the ground, the other that it may not go below it. A height applied to one and not the other leaves the
+  // formulation with two disagreeing definitions of where the ground is. That was a real bug, and nothing caught it
+  // because live tuning of this block had no coverage at all - which is the gap this test closes.
+  SqpSolver* sqp = getSqpSolver();
+  ASSERT_NE(sqp, nullptr);
+
+  const std::string probeFoot = contactNames_.front();
+  try {
+    sqp->getOcpDefinitions().front().softConstraintPtr->get<StateInputSoftConstraint>(probeFoot + "_contactComplementarity");
+  } catch (...) {
+    GTEST_SKIP() << "the contact-implicit terms are not enabled in this robot's task file";
+  }
+
+  const scalar_t newTerrainHeight = 0.017;
+  const scalar_t newHeightReference = 0.123;
+  const scalar_t newVelocityReference = 0.456;
+  const scalar_t newAngularVelocityReference = 0.789;
+  {
+    std::ifstream in(tmpTaskFile_);
+    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.close();
+
+    // `terrainHeight` is a TOP-LEVEL key of the task file, while the rest of this block is indented under
+    // `contact_implicit`. Searching only for the indented spelling silently stopped finding it when the ground height
+    // was made a single source of truth, so the setter accepts either indentation and asserts it found one.
+    const std::function<void(const std::string&, scalar_t)> setKey = [&content](const std::string& key, scalar_t value) {
+      size_t indent = 2;
+      size_t keyPos = content.find("\n  " + key + ":");
+      if (keyPos == std::string::npos) {
+        indent = 0;
+        keyPos = content.find("\n" + key + ":");
+      }
+      ASSERT_NE(keyPos, std::string::npos) << key << " not found at the top level or under contact_implicit";
+      const size_t valueStart = keyPos + 1 + indent + key.size() + 1;  // past the newline, the indent, the key and the colon
+      const size_t lineEnd = content.find('\n', valueStart);
+      content.replace(valueStart, lineEnd - valueStart, " " + std::to_string(value));
+    };
+    setKey("terrainHeight", newTerrainHeight);
+    setKey("heightReference", newHeightReference);
+    setKey("velocityReference", newVelocityReference);
+    setKey("angularVelocityReference", newAngularVelocityReference);
+
+    std::ofstream out(tmpTaskFile_);
+    out << content;
+  }
+
+  MpcParameterUpdaterModule updater(mpc_.get(), tmpTaskFile_, urdfFile_, referenceFile_, stateDim_, inputDim_, contactNames_, nullptr,
+                                    basisCostTransform_);
+  touchTaskFileAndRunUpdater(updater);
+
+  // Every per-thread clone of the problem, and every foot, must see all of it.
+  for (OptimalControlProblem& ocp : sqp->getOcpDefinitions()) {
+    for (const std::string& footName : contactNames_) {
+      const ContactComplementarityConstraint& complementarity =
+          ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_contactComplementarity")
+              .get<ContactComplementarityConstraint>();
+      EXPECT_NEAR(complementarity.getTerrainHeight(), newTerrainHeight, 1e-9) << footName;
+      EXPECT_NEAR(complementarity.getHeightReference(), newHeightReference, 1e-9) << footName;
+
+      const ForceWeightedSlipConstraint& slip =
+          ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_forceWeightedSlip").get<ForceWeightedSlipConstraint>();
+      EXPECT_NEAR(slip.getInverseTwistReference()(0), 1.0 / newVelocityReference, 1e-9) << footName;
+      EXPECT_NEAR(slip.getInverseTwistReference()(1), 1.0 / newVelocityReference, 1e-9) << footName;
+      EXPECT_NEAR(slip.getInverseTwistReference()(2), 1.0 / newAngularVelocityReference, 1e-9) << footName;
+
+      const GroundPenetrationConstraint& penetration =
+          ocp.stateSoftConstraintPtr->get<StateSoftConstraint>(footName + "_groundPenetration").get<GroundPenetrationConstraint>();
+      EXPECT_NEAR(penetration.getTerrainHeight(), newTerrainHeight, 1e-9)
+          << footName << ": the penetration barrier still places the ground somewhere else than the complementarity term does";
+    }
+  }
+}
+
+TEST_F(MpcParameterUpdaterModuleTest, ThePositionErrorGainReachesTheSoftNormalVelocityTerm) {
+  // positionErrorGain_z was loaded into a local FootConstraintConfig and written into the zeroVelocity twist config -
+  // but under the contact-implicit formulation zeroVelocity is not built at all, and the term that DOES use the gain,
+  // the soft normal-velocity servo, reads it from the PreComputation. So the slider moved a term that did not exist
+  // while the one that did kept its launch value. The gain enters the residual v_z - zdot_ref + k (z - z_ref)
+  // linearly, hence the curvature SQUARED: it is the strongest single knob on swing-foot tracking, and it was inert.
+  SqpSolver* sqp = getSqpSolver();
+  ASSERT_NE(sqp, nullptr);
+
+  const scalar_t newGain = 3.5;
+  {
+    std::ifstream in(tmpTaskFile_);
+    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.close();
+    const std::string key = "\n    positionErrorGain_z:";
+    const size_t keyPos = content.find(key);
+    ASSERT_NE(keyPos, std::string::npos) << "the task file has no model_settings.foot_constraint.positionErrorGain_z";
+    const size_t valueStart = keyPos + key.size();
+    const size_t lineEnd = content.find('\n', valueStart);
+    content.replace(valueStart, lineEnd - valueStart, " " + std::to_string(newGain));
+    std::ofstream out(tmpTaskFile_);
+    out << content;
+  }
+
+  MpcParameterUpdaterModule updater(mpc_.get(), tmpTaskFile_, urdfFile_, referenceFile_, stateDim_, inputDim_, contactNames_, nullptr,
+                                    basisCostTransform_);
+  touchTaskFileAndRunUpdater(updater);
+
+  // Every per-thread clone has to see it: the gain lives on the PreComputation precisely because each worker owns one.
+  for (OptimalControlProblem& ocp : sqp->getOcpDefinitions()) {
+    const HumanoidPreComputation* preComputationPtr = dynamic_cast<const HumanoidPreComputation*>(ocp.preComputationPtr.get());
+    ASSERT_NE(preComputationPtr, nullptr) << "the centroidal MPC is expected to use HumanoidPreComputation";
+    EXPECT_NEAR(preComputationPtr->getNormalVelocityPositionErrorGain(), newGain, 1e-9);
   }
 }
 
