@@ -30,9 +30,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """Turns any YAML configuration into the tree of tunable parameters a GUI can be built from.
 
 Nothing here knows the name of a single parameter. A file is read, every numeric leaf becomes a tunable, its label is
-the trailing comment the file already carries next to it, and its slider range is derived from its own magnitude. A
-parameter added to a configuration therefore reaches the GUI with no code written anywhere, which is the point: the
-names live in the YAML, not in Python.
+built from the key and the trailing comment the file already carries next to it, and its slider range is derived from
+its own magnitude. A parameter added to a configuration therefore reaches the GUI with no code written anywhere, which
+is the point: the names live in the YAML, not in Python.
 """
 
 import os
@@ -56,7 +56,9 @@ class Tunable(NamedTuple):
 
     path: List[str]  #: the key path, as the file spells it, e.g. ["Q_com", '"(2,2)"']
     value: float
-    label: str  #: the trailing comment where the file has one, else the bare key
+    label: (
+        str  #: `key [trailing comment]` where the file has a comment, else the bare key
+    )
     minimum: float
     maximum: float
 
@@ -109,6 +111,21 @@ def trailing_comments(file_path: str) -> Dict[str, str]:
     return comments
 
 
+def label_for(key: str, comment: Optional[str]) -> str:
+    """The label a GUI shows for one parameter: `key [comment]`, or the bare key where the file has no comment.
+
+    Both halves earn their place. The KEY is what the task file calls the parameter, so it is what an engineer greps
+    for, what an error message names and what they have to type to change it somewhere other than the GUI; a label
+    that showed only the comment made the slider unsearchable against the file it edits. The COMMENT is what the
+    number means, which the key rarely says on its own - `"(2,2)"` is unreadable, `(2,2) [p_com_z - effective weight
+    1275, matches p_base_z]` is not.
+
+    The comment is taken verbatim, including any units or derivation the file records, because editing it here would
+    put a second description of the parameter in Python and that is exactly what this module exists to avoid.
+    """
+    return "%s [%s]" % (key, comment) if comment else key
+
+
 def tunables(
     file_path: str, root: Optional[dict] = None, prefix: Optional[List[str]] = None
 ) -> List[Tunable]:
@@ -139,7 +156,7 @@ def tunables(
             Tunable(
                 path=list(path),
                 value=float(node),
-                label=comment if comment else path[-1],
+                label=label_for(path[-1], comment),
                 minimum=minimum,
                 maximum=maximum,
             )

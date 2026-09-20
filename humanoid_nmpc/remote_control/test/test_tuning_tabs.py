@@ -33,6 +33,7 @@ import tempfile
 import unittest
 import yaml
 
+from remote_control.tk_app import yaml_param_tree
 from remote_control.tk_app.yaml_editor_utils import (
     load_yaml_safe,
     update_yaml_values_in_place,
@@ -520,6 +521,47 @@ class TestJointPdAutoSaveRoundTrip(unittest.TestCase):
                 )
         finally:
             root.destroy()
+
+
+class LabelFormattingTest(unittest.TestCase):
+    """The label a slider carries: `key [trailing comment]`."""
+
+    def test_label_pairs_the_key_with_the_comment(self):
+        self.assertEqual(
+            yaml_param_tree.label_for(
+                "complementarityWeight", "the price of carrying full body weight"
+            ),
+            "complementarityWeight [the price of carrying full body weight]",
+        )
+
+    def test_a_key_with_no_comment_is_shown_bare(self):
+        # No empty brackets: a key the file does not describe reads as itself, not as "someKey []".
+        self.assertEqual(yaml_param_tree.label_for("someKey", None), "someKey")
+        self.assertEqual(yaml_param_tree.label_for("someKey", ""), "someKey")
+
+    def test_a_matrix_key_is_readable_only_because_of_the_comment(self):
+        # This is the case the format exists for. "(2,2)" alone says nothing; the comment alone cannot be grepped
+        # for in the task file. Both halves are needed.
+        label = yaml_param_tree.label_for(
+            "(2,2)", "p_com_z - effective weight 1275, matches p_base_z"
+        )
+        self.assertTrue(label.startswith("(2,2) ["))
+        self.assertIn("p_com_z", label)
+
+    def test_labels_come_out_of_a_real_file_in_that_shape(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "params.yaml")
+            with open(path, "w") as handle:
+                handle.write(
+                    'aBlock:\n  weighted: 3.0  # what it means\n  bare: 4.0\n  "(1,1)": 5.0  # a matrix entry\n'
+                )
+            found = {
+                tunable.path[-1]: tunable.label
+                for tunable in yaml_param_tree.tunables(path)
+            }
+            self.assertEqual(found["weighted"], "weighted [what it means]")
+            self.assertEqual(found["bare"], "bare")
+            self.assertEqual(found["(1,1)"], "(1,1) [a matrix entry]")
 
 
 if __name__ == "__main__":

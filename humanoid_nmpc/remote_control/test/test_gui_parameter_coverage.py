@@ -30,7 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """Every tunable parameter of every robot's configuration reaches the GUI, because the GUI is built from the YAML.
 
 There are no lists of parameter names anywhere in the tabs: `yaml_param_tree` reads a configuration, every numeric leaf
-becomes a slider, its label is the trailing comment the file carries next to it and its range comes from its own
+becomes a slider, its label is the key followed by the trailing comment the file carries next to it, and its range
+comes from its own
 magnitude. This test holds that property from the outside - it walks the shipped YAML itself and asserts the tabs
 render a slider for every numeric leaf - so that the day someone reintroduces a hardcoded list and it falls behind the
 file, the test fails rather than the parameter quietly disappearing from the GUI.
@@ -182,9 +183,12 @@ class TestGeneratedFromTheFile(unittest.TestCase):
                 tab._render_active_category()
                 key = "aBlockInventedByThisTest.someWeight"
                 self.assertIn(key, tab.slider_rows, "a new key must become a slider")
-                # And its label is the comment the file carries, not anything written in Python.
+                # And its label is the key followed by the comment the file carries, not anything written in
+                # Python. The key half is what makes a slider findable against the file it edits; the comment half is
+                # what the number means, which a key like "(2,2)" never says on its own.
                 self.assertEqual(
-                    tab.slider_rows[key].name, "a label only this test knows"
+                    tab.slider_rows[key].name,
+                    "someWeight [a label only this test knows]",
                 )
             finally:
                 root.destroy()

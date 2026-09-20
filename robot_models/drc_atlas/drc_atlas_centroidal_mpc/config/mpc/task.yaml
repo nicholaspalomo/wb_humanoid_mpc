@@ -79,7 +79,7 @@ Q_com:
 Q_acom:
   scaling: 100
   "(0,0)": 25  # theta_acom_z / yaw (matches theta_base_z)
-  "(1,1)": 100  # theta_acom_y / pitch (matches theta_base_y)
+  "(1,1)": 150  # theta_acom_y / pitch (matches theta_base_y)
   "(2,2)": 50  # theta_acom_x / roll (matches theta_base_x)
 
 
@@ -117,20 +117,20 @@ centroidalModelType: 0  # 0: FullCentroidalDynamics, 1: Single Rigid Body Dynami
 # and is overruled whenever anything else pays more, which is what the formulation wants of a schedule-derived
 # reference; its weight is model_settings.foot_constraint.normalVelocitySoftConstraintWeight.
 hard_constraints:
-  # - zero_wrench                       # remove for the contact-implicit formulation
-  # - normal_velocity                   # remove for the contact-implicit formulation
-  # - zero_velocity                     # remove for the contact-implicit formulation
+  - zero_wrench                       # remove for the contact-implicit formulation
+  - normal_velocity                   # remove for the contact-implicit formulation
+  - zero_velocity                     # remove for the contact-implicit formulation
 
 soft_constraints:
   - joint_limits
   - foot_collision
   - contact_wrench_cone
-  - normal_velocity                 # contact-implicit: the swing-foot vertical servo, PRICED instead of imposed.
+  # - normal_velocity                 # contact-implicit: the swing-foot vertical servo, PRICED instead of imposed.
                                     #   Required whenever normal_velocity is dropped from hard_constraints above, or
                                     #   nothing has the authority to lift a foot and the robot shuffles.
-  - contact_complementarity         # contact-implicit: f_n * h = 0, load only where the foot touches the ground
-  - force_weighted_slip             # contact-implicit: f_n * v_xy = 0, a loaded foot is held still
-  - ground_penetration              # contact-implicit: h >= 0, required alongside contact_complementarity
+  # - contact_complementarity         # contact-implicit: f_n * h = 0, load only where the foot touches the ground
+  # - force_weighted_slip             # contact-implicit: f_n * v_xy = 0, a loaded foot is held still
+  # - ground_penetration              # contact-implicit: h >= 0, required alongside contact_complementarity
 
 # The nominal foothold reference, used only when useContactPlanning is false. Without a contact planner the swing foot
 # has no horizontal target at all - the foot cost switches its xy position weights off - and the only thing that ever
@@ -262,7 +262,7 @@ model_settings:
     # velocity was 5x the tracking lag, so the foot kicked into the ground and the
     # zero_velocity constraint then had to absorb that velocity in one 0.02 s
     # shooting interval, which threw the body upward once per step.
-    positionErrorGain_z: 2.0
+    positionErrorGain_z: 5.0
     orientationErrorGain: 0.1
     linearVelocityErrorGain_z: 0.1
     linearVelocityErrorGain_xy: 0.1
@@ -343,7 +343,7 @@ swing_trajectory_config:
   # to come from positionErrorGain_z acting on the tracking error.
   touchDownVelocity: -0.05
   swingHeight: 0.08  # was 0.16; the higher apex made the descent steeper and widened the foot-pitch excursion
-  touchDownHeightOffset: -0.001
+  touchDownHeightOffset: 0.02
   # Swings shorter than this are scaled down in height AND velocity by swingDuration / swingTimeScale
   # (SwingTrajectoryPlanner::swingTrajectoryScaling). It must therefore stay <= contact_planning.yaml
   # minSwingDuration, or lowering the swing duration to raise the cadence silently shrinks the foot clearance:
@@ -404,46 +404,46 @@ mpc:
 
 initialState:
   # ; Normalized Centroidal Momentum: [linear, angular] ;;
-  "(0,0)": 0.0  # h_com_x / robotMass
-  "(1,0)": 0.0  # h_com_y / robotMass
-  "(2,0)": 0.0  # h_com_z / robotMass
-  "(3,0)": 0.0  # L_x / robotMass
-  "(4,0)": 0.0  # L_y / robotMass
-  "(5,0)": 0.0  # L_z / robotMass
+  "(0,0)": 0  # h_com_x / robotMass
+  "(1,0)": 0  # h_com_y / robotMass
+  "(2,0)": 0  # h_com_z / robotMass
+  "(3,0)": 0  # L_x / robotMass
+  "(4,0)": 0  # L_y / robotMass
+  "(5,0)": 0  # L_z / robotMass
 
   # ; Base Pose: [position, orientation] ;;
-  "(6,0)": 0.0  # p_base_x
-  "(7,0)": 0.0  # p_base_y
+  "(6,0)": 0  # p_base_x
+  "(7,0)": 0  # p_base_y
   "(8,0)": 0.8952  # p_base_z
-  "(9,0)": 0.0  # theta_base_z
-  "(10,0)": 0.0  # theta_base_y
-  "(11,0)": 0.0  # theta_base_x
+  "(9,0)": 0  # theta_base_z
+  "(10,0)": 0  # theta_base_y
+  "(11,0)": 0  # theta_base_x
 
   # ; Joint Positions: ;;
-  "(12,0)": 0.0  # back_bkz
-  "(13,0)": 0.0  # back_bky
-  "(14,0)": 0.0  # back_bkx
+  "(12,0)": 0  # back_bkz
+  "(13,0)": 0  # back_bky
+  "(14,0)": 0  # back_bkx
   "(15,0)": 0.3  # l_arm_shz
   "(16,0)": -1.2  # l_arm_shx
   "(17,0)": 2.2  # l_arm_ely
   "(18,0)": 0.55  # l_arm_elx
-  "(19,0)": 0.0  # neck_ry
+  "(19,0)": 0  # neck_ry
   "(20,0)": -0.3  # r_arm_shz
   "(21,0)": 1.2  # r_arm_shx
   "(22,0)": 2.2  # r_arm_ely
   "(23,0)": -0.55  # r_arm_elx
-  "(24,0)": 0.0  # l_leg_hpz
-  "(25,0)": 0.0  # l_leg_hpx
+  "(24,0)": 0  # l_leg_hpz
+  "(25,0)": 0  # l_leg_hpx
   "(26,0)": -0.42  # l_leg_hpy
   "(27,0)": 0.84  # l_leg_kny
   "(28,0)": -0.42  # l_leg_aky
-  "(29,0)": 0.0  # l_leg_akx
-  "(30,0)": 0.0  # r_leg_hpz
-  "(31,0)": 0.0  # r_leg_hpx
+  "(29,0)": 0  # l_leg_akx
+  "(30,0)": 0  # r_leg_hpz
+  "(31,0)": 0  # r_leg_hpx
   "(32,0)": -0.42  # r_leg_hpy
   "(33,0)": 0.84  # r_leg_kny
   "(34,0)": -0.42  # r_leg_aky
-  "(35,0)": 0.0  # r_leg_akx
+  "(35,0)": 0  # r_leg_akx
 
 # standard state weight matrix
 Q:
@@ -463,9 +463,9 @@ Q:
   # locked angular velocity, so penalising angular momentum heavily fights the
   # torso and arm counter-rotation the aCOM cost is there to produce. What is
   # left provides damping only; orientation itself is regulated by Q_acom.
-  "(3,3)": 5  # L_x / robotMass
+  "(3,3)": 20  # L_x / robotMass
   "(4,4)": 25  # L_y / robotMass
-  "(5,5)": 2  # L_z / robotMass
+  "(5,5)": 5  # L_z / robotMass
 
   # ; Base Pose: [position, orientation] ;;
   # Ignored while useComAndAcomTracking is true: the factory zeroes this 6x6
@@ -483,7 +483,7 @@ Q:
   # learned orientation offset, so it must be free to rotate.
   "(12,12)": 5  # back_bkz
   "(13,13)": 5  # back_bky
-  "(14,14)": 5  # back_bkx
+  "(14,14)": 15  # back_bkx
   "(15,15)": 0.1  # l_arm_shz
   "(16,16)": 0.1  # l_arm_shx
   "(17,17)": 0.1  # l_arm_ely
