@@ -641,10 +641,13 @@ collision_constraint:
     leftAnkleFrame: leg_l6_joint
     rightAnkleFrame: leg_r6_joint
 
-    # The constraint keeps the two foot spheres 2 * radius apart. SA01's ankles are 0.150 m apart at the nominal
-    # stance and the soles' inner edges are then 0.080 m apart, so the feet touch once the ankles close to 0.070 m.
-    # 0.045 puts the bound at 0.090 m - a 0.020 m margin over touching - and leaves 0.060 m of slack at the nominal
-    # stance, just outside the 0.05 barrier width so the term is silent while the robot stands.
+    # The constraint keeps the two contact frames 2 * radius apart. SA01's ankles are 0.1503 m apart at the nominal
+    # stance. The MuJoCo contact spheres nearest the centreline sit 0.035 m inboard of each ankle with a 0.010 m
+    # radius, so the feet physically touch once the ankles close to 0.1503 - 0.0802 + 0.020 = 0.0901 m.
+    # 0.045 puts the bound at exactly 0.090 m, i.e. the constraint engages essentially where the feet really meet -
+    # there is no margin beyond it, which is what SA01's 0.150 m hip spacing allows and no more. It cannot simply be
+    # raised: the relaxed barrier is 0.05 m wide (delta below), so a radius above 0.050 would have the term pushing
+    # the feet apart while the robot merely stands at its 0.1503 m nominal stance.
     footCollisionSphereRadius: 0.045
   knee:
     leftKneeFrame: leg_l4_joint

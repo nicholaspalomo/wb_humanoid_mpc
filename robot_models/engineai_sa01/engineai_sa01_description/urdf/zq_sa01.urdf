@@ -43,16 +43,13 @@ Stephen Brawner (brawner@gmail.com)
           rgba="0.75294 0.75294 0.75294 1" />
       </material>
     </visual>
+    <!-- Collision geometry is generated from zq_sa01.xml so the two models agree; see the MJCF for the
+         reasoning behind each primitive. MuJoCo capsules appear here as cylinders of the same radius and
+         barrel length, URDF having no capsule primitive. -->
     <collision>
-      <origin
-        xyz="0 0 0.03"
-        rpy="0 0 0" />
-      <!-- <geometry>
-        <mesh
-          filename="package://engineai_sa01_description/meshes/Base_link.STL" />
-      </geometry> -->
+      <origin xyz="-0.026 0 0.1765" rpy="0 0 0" />
       <geometry>
-        <box size="0.2 0.2 0.3" />
+        <box size="0.228 0.302 0.483" />
       </geometry>
     </collision>
   </link>
@@ -87,15 +84,15 @@ Stephen Brawner (brawner@gmail.com)
           rgba="0.75294 0.75294 0.75294 1" />
       </material>
     </visual>
-    <!-- <collision>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+    <!-- Collision geometry is generated from zq_sa01.xml so the two models agree; see the MJCF for the
+         reasoning behind each primitive. MuJoCo capsules appear here as cylinders of the same radius and
+         barrel length, URDF having no capsule primitive. -->
+    <collision>
+      <origin xyz="0.0016 0 -0.0006" rpy="0 0 0" />
       <geometry>
-        <mesh
-          filename="package://engineai_sa01_description/meshes/LeftLeg_Link_01.STL" />
+        <box size="0.132 0.115 0.0608" />
       </geometry>
-    </collision> -->
+    </collision>
   </link>
 
   <joint
@@ -148,15 +145,15 @@ Stephen Brawner (brawner@gmail.com)
           rgba="0.75294 0.75294 0.75294 1" />
       </material>
     </visual>
-    <!-- <collision>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+    <!-- Collision geometry is generated from zq_sa01.xml so the two models agree; see the MJCF for the
+         reasoning behind each primitive. MuJoCo capsules appear here as cylinders of the same radius and
+         barrel length, URDF having no capsule primitive. -->
+    <collision>
+      <origin xyz="0.0016 0 -0.1112" rpy="0 0 0" />
       <geometry>
-        <mesh
-          filename="package://engineai_sa01_description/meshes/LeftLeg_Link_02.STL" />
+        <box size="0.125 0.059 0.1604" />
       </geometry>
-    </collision> -->
+    </collision>
   </link>
 
   <joint
@@ -209,12 +206,13 @@ Stephen Brawner (brawner@gmail.com)
           rgba="0.75294 0.75294 0.75294 1" />
       </material>
     </visual>
+    <!-- Collision geometry is generated from zq_sa01.xml so the two models agree; see the MJCF for the
+         reasoning behind each primitive. MuJoCo capsules appear here as cylinders of the same radius and
+         barrel length, URDF having no capsule primitive. -->
     <collision>
-      <origin
-        xyz="0 0 -0.17"
-        rpy="0 0 0" />
+      <origin xyz="0 0 -0.15" rpy="0 0 0" />
       <geometry>
-        <box size="0.08 0.08 0.25" />
+        <cylinder radius="0.045" length="0.3" />
       </geometry>
     </collision>
   </link>
@@ -269,12 +267,13 @@ Stephen Brawner (brawner@gmail.com)
           rgba="0.75294 0.75294 0.75294 1" />
       </material>
     </visual>
+    <!-- Collision geometry is generated from zq_sa01.xml so the two models agree; see the MJCF for the
+         reasoning behind each primitive. MuJoCo capsules appear here as cylinders of the same radius and
+         barrel length, URDF having no capsule primitive. -->
     <collision>
-      <origin
-        xyz="0 0 -0.18"
-        rpy="0 0 0" />
+      <origin xyz="0 0 -0.185" rpy="0 0 0" />
       <geometry>
-        <box size="0.05 0.05 0.28" />
+        <cylinder radius="0.035" length="0.33" />
       </geometry>
     </collision>
   </link>
@@ -336,15 +335,15 @@ Stephen Brawner (brawner@gmail.com)
           rgba="0.75294 0.75294 0.75294 1" />
       </material>
     </visual>
-    <!-- <collision>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+    <!-- Collision geometry is generated from zq_sa01.xml so the two models agree; see the MJCF for the
+         reasoning behind each primitive. MuJoCo capsules appear here as cylinders of the same radius and
+         barrel length, URDF having no capsule primitive. -->
+    <collision>
+      <origin xyz="0.0016 0 0.0021" rpy="0 0 0" />
       <geometry>
-        <mesh
-          filename="package://engineai_sa01_description/meshes/LeftLeg_Link_05.STL" />
+        <sphere radius="0.0175" />
       </geometry>
-    </collision> -->
+    </collision>
   </link>
 
   <joint
@@ -405,16 +404,31 @@ Stephen Brawner (brawner@gmail.com)
           rgba="0.75294 0.75294 0.75294 1" />
       </material>
     </visual>
+    <!-- Collision geometry is generated from zq_sa01.xml so the two models agree; see the MJCF for the
+         reasoning behind each primitive. MuJoCo capsules appear here as cylinders of the same radius and
+         barrel length, URDF having no capsule primitive. -->
     <collision>
-      <origin
-        xyz="0.0 0 -0.0"
-        rpy="0 0 0" />
-      <!-- <geometry>
-        <box size="0.24 0.08 0.03" />
-      </geometry> -->
+      <origin xyz="-0.065 0.045 -0.045" rpy="0 0 0" />
       <geometry>
-        <mesh
-          filename="package://engineai_sa01_description/meshes/LeftLeg_Link_06.STL" />
+        <sphere radius="0.01" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin xyz="-0.065 -0.035 -0.045" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.01" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin xyz="0.185 0.045 -0.045" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.01" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin xyz="0.185 -0.035 -0.045" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.01" />
       </geometry>
     </collision>
   </link>
@@ -469,15 +483,15 @@ Stephen Brawner (brawner@gmail.com)
           rgba="0.75294 0.75294 0.75294 1" />
       </material>
     </visual>
-    <!-- <collision>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+    <!-- Collision geometry is generated from zq_sa01.xml so the two models agree; see the MJCF for the
+         reasoning behind each primitive. MuJoCo capsules appear here as cylinders of the same radius and
+         barrel length, URDF having no capsule primitive. -->
+    <collision>
+      <origin xyz="0.0016 0 -0.0006" rpy="0 0 0" />
       <geometry>
-        <mesh
-          filename="package://engineai_sa01_description/meshes/RightLeg_Link_01.STL" />
+        <box size="0.132 0.115 0.0608" />
       </geometry>
-    </collision> -->
+    </collision>
   </link>
 
   <joint
@@ -530,15 +544,15 @@ Stephen Brawner (brawner@gmail.com)
           rgba="0.75294 0.75294 0.75294 1" />
       </material>
     </visual>
-    <!-- <collision>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+    <!-- Collision geometry is generated from zq_sa01.xml so the two models agree; see the MJCF for the
+         reasoning behind each primitive. MuJoCo capsules appear here as cylinders of the same radius and
+         barrel length, URDF having no capsule primitive. -->
+    <collision>
+      <origin xyz="0.0016 0 -0.1112" rpy="0 0 0" />
       <geometry>
-        <mesh
-          filename="package://engineai_sa01_description/meshes/RightLeg_Link_02.STL" />
+        <box size="0.125 0.059 0.1604" />
       </geometry>
-    </collision> -->
+    </collision>
   </link>
 
   <joint
@@ -591,12 +605,13 @@ Stephen Brawner (brawner@gmail.com)
           rgba="0.75294 0.75294 0.75294 1" />
       </material>
     </visual>
+    <!-- Collision geometry is generated from zq_sa01.xml so the two models agree; see the MJCF for the
+         reasoning behind each primitive. MuJoCo capsules appear here as cylinders of the same radius and
+         barrel length, URDF having no capsule primitive. -->
     <collision>
-      <origin
-        xyz="0 0 -0.17"
-        rpy="0 0 0" />
+      <origin xyz="0 0 -0.15" rpy="0 0 0" />
       <geometry>
-        <box size="0.08 0.08 0.25" />
+        <cylinder radius="0.045" length="0.3" />
       </geometry>
     </collision>
   </link>
@@ -651,12 +666,13 @@ Stephen Brawner (brawner@gmail.com)
           rgba="0.75294 0.75294 0.75294 1" />
       </material>
     </visual>
+    <!-- Collision geometry is generated from zq_sa01.xml so the two models agree; see the MJCF for the
+         reasoning behind each primitive. MuJoCo capsules appear here as cylinders of the same radius and
+         barrel length, URDF having no capsule primitive. -->
     <collision>
-      <origin
-        xyz="0 0 -0.18"
-        rpy="0 0 0" />
+      <origin xyz="0 0 -0.185" rpy="0 0 0" />
       <geometry>
-        <box size="0.05 0.05 0.28" />
+        <cylinder radius="0.035" length="0.33" />
       </geometry>
     </collision>
   </link>
@@ -718,15 +734,15 @@ Stephen Brawner (brawner@gmail.com)
           rgba="0.75294 0.75294 0.75294 1" />
       </material>
     </visual>
-    <!-- <collision>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+    <!-- Collision geometry is generated from zq_sa01.xml so the two models agree; see the MJCF for the
+         reasoning behind each primitive. MuJoCo capsules appear here as cylinders of the same radius and
+         barrel length, URDF having no capsule primitive. -->
+    <collision>
+      <origin xyz="0.0016 0 0.0021" rpy="0 0 0" />
       <geometry>
-        <mesh
-          filename="package://engineai_sa01_description/meshes/RightLeg_Link_05.STL" />
+        <sphere radius="0.0175" />
       </geometry>
-    </collision> -->
+    </collision>
   </link>
 
   <joint
@@ -787,16 +803,31 @@ Stephen Brawner (brawner@gmail.com)
           rgba="0.75294 0.75294 0.75294 1" />
       </material>
     </visual>
+    <!-- Collision geometry is generated from zq_sa01.xml so the two models agree; see the MJCF for the
+         reasoning behind each primitive. MuJoCo capsules appear here as cylinders of the same radius and
+         barrel length, URDF having no capsule primitive. -->
     <collision>
-      <origin
-        xyz="0.0 0 -0.0"
-        rpy="0 0 0" />
-      <!-- <geometry>
-        <box size="0.24 0.08 0.03" />
-      </geometry> -->
+      <origin xyz="-0.065 0.035 -0.045" rpy="0 0 0" />
       <geometry>
-        <mesh
-          filename="package://engineai_sa01_description/meshes/RightLeg_Link_06.STL" />
+        <sphere radius="0.01" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin xyz="-0.065 -0.045 -0.045" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.01" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin xyz="0.185 0.035 -0.045" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.01" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin xyz="0.185 -0.045 -0.045" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.01" />
       </geometry>
     </collision>
   </link>
