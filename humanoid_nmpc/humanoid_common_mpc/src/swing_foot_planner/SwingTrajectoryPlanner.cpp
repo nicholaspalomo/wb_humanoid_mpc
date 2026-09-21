@@ -40,6 +40,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 
 /******************************************************************************************************/
@@ -352,20 +354,20 @@ void SwingTrajectoryPlanner::checkThatIndicesAreValid(
     int leg, int index, int startIndex, int finalIndex, const std::vector<size_t>& phaseIDsStock) {
   const size_t numSubsystems = phaseIDsStock.size();
   if (startIndex < 0) {
-    std::cerr << "Subsystem: " << index << " out of " << numSubsystems - 1 << std::endl;
+    LOG(INFO) << "Subsystem: " << index << " out of " << numSubsystems - 1;
     for (size_t i = 0; i < numSubsystems; i++) {
-      std::cerr << "[" << i << "]: " << phaseIDsStock[i] << ",  ";
+      LOG(INFO) << "[" << i << "]: " << phaseIDsStock[i] << ",  ";
     }
-    std::cerr << std::endl;
+    LOG(INFO);
 
     throw std::runtime_error("The time of take-off for the first swing of the EE with ID " + std::to_string(leg) + " is not defined.");
   }
   if (finalIndex >= numSubsystems - 1) {
-    std::cerr << "Subsystem: " << index << " out of " << numSubsystems - 1 << std::endl;
+    LOG(INFO) << "Subsystem: " << index << " out of " << numSubsystems - 1;
     for (size_t i = 0; i < numSubsystems; i++) {
-      std::cerr << "[" << i << "]: " << phaseIDsStock[i] << ",  ";
+      LOG(INFO) << "[" << i << "]: " << phaseIDsStock[i] << ",  ";
     }
-    std::cerr << std::endl;
+    LOG(INFO);
 
     throw std::runtime_error("The time of touch-down for the last swing of the EE with ID " + std::to_string(leg) + " is not defined.");
   }
@@ -388,8 +390,8 @@ SwingTrajectoryPlanner::Config loadSwingTrajectorySettings(const std::string& fi
   loadData::readPropertyTree(fileName, pt);
 
   if (verbose) {
-    std::cerr << "\n #### Swing Trajectory Config:";
-    std::cerr << "\n #### =============================================================================\n";
+    LOG(INFO) << "\n #### Swing Trajectory Config:";
+    LOG(INFO) << "\n #### =============================================================================\n";
   }
 
   SwingTrajectoryPlanner::Config config;
@@ -410,7 +412,7 @@ SwingTrajectoryPlanner::Config loadSwingTrajectorySettings(const std::string& fi
   loadData::loadPtreeValue(pt, config.swingPitchFallFraction, prefix + "swingPitchFallFraction", verbose);
 
   if (verbose) {
-    std::cerr << " #### =============================================================================" << std::endl;
+    LOG(INFO) << " #### =============================================================================";
   }
 
   return config;

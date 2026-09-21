@@ -107,9 +107,9 @@ void WBMpcMrtJointController::loadPdGains(const std::string& pdGainsFile, const 
           jointGainsMap[jname] = {kp, kd};
         }
       }
-      std::cout << "[WBMpcMrtJointController] Loaded joint PD gains from " << pdGainsFile << std::endl;
+      LOG(INFO) << "[WBMpcMrtJointController] Loaded joint PD gains from " << pdGainsFile;
     } catch (const std::exception& e) {
-      std::cerr << "[WBMpcMrtJointController] Warning: Failed to parse " << pdGainsFile << ": " << e.what() << std::endl;
+      LOG(WARNING) << "[WBMpcMrtJointController] Warning: Failed to parse " << pdGainsFile << ": " << e.what();
     }
   }
 
@@ -149,7 +149,7 @@ void WBMpcMrtJointController::subscribePdGains(rclcpp::Node::SharedPtr node) {
         std::lock_guard<std::mutex> lock(pdGainsPendingMutex_);
         pdGainsPendingYamlContent_ = msg->data;
         hasNewPdGainsTopicData_.store(true);
-        std::cerr << "[WBMpcMrtJointController] topicCallback received " << msg->data.size() << " chars" << std::endl;
+        LOG(INFO) << "[WBMpcMrtJointController] topicCallback received " << msg->data.size() << " chars";
       });
   LOG(INFO) << "[WBMpcMrtJointController] Subscribed to /pd_gains_updates topic.";
 }
@@ -262,7 +262,7 @@ void WBMpcMrtJointController::computeJointControlAction(scalar_t time,
         ofs << yamlContent;
       }
       loadPdGains(tempFile, modelSettings_);
-      std::cerr << "[WBMpcMrtJointController] Applied PD gains from topic." << std::endl;
+      LOG(INFO) << "[WBMpcMrtJointController] Applied PD gains from topic.";
     }
   }
 
@@ -331,7 +331,7 @@ void WBMpcMrtJointController::computeJointControlAction(scalar_t time,
   }
 
   else {
-    std::cerr << "Apply weight compensating torque..." << std::endl;
+    LOG(INFO) << "Apply weight compensating torque...";
     //   Apply weight compensated input around current state
     mpcPolicyState = currentMpcObservation_.state;
     // The weight is carried by the feet measured in contact; with none (the robot hangs on the gantry) no contact force
@@ -377,7 +377,7 @@ void WBMpcMrtJointController::solverWorker() {
 
   mcpMrtInterface_.resetMpcNode(currentObservationToResetTrajectory(mcpMrtInterface_.getCurrentObservation()));
   policyActivated_.store(false);
-  std::cerr << "MPC is reset. NMPC solver started!" << std::endl;
+  LOG(INFO) << "MPC is reset. NMPC solver started!";
 
   size_t slowWarningCount = 0;
   while (true) {
@@ -387,7 +387,7 @@ void WBMpcMrtJointController::solverWorker() {
     if (resetMpcRequested_.exchange(false)) {
       mcpMrtInterface_.resetMpcNode(currentObservationToResetTrajectory(mcpMrtInterface_.getCurrentObservation()));
       policyActivated_.store(false);
-      std::cerr << "MPC reset to current observation (external request)." << std::endl;
+      LOG(INFO) << "MPC reset to current observation (external request).";
     }
 
     absl::Status mpcStatus = mcpMrtInterface_.advanceMpc();
@@ -401,7 +401,7 @@ void WBMpcMrtJointController::solverWorker() {
       if (currentTime > targetTimeForNextIteration) {
         auto delay = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - targetTimeForNextIteration).count();
         if (delay > 1000 && (++slowWarningCount % 20 == 0)) {
-          std::cerr << "Warning: MPC loop running slow by " << delay << " microseconds." << std::endl;
+          LOG(WARNING) << "MPC loop running slow by " << delay << " microseconds.";
         }
       } else {
         // Sleep in case sim loop is faster than specified
@@ -409,7 +409,7 @@ void WBMpcMrtJointController::solverWorker() {
       }
     }
   }
-  std::cerr << "Shutting down NMPC" << std::endl;
+  LOG(INFO) << "Shutting down NMPC";
 }
 
 /******************************************************************************************************/
@@ -427,7 +427,7 @@ TargetTrajectories WBMpcMrtJointController::currentObservationToResetTrajectory(
   const TargetTrajectories resetTargetTrajectories({currentObservation.time}, {targetState},
                                                    {vector_t::Zero(currentObservation.input.size())});
 
-  std::cerr << "Resetting MPC to current state: \n" << targetState << std::endl;
+  LOG(INFO) << "Resetting MPC to current state: \n" << targetState;
   return resetTargetTrajectories;
 }
 

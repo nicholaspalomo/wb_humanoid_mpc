@@ -38,6 +38,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/gait/GaitScheduleUpdater.h"
 #include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 
 /******************************************************************************************************/
@@ -189,20 +191,20 @@ void ProceduralMpcMotionManager::preSolverRun(scalar_t initTime,
   // Do not change the gait pattern for at least 0.5s
   if (initTime > lastGaitChangeTime_ + 0.2) {
     if (transitionToFasterGait(filteredVelCommand, baseVelocity, currentCfg)) {
-      std::cout << "filteredVelCommand: " << filteredVelCommand.transpose() << std::endl;
-      std::cout << "Linear limits: " << currentCfg.minLinVelCmd << ", " << currentCfg.maxLinVelCmd << std::endl;
+      LOG(INFO) << "filteredVelCommand: " << filteredVelCommand.transpose();
+      LOG(INFO) << "Linear limits: " << currentCfg.minLinVelCmd << ", " << currentCfg.maxLinVelCmd;
       currentGaitMode_++;
       currentCfg = gaitModeStates_[currentGaitMode_];
       currentGaitCommand_ = currentCfg.gaitCommand;
-      std::cout << "ProceduralMpcMotionManager: Increasing to gait:" << currentCfg.gaitCommand << std::endl;
+      LOG(INFO) << "ProceduralMpcMotionManager: Increasing to gait:" << currentCfg.gaitCommand;
       lastGaitChangeTime_ = initTime;
     } else if (transitionToSlowerGait(filteredVelCommand, baseVelocity, currentCfg)) {
-      std::cout << "filteredVelCommand: " << filteredVelCommand.transpose() << std::endl;
-      std::cout << "Linear limits: " << currentCfg.minLinVelCmd << ", " << currentCfg.maxLinVelCmd << std::endl;
+      LOG(INFO) << "filteredVelCommand: " << filteredVelCommand.transpose();
+      LOG(INFO) << "Linear limits: " << currentCfg.minLinVelCmd << ", " << currentCfg.maxLinVelCmd;
       currentGaitMode_--;
       currentCfg = gaitModeStates_[currentGaitMode_];
       currentGaitCommand_ = currentCfg.gaitCommand;
-      std::cout << "ProceduralMpcMotionManager: Decreasing to gait:" << currentCfg.gaitCommand << std::endl;
+      LOG(INFO) << "ProceduralMpcMotionManager: Decreasing to gait:" << currentCfg.gaitCommand;
       lastGaitChangeTime_ = initTime;
     }
   }

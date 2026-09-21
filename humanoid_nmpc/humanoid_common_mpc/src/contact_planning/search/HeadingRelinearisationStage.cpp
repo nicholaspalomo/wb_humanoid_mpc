@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <sstream>
 #include <stdexcept>
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 
 std::string HeadingRelinearisationStage::describe() const {
@@ -64,7 +66,7 @@ void HeadingRelinearisationStage::afterSearch(SearchRun& run) const {
       result.solution = std::move(solution);
       result.incumbentObjective = objective;
     } catch (const std::exception& e) {
-      std::cerr << "[LipContactPlanner] heading re-linearisation failure: " << e.what() << std::endl;
+      LOG(ERROR) << "[LipContactPlanner] heading re-linearisation failure: " << e.what();
       break;
     }
   }

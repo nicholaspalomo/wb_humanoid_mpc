@@ -1,0 +1,73 @@
+# EngineAI SA01 command reference limits and nominal posture.
+#
+# Every length here is derived from the URDF (robot_models/engineai_sa01/engineai_sa01_description/urdf/zq_sa01.urdf):
+# hip roll/yaw at +-0.075 m from the base, hip pitch 0.1311 m below it, a 0.30 m thigh, a 0.37 m shank and a sole
+# 0.055 m below the ankle. The leg is therefore 0.8561 m from base_link to the sole fully extended, and the sole is a
+# 0.27 x 0.10 m rectangle. Total mass 33.11 kg.
+
+targetDisplacementVelocity: 0.5
+targetRotationVelocity: 0.5
+
+# Joystick command limits. These are deliberately below what the leg could deliver: SA01 has not been tuned in
+# simulation yet, and the gait schedule (no contact planner - useContactPlanning is false in task.yaml) fixes the
+# cadence, so the stride length alone has to absorb the command. Raise them once the robot walks.
+# With the default walk of gait.yaml the stride period is 0.7 s, so 0.8 m/s asks for a 0.28 m step out of a 0.67 m
+# leg - about 42% of the leg length, which is already a long step for a first bring-up.
+maxDisplacementVelocityX: 0.8
+# Sideways travel is bounded by geometry rather than by the leg: with an alternating gait each foot must move
+# v_y * T_stride per stride, and the feet may not come closer than the 0.15 m hip spacing plus a sole width. At the
+# 0.7 s stride of the default walk, 0.2 m/s already swings the foot separation through 0.14 m.
+maxDisplacementVelocityY: 0.2
+# The crouch has 0.043 m of extension left above it and roughly 0.16 m of travel below it before the knee passes
+# 1.2 rad, so the operator gets a symmetric 0.15 m about the nominal height rather than the 0.3 - 0.4 m the taller
+# robots allow.
+maxDeltaPelvisHeight: 0.15
+maxRotationVelocity: 1.0
+# Acceleration limits of the velocity reference the MPC target follows (0 = off, an unramped reference). A stick jump
+# becomes a ramp, so the steps lengthen progressively instead of answering a step change in the command with short
+# quick steps.
+maxLinearAcceleration: 1.0    # [m/s^2] 0 to 0.8 m/s in 0.8 s, about one stride
+maxAngularAcceleration: 2.0   # [rad/s^2]
+targetJointStateInterpolationTimeConstant: 2.0
+
+# Base height above the sole in the nominal standing pose below. Measured with MuJoCo on zq_sa01.xml: the sole sits
+# 0.8561 m below base_link with every joint at zero, and the crouch below lowers it by 0.0426 m (5.0%, matching the
+# 5.2% crouch Atlas stands at).
+defaultBaseHeight: 0.8135
+
+# The nominal standing crouch. The three sagittal angles of each leg sum to zero, so the sole stays parallel to the
+# ground, and the split between them is chosen so that the centre of mass falls 4 mm behind the centre of the support
+# polygon - the thigh and the shank are unequal (0.30 m against 0.37 m), so an even -q/2q/-q split would leave the
+# feet 2 cm ahead of the hips and the robot standing on its heels.
+# The knee never goes near its 0.0 rad lower limit at 0.70 rad, which keeps the leg Jacobian well away from the
+# straight-leg singularity.
+# Joint order is the Pinocchio order of the URDF: the left leg from the hip out, then the right leg.
+# LINT.IfChange(sa01_nominal_pose)
+defaultJointState:
+  "(0,0)": 0.0    # leg_l1_joint - left hip roll
+  "(1,0)": 0.0    # leg_l2_joint - left hip yaw
+  "(2,0)": -0.30  # leg_l3_joint - left hip pitch
+  "(3,0)": 0.70   # leg_l4_joint - left knee
+  "(4,0)": -0.40  # leg_l5_joint - left ankle pitch
+  "(5,0)": 0.0    # leg_l6_joint - left ankle roll
+  "(6,0)": 0.0    # leg_r1_joint - right hip roll
+  "(7,0)": 0.0    # leg_r2_joint - right hip yaw
+  "(8,0)": -0.30  # leg_r3_joint - right hip pitch
+  "(9,0)": 0.70   # leg_r4_joint - right knee
+  "(10,0)": -0.40  # leg_r5_joint - right ankle pitch
+  "(11,0)": 0.0   # leg_r6_joint - right ankle roll
+# LINT.ThenChange(//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/test/testPinocchioModel.cpp:sa01_nominal_pose)
+
+initialModeSchedule:
+  modeSequence:
+    - STANCE
+    - STANCE
+  eventTimes:
+    - 0.5
+
+defaultModeSequenceTemplate:
+  modeSequence:
+    - STANCE
+  switchingTimes:
+    - 0.0
+    - 0.5

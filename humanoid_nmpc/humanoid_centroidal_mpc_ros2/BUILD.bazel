@@ -17,6 +17,7 @@ _COMMON_DEPS = [
     "//lib/ocs2:ocs2_ros2_interfaces",
     "//lib/ocs2:ocs2_ros2_msgs",
     "@abseil-cpp//absl/log:log",
+    "@abseil-cpp//absl/log:globals",
     "@eigen",
     "@boost",
     "@pinocchio",

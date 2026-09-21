@@ -118,7 +118,8 @@ WBMpcInterface::WBMpcInterface(const std::string& taskFile, const std::string& u
   referenceManagerPtr_ =
       std::make_shared<SwitchedModelReferenceManager>(GaitSchedule::loadGaitSchedule(referenceFile, modelSettings_, verbose_),
                                                       std::move(swingTrajectoryPlanner), *pinocchioInterfacePtr_, *mpcRobotModelPtr_);
-  referenceManagerPtr_->setArmSwingReferenceActive(true);
+  // A legs-only robot omits model_settings.armJointNames and has no arm to swing.
+  referenceManagerPtr_->setArmSwingReferenceActive(modelSettings_.hasArmSwingJoints);
 
   // initial state
   initialState_.setZero(mpcRobotModelPtr_->getStateDim());

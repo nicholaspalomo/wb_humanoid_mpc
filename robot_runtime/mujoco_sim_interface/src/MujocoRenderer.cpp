@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <GLFW/glfw3.h>  // for creating the OpenGL context
 #include <mujoco/mujoco.h>
 
+#include <array>
 #include <cctype>
 #include <chrono>
 #include <iostream>
@@ -40,6 +41,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "mujoco_sim_interface/MujocoSimInterface.h"
 #include "mujoco_sim_interface/visualization/VisualizationRegistry.h"
+
+#include "absl/log/log.h"
 
 namespace robot::mujoco_sim_interface {
 
@@ -68,7 +71,7 @@ void MujocoRenderer::keyboard(GLFWwindow* window, int key, int, int act, int) {
     const char hotkey = visualization->hotkey();
     if (hotkey != 0 && key == std::toupper(static_cast<unsigned char>(hotkey))) {
       visualization->toggle();
-      std::cerr << "[MujocoRenderer] " << visualization->name() << (visualization->enabled() ? " on" : " off") << std::endl;
+      LOG(INFO) << "[MujocoRenderer] " << visualization->name() << (visualization->enabled() ? " on" : " off");
     }
   }
 }
@@ -136,12 +139,12 @@ MujocoRenderer::MujocoRenderer(const MujocoSimInterface* simInterface)
   std::vector<std::string> errors;
   visualizations_ = createVisualizations(simInterface_->getConfig().visualizations, &errors);
   for (const std::string& error : errors) {
-    std::cerr << "[MujocoRenderer] simVisualizations: " << error << std::endl;
+    LOG(INFO) << "[MujocoRenderer] simVisualizations: " << error;
   }
 }
 
 MujocoRenderer::~MujocoRenderer() {
-  std::cerr << "Cleaning up renderer ..." << std::endl;
+  LOG(INFO) << "Cleaning up renderer ...";
   if (render_thread_.joinable()) {
     glfwSetWindowShouldClose(window_, GLFW_TRUE);
     render_thread_.join();
@@ -163,7 +166,7 @@ void MujocoRenderer::waitForInit() const {
 }
 
 void MujocoRenderer::printHotkeys() const {
-  std::cerr << "\n\n==========================================================="
+  LOG(INFO) << "\n\n==========================================================="
             << "\nMuJoCo 3D Viewer Hotkeys & Controls\n===========================================================\n"
             << "  0-5 => toggle geom groups (0: Floor, 1: Visual Mesh, 2: Collision, 3-5: Aux)\n"
             << "  k   => toggle camera tracking mode (mjCAMERA_TRACKING vs mjCAMERA_FREE)\n"
@@ -172,16 +175,16 @@ void MujocoRenderer::printHotkeys() const {
             << "Visualizations (task file simVisualizations; [x] on, [ ] off):\n";
   for (const std::unique_ptr<MujocoVisualization>& visualization : visualizations_) {
     const char hotkey = visualization->hotkey();
-    std::cerr << "  " << (hotkey != 0 ? hotkey : ' ') << "   " << (visualization->enabled() ? "[x] " : "[ ] ") << visualization->name()
+    LOG(INFO) << "  " << (hotkey != 0 ? hotkey : ' ') << "   " << (visualization->enabled() ? "[x] " : "[ ] ") << visualization->name()
               << ": " << visualization->description() << "\n";
   }
-  std::cerr << "  (not listed in the task file:";
+  LOG(INFO) << "  (not listed in the task file:";
   for (const VisualizationInfo& info : availableVisualizations()) {
     bool listed = false;
     for (const std::unique_ptr<MujocoVisualization>& visualization : visualizations_) listed = listed || visualization->name() == info.name;
-    if (!listed) std::cerr << " " << info.name;
+    if (!listed) LOG(INFO) << " " << info.name;
   }
-  std::cerr << ")\n"
+  LOG(INFO) << ")\n"
             << "-----------------------------------------------------------\n"
             << "Mouse Controls:\n"
             << "  Left Drag        => rotate / orbit camera around focal point\n"
@@ -246,7 +249,7 @@ void MujocoRenderer::renderLoop() {
     rendererFps_.tick();
   }
 
-  std::cerr << "Exited Mujoco renderLoop." << std::endl;
+  LOG(INFO) << "Exited Mujoco renderLoop.";
 
   window_closed_.store(true);
   cleanup();
@@ -255,31 +258,28 @@ void MujocoRenderer::renderLoop() {
 void MujocoRenderer::toggleCameraTracking() {
   if (mujocoCam_.type == mjCAMERA_TRACKING) {
     mujocoCam_.type = mjCAMERA_FREE;
-    std::cerr << "Camera mode: FREE (manual)" << std::endl;
+    LOG(INFO) << "Camera mode: FREE (manual)";
   } else {
     mujocoCam_.type = mjCAMERA_TRACKING;
-    std::cerr << "Camera mode: TRACKING (following robot body " << mujocoCam_.trackbodyid << ")" << std::endl;
+    LOG(INFO) << "Camera mode: TRACKING (following robot body " << mujocoCam_.trackbodyid << ")";
   }
 }
 
 void MujocoRenderer::setupCamera() {
   // Setup Tracking Camera (follows the robot)
   mujocoCam_.type = mjCAMERA_TRACKING;
+  // The body the camera follows, by the names the robots of this repository give their floating base. Body 1 is the
+  // fallback: it is the first child of the world and therefore the floating base of every model here, which is what
+  // a robot naming its base something else entirely still gets.
+  static const std::array<const char*, 4> kFloatingBaseCandidates = {"pelvis", "pelvis_link", "torso", "base_link"};
   int trackbodyid = 1;
   const mjModel* m = simInterface_->getModel();
   if (m && m->nbody > 1) {
-    int pelvis_id = mj_name2id(m, mjOBJ_BODY, "pelvis");
-    if (pelvis_id > 0) {
-      trackbodyid = pelvis_id;
-    } else {
-      int pelvis_link_id = mj_name2id(m, mjOBJ_BODY, "pelvis_link");
-      if (pelvis_link_id > 0) {
-        trackbodyid = pelvis_link_id;
-      } else {
-        int torso_id = mj_name2id(m, mjOBJ_BODY, "torso");
-        if (torso_id > 0) {
-          trackbodyid = torso_id;
-        }
+    for (const char* candidate : kFloatingBaseCandidates) {
+      const int bodyId = mj_name2id(m, mjOBJ_BODY, candidate);
+      if (bodyId > 0) {
+        trackbodyid = bodyId;
+        break;
       }
     }
   }
@@ -305,7 +305,7 @@ void MujocoRenderer::initialize() {
 
   // init glew
   if (glewInit() != GLEW_OK) {
-    std::cerr << "Failed to initialize GLEW" << std::endl;
+    LOG(ERROR) << "Failed to initialize GLEW";
     return;
   }
 

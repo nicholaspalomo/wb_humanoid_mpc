@@ -34,6 +34,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <iostream>
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 
 JointLimitsSoftConstraint::JointLimitsSoftConstraint(std::pair<vector_t, vector_t> positionlimits,
@@ -45,7 +47,7 @@ JointLimitsSoftConstraint::JointLimitsSoftConstraint(std::pair<vector_t, vector_
       offset_(0.0) {
   // Obtain the offset at the middle joint angles. Just to compensate high negative costs when being far away from an infinite joint limit
   // offset_ = -getValue(0.5 * (positionLimits_.first + positionLimits_.second));
-  std::cout << "joint limit offset: " << offset_ << std::endl;
+  LOG(INFO) << "joint limit offset: " << offset_;
 }
 
 JointLimitsSoftConstraint::JointLimitsSoftConstraint(const JointLimitsSoftConstraint& rhs)

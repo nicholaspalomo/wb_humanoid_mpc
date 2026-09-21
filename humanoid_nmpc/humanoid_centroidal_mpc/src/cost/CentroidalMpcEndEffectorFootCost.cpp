@@ -44,6 +44,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_pinocchio_interface/PinocchioStateInputMapping.h>
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 
 namespace {
@@ -73,9 +75,9 @@ CentroidalMpcEndEffectorFootCost::CentroidalMpcEndEffectorFootCost(const Switche
       contactIndex_(contactIndex) {
   initialize(mpcRobotModelAD.getStateDim(), mpcRobotModelAD.getInputDim(), kNumParameters, costName + "_yawRef",
              modelSettings.modelFolderCppAd, modelSettings.recompileLibrariesCppAd);
-  std::cout << "Frame ID: " << frameID_ << std::endl;
-  std::cout << "Initialized CentroidalMpcEndEffectorFootCost (activeInStance=" << (activeInStance_ ? "true" : "false")
-            << ") with weights: " << weights.toVector().transpose() << std::endl;
+  LOG(INFO) << "Frame ID: " << frameID_;
+  LOG(INFO) << "Initialized CentroidalMpcEndEffectorFootCost (activeInStance=" << (activeInStance_ ? "true" : "false")
+            << ") with weights: " << weights.toVector().transpose();
 }
 
 /******************************************************************************************************/

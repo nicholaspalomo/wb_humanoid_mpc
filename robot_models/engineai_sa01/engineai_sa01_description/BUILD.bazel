@@ -1,0 +1,13 @@
+# engineai_sa01_description - URDF, meshes, launch, rviz data files for EngineAI SA01
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "engineai_sa01_description",
+    srcs = glob([
+        "urdf/**",
+        "meshes/**",
+        "launch/**",
+        "rviz/**",
+    ], allow_empty = True),
+)

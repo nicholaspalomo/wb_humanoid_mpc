@@ -35,6 +35,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_core/misc/LoadData.h>
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 
 vector12_t EndEffectorKinematicsWeights::toVector() {
@@ -66,9 +68,9 @@ EndEffectorKinematicsWeights EndEffectorKinematicsWeights::getWeights(const std:
   scalar_t ang_velocity_y = 0;
   scalar_t ang_velocity_z = 0;
   if (verbose) {
-    std::cerr << "\n #### End Effector Kinematics Quadratic Cost Weights: ";
-    std::cerr << "Loading weigths from: " << prefix;
-    std::cerr << "\n #### =============================================================================\n";
+    LOG(INFO) << "\n #### End Effector Kinematics Quadratic Cost Weights: ";
+    LOG(INFO) << "Loading weigths from: " << prefix;
+    LOG(INFO) << "\n #### =============================================================================\n";
   }
   loadData::loadPtreeValue(pt, pos_x, prefix + "pos_x", verbose);
   loadData::loadPtreeValue(pt, pos_y, prefix + "pos_y", verbose);
@@ -84,7 +86,7 @@ EndEffectorKinematicsWeights EndEffectorKinematicsWeights::getWeights(const std:
   loadData::loadPtreeValue(pt, ang_velocity_z, prefix + "ang_velocity_z", verbose);
 
   if (verbose) {
-    std::cerr << " #### =============================================================================\n";
+    LOG(INFO) << " #### =============================================================================\n";
   }
 
   EndEffectorKinematicsWeights weights;

@@ -35,6 +35,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstring>
 #include <stdexcept>
 
+#include "absl/log/log.h"
+
 namespace robot::mujoco_sim_interface {
 
 MjState::MjState(const mjModel* model) : model(model), data(mj_makeData(model)) {}
@@ -100,7 +102,7 @@ MujocoSimInterface::MujocoSimInterface(const MujocoSimConfig& config, const std:
   // option 1: parse and compile XML from file
   mujocoModel_ = mj_loadXML(config.scenePath.c_str(), NULL, errstr, errstr_sz);
   if (!mujocoModel_) {
-    std::cerr << "Could not load MuJoCo model: " << config.scenePath << ". Error: " << errstr << std::endl;
+    LOG(ERROR) << "Could not load MuJoCo model: " << config.scenePath << ". Error: " << errstr;
     throw std::runtime_error("Could not load MuJoCo: " + std::string(errstr));
   }
 
@@ -139,7 +141,7 @@ MujocoSimInterface::MujocoSimInterface(const MujocoSimConfig& config, const std:
 
   for (int i = 6; i < mujocoModel_->nv; ++i) {
     std::string mjJointName(&mujocoModel_->names[mujocoModel_->name_jntadr[mujocoModel_->dof_jntid[i]]]);
-    std::cerr << "mjJointName: " << mjJointName << std::endl;
+    LOG(INFO) << "mjJointName: " << mjJointName;
     mujocoModel_->dof_damping[i] = defaultJointDamping;
   }
 
@@ -233,6 +235,15 @@ void MujocoSimInterface::disableTorques() {
 MujocoSimInterface::~MujocoSimInterface() {
   terminate_.store(true);
   if (simulate_thread_.joinable()) simulate_thread_.join();
+  // The viewer has to go before any member it reads. renderer_ is declared ahead of renderStateBuffer_, the contact
+  // timeline and the two mutexes, so destruction in reverse declaration order would tear those down while
+  // MujocoRenderer::renderLoop is still running - a use-after-free on every shutdown that the render thread loses.
+  // ~MujocoRenderer joins that thread, so resetting it here orders the teardown correctly.
+  renderer_.reset();
+  if (mujocoData_ != nullptr) mj_deleteData(mujocoData_);
+  if (mujocoModel_ != nullptr) mj_deleteModel(mujocoModel_);
+  delete[] qpos_init_;
+  delete[] qvel_init_;
 }
 
 /******************************************************************************************************/
@@ -271,7 +282,7 @@ void MujocoSimInterface::setupJointIndexMaps() {
     if (getRobotDescription().containsJoint(jointName)) {
       activeMuJoCoJointNames_.emplace_back(jointName);
     } else {
-      std::cerr << "WARNING: Joint contained in mujoco xml not exposed to RobotHWInterface: " << jointName << std::endl;
+      LOG(WARNING) << "Joint contained in mujoco xml not exposed to RobotHWInterface: " << jointName;
     }
   }
 
@@ -299,7 +310,7 @@ void MujocoSimInterface::setupJointIndexMaps() {
       // Store the driven joint name so getJointIndices resolves correctly.
       activeMuJoCoActuatorNames_.emplace_back(driven_joint_name);
     } else {
-      std::cerr << "WARNING: Actuator contained in mujoco xml not be commanded through RobotHWInterface: " << actuator_name << std::endl;
+      LOG(WARNING) << "Actuator contained in mujoco xml not be commanded through RobotHWInterface: " << actuator_name;
     }
   }
 
@@ -308,8 +319,8 @@ void MujocoSimInterface::setupJointIndexMaps() {
   nActiveJoints_ = activeRobotJointStateIndices_.size();
   nActuators_ = activeRobotActuatorIndices_.size();
   if (verbose_) {
-    std::cerr << "Initialized " << nActiveJoints_ << " active Joints" << std::endl;
-    std::cerr << "Initialized " << nActuators_ << " active Actuators" << std::endl;
+    LOG(INFO) << "Initialized " << nActiveJoints_ << " active Joints";
+    LOG(INFO) << "Initialized " << nActuators_ << " active Actuators";
   }
 }
 
@@ -318,40 +329,39 @@ void MujocoSimInterface::setupJointIndexMaps() {
 /******************************************************************************************************/
 
 void MujocoSimInterface::printModelInfo() {
-  std::cerr << "timeStepMicro_: " << timeStepMicro_ << std::endl;
+  LOG(INFO) << "timeStepMicro_: " << timeStepMicro_;
 
-  std::cerr << "njnt: " << mujocoModel_->njnt << std::endl;
-  std::cerr << "nq: " << mujocoModel_->nq << std::endl;
-  std::cerr << "nv: " << mujocoModel_->nv << std::endl;
-  std::cerr << "nu: " << mujocoModel_->nu << std::endl;
+  LOG(INFO) << "njnt: " << mujocoModel_->njnt;
+  LOG(INFO) << "nq: " << mujocoModel_->nq;
+  LOG(INFO) << "nv: " << mujocoModel_->nv;
+  LOG(INFO) << "nu: " << mujocoModel_->nu;
 
   for (int i = 0; i < mujocoModel_->nbody; ++i) {
     std::string bodyName(&mujocoModel_->names[mujocoModel_->name_bodyadr[i]]);
-    std::cerr << "Body " << i << ": " << bodyName << std::endl;
+    LOG(INFO) << "Body " << i << ": " << bodyName;
 
-    std::cerr << "  Position: ";
+    LOG(INFO) << "  Position: ";
     for (size_t j = 0; j < 3; ++j) {
-      std::cerr << mujocoData_->xpos[i * 3 + j] << " ";
+      LOG(INFO) << mujocoData_->xpos[i * 3 + j] << " ";
     }
-    std::cerr << std::endl;
+    LOG(INFO);
 
     // Print orientation quaternion
-    std::cerr << "  Orientation (Quaternion): ";
+    LOG(INFO) << "  Orientation (Quaternion): ";
     for (size_t j = 0; j < 4; ++j) {
-      std::cerr << mujocoData_->xquat[i * 4 + j] << " ";
+      LOG(INFO) << mujocoData_->xquat[i * 4 + j] << " ";
     }
-    std::cerr << std::endl;
+    LOG(INFO);
   }
 
   std::string jointName(&mujocoModel_->names[mujocoModel_->name_jntadr[0]]);
 
   // Print the information
-  std::cerr << "Joint Name: " << jointName << std::endl;
-  std::cerr << "Position: " << mujocoData_->qpos[0] << " " << mujocoData_->qpos[1] << " " << mujocoData_->qpos[2] << " "
-            << mujocoData_->qpos[3] << " " << mujocoData_->qpos[4] << " " << mujocoData_->qpos[5] << " " << mujocoData_->qpos[6]
-            << std::endl;
-  std::cerr << "Velocity: " << mujocoData_->qvel[0] << " " << mujocoData_->qvel[1] << " " << mujocoData_->qvel[2] << " "
-            << mujocoData_->qvel[3] << " " << mujocoData_->qvel[4] << " " << mujocoData_->qvel[5] << std::endl;
+  LOG(INFO) << "Joint Name: " << jointName;
+  LOG(INFO) << "Position: " << mujocoData_->qpos[0] << " " << mujocoData_->qpos[1] << " " << mujocoData_->qpos[2] << " "
+            << mujocoData_->qpos[3] << " " << mujocoData_->qpos[4] << " " << mujocoData_->qpos[5] << " " << mujocoData_->qpos[6];
+  LOG(INFO) << "Velocity: " << mujocoData_->qvel[0] << " " << mujocoData_->qvel[1] << " " << mujocoData_->qvel[2] << " "
+            << mujocoData_->qvel[3] << " " << mujocoData_->qvel[4] << " " << mujocoData_->qvel[5];
 
   // Print joint names, positions, and velocities
   for (int i = 1; i < mujocoModel_->njnt; ++i) {
@@ -363,7 +373,7 @@ void MujocoSimInterface::printModelInfo() {
     double jointVel = mujocoData_->qvel[i + 5];
 
     // Print the information
-    std::cerr << "Joint Name: " << jointName << ", Position: " << jointPos << ", Velocity: " << jointVel << std::endl;
+    LOG(INFO) << "Joint Name: " << jointName << ", Position: " << jointPos << ", Velocity: " << jointVel;
   }
 
   // Calculate total mass
@@ -371,7 +381,7 @@ void MujocoSimInterface::printModelInfo() {
   for (int i = 0; i < mujocoModel_->nbody; i++) {
     totalMass += mujocoModel_->body_mass[i];
   }
-  std::cerr << "Total MuJoCo model mass: " << totalMass << std::endl;
+  LOG(INFO) << "Total MuJoCo model mass: " << totalMass;
 }
 
 /******************************************************************************************************/
@@ -637,22 +647,22 @@ void MujocoSimInterface::setupContactDetection() {
   unresolvedContactMask_ = 0;
   if (config_.contactFrameNames.empty()) return;
   if (config_.contactFrameNames.size() > 32) {
-    std::cerr << "[MujocoSimInterface] contact detection supports at most 32 contact points, got " << config_.contactFrameNames.size()
-              << "; the detection stays off." << std::endl;
+    LOG(INFO) << "[MujocoSimInterface] contact detection supports at most 32 contact points, got " << config_.contactFrameNames.size()
+              << "; the detection stays off.";
     return;
   }
   std::vector<std::string> errors;
   contactBodyIds_ = resolveContactBodies(mujocoModel_, getRobotDescription().getURDFPath(), config_.contactFrameNames,
                                          config_.contactParentJointNames, &errors);
   for (const std::string& error : errors) {
-    std::cerr << "[MujocoSimInterface] contact detection: " << error << std::endl;
+    LOG(INFO) << "[MujocoSimInterface] contact detection: " << error;
   }
   for (size_t i = 0; i < contactBodyIds_.size(); ++i) {
     if (contactBodyIds_[i] < 0) {
       unresolvedContactMask_ |= (1u << i);
     } else if (verbose_) {
-      std::cerr << "[MujocoSimInterface] contact point '" << config_.contactFrameNames[i] << "' -> MuJoCo body '"
-                << mj_id2name(mujocoModel_, mjOBJ_BODY, contactBodyIds_[i]) << "'" << std::endl;
+      LOG(INFO) << "[MujocoSimInterface] contact point '" << config_.contactFrameNames[i] << "' -> MuJoCo body '"
+                << mj_id2name(mujocoModel_, mjOBJ_BODY, contactBodyIds_[i]) << "'";
     }
   }
   // The timeline is sampled at a fixed rate; the physics step is finer.
@@ -661,8 +671,7 @@ void MujocoSimInterface::setupContactDetection() {
   contactTimelineSampleInterval_ = std::max<size_t>(1, static_cast<size_t>(std::lround(1.0 / (kTimelineSampleRateHz * timestep))));
   contactTimeline_ = ContactTimeline(config_.contactTimelineWindow);
   if (verbose_) {
-    std::cerr << "[MujocoSimInterface] ground-truth contact detection: normal force > " << config_.contactForceThreshold << " N."
-              << std::endl;
+    LOG(INFO) << "[MujocoSimInterface] ground-truth contact detection: normal force > " << config_.contactForceThreshold << " N.";
   }
 }
 

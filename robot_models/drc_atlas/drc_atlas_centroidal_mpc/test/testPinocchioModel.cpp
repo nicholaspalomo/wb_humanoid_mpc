@@ -33,6 +33,10 @@ Copyright (c) 2022, Halodi Robotics AS. All rights reserved.
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
 
+#include "absl/log/globals.h"
+#include "absl/log/initialize.h"
+#include "absl/log/log.h"
+
 using namespace ocs2;
 using namespace ocs2::humanoid;
 
@@ -40,7 +44,7 @@ constexpr std::string_view kRobotModelPackagePath = "drc_atlas_description";
 constexpr std::string_view kUrdfFileName = "urdf/atlas.urdf";
 constexpr std::string_view kTaskConfigPath = "/../config/mpc/task.yaml";
 constexpr int kStateDim = 34;
-constexpr int kNominalBaseHeight = 0.8415;
+constexpr double kNominalBaseHeight = 0.8415;
 
 /**
  * @brief This file contains Manu's personal pinocchio playground.
@@ -79,15 +83,15 @@ void printModelDimensionality(PinocchioInterface pin_interface) {
   pinocchio::Model model = pin_interface.getModel();
   pinocchio::Data data = pin_interface.getData();
 
-  std::cout << "model name: " << model.name << std::endl;
-  std::cout << "n q: " << model.nq << std::endl;
-  std::cout << "n v: " << model.nv << std::endl;
+  LOG(INFO) << "model name: " << model.name;
+  LOG(INFO) << "n q: " << model.nq;
+  LOG(INFO) << "n v: " << model.nv;
 }
 
 void printJointNames(PinocchioInterface pin_interface) {
   pinocchio::Model model = pin_interface.getModel();
   for (pinocchio::JointIndex joint_id = 0; joint_id < (pinocchio::JointIndex)model.njoints; ++joint_id)
-    std::cout << std::setw(24) << std::left << model.names[joint_id] << std::endl;
+    LOG(INFO) << std::setw(24) << std::left << model.names[joint_id];
 }
 
 std::ostream& operator<<(std::ostream& os, const Eigen::Quaternion<double>& q) {
@@ -108,11 +112,11 @@ void printFrameRotation(PinocchioInterface pin_interface, Eigen::VectorXd q, std
   matrix3_t R_w_l = data.oMf[frameID].rotation();
   auto q_w_l = matrixToQuaternion(R_w_l);
   auto translation = data.oMf[frameID].toHomogeneousMatrix_impl();  // translation from local into world frame
-  std::cout << "Orientation of frame: R local to world " << frameName << ": " << std::endl;
-  std::cout << q_w_l << std::endl;
-  std::cout << R_w_l << std::endl;
-  std::cout << "Translation from local to world frame " << frameName << ": " << std::endl;
-  std::cout << translation << std::endl;
+  LOG(INFO) << "Orientation of frame: R local to world " << frameName << ": ";
+  LOG(INFO) << q_w_l;
+  LOG(INFO) << R_w_l;
+  LOG(INFO) << "Translation from local to world frame " << frameName << ": ";
+  LOG(INFO) << translation;
 }
 
 void computeForwardKinematics(PinocchioInterface pin_interface, Eigen::VectorXd q) {
@@ -123,18 +127,18 @@ void computeForwardKinematics(PinocchioInterface pin_interface, Eigen::VectorXd 
   pinocchio::forwardKinematics(model, data, q);
   pinocchio::updateFramePlacements(model, data);
   // Print out the placement of each joint of the kinematic tree
-  std::cout << "###########################################" << std::endl;
-  std::cout << "############### Model Joints ##############" << std::endl;
-  std::cout << "###########################################" << std::endl;
+  LOG(INFO) << "###########################################";
+  LOG(INFO) << "############### Model Joints ##############";
+  LOG(INFO) << "###########################################";
   for (pinocchio::JointIndex joint_id = 0; joint_id < (pinocchio::JointIndex)model.njoints; ++joint_id)
-    std::cout << std::setw(5) << std::left << "ID: " << joint_id << ", " << model.names[joint_id] << ": " << std::fixed
-              << std::setprecision(5) << data.oMi[joint_id].translation().transpose() << std::endl;
-  std::cout << "###########################################" << std::endl;
-  std::cout << "############### Model Frames ##############" << std::endl;
-  std::cout << "###########################################" << std::endl;
+    LOG(INFO) << std::setw(5) << std::left << "ID: " << joint_id << ", " << model.names[joint_id] << ": " << std::fixed
+              << std::setprecision(5) << data.oMi[joint_id].translation().transpose();
+  LOG(INFO) << "###########################################";
+  LOG(INFO) << "############### Model Frames ##############";
+  LOG(INFO) << "###########################################";
   for (pinocchio::FrameIndex frame_id = 0; frame_id < (pinocchio::FrameIndex)model.nframes; ++frame_id)
-    std::cout << std::setw(10) << std::left << "ID: " << frame_id << ", name: " << model.frames[frame_id].name
-              << " : Pos: " << std::setprecision(5) << data.oMf[frame_id].translation().transpose() << std::endl;
+    LOG(INFO) << std::setw(10) << std::left << "ID: " << frame_id << ", name: " << model.frames[frame_id].name
+              << " : Pos: " << std::setprecision(5) << data.oMf[frame_id].translation().transpose();
 }
 
 void computeInverseDyanmics(PinocchioInterface pin_interface, Eigen::VectorXd q, Eigen::VectorXd dq, Eigen::VectorXd ddq) {
@@ -142,10 +146,14 @@ void computeInverseDyanmics(PinocchioInterface pin_interface, Eigen::VectorXd q,
   pinocchio::Data data = pin_interface.getData();
 
   const Eigen::VectorXd& tau = pinocchio::rnea(model, data, q, dq, ddq);
-  std::cout << "tau = " << tau.transpose() << std::endl;
+  LOG(INFO) << "tau = " << tau.transpose();
 }
 
 int main(int argc, char** argv) {
+  // Route Abseil log records to stderr. Without InitializeLog() Abseil warns once and writes everything to
+  // stderr anyway; with it the default stderr threshold is ERROR, so the INFO records have to be asked for.
+  absl::InitializeLog();
+  absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
   const std::string path(__FILE__);
   const std::string dir = path.substr(0, path.find_last_of("/"));
 
@@ -159,12 +167,12 @@ int main(int argc, char** argv) {
 
   const std::string taskFile = dir + std::string(kTaskConfigPath);
 
-  std::cout << "urdf filename: " << urdfFile << std::endl;
+  LOG(INFO) << "urdf filename: " << urdfFile;
 
   /// Test default model
   PinocchioInterface pin_interface = createDefaultPinocchioInterface(urdfFile);
 
-  std::cout << "Default PinocchioInterface initialized " << std::endl;
+  LOG(INFO) << "Default PinocchioInterface initialized ";
 
   printModelDimensionality(pin_interface);
   printJointNames(pin_interface);
@@ -183,7 +191,7 @@ int main(int argc, char** argv) {
 
   pin_interface = createCustomPinocchioInterface(taskFile, urdfFile, modelSettings);
 
-  std::cout << "Custom PinocchioInterface initialized " << std::endl;
+  LOG(INFO) << "Custom PinocchioInterface initialized ";
 
   printModelDimensionality(pin_interface);
   printJointNames(pin_interface);

@@ -264,8 +264,9 @@ inline pinocchio::FrameIndex getContactFrameIndex(const PinocchioInterfaceTpl<SC
 template <typename SCALAR_T>
 inline std::vector<pinocchio::FrameIndex> getContactFrameIndices(const PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface,
                                                                  const MpcRobotModelBase<SCALAR_T>& mpcRobotModel) {
-  std::vector<pinocchio::FrameIndex> contactFrameIndices;
-  contactFrameIndices.reserve(N_CONTACTS);
+  // Sized, not reserved: reserve leaves size() at 0, so indexing below would be out of bounds and the returned
+  // vector would be empty - which silently turned every range-for over these indices into a no-op.
+  std::vector<pinocchio::FrameIndex> contactFrameIndices(N_CONTACTS);
   for (size_t i = 0; i < N_CONTACTS; i++) {
     contactFrameIndices[i] = getContactFrameIndex<SCALAR_T>(pinocchioInterface, mpcRobotModel, i);
   }

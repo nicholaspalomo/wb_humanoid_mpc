@@ -29,6 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/cost/ExternalTorqueQuadraticCostAD.h"
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 
 /******************************************************************************************************/
@@ -51,14 +53,14 @@ ExternalTorqueQuadraticCostAD::ExternalTorqueQuadraticCostAD(size_t endEffectorI
       pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
       mpcRobotModelADPtr(mpcRobotModelAD.clone()) {
   assert(config.weights.size() == config.activeJointNames.size());
-  std::cout << "Initialized ExternalTorqueQuadraticCostAD with weights: " << config.weights.cwiseSqrt() << std::endl;
+  LOG(INFO) << "Initialized ExternalTorqueQuadraticCostAD with weights: " << config.weights.cwiseSqrt();
   const std::string endEffectorName = modelSettings.contactNames[endEffectorIndex];
-  std::cout << "Frame name: " << endEffectorName << std::endl;
+  LOG(INFO) << "Frame name: " << endEffectorName;
 
-  std::cout << "Frame ID: " << frameID_ << std::endl;
-  std::cout << "State dim: " << mpcRobotModelADPtr->getStateDim() << std::endl;
-  std::cout << "Input dim: " << mpcRobotModelADPtr->getInputDim() << std::endl;
-  std::cout << "Parameters dim: " << n_parameters_ << std::endl;
+  LOG(INFO) << "Frame ID: " << frameID_;
+  LOG(INFO) << "State dim: " << mpcRobotModelADPtr->getStateDim();
+  LOG(INFO) << "Input dim: " << mpcRobotModelADPtr->getInputDim();
+  LOG(INFO) << "Parameters dim: " << n_parameters_;
 
   initialize(mpcRobotModelADPtr->getStateDim(), mpcRobotModelADPtr->getInputDim(), n_parameters_,
              endEffectorName + "_ExternalTorqueQuadraticCost", modelSettings.modelFolderCppAd, modelSettings.recompileLibrariesCppAd,
@@ -152,9 +154,9 @@ ExternalTorqueQuadraticCostAD::Config ExternalTorqueQuadraticCostAD::loadConfigF
   Config config;
 
   if (verbose) {
-    std::cerr << "\n #### External Torque Quadratic Cost Weights: ";
-    std::cerr << "Loading weigths from: " << fieldname;
-    std::cerr << "\n #### =============================================================================\n";
+    LOG(INFO) << "\n #### External Torque Quadratic Cost Weights: ";
+    LOG(INFO) << "Loading weigths from: " << fieldname;
+    LOG(INFO) << "\n #### =============================================================================\n";
   }
   loadData::loadStdVector(filename, fieldname + "activeJointNames", config.activeJointNames, verbose);
 
@@ -162,8 +164,8 @@ ExternalTorqueQuadraticCostAD::Config ExternalTorqueQuadraticCostAD::loadConfigF
   loadData::loadEigenMatrix(filename, fieldname + "weights", weights);
 
   if (verbose) {
-    std::cerr << "weights: " << weights.transpose() << "\n";
-    std::cerr << " #### =============================================================================\n";
+    LOG(INFO) << "weights: " << weights.transpose() << "\n";
+    LOG(INFO) << " #### =============================================================================\n";
   }
 
   config.weights = weights;

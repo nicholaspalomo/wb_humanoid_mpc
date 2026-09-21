@@ -49,6 +49,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 
 namespace {
@@ -257,14 +259,14 @@ void ContactPlanningReferenceManager::activatePendingPlan(scalar_t initTime) {
     const scalar_t mergeTime = std::max(initTime, candidate->committedUntil);
     if (candidate->committedUntil < initTime - 1e-6) {
       if (++stalePlanCount_ % 50 == 1) {
-        std::cerr << "[ContactPlanningReferenceManager] the contact plan is stale by " << (initTime - candidate->committedUntil)
+        LOG(INFO) << "[ContactPlanningReferenceManager] the contact plan is stale by " << (initTime - candidate->committedUntil)
                   << " s (commitTime " << config.planner.commitTime
-                  << " s does not cover the planner latency); keeping the executed schedule." << std::endl;
+                  << " s does not cover the planner latency); keeping the executed schedule.";
       }
     } else if (hasAppliedSchedule_ && !planAgreesWithSwingsInFlight(appliedSchedule_, *candidate, mergeTime)) {
       if (++inconsistentPlanCount_ % 50 == 1) {
-        std::cerr << "[ContactPlanningReferenceManager] the contact plan was made before a swing that is in flight at its merge point ("
-                  << mergeTime << " s) was committed; keeping the executed schedule." << std::endl;
+        LOG(INFO) << "[ContactPlanningReferenceManager] the contact plan was made before a swing that is in flight at its merge point ("
+                  << mergeTime << " s) was committed; keeping the executed schedule.";
       }
     } else {
       activePlan_ = std::move(candidate);

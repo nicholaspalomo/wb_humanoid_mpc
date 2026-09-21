@@ -35,6 +35,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <stdexcept>
 #include <string>
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 
 namespace {
@@ -178,9 +180,8 @@ MiqpResult MixedIntegerOcpQp::solve(OcpQpProblem& problem,
     if (settings_.verbose) {
       int numFixed = 0;
       for (const std::int8_t v : assignment) numFixed += (v != kMiqpFree);
-      std::cout << "[MixedIntegerOcpQp] relaxation " << result.numNodes << ": fixed " << numFixed << "/" << assignment.size() << " status "
-                << static_cast<int>(solution.status) << " iterations " << solution.iterations << " objective " << solution.objective
-                << std::endl;
+      LOG(INFO) << "[MixedIntegerOcpQp] relaxation " << result.numNodes << ": fixed " << numFixed << "/" << assignment.size() << " status "
+                << static_cast<int>(solution.status) << " iterations " << solution.iterations << " objective " << solution.objective;
     }
     if (!solution.success()) {
       // HPIPM does not certify infeasibility: a relaxation it did not solve (iteration limit, step failure) is dropped
@@ -199,7 +200,7 @@ MiqpResult MixedIntegerOcpQp::solve(OcpQpProblem& problem,
       result.solution = solution;
       result.assignment = assignment;
       if (settings_.verbose) {
-        std::cout << "[MixedIntegerOcpQp] incumbent " << objective << " after " << result.numNodes << " relaxations" << std::endl;
+        LOG(INFO) << "[MixedIntegerOcpQp] incumbent " << objective << " after " << result.numNodes << " relaxations";
       }
     }
   };

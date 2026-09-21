@@ -54,6 +54,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 
 /**
@@ -168,12 +170,12 @@ TEST_F(ContactPlanningIntegrationTest, PlansStandingAndWalkingSchedules) {
   module->preSolverRun(t, t + horizon, state, *referenceManager);
   const auto walkingStats = module->getStatistics();
   ASSERT_TRUE(walkingStats.lastPlanValid);
-  std::cout << "walking plan: " << walkingStats.lastSolveTime * 1e3 << " ms, " << walkingStats.lastNumBranchAndBoundNodes
-            << " relaxations, optimal=" << walkingStats.lastOptimal << std::endl;
+  LOG(INFO) << "walking plan: " << walkingStats.lastSolveTime * 1e3 << " ms, " << walkingStats.lastNumBranchAndBoundNodes
+            << " relaxations, optimal=" << walkingStats.lastOptimal;
   t += 0.02;
   referenceManager->preSolverRun(t, t + horizon, state, ModeNumber::STANCE);
   const ModeSchedule& schedule = referenceManager->getModeSchedule();
-  std::cout << "mode schedule: " << schedule;
+  LOG(INFO) << "mode schedule: " << schedule;
 
   // Sampled between the possible event instants: the plan's events lie on its node grid, and at an event instant the
   // contact flags (ocs2 mode lookup, the event has not passed) and the swing queries of this manager (the event has

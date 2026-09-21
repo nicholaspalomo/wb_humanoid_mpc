@@ -2,7 +2,15 @@
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
 
+#include "absl/log/globals.h"
+#include "absl/log/initialize.h"
+#include "absl/log/log.h"
+
 int main(int argc, char* argv[]) {
+  // Route Abseil log records to stderr. Without InitializeLog() Abseil warns once and writes everything to
+  // stderr anyway; with it the default stderr threshold is ERROR, so the INFO records have to be asked for.
+  absl::InitializeLog();
+  absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
   // Default value in case no argument is provided
   std::string model_folder = "g1_description";
 
@@ -10,7 +18,7 @@ int main(int argc, char* argv[]) {
   if (argc > 1) {
     model_folder = argv[1];
   } else {
-    std::cerr << "Warning: No model folder specified. Using default: " << model_folder << std::endl;
+    LOG(WARNING) << "No model folder specified. Using default: " << model_folder;
   }
 
   std::string urdfFile;

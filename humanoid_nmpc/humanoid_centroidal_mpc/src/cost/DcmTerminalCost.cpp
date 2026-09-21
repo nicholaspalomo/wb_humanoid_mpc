@@ -44,6 +44,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <humanoid_common_mpc/gait/MotionPhaseDefinition.h>
 #include <humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h>
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 
 namespace {
@@ -91,8 +93,8 @@ DcmTerminalCost::DcmTerminalCost(const SwitchedModelReferenceManager& referenceM
   } else {
     adInterfacePtr_->loadModelsIfAvailable(CppAdInterface::ApproximationOrder::First, modelSettings.verboseCppAd);
   }
-  std::cout << "Initialized DcmTerminalCost with weights " << config_.weights.transpose() << ", comHeight " << config_.comHeight
-            << ", velocityOffsetFactor " << config_.velocityOffsetFactor << std::endl;
+  LOG(INFO) << "Initialized DcmTerminalCost with weights " << config_.weights.transpose() << ", comHeight " << config_.comHeight
+            << ", velocityOffsetFactor " << config_.velocityOffsetFactor;
 }
 
 DcmTerminalCost::DcmTerminalCost(const DcmTerminalCost& other)
@@ -228,8 +230,8 @@ DcmTerminalCost::Config DcmTerminalCost::loadConfig(const std::string& taskFile,
   loadData::readPropertyTree(taskFile, pt);
   Config config;
   if (verbose) {
-    std::cerr << "\n #### DCM Terminal Cost Config:";
-    std::cerr << "\n #### =============================================================================\n";
+    LOG(INFO) << "\n #### DCM Terminal Cost Config:";
+    LOG(INFO) << "\n #### =============================================================================\n";
   }
   // LINT.IfChange(dcm_terminal_cost_keys)
   loadData::loadPtreeValue(pt, config.comHeight, prefix + "comHeight", verbose);
@@ -238,9 +240,11 @@ DcmTerminalCost::Config DcmTerminalCost::loadConfig(const std::string& taskFile,
   loadData::loadPtreeValue(pt, config.weights(1), prefix + "weight_y", verbose);
   loadData::loadPtreeValue(pt, config.velocityOffsetFactor, prefix + "velocityOffsetFactor", verbose);
   loadData::loadPtreeValue(pt, config.supportBlendTime, prefix + "supportBlendTime", verbose);
-  // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:dcm_terminal_cost_config)
+  // clang-format off
+  // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:dcm_terminal_cost_config, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:dcm_terminal_cost_config)
+  // clang-format on
   if (verbose) {
-    std::cerr << " #### =============================================================================" << std::endl;
+    LOG(INFO) << " #### =============================================================================";
   }
   config.validate();
   return config;

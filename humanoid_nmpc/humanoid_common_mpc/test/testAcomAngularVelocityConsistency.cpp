@@ -47,6 +47,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 namespace {
 
@@ -210,7 +212,7 @@ TEST_F(AcomAngularVelocityConsistencyTest, theJointJacobianApproximatesTheCentro
   const scalar_t meanRelativeError = summedRelativeError / static_cast<scalar_t>(kNumSamples);
   RecordProperty("meanRelativeError", std::to_string(meanRelativeError));
   RecordProperty("worstRelativeError", std::to_string(worstRelativeError));
-  std::cout << "[aCOM] mean relative Frobenius error " << meanRelativeError << ", worst " << worstRelativeError << std::endl;
+  LOG(INFO) << "[aCOM] mean relative Frobenius error " << meanRelativeError << ", worst " << worstRelativeError;
 
   EXPECT_LT(meanRelativeError, kMeanRelativeErrorBound)
       << "the exported aCOM network no longer approximates I_G^-1 A_omega,j; retrain or re-export";
@@ -255,7 +257,7 @@ TEST_F(AcomAngularVelocityConsistencyTest, theAcomRateIsTheCentroidalAngularVelo
   const scalar_t meanRelativeError = summedRelativeError / static_cast<scalar_t>(kNumSamples);
   RecordProperty("meanRelativeRateError", std::to_string(meanRelativeError));
   RecordProperty("worstRelativeRateError", std::to_string(worstRelativeError));
-  std::cout << "[aCOM] mean relative rate error " << meanRelativeError << ", worst " << worstRelativeError << std::endl;
+  LOG(INFO) << "[aCOM] mean relative rate error " << meanRelativeError << ", worst " << worstRelativeError;
 
   EXPECT_LT(meanRelativeError, kMeanRelativeRateErrorBound) << "d/dt theta_aCOM has stopped tracking I_G^-1 L_G";
   EXPECT_LT(worstRelativeError, kWorstRelativeRateErrorBound) << "some sampled motion is badly tracked";
@@ -317,8 +319,8 @@ TEST_F(AcomAngularVelocityConsistencyTest, theNetworkBeatsTheTwoTrivialBaselines
   networkError /= static_cast<scalar_t>(kNumSamples);
   constantJacobianError /= static_cast<scalar_t>(kNumSamples);
   RecordProperty("constantJacobianBaselineError", std::to_string(constantJacobianError));
-  std::cout << "[aCOM] network " << networkError << " vs constant-Jacobian baseline " << constantJacobianError
-            << " vs zero-offset baseline 1" << std::endl;
+  LOG(INFO) << "[aCOM] network " << networkError << " vs constant-Jacobian baseline " << constantJacobianError
+            << " vs zero-offset baseline 1";
 
   EXPECT_LT(networkError, 1.0) << "the trained network is no better than assuming the joints do not move the aCOM";
   EXPECT_LT(networkError, constantJacobianError)

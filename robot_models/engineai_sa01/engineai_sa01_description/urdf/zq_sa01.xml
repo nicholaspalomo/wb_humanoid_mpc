@@ -1,0 +1,220 @@
+<mujoco model="engineai_sa01">
+  <default>
+    <!-- Visual-only geoms: no collision, group 1 for rendering -->
+    <default class="visual">
+      <geom contype="0" conaffinity="0" group="1" density="0"/>
+    </default>
+    <!-- Collision geoms: simple primitives with stable contact parameters -->
+    <default class="collision">
+      <geom group="2" rgba="0.5 0.5 0.5 0.3"
+            friction="1.0 0.005 0.0001"
+            solimp="0.95 0.99 0.001"
+            solref="0.004 1.0"/>
+    </default>
+  </default>
+  <compiler angle="radian" meshdir="../meshes"/>
+  <option timestep="0.001" gravity="0 0 -9.81"/>
+
+  <statistic center="0 0 0.5" extent="1.0"/>
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.1 0.1 0.1" specular="0.9 0.9 0.9"/>
+    <rgba haze="0.15 0.25 0.35 1"/>
+    <global azimuth="-140" elevation="-20"/>
+  </visual>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb2="0.835 0.761 0.612" rgb1="0.639 0.722 0.8" width="512" height="512"/>
+    <texture type="2d" name="groundplane" builtin="checker" mark="random"
+             rgb1="0.25 0.3 0.35" rgb2="0.15 0.2 0.25"
+             markrgb="0.6 0.7 0.8"
+             width="512" height="512"/>
+    <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="2 2" reflectance="0.05"/>
+    <mesh name="base_link" content_type="model/stl" file="Base_link.STL"/>
+    <mesh name="left_leg_link_01" content_type="model/stl" file="LeftLeg_Link_01.STL"/>
+    <mesh name="left_leg_link_02" content_type="model/stl" file="LeftLeg_Link_02.STL"/>
+    <mesh name="left_leg_link_03" content_type="model/stl" file="LeftLeg_Link_03.STL"/>
+    <mesh name="left_leg_link_04" content_type="model/stl" file="LeftLeg_Link_04.STL"/>
+    <mesh name="left_leg_link_05" content_type="model/stl" file="LeftLeg_Link_05.STL"/>
+    <mesh name="left_leg_link_06" content_type="model/stl" file="LeftLeg_Link_06.STL"/>
+    <mesh name="right_leg_link_01" content_type="model/stl" file="RightLeg_Link_01.STL"/>
+    <mesh name="right_leg_link_02" content_type="model/stl" file="RightLeg_Link_02.STL"/>
+    <mesh name="right_leg_link_03" content_type="model/stl" file="RightLeg_Link_03.STL"/>
+    <mesh name="right_leg_link_04" content_type="model/stl" file="RightLeg_Link_04.STL"/>
+    <mesh name="right_leg_link_05" content_type="model/stl" file="RightLeg_Link_05.STL"/>
+    <mesh name="right_leg_link_06" content_type="model/stl" file="RightLeg_Link_06.STL"/>
+  </asset>
+
+  <worldbody>
+    <light pos="1 0 3.5" dir="0 0 -1" directional="true"/>
+    <geom name="floor" size="10 10 0.05" type="plane" material="groundplane"
+          friction="1.0 0.005 0.0001"
+          solimp="0.95 0.99 0.001"
+          solref="0.004 1.0"/>
+
+    <!-- EngineAI SA01 - base_link is the floating base body. The spawn height is the nominal standing base height
+         (reference.yaml defaultBaseHeight), which is also the height the gantry catches the robot at after a fall
+         (MujocoSimInterface reads qpos[2] at load time). -->
+    <body name="base_link" pos="0 0 0.8135">
+      <freejoint name="root"/>
+      <inertial pos="-0.030427 0.00055533 0.10697" mass="10.176"
+                fullinertia="0.24707543 0.21999950689 0.09662582243 7.14263e-05 -0.017967096 -0.00116322262"/>
+      <geom class="visual" type="mesh" rgba="0.898039 0.917647 0.929412 1" mesh="base_link"/>
+      <!-- Fitted to the Base_link mesh, which spans x[-0.140, +0.088], y[-0.151, +0.151], z[-0.065, +0.418] in
+           this frame. The URDF's own 0.2 x 0.2 x 0.3 box at z = +0.03 hung 55 mm below the real shell and
+           covered barely half its height. The lower face stops at the mesh bottom so that it stays clear of
+           leg_?2_link, which carries no collision geom and would otherwise sit inside this box. -->
+      <geom class="collision" type="box" size="0.114 0.151 0.2415" pos="-0.026 0 0.1765"/>
+      <site name="imu" size="0.01" pos="0.0 0 0.0"/>
+
+      <!-- Left leg -->
+      <body name="leg_l1_link" pos="0 0.075 0">
+        <inertial pos="0.0003501 0.00043844 -0.0020201" mass="1.6592"
+                  fullinertia="0.00170970094 0.00222453198 0.00296249862 3.39099e-06 -3.64314e-06 -1.8428e-05"/>
+        <joint name="leg_l1_joint" pos="0 0 0" axis="1 0 0" range="-0.523 0.523" actuatorfrcrange="-140 140" armature="0.042"/>
+        <geom class="visual" type="mesh" mesh="left_leg_link_01"/>
+        <!-- Hip roll housing, fitted to the LeftLeg_Link_01 mesh AABB. -->
+        <geom class="collision" type="box" size="0.066 0.0575 0.0304" pos="0.0016 0 -0.0006"/>
+        <body name="leg_l2_link" pos="0 0 0">
+          <inertial pos="0.00038352 0.0010044 -0.12214" mass="1.8008"
+                    fullinertia="0.0028514924 0.00367928378 0.00191736965 -8.11841e-06 8.1779e-07 1.485978e-05"/>
+          <joint name="leg_l2_joint" pos="0 0 0" axis="0 0 1" range="-0.3 0.3" actuatorfrcrange="-140 140" armature="0.042"/>
+          <geom class="visual" type="mesh" mesh="left_leg_link_02"/>
+          <!-- Hip yaw link, fitted to the LeftLeg_Link_02 mesh AABB. It reaches up into the base shell,
+          so the pair is excluded explicitly below - leg_?2 is the base's grandchild and MuJoCo's
+          automatic parent-child filter does not cover it. -->
+          <geom class="collision" type="box" size="0.0625 0.0295 0.0802" pos="0.0016 0 -0.1112"/>
+          <body name="leg_l3_link" pos="0 0 -0.1311">
+            <inertial pos="-0.0017654 0.0012877 -0.13954" mass="3.9299"
+                      fullinertia="0.03203144433 0.0356106115 0.01016719156 3.937845e-05 0.00141442438 -0.00080953754"/>
+            <joint name="leg_l3_joint" pos="0 0 0" axis="0 1 0" range="-1.204 1.204" actuatorfrcrange="-140 140" armature="0.042"/>
+            <geom class="visual" type="mesh" mesh="left_leg_link_03"/>
+            <!-- Hip axis to knee axis. Radius 0.045 fits inside the mesh (y half-width 0.057) and equals
+                 task.yaml collision_constraint.knee.kneeCollisionSphereRadius, so the simulator and the MPC
+                 agree on how close the thighs may come. -->
+            <geom class="collision" type="capsule" size="0.045" fromto="0 0 0 0 0 -0.30"/>
+            <body name="leg_l4_link" pos="0 5.9998e-05 -0.3">
+              <inertial pos="-0.00751 -0.00041 -0.16322" mass="2.7251"
+                        fullinertia="0.03032295461 0.03234908064 0.00389340359 -7.371616e-05 -0.00028406531 0.00021740427"/>
+              <joint name="leg_l4_joint" pos="0 0 0" axis="0 1 0" range="0.0 2.268" actuatorfrcrange="-140 140" armature="0.042"/>
+              <geom class="visual" type="mesh" mesh="left_leg_link_04"/>
+              <!-- Knee axis towards the ankle. Radius 0.035 fits the mesh (y half-width 0.047); the lower cap
+                   stops at -0.385 so it stays clear of the foot contact spheres, whose tops sit at -0.405 in
+                   this frame (leg_?4 and leg_?6 are not parent and child, so MuJoCo does not filter them). -->
+              <geom class="collision" type="capsule" size="0.035" fromto="0 0 -0.02 0 0 -0.35"/>
+              <body name="leg_l5_link" pos="0 7.0122e-05 -0.37">
+                <inertial pos="-2.59e-1 -5e-05 -3.45e-09" mass="0.16135"
+                          fullinertia="3.0975e-05 3.1274e-05 3.1681e-05 0 0 0"/>
+                <joint name="leg_l5_joint" pos="0 0 0" axis="0 1 0" range="-1.0 0.6" actuatorfrcrange="-24 24" armature="0.0035"/>
+                <geom class="visual" type="mesh" mesh="left_leg_link_05"/>
+                <!-- Ankle pitch link: a small sphere over the LeftLeg_Link_05 mesh. -->
+                <geom class="collision" type="sphere" size="0.0175" pos="0.0016 0 0.0021"/>
+                <body name="leg_l6_link" pos="0 0 0">
+                  <inertial pos="0.030366 0.0019502 -0.03549" mass="1.1926"
+                            fullinertia="0.00105334189 0.00606712875 0.00646061141 0 0 0"/>
+                  <joint name="leg_l6_joint" pos="0 0 0" axis="1 0 0" range="-0.6 0.6" actuatorfrcrange="-24 24" armature="0.0035"/>
+                  <geom class="visual" type="mesh" mesh="left_leg_link_06"/>
+                  <!-- Foot sole contact geoms - 4 corner spheres only (no box) for clean point contacts. Their centres
+                       are the corners of the MPC contact rectangle: the sole plane is 0.055 below the ankle, the
+                       spheres have radius 0.010, so their centres sit at z = -0.045 and are inset by one radius from
+                       the 0.27 x 0.10 m sole. See task.yaml contacts.contact_frame_translation / contact_rectangle. -->
+                  <geom class="collision" type="sphere" size="0.010" pos="-0.065 0.045 -0.045"/>
+                  <geom class="collision" type="sphere" size="0.010" pos="-0.065 -0.035 -0.045"/>
+                  <geom class="collision" type="sphere" size="0.010" pos="0.185 0.045 -0.045"/>
+                  <geom class="collision" type="sphere" size="0.010" pos="0.185 -0.035 -0.045"/>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+
+      <!-- Right leg -->
+      <body name="leg_r1_link" pos="0 -0.075 0">
+        <inertial pos="0.0003501 0.00043844 -0.0020201" mass="1.6592"
+                  fullinertia="0.00170970094 0.00222453198 0.00296249862 3.39099e-06 -3.64314e-06 -1.8428e-05"/>
+        <joint name="leg_r1_joint" pos="0 0 0" axis="1 0 0" range="-0.523 0.523" actuatorfrcrange="-140 140" armature="0.042"/>
+        <geom class="visual" type="mesh" mesh="right_leg_link_01"/>
+        <!-- Hip roll housing, fitted to the LeftLeg_Link_01 mesh AABB. -->
+        <geom class="collision" type="box" size="0.066 0.0575 0.0304" pos="0.0016 0 -0.0006"/>
+        <body name="leg_r2_link" pos="0 0 0">
+          <inertial pos="-0.00038352 -0.0010044 -0.12214" mass="1.8008"
+                    fullinertia="0.0028514924 0.00367928378 0.00191736965 -8.11841e-06 -8.1779e-07 -1.485978e-05"/>
+          <joint name="leg_r2_joint" pos="0 0 0" axis="0 0 1" range="-0.3 0.3" actuatorfrcrange="-140 140" armature="0.042"/>
+          <geom class="visual" type="mesh" mesh="right_leg_link_02"/>
+          <!-- Hip yaw link, fitted to the LeftLeg_Link_02 mesh AABB. It reaches up into the base shell,
+          so the pair is excluded explicitly below - leg_?2 is the base's grandchild and MuJoCo's
+          automatic parent-child filter does not cover it. -->
+          <geom class="collision" type="box" size="0.0625 0.0295 0.0802" pos="0.0016 0 -0.1112"/>
+          <body name="leg_r3_link" pos="0 0 -0.1311">
+            <inertial pos="-0.0017403 -0.0012919 -0.13954" mass="3.9294"
+                      fullinertia="0.03202203311 0.03559852831 0.01016409159 -3.371707e-05 0.00139789064 0.00081210058"/>
+            <joint name="leg_r3_joint" pos="0 0 0" axis="0 1 0" range="-1.204 1.204" actuatorfrcrange="-140 140" armature="0.042"/>
+            <geom class="visual" type="mesh" mesh="right_leg_link_03"/>
+            <!-- Hip axis to knee axis. Radius 0.045 fits inside the mesh (y half-width 0.057) and equals
+                 task.yaml collision_constraint.knee.kneeCollisionSphereRadius, so the simulator and the MPC
+                 agree on how close the thighs may come. -->
+            <geom class="collision" type="capsule" size="0.045" fromto="0 0 0 0 0 -0.30"/>
+            <body name="leg_r4_link" pos="0 -5.9998e-05 -0.3">
+              <inertial pos="-0.00751 0.00047274 -0.16321" mass="2.72497"
+                        fullinertia="0.03032110864 0.0323473304 0.00389339565 7.373941e-05 -0.00028430637 -0.00021746443"/>
+              <joint name="leg_r4_joint" pos="0 0 0" axis="0 1 0" range="0.0 2.268" actuatorfrcrange="-140 140" armature="0.042"/>
+              <geom class="visual" type="mesh" mesh="right_leg_link_04"/>
+              <!-- Knee axis towards the ankle. Radius 0.035 fits the mesh (y half-width 0.047); the lower cap
+                   stops at -0.385 so it stays clear of the foot contact spheres, whose tops sit at -0.405 in
+                   this frame (leg_?4 and leg_?6 are not parent and child, so MuJoCo does not filter them). -->
+              <geom class="collision" type="capsule" size="0.035" fromto="0 0 -0.02 0 0 -0.35"/>
+              <body name="leg_r5_link" pos="0 -7.0122e-05 -0.37">
+                <inertial pos="2.59e-1 5e-05 -3.45e-09" mass="0.16135"
+                          fullinertia="3.0975e-05 3.1274e-05 3.1274e-05 0 0 0"/>
+                <joint name="leg_r5_joint" pos="0 0 0" axis="0 1 0" range="-1.0 0.6" actuatorfrcrange="-24 24" armature="0.0035"/>
+                <geom class="visual" type="mesh" mesh="right_leg_link_05"/>
+                <!-- Ankle pitch link: a small sphere over the LeftLeg_Link_05 mesh. -->
+                <geom class="collision" type="sphere" size="0.0175" pos="0.0016 0 0.0021"/>
+                <body name="leg_r6_link" pos="0 0 0">
+                  <inertial pos="0.030366 -0.0019504 -0.03549" mass="1.1926"
+                            fullinertia="0.00105336111 0.00606728572 0.00646075577 0 0 0"/>
+                  <joint name="leg_r6_joint" pos="0 0 0" axis="1 0 0" range="-0.6 0.6" actuatorfrcrange="-24 24" armature="0.0035"/>
+                  <geom class="visual" type="mesh" mesh="right_leg_link_06"/>
+                  <!-- Mirrored: the sole is offset 0.005 outboard, so the inner corners sit at y = +0.035. -->
+                  <geom class="collision" type="sphere" size="0.010" pos="-0.065 0.035 -0.045"/>
+                  <geom class="collision" type="sphere" size="0.010" pos="-0.065 -0.045 -0.045"/>
+                  <geom class="collision" type="sphere" size="0.010" pos="0.185 0.035 -0.045"/>
+                  <geom class="collision" type="sphere" size="0.010" pos="0.185 -0.045 -0.045"/>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+
+  <!-- MuJoCo filters contacts between a body and its direct parent only. leg_?2_link is the base's GRANDCHILD (base ->
+       leg_?1 -> leg_?2), and its collision box reaches up into the base shell, so without these two exclusions the
+       simulator would report a permanent contact inside the hip and the robot would never settle. -->
+  <contact>
+    <exclude body1="base_link" body2="leg_l2_link"/>
+    <exclude body1="base_link" body2="leg_r2_link"/>
+  </contact>
+
+  <!-- One direct-drive motor per joint, named after the joint it drives. The simulator clamps the commanded torque to
+       the joint's actuatorfrcrange above (MujocoSimInterface falls back to it when the actuator is not force limited),
+       so the limits live on the joints and are the URDF effort limits: 140 N.m for the hip and knee, 24 N.m for the
+       ankle. -->
+  <actuator>
+    <!-- Left leg -->
+    <motor name="leg_l1_joint" joint="leg_l1_joint"/>
+    <motor name="leg_l2_joint" joint="leg_l2_joint"/>
+    <motor name="leg_l3_joint" joint="leg_l3_joint"/>
+    <motor name="leg_l4_joint" joint="leg_l4_joint"/>
+    <motor name="leg_l5_joint" joint="leg_l5_joint"/>
+    <motor name="leg_l6_joint" joint="leg_l6_joint"/>
+    <!-- Right leg -->
+    <motor name="leg_r1_joint" joint="leg_r1_joint"/>
+    <motor name="leg_r2_joint" joint="leg_r2_joint"/>
+    <motor name="leg_r3_joint" joint="leg_r3_joint"/>
+    <motor name="leg_r4_joint" joint="leg_r4_joint"/>
+    <motor name="leg_r5_joint" joint="leg_r5_joint"/>
+    <motor name="leg_r6_joint" joint="leg_r6_joint"/>
+  </actuator>
+</mujoco>

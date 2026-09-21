@@ -43,6 +43,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <humanoid_common_mpc/common/ThreadAffinity.h>
 #include <humanoid_wb_mpc/command/WBMpcTargetTrajectoriesCalculator.h>
 #include <humanoid_wb_mpc/mrt/WBMpcMrtJointController.h>
+#include "absl/log/globals.h"
+#include "absl/log/initialize.h"
 #include "humanoid_common_mpc_ros2/fsm/SimFsmBridge.h"
 #include "humanoid_common_mpc_ros2/ros_comm/Ros2ProceduralMpcMotionManager.h"
 #include "humanoid_common_mpc_ros2/telemetry/PinocchioTelemetryPublisher.h"
@@ -52,25 +54,30 @@ using namespace ocs2;
 using namespace ocs2::humanoid;
 
 int main(int argc, char** argv) {
+  // Route Abseil log records to stderr. Without InitializeLog() Abseil warns once and writes everything to
+  // stderr anyway; with it the default stderr threshold is ERROR, so the INFO records have to be asked for.
+  absl::InitializeLog();
+  absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
   std::set_terminate([]() {
     std::exception_ptr ex = std::current_exception();
     if (ex) {
       try {
         std::rethrow_exception(ex);
       } catch (const std::exception& e) {
-        std::cerr << "\nFATAL: Unhandled exception in WBMpcRobotSim: " << e.what() << std::endl;
+        LOG(ERROR) << "\nUnhandled exception in WBMpcRobotSim: " << e.what();
       } catch (...) {
-        std::cerr << "\nFATAL: Unknown unhandled exception in WBMpcRobotSim." << std::endl;
+        LOG(ERROR) << "\nUnknown unhandled exception in WBMpcRobotSim.";
       }
     } else {
-      std::cerr << "\nFATAL: std::terminate called without active exception in WBMpcRobotSim." << std::endl;
+      LOG(ERROR) << "\nstd::terminate called without active exception in WBMpcRobotSim.";
     }
     std::abort();
   });
 
   std::vector<std::string> programArgs;
   programArgs = rclcpp::remove_ros_arguments(argc, argv);
-  if (programArgs.size() < 6) {
+  // argv[0] .. argv[6] are dereferenced below, so 7 arguments must be present.
+  if (programArgs.size() < 7) {
     throw std::runtime_error("No robot name, config folder, target command file, or description name specified. Aborting.");
   }
 
@@ -338,7 +345,7 @@ int main(int argc, char** argv) {
     }
   }
 
-  std::cout << "ende..." << std::endl;
+  LOG(INFO) << "ende...";
 
   return 0;
 }

@@ -42,6 +42,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <pinocchio/multibody/data.hpp>
 #include <pinocchio/multibody/model.hpp>
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 
 /******************************************************************************************************/
@@ -66,8 +68,8 @@ EndEffectorDynamicsFootCost::EndEffectorDynamicsFootCost(const SwitchedModelRefe
       mpcRobotModelPtr_(mpcRobotModel.clone()) {
   initialize(mpcRobotModel.getStateDim(), mpcRobotModel.getInputDim(), 37, costName, modelSettings.modelFolderCppAd,
              modelSettings.recompileLibrariesCppAd);
-  std::cout << "Frame ID: " << frameID_ << std::endl;
-  std::cout << "Initialized EndEffectorDynamicsFootCost with weights: " << weights.toVector().transpose() << std::endl;
+  LOG(INFO) << "Frame ID: " << frameID_;
+  LOG(INFO) << "Initialized EndEffectorDynamicsFootCost with weights: " << weights.toVector().transpose();
 }
 
 /******************************************************************************************************/

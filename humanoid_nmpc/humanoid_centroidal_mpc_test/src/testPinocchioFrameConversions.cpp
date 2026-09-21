@@ -66,10 +66,16 @@ TEST_F(TestPinocchioFrameConversions, rotateVectorLocalToWorld3D) {
     EXPECT_TRUE(testVector.isApprox(rotateVectorLocalToWorld<scalar_t>(testVector, pinocchioInterface.getData(), contactIndex)));
   }
 
-  scalar_t kneeAngle = 0.5;
-  q[6] = kneeAngle;
+  // Both contact frames are checked against the same expected rotation below, so BOTH legs have to be rotated by it.
+  // The generalized coordinates are [base(6), joints], and the testing model is the G1, whose MPC joint order starts
+  // left_hip_pitch, left_hip_roll, left_hip_yaw, left_knee, left_ankle_pitch, left_ankle_roll, right_hip_pitch, ...
+  // so the two hip pitches are q[6] and q[12]. Setting only q[6] leaves the right foot at identity, which is what
+  // made this assertion fail for the right foot once the loop actually started iterating.
+  scalar_t hipPitchAngle = 0.5;
+  q[6] = hipPitchAngle;
+  q[12] = hipPitchAngle;
 
-  matrix3_t R_l_w = getRotationMatrixFromZyxEulerAngles<scalar_t>(vector3_t(0.0, kneeAngle, 0.0));
+  matrix3_t R_l_w = getRotationMatrixFromZyxEulerAngles<scalar_t>(vector3_t(0.0, hipPitchAngle, 0.0));
   updateFramePlacements<scalar_t>(q, pinocchioInterface);
 
   for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface, mpcRobotModel)) {
@@ -87,10 +93,16 @@ TEST_F(TestPinocchioFrameConversions, rotateVectorWorldToLocal3D) {
     EXPECT_TRUE(testVector.isApprox(rotateVectorWorldToLocal<scalar_t>(testVector, pinocchioInterface.getData(), contactIndex)));
   }
 
-  scalar_t kneeAngle = 0.5;
-  q[6] = kneeAngle;
+  // Both contact frames are checked against the same expected rotation below, so BOTH legs have to be rotated by it.
+  // The generalized coordinates are [base(6), joints], and the testing model is the G1, whose MPC joint order starts
+  // left_hip_pitch, left_hip_roll, left_hip_yaw, left_knee, left_ankle_pitch, left_ankle_roll, right_hip_pitch, ...
+  // so the two hip pitches are q[6] and q[12]. Setting only q[6] leaves the right foot at identity, which is what
+  // made this assertion fail for the right foot once the loop actually started iterating.
+  scalar_t hipPitchAngle = 0.5;
+  q[6] = hipPitchAngle;
+  q[12] = hipPitchAngle;
 
-  matrix3_t R_l_w = getRotationMatrixFromZyxEulerAngles<scalar_t>(vector3_t(0.0, -kneeAngle, 0.0));
+  matrix3_t R_l_w = getRotationMatrixFromZyxEulerAngles<scalar_t>(vector3_t(0.0, -hipPitchAngle, 0.0));
   updateFramePlacements<scalar_t>(q, pinocchioInterface);
 
   for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface, mpcRobotModel)) {
@@ -124,10 +136,16 @@ TEST_F(TestPinocchioFrameConversions, rotateVectorLocalToWorld6D) {
     EXPECT_TRUE(testVector.isApprox(rotateVectorLocalToWorld<scalar_t>(testVector, pinocchioInterface.getData(), contactIndex)));
   }
 
-  scalar_t kneeAngle = 0.5;
-  q[6] = kneeAngle;
+  // Both contact frames are checked against the same expected rotation below, so BOTH legs have to be rotated by it.
+  // The generalized coordinates are [base(6), joints], and the testing model is the G1, whose MPC joint order starts
+  // left_hip_pitch, left_hip_roll, left_hip_yaw, left_knee, left_ankle_pitch, left_ankle_roll, right_hip_pitch, ...
+  // so the two hip pitches are q[6] and q[12]. Setting only q[6] leaves the right foot at identity, which is what
+  // made this assertion fail for the right foot once the loop actually started iterating.
+  scalar_t hipPitchAngle = 0.5;
+  q[6] = hipPitchAngle;
+  q[12] = hipPitchAngle;
 
-  matrix3_t R_l_w = getRotationMatrixFromZyxEulerAngles<scalar_t>(vector3_t(0.0, kneeAngle, 0.0));
+  matrix3_t R_l_w = getRotationMatrixFromZyxEulerAngles<scalar_t>(vector3_t(0.0, hipPitchAngle, 0.0));
   updateFramePlacements<scalar_t>(q, pinocchioInterface);
 
   for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface, mpcRobotModel)) {
@@ -146,10 +164,16 @@ TEST_F(TestPinocchioFrameConversions, rotateVectorWorldToLocal6D) {
     EXPECT_TRUE(testVector.isApprox(rotateVectorWorldToLocal<scalar_t>(testVector, pinocchioInterface.getData(), contactIndex)));
   }
 
-  scalar_t kneeAngle = 0.5;
-  q[6] = kneeAngle;
+  // Both contact frames are checked against the same expected rotation below, so BOTH legs have to be rotated by it.
+  // The generalized coordinates are [base(6), joints], and the testing model is the G1, whose MPC joint order starts
+  // left_hip_pitch, left_hip_roll, left_hip_yaw, left_knee, left_ankle_pitch, left_ankle_roll, right_hip_pitch, ...
+  // so the two hip pitches are q[6] and q[12]. Setting only q[6] leaves the right foot at identity, which is what
+  // made this assertion fail for the right foot once the loop actually started iterating.
+  scalar_t hipPitchAngle = 0.5;
+  q[6] = hipPitchAngle;
+  q[12] = hipPitchAngle;
 
-  matrix3_t R_l_w = getRotationMatrixFromZyxEulerAngles<scalar_t>(vector3_t(0.0, -kneeAngle, 0.0));
+  matrix3_t R_l_w = getRotationMatrixFromZyxEulerAngles<scalar_t>(vector3_t(0.0, -hipPitchAngle, 0.0));
   updateFramePlacements<scalar_t>(q, pinocchioInterface);
 
   for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface, mpcRobotModel)) {
@@ -221,8 +245,11 @@ TEST_F(TestPinocchioFrameConversions, transformPointBackAndForth) {
 
     for (const pinocchio::FrameIndex& contactIndex : getContactFrameIndices(pinocchioInterface, mpcRobotModel)) {
       vector3_t testPoint = vector3_t::Random();
+      // transformPoint* carries the frame translation as well as its rotation, so the inverse of
+      // transformPointLocalToWorld is transformPointWorldToLocal - not rotateVectorWorldToLocal, which drops the
+      // translation and so cannot round-trip a point.
       EXPECT_TRUE(testPoint.isApprox(
-          transformPointLocalToWorld<scalar_t>(rotateVectorWorldToLocal<scalar_t>(testPoint, pinocchioInterface.getData(), contactIndex),
+          transformPointLocalToWorld<scalar_t>(transformPointWorldToLocal<scalar_t>(testPoint, pinocchioInterface.getData(), contactIndex),
                                                pinocchioInterface.getData(), contactIndex)));
     }
   }

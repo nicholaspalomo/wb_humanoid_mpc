@@ -131,6 +131,10 @@ _link_node() {
 
 # LINT.IfChange(registered_packages)
 # --- Robot model packages ---
+# _setup_package copies a package's share assets (config, urdf, meshes, launch, rviz) into the ament index.
+# A package that also builds an executable needs a _link_node next to it, or `ros2 run <pkg> <exe>` answers
+# "No executable found": _setup_package creates lib/<pkg> but never puts anything in it, and `test/` is not a
+# share asset. That is what the Makefile's test-pinocchio-model-* targets run.
 _setup_package "g1_description" \
     "${SCRIPT_DIR}/robot_models/unitree_g1/g1_description"
 
@@ -146,6 +150,8 @@ _setup_package "drc_atlas_description" \
 
 _setup_package "drc_atlas_centroidal_mpc" \
     "${SCRIPT_DIR}/robot_models/drc_atlas/drc_atlas_centroidal_mpc"
+_link_node "drc_atlas_centroidal_mpc" "robot_models/drc_atlas/drc_atlas_centroidal_mpc" \
+    "test_pinocchio_model"
 
 # --- Unitree R1 robot model packages ---
 _setup_package "unitree_r1_description" \
@@ -153,6 +159,17 @@ _setup_package "unitree_r1_description" \
 
 _setup_package "unitree_r1_centroidal_mpc" \
     "${SCRIPT_DIR}/robot_models/unitree_r1/unitree_r1_centroidal_mpc"
+_link_node "unitree_r1_centroidal_mpc" "robot_models/unitree_r1/unitree_r1_centroidal_mpc" \
+    "test_pinocchio_model"
+
+# --- EngineAI SA01 robot model packages ---
+_setup_package "engineai_sa01_description" \
+    "${SCRIPT_DIR}/robot_models/engineai_sa01/engineai_sa01_description"
+
+_setup_package "engineai_sa01_centroidal_mpc" \
+    "${SCRIPT_DIR}/robot_models/engineai_sa01/engineai_sa01_centroidal_mpc"
+_link_node "engineai_sa01_centroidal_mpc" "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc" \
+    "test_pinocchio_model"
 
 # --- Humanoid MPC packages ---
 _setup_package "humanoid_common_mpc" \

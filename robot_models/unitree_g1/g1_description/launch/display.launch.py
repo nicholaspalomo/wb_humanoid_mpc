@@ -1,6 +1,7 @@
 import launch
 from launch.substitutions import Command, LaunchConfiguration
 import launch_ros
+from launch_ros.parameter_descriptions import ParameterValue
 import os
 
 
@@ -15,7 +16,13 @@ def generate_launch_description():
         package="robot_state_publisher",
         executable="robot_state_publisher",
         parameters=[
-            {"robot_description": Command(["xacro ", LaunchConfiguration("model")])}
+            {
+                # value_type=str stops ROS 2 launch from parsing the expanded URDF as YAML, which
+                # fails outright for a URDF whose comments contain "Something: value" text.
+                "robot_description": ParameterValue(
+                    Command(["xacro ", LaunchConfiguration("model")]), value_type=str
+                )
+            }
         ],
     )
     joint_state_publisher_node = launch_ros.actions.Node(

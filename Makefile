@@ -23,10 +23,12 @@ cleanup_trap := trap 'pkill -P $$$$ 2>/dev/null; wait' EXIT INT TERM
         launch-g1-dummy-sim launch-g1-sim launch-wb-g1-dummy-sim launch-wb-g1-sim \
         launch-drc-atlas-dummy-sim launch-drc-atlas-sim launch-drc-atlas-sandbox test-pinocchio-model-atlas \
         launch-r1-dummy-sim launch-r1-sim launch-r1-sandbox test-pinocchio-model-r1 \
+        launch-sa01-dummy-sim launch-sa01-sim launch-sa01-sandbox test-pinocchio-model-sa01 \
         start-vnc stop-vnc kill-sims kill-builds check-zombies \
         launch-g1-dummy-sim-vnc launch-g1-sim-vnc launch-wb-g1-dummy-sim-vnc launch-wb-g1-sim-vnc \
         launch-drc-atlas-dummy-sim-vnc launch-drc-atlas-sim-vnc launch-drc-atlas-sandbox-vnc \
         launch-r1-dummy-sim-vnc launch-r1-sim-vnc launch-r1-sandbox-vnc \
+        launch-sa01-dummy-sim-vnc launch-sa01-sim-vnc launch-sa01-sandbox-vnc \
         run-ocs2-tests run-mpc-tests test-rl train-rl train-cartpole train-cartpole-vnc train-bc export-rollouts lock-rl-deps echo-packages update-submodules git-lfs install-hooks train-acom-jupyter plotjuggler-vnc
 
 ## Launch ACoM SIREN training notebook in Jupyter Lab
@@ -163,6 +165,11 @@ test-pinocchio-model-r1:
 	@bazel build //... && \
 	$(source_env) && ros2 run unitree_r1_centroidal_mpc test_pinocchio_model
 
+## Run Pinocchio Model EngineAI SA01 test
+test-pinocchio-model-sa01:
+	@bazel build //... && \
+	$(source_env) && ros2 run engineai_sa01_centroidal_mpc test_pinocchio_model
+
 ############################################################
 # Utility targets
 ############################################################
@@ -254,6 +261,19 @@ launch-r1-sim: kill-sims
 launch-r1-sandbox: kill-sims
 	$(source_env) && ros2 launch unitree_r1_description display.launch.py
 
+launch-sa01-dummy-sim: kill-sims
+	$(source_env) && \
+	bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_dummy_sim_node && \
+	ros2 launch engineai_sa01_centroidal_mpc dummy_sim.launch.py
+
+launch-sa01-sim: kill-sims
+	$(source_env) && \
+	bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sim && \
+	ros2 launch engineai_sa01_centroidal_mpc mujoco_sim.launch.py
+
+launch-sa01-sandbox: kill-sims
+	$(source_env) && ros2 launch engineai_sa01_description display.launch.py
+
 ############################################################
 # VNC visualization (for macOS host)
 ############################################################
@@ -338,6 +358,23 @@ launch-r1-sandbox-vnc: kill-sims start-vnc
 	@$(vnc_urls)
 	@echo "🚀 Building targets and launching Unitree R1 URDF Viewer..."
 	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch unitree_r1_description display.launch.py
+
+launch-sa01-dummy-sim-vnc: kill-sims start-vnc
+	@$(vnc_urls)
+	@echo "🚀 Building targets and launching EngineAI SA01 Centroidal MPC Dummy Simulation..."
+	@bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_dummy_sim_node && \
+	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch engineai_sa01_centroidal_mpc dummy_sim.launch.py
+
+launch-sa01-sim-vnc: kill-sims start-vnc
+	@$(vnc_urls)
+	@echo "🚀 Building targets and launching EngineAI SA01 Centroidal MPC MuJoCo Simulation..."
+	@bazel build //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sqp_node //humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_sim && \
+	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch engineai_sa01_centroidal_mpc mujoco_sim.launch.py
+
+launch-sa01-sandbox-vnc: kill-sims start-vnc
+	@$(vnc_urls)
+	@echo "🚀 Building targets and launching EngineAI SA01 URDF Viewer..."
+	$(source_env) && $(VNC_GL_ENV) && $(cleanup_trap) && ros2 launch engineai_sa01_description display.launch.py
 # LINT.ThenChange(//setup_env.sh:registered_packages, //.devcontainer/README.md:launch_targets)
 
 plotjuggler:

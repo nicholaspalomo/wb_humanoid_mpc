@@ -50,6 +50,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 
 /******************************************************************************************************/
@@ -72,9 +74,9 @@ static std::unordered_map<std::string, size_t> createJointIndexMap(const std::ve
 static std::vector<std::string> initializeJointNames(const std::vector<std::string>& fullJointNames,
                                                      const std::vector<std::string>& fixedJointNames,
                                                      bool verbose) {
-  if (verbose) std::cout << "Initialize the following active MPC joints: " << std::endl;
+  if (verbose) LOG(INFO) << "Initialize the following active MPC joints: ";
   size_t n_joints = fullJointNames.size() - fixedJointNames.size();
-  if (verbose) std::cout << "Num active joints: " << n_joints << std::endl;
+  if (verbose) LOG(INFO) << "Num active joints: " << n_joints;
   std::vector<std::string> mpcModelJointNames;
   if (n_joints > 0) {
     mpcModelJointNames.reserve(n_joints);
@@ -84,7 +86,7 @@ static std::vector<std::string> initializeJointNames(const std::vector<std::stri
   for (const auto& joint : fullJointNames) {
     if (std::find(fixedJointNames.begin(), fixedJointNames.end(), joint) == fixedJointNames.end()) {
       // If the joint is not found in fixedJointNames, add it to mpcModelJointNames
-      if (verbose) std::cout << joint << std::endl;
+      if (verbose) LOG(INFO) << joint;
       mpcModelJointNames.emplace_back(joint);
     }
   }
@@ -94,8 +96,9 @@ static std::vector<std::string> initializeJointNames(const std::vector<std::stri
 std::vector<size_t> initializeMpcToFullJointIndices(const std::vector<std::string>& fullJointNames,
                                                     const std::vector<std::string>& mpcModelJointNames) {
   std::unordered_map<std::string, size_t> fullJointIndexMap = createJointIndexMap(fullJointNames);
-  std::vector<size_t> mpcModelJointIndices;
-  mpcModelJointIndices.reserve(mpcModelJointNames.size());
+  // resize, not reserve: reserve only grows the capacity, so indexing the vector below would write outside its
+  // (zero) size and the function would return an empty mapping.
+  std::vector<size_t> mpcModelJointIndices(mpcModelJointNames.size());
   for (size_t i = 0; i < mpcModelJointNames.size(); ++i) {
     CHECK(fullJointIndexMap.find(mpcModelJointNames[i]) != fullJointIndexMap.end());
     mpcModelJointIndices[i] = fullJointIndexMap[mpcModelJointNames[i]];
@@ -105,7 +108,7 @@ std::vector<size_t> initializeMpcToFullJointIndices(const std::vector<std::strin
 
 std::vector<std::string> concatenateStringVectors(const std::vector<std::string>& a, const std::vector<std::string>& b) {
   std::vector<std::string> temp_vec(a);
-  temp_vec.insert(temp_vec.begin(), b.begin(), b.end());
+  temp_vec.insert(temp_vec.end(), b.begin(), b.end());
   return temp_vec;
 }
 
@@ -118,8 +121,8 @@ ModelSettings::ModelSettings(const std::string& configFile, const std::string& u
   std::string prefix{"model_settings."};
 
   if (verbose) {
-    std::cerr << "\n #### Robot Model Settings:";
-    std::cerr << "\n #### "
+    LOG(INFO) << "\n #### Robot Model Settings:";
+    LOG(INFO) << "\n #### "
                  "============================================================="
                  "================\n";
   }
@@ -156,17 +159,17 @@ ModelSettings::ModelSettings(const std::string& configFile, const std::string& u
   loadData::loadStdVector(configFile, prefix + "contactParentJointNames", contactParentJointNames, verbose);
 
   if (verbose) {
-    std::cout << "Initializing MPC by fixing joints: " << std::endl;
-    for (std::string fixedJoint : fixedJointNames) std::cout << fixedJoint << std::endl;
+    LOG(INFO) << "Initializing MPC by fixing joints: ";
+    for (std::string fixedJoint : fixedJointNames) LOG(INFO) << fixedJoint;
   }
 
   // Get full joint order from a full pinocchio interface, this removes any joints marked as fix in the urdf.
   PinocchioInterface fullPinocchioInterface = createDefaultPinocchioInterface(urdfFile);
   const pinocchio::Model& model = fullPinocchioInterface.getModel();
-  if (verbose) std::cout << "Full URDF joints: " << std::endl;
+  if (verbose) LOG(INFO) << "Full URDF joints: ";
   fullJointNames.reserve(model.njoints - 2);  // Substract universe and root joint
   for (pinocchio::JointIndex joint_id = 2; joint_id < (pinocchio::JointIndex)model.njoints; ++joint_id) {
-    if (verbose) std::cout << model.names[joint_id] << std::endl;
+    if (verbose) LOG(INFO) << model.names[joint_id];
     fullJointNames.emplace_back(model.names[joint_id]);
   }
 
@@ -176,20 +179,38 @@ ModelSettings::ModelSettings(const std::string& configFile, const std::string& u
   this->contactNames = concatenateStringVectors(this->contactNames3DoF, this->contactNames6DoF);
   this->mpc_joint_dim = this->mpcModelJointNames.size();
   this->full_joint_dim = this->fullJointNames.size();
-  CHECK(this->jointIndexMap.find(j_l_shoulder_y_name) != this->jointIndexMap.end());
-  j_l_shoulder_y_index = this->jointIndexMap.at(j_l_shoulder_y_name);
-  CHECK(this->jointIndexMap.find(j_r_shoulder_y_name) != this->jointIndexMap.end());
-  j_r_shoulder_y_index = this->jointIndexMap.at(j_r_shoulder_y_name);
-  CHECK(this->jointIndexMap.find(j_l_elbow_y_name) != this->jointIndexMap.end());
-  j_l_elbow_y_index = this->jointIndexMap.at(j_l_elbow_y_name);
-  CHECK(this->jointIndexMap.find(j_r_elbow_y_name) != this->jointIndexMap.end());
-  j_r_elbow_y_index = this->jointIndexMap.at(j_r_elbow_y_name);
+  // The arm joints of the procedural arm swing. A legs-only robot (the EngineAI SA01) has none and omits
+  // model_settings.armJointNames entirely, which leaves all four names empty: the swing is then disabled rather than
+  // being a load-time failure. Any other combination is a configuration error and still throws, because a robot that
+  // names three of the four, or misspells one, or fixes one out through fixedJointNames, would otherwise walk with a
+  // half-built arm swing.
+  const bool armJointNamesOmitted =
+      j_l_shoulder_y_name.empty() && j_r_shoulder_y_name.empty() && j_l_elbow_y_name.empty() && j_r_elbow_y_name.empty();
+  this->hasArmSwingJoints = !armJointNamesOmitted;
+  if (this->hasArmSwingJoints) {
+    CHECK(this->jointIndexMap.find(j_l_shoulder_y_name) != this->jointIndexMap.end());
+    j_l_shoulder_y_index = this->jointIndexMap.at(j_l_shoulder_y_name);
+    CHECK(this->jointIndexMap.find(j_r_shoulder_y_name) != this->jointIndexMap.end());
+    j_r_shoulder_y_index = this->jointIndexMap.at(j_r_shoulder_y_name);
+    CHECK(this->jointIndexMap.find(j_l_elbow_y_name) != this->jointIndexMap.end());
+    j_l_elbow_y_index = this->jointIndexMap.at(j_l_elbow_y_name);
+    CHECK(this->jointIndexMap.find(j_r_elbow_y_name) != this->jointIndexMap.end());
+    j_r_elbow_y_index = this->jointIndexMap.at(j_r_elbow_y_name);
+  } else {
+    j_l_shoulder_y_index = 0;
+    j_r_shoulder_y_index = 0;
+    j_l_elbow_y_index = 0;
+    j_r_elbow_y_index = 0;
+    if (verbose) {
+      LOG(INFO) << "\n #### model_settings.armJointNames is not set: the procedural arm swing reference is disabled.\n";
+    }
+  }
 
   const std::string footConstraintPrefix = prefix + "foot_constraint.";
 
   if (verbose) {
-    std::cerr << "\n #### Robot Model Foot Constraint Config:";
-    std::cerr << "\n #### "
+    LOG(INFO) << "\n #### Robot Model Foot Constraint Config:";
+    LOG(INFO) << "\n #### "
                  "============================================================="
                  "================\n";
   }
@@ -217,11 +238,15 @@ ModelSettings::ModelSettings(const std::string& configFile, const std::string& u
 
   // LINT.IfChange(terrain_height_yaml_path)
   loadData::loadPtreeValue(pt, this->terrainHeight, "terrainHeight", verbose);
-  // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:terrain_height_config)
+  // clang-format off
+  // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:terrain_height_config, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:terrain_height_config)
+  // clang-format on
 
   // LINT.IfChange(contact_implicit_yaml_path)
   const std::string contactImplicitPrefix = "contact_implicit.";
-  // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:contact_implicit_config)
+  // clang-format off
+  // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:contact_implicit_config, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:contact_implicit_config)
+  // clang-format on
   loadData::loadPtreeValue(pt, this->contactImplicitConfig.complementarityWeight, contactImplicitPrefix + "complementarityWeight", verbose);
   loadData::loadPtreeValue(pt, this->contactImplicitConfig.slipWeight, contactImplicitPrefix + "slipWeight", verbose);
   loadData::loadPtreeValue(pt, this->contactImplicitConfig.penetrationWeight, contactImplicitPrefix + "penetrationWeight", verbose);
@@ -233,18 +258,18 @@ ModelSettings::ModelSettings(const std::string& configFile, const std::string& u
 
   // LINT.IfChange(nominal_foothold_yaml_path)
   const std::string nominalFootholdPrefix = "nominal_foothold.";
-  // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:nominal_foothold_config)
+  // clang-format off
+  // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:nominal_foothold_config, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:nominal_foothold_config)
+  // clang-format on
   loadData::loadPtreeValue(pt, this->nominalFootholdConfig.stepWidth, nominalFootholdPrefix + "stepWidth", verbose);
 
   if (verbose) {
-    std::cerr << " #### "
+    LOG(INFO) << " #### "
                  "============================================================="
-                 "================"
-              << std::endl;
-    std::cerr << " #### "
+                 "================";
+    LOG(INFO) << " #### "
                  "============================================================="
-                 "================"
-              << std::endl;
+                 "================";
   }
 }
 

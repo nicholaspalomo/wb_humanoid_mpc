@@ -1,0 +1,661 @@
+# EngineAI SA01 centroidal MPC task configuration.
+#
+# SA01 is a LEGS-ONLY biped: 12 revolute joints, no arms, no waist and no head. The MPC state is therefore
+# 6 (normalised centroidal momentum) + 6 (base pose) + 12 (joint positions) = 24, and the input is
+# 2 x 6 (contact wrenches) + 12 (joint velocities) = 24. Total mass 33.11 kg, 0.725 m from the hip pitch axis to the
+# sole, a 0.27 x 0.10 m sole and only 0.150 m between the hips - it is a narrow, short-legged, long-footed robot.
+#
+# This file ships the VALIDATED BASELINE formulation, the same one the Unitree R1 runs: base-pose tracking, a gait
+# schedule, wrench inputs and a quadratic terminal cost. Every newer feature is off, pre-parameterised, and documented
+# where it is switched on, so they can be enabled ONE AT A TIME and validated in MuJoCo. The weights are R1's, which
+# is the closest robot by mass (28.8 kg against SA01's 33.1 kg) and runs the same formulation; they are a starting
+# point, not a tuned set.
+
+# Simulation & Telemetry Configuration
+enableTelemetry: true        # Enable high-rate ROS 2 telemetry publishing for PlotJuggler
+telemetryFrequency: 100      # [Hz] Telemetry publishing frequency (decimated from MRT loop)
+# MuJoCo simulator only (mujoco_sim.launch.py). The viewer's contact timeline ('b' toggles it) shows, per contact point,
+# the contact state the executed MPC policy plans against the simulator's ground truth over a sliding window of time.
+simContactTimelineWindow: 5.0          # [s] width of the sliding window
+simContactForceThreshold: 5.0          # [N] normal force above which a contact point counts as touching (ground truth).
+                                       #     SA01 weighs 324.8 N, so this is 1.5% of body weight.
+# Fall recovery: the tilt of the base past which the simulator catches the robot on the gantry, reattaching it upright
+# at the gantry height, switching to JOINT_PD (the whole-body MPC is overconstrained against a pinned base) and
+# resetting the MPC. The remote control follows the same transition and re-centres its joysticks, so a stick left
+# forward cannot keep commanding a walk into a robot hanging from the harness. The measure is the angle between the
+# base's own vertical and the world vertical, so it is heading independent: 0 upright, pi/2 on its side, pi upside
+# down. 0 disables the recovery and leaves a fallen robot where it lands, which is what you want when the fall itself
+# is the thing being studied. 1.0 rad (57 deg) is past any recoverable lean.
+simMaxBaseTiltAngle: 1.0                # [rad] 0 disables
+# Measured contact state of the controller, by name (robot_model/ContactEstimatorRegistry.h): the MPC observation mode and
+# which planned contact wrenches the inverse dynamics projects into feedforward torques. One of:
+#   cheater_sim        the ground truth of the physics (normal force above simContactForceThreshold); required for the
+#                      phase_resetting execution rule of contact_planning.yaml
+#   robot_state        the contact flags of the RobotState (in MuJoCo the same ground truth)
+#   always_in_contact  every contact point touching: the executed schedule is taken as the measured contact state
+# LINT.IfChange(contact_estimator)
+contactEstimator: cheater_sim
+# LINT.ThenChange(//robot_runtime/robot_model/src/ContactEstimatorRegistry.cpp:contact_estimator_names, //robot_runtime/mujoco_sim_interface/src/CheaterSimContactEstimator.cpp:cheater_sim_contact_estimator_name)
+# Viewer visualizations (each listed one starts on; the key in brackets toggles it, 'p' prints the cheatsheet). Every
+# marker is a class in robot_runtime/mujoco_sim_interface/.../visualization; the names are those of VisualizationRegistry.
+# LINT.IfChange(sim_visualizations)
+simVisualizations:
+  - metrics                 # render/sim FPS, real-time factor and drift (top-left text)
+  - external_forces         # arrows of the external forces applied to the bodies (pushes)
+  - contact_forces          # arrows of the physical contact forces on the robot
+  - base_velocity           # measured (red) vs commanded (green) base velocity and yaw rate at the CoM
+  - contact_timeline        # [b] barcode of planned vs ground-truth contact per contact point
+  - target_contact_patches  # [g] contact patch of every foot at the planner's target position and yaw
+  - center_of_mass          # [o] whole-body centre of mass: sphere, vertical, and its shadow on the ground
+  - zmp                     # [z] zero moment point of the physical ground reaction, on the ground
+  # The ZMP marker earns its place on SA01 more than on any other robot here: with a 24 N.m ankle under 324.8 N of
+  # body weight the ankle can only hold the centre of pressure within 0.074 m of itself in single support, so watch
+  # whether the ZMP is running to the toe. See contacts.contact_rectangle below.
+  # - dcm                   # [d] divergent component of motion (capture point) of the measured CoM, on the ground
+  # MuJoCo's own markers, off unless listed:
+  # - mj_contact_points     # [c] markers at the physical contact points
+  # - mj_contact_forces     # [f] MuJoCo's normal and friction force arrows at the contacts
+  # - mj_com                # [m] centre of mass markers of the bodies
+  # - mj_inertia            # [i] equivalent inertia ellipsoids
+  # - mj_convex_hull        # [h] convex hulls of the meshes
+  # - mj_transparent        # [t] model transparency (x-ray view)
+# LINT.ThenChange(//robot_runtime/mujoco_sim_interface/src/visualization/VisualizationRegistry.cpp:visualization_names)
+enableOnlineTuning: true     # Enable runtime parameter and gain tuning in Controller GUI
+
+# ---------------------------------------------------------------------------------------------------------------
+# Formulation toggles. All four are off: SA01 has never been run, so it starts on the formulation the other robots
+# are tuned against. Each one below says what enabling it needs.
+# ---------------------------------------------------------------------------------------------------------------
+# Set true to use basis-vector scalings lambda as MPC contact inputs (instead of direct wrenches). The wrench cone is
+# then structural rather than a soft constraint. Nothing robot-specific blocks it; the `contacts` block below already
+# carries basisNonNegativityBarrier and basisScalingRegularization, so this is a one-line change once the robot walks.
+useContactBasisVectorInputs: false
+# Set true to regulate CoM + Angular Center of Mass (ACoM) instead of base pose.
+# NOT AVAILABLE FOR SA01. The ACoM coordinate is a learned SIREN network dispatched by model_settings.robotName
+# (AngularCenterOfMass::createForRobot, humanoid_common_mpc/src/acom/AngularCenterOfMass.cpp:89-99), and only
+# `atlas` and `g1` have trained weights. Setting this true throws "Unknown robot 'engineai_sa01'" at start-up.
+# Enabling it means first training SA01 weights with humanoid_learning/acom and adding an AcomSirenWeightsSa01.h to
+# that dispatch. Because it is false, Q's base-pose block (6..11) below is live and Q_com / Q_acom are not read, so
+# they are deliberately absent rather than present and dead.
+useComAndAcomTracking: false
+# Set true to plan the contact sequence, timing and footholds online with the reduced-order contact planner instead
+# of the gait schedule. Its parameters are the contact_planning block of contact_planning.yaml next to this file,
+# which is shipped with SA01's geometry already worked out (hot-reloaded and edited by the tuning GUI like this file).
+useContactPlanning: false
+# Set true to end the horizon with the DCM (capture point) viability cost; Q_final / terminal_cost are then ignored.
+# The dcm_terminal_cost block below is parameterised for SA01, so this is also a one-line change.
+useDcmTerminalCost: false
+
+# Targeted Pinocchio frames for telemetry logging (position, orientation, twist, accel, wrench). SA01 has no pelvis
+# and no torso link - base_link IS the floating base.
+telemetryFrames:
+  - "foot_l_contact"
+  - "foot_r_contact"
+  - "base_link"
+
+centroidalModelType: 0  # 0: FullCentroidalDynamics, 1: Single Rigid Body Dynamics
+
+# MPC Problem Formulation Tasks
+# The schedule-gated contact formulation: the swing foot's wrench is forced to zero and the stance foot is held still,
+# both from the gait schedule, so the MPC cannot depart from that schedule. The contact-implicit alternative
+# (arXiv:2502.15630, humanoid_nmpc/docs/contact_implicit_mpc/README.md) replaces those with relaxed complementarity
+# conditions and lets the solver decide where each foot carries load. To switch, drop zero_wrench, zero_velocity AND
+# normal_velocity here, add normal_velocity plus contact_complementarity, force_weighted_slip and ground_penetration
+# to soft_constraints, and give nominal_foothold.stepWidth a positive value - nothing else would then hold SA01's
+# feet apart. loadMpcFormulationTasks refuses the half-way combinations.
+hard_constraints:
+  - zero_wrench
+  - zero_velocity
+  - normal_velocity
+
+soft_constraints:
+  - joint_limits
+  - foot_collision
+  - contact_wrench_cone            # friction, centre of pressure and torsional limits in one relaxed-barrier term
+  # - normal_velocity              # contact-implicit: the swing-foot vertical servo, PRICED instead of imposed
+  # - contact_complementarity      # contact-implicit: f_n * h = 0, load only where the foot touches the ground
+  # - force_weighted_slip          # contact-implicit: f_n * v_xy = 0, a loaded foot is held still
+  # - ground_penetration           # contact-implicit: h >= 0, required alongside contact_complementarity
+
+costs:
+  - state_quadratic_cost
+  - input_quadratic_cost
+  - terminal_cost  # quadratic Q_final terminal cost, ignored while useDcmTerminalCost is true
+  - icp_cost
+  - task_space_foot_cost
+  - external_torque_cost
+  # task_space_torso_cost is deliberately absent: SA01 has no torso or waist link to track. Its only body above the
+  # legs is base_link, which IS the floating base and is already regulated by Q(6,6)..Q(11,11). Listing the cost
+  # without a matching `task_space_costs` block throws (CentroidalMpcInterface::addTaskSpaceKinematicsCosts calls
+  # pt.get_child("task_space_costs")), so the block is absent too.
+
+# The nominal foothold reference, used only when useContactPlanning is false. With zero_velocity in hard_constraints
+# the stance foot is pinned by the schedule and foot placement follows from it, which is why R1 and G1 leave this at
+# 0 and SA01 does too. It only becomes load-bearing for the contact-implicit formulation, which removes that pin: a
+# positive stepWidth then places each foot half of it to its own side of the reference base pose.
+#
+# stepWidth is the FULL distance between the feet. SA01's natural stance - both legs vertical - is 0.160 m, so 0.18
+# is the value to set here when that day comes, not Atlas's 0.45. How hard the foot is held to the target is
+# task_space_foot_cost_weights.pos_x / pos_y, which are 0 below for the same reason.
+# LINT.IfChange(nominal_foothold_config)
+nominal_foothold:
+  stepWidth: 0.0  # [m] lateral distance between the feet; 0 disables the nominal reference
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/common/ModelSettings.cpp:nominal_foothold_yaml_path)
+
+# [m] Where the ground is, for everything that needs to know: the swing trajectories, the landing targets, and the
+# contact-implicit complementarity and ground-penetration terms. A constant is correct here because every layer of
+# this stack assumes flat ground.
+# LINT.IfChange(terrain_height_config)
+terrainHeight: 0.0
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/common/ModelSettings.cpp:terrain_height_yaml_path, //humanoid_nmpc/humanoid_centroidal_mpc/src/mrt/MpcParameterUpdaterModule.cpp:terrain_height_updater_yaml_path)
+
+# Weights of the contact-implicit terms; read whether or not those terms are listed, ignored when they are not.
+# The two residuals are normalised before they are penalised - (f_n/f_ref)(h/h_ref) and (f_n/f_ref)(v/v_ref), with
+# f_ref the robot's weight taken from the model - so these weights are dimensionless and directly comparable with the
+# task_space_foot_cost_weights they compete against.
+# LINT.IfChange(contact_implicit_config)
+contact_implicit:
+  complementarityWeight: 50    # the price of carrying full body weight at the reference height
+  slipWeight: 150              # the price of sliding at the reference speed under full body weight
+  # Weight of the one-sided quadratic hinge on h >= 0: the cost is penetrationWeight * h^2 / 2 below the ground and
+  # exactly zero on or above it. Scaled from Atlas's 5e4 by the mass ratio (33.1 / 159.7), so that a 1 cm penetration
+  # produces the same gradient relative to body weight.
+  penetrationWeight: 1.0e4
+  heightReference: 0.08        # swing trajectory height reference [m]; tracks swing_trajectory_config.swingHeight
+  velocityReference: 0.3       # [m/s] a sliding speed that would already be a failure
+  angularVelocityReference: 1.0  # [rad/s] a pivot rate that would already be a failure
+  gapSmoothing: 1.0e-3         # [m] length scale the footprint corners' minimum height is blended over
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/common/ModelSettings.cpp:contact_implicit_yaml_path)
+
+useGravityCompFeedforward: false
+# [s] Hand-over into the MPC from JOINT_PD / GRAVITY_COMP. 0 switches in one control cycle, which is the long-standing
+# behaviour and what SA01 starts on. > 0 holds the previous mode's action until the first policy solved after the
+# entry reset is active and then ramps targets, gains and feedforward torques into the MPC action over this duration.
+# Try 0.3 to 0.5 once the robot stands in MuJoCo.
+mpcEntryBlendTime: 0.0
+# Touch-down shaping of the planned contact wrenches in the inverse dynamics of the MRT joint controller. Both at 0
+# apply the planned wrench in full from the first control cycle of measured contact, i.e. as a step at the first heel
+# or toe strike. debounceTime: measured contact must persist this long before the wrench is applied. rampTime: the
+# wrench then rises linearly from zero to the planned value over this time. Lift-off is never shaped.
+# Hot-reloadable (GUI: Solver & Horizon).
+contact_wrench_gate:
+  debounceTime: 0.0  # [s]
+  rampTime: 0.0  # [s]
+
+interface:
+  verbose: true  # show the loaded parameters
+  useAnalyticalGradientsDynamics: false
+  useAnalyticalGradientsConstraints: false
+
+model_settings:
+  robotName: engineai_sa01
+
+  # LINT.IfChange(foot_constraint_section)
+  foot_constraint:
+    # Swing: the only regulation of the swing-foot height is the normal-velocity constraint
+    # zdot = zdot_ref + positionErrorGain_z * (z_ref - z). The remaining gains act on the stance (zero-velocity)
+    # constraint only. These are R1's values.
+    positionErrorGain_z: 5.0
+    orientationErrorGain: 20.0
+    linearVelocityErrorGain_z: 1.0
+    linearVelocityErrorGain_xy: 1.0
+    angularVelocityErrorGain: 1.0
+    linearAccelerationErrorGain_z: 0.0
+    linearAccelerationErrorGain_xy: 0.0
+    angularAccelerationErrorGain: 0.0
+    softConstraintWeight: 250
+    # Weight of the SOFT `normal_velocity` term, read only when it is listed in soft_constraints (the
+    # contact-implicit formulation). The residual is the same row the hard constraint imposes, so this one number
+    # buys the swing-foot vertical servo as a cost the solver can trade off instead of an equality it cannot.
+    normalVelocitySoftConstraintWeight: 500
+    constrainOrientation: true
+    # The orientation error to the ground plane only measures the tilt of the foot normal, so with
+    # constrainOrientation the last row of the 6D stance constraint is identically zero and the foot may pivot about
+    # the contact normal. Enabling this fills that row with the yaw rate about the contact normal, which removes one
+    # input degree of freedom per stance foot. Atlas turns it on together with the contact planner's ACoM dynamics;
+    # SA01 runs neither, so it stays off until yaw behaviour has been looked at in MuJoCo.
+    constrainYawRateAboutContactNormal: false
+  # LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/src/mrt/MpcParameterUpdaterModule.cpp:softConstraintWeight_yaml_path)
+
+  phaseTransitionStanceTime: 0.0
+
+  verboseCppAd: true
+  recompileLibrariesCppAd: false
+  modelFolderCppAd: build/centroidal_mpc_cppad_autocode_gen
+
+  # Exclude these joints from MPC model. SA01 has twelve joints and the MPC uses all of them.
+  fixedJointNames: []
+
+  # Pinocchio Frame names for the contact frames
+  contactNames6DoF:
+    - foot_l_contact
+    - foot_r_contact
+
+  # The Parent frames on which the contact frames are added. leg_?6_joint is the ankle ROLL joint, whose origin
+  # coincides with the ankle pitch joint, so contacts.contact_frame_translation below is measured from there.
+  contactParentJointNames:
+    - leg_l6_joint
+    - leg_r6_joint
+
+  # armJointNames is deliberately absent: SA01 has no arms, so there is no procedural arm swing to configure.
+  # ModelSettings treats the whole block as optional and leaves the swing disabled (hasArmSwingJoints false); naming
+  # only some of the four, or naming a joint that is not in the MPC model, still fails loudly at load time.
+
+# The height reference is tracked at foot_*_contact, the CENTRE of the sole. SA01's toe is 0.125 m ahead of it - the
+# longest foot relative to its leg of any robot here (0.27 m of sole on a 0.725 m leg) - so the toe height is not
+# regulated by anything here and one degree of foot droop drops the toe 2.2 mm.
+swing_trajectory_config:
+  liftOffVelocity: 0.05
+  # A zero touch-down velocity makes the descent flatten out asymptotically, so the sole hovers within a few
+  # millimetres of the ground for the last stretch of the swing while the foot is still translating forward. Landing
+  # with a real descent rate shortens that window (negative is downward; liftOffVelocity is +0.05 upward).
+  touchDownVelocity: -0.05
+  # 0.08 m is 11.0% of SA01's 0.725 m leg, inside the 9.1-12.6% band Atlas, G1 and R1 span at the same 0.08. Do not
+  # go below 0.06: SA01's long foot needs the clearance more than they do, not less.
+  swingHeight: 0.08
+  touchDownHeightOffset: 0.0
+  # Swings shorter than this are scaled down in height AND velocity by swingDuration / swingTimeScale
+  # (SwingTrajectoryPlanner::swingTrajectoryScaling), so it must stay at or below the shortest swing the gait
+  # schedule (humanoid_common_mpc/config/command/gait.yaml) or the contact planner can produce. It is tied to
+  # contact_planning.yaml's gait_limits.minSwingDuration and hlip.sspDuration, both 0.22 s: raising the cadence
+  # without lowering this silently shrinks the foot clearance.
+  # LINT.IfChange(sa01_swing_time_scale)
+  swingTimeScale: 0.22
+  # LINT.ThenChange(//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/contact_planning.yaml:sa01_gait_cadence)
+  impactProximityFactorLiftOffVelocity: -0.15
+  impactProximityFactorTouchDownVelocity: 0.3
+  impactProximityFactorMidPointValue: 0.0
+
+  # Toe-up pitch of the swing foot reference, tilting the plane that task_space_foot_cost_weights.orientation_x / _y
+  # track. It raises the toe by 0.125 * sin(angle) without lowering the sole centre: 0.08 rad buys 10.0 mm.
+  # Off by default (0.0 reproduces a flat-foot reference exactly). Enable it only if the toe catches, and start
+  # around 0.08. Watch that the heel does not strike first - the contact model assumes a flat landing.
+  swingPitchAngle: 0.0
+  swingPitchRiseFraction: 0.25
+  swingPitchFallFraction: 0.15
+
+# multiple_shooting settings. SA01's problem is the smallest in the repository (24 states, 24 inputs against Atlas's
+# 36/36), so four threads at 80 Hz is comfortable.
+multiple_shooting:
+  nThreads: 4
+  dt: 0.02
+  sqpIteration: 1
+  deltaTol: 1.0e-4
+  g_max: 1.0e-2
+  g_min: 1.0e-6
+  inequalityConstraintMu: 0.1
+  inequalityConstraintDelta: 5.0
+  projectStateInputEqualityConstraints: true
+  printSolverStatistics: true
+  printSolverStatus: false
+  printLinesearch: false
+  useFeedbackPolicy: true
+  integratorType: RK4
+  threadPriority: 50
+
+# Rollout settings
+rollout:
+  AbsTolODE: 5.0e-5
+  RelTolODE: 5.0e-3
+  timeStep: 0.015
+  integratorType: ODE45
+  maxNumStepsPerSecond: 10000
+  checkNumericalStability: false
+
+mpc:
+  timeHorizon: 1.0  # [s] about two strides of the default walk
+  solutionTimeWindow: -1  # maximum [s]
+  coldStart: false
+
+  debugPrint: false
+
+  mpcDesiredFrequency: 80  # [Hz]
+  mrtDesiredFrequency: 100  # [Hz]
+
+# The nominal standing state. The joint block must stay equal to reference.yaml's defaultJointState and (8,0) to its
+# defaultBaseHeight, which is also the MuJoCo spawn height in zq_sa01.xml.
+initialState:
+  # ; Normalized Centroidal Momentum: [linear, angular] ;;
+  "(0,0)": 0.0  # h_com_x / robotMass
+  "(1,0)": 0.0  # h_com_y / robotMass
+  "(2,0)": 0.0  # h_com_z / robotMass
+  "(3,0)": 0.0  # L_x / robotMass
+  "(4,0)": 0.0  # L_y / robotMass
+  "(5,0)": 0.0  # L_z / robotMass
+
+  # ; Base Pose: [position, orientation] ;;
+  "(6,0)": 0.0  # p_base_x
+  "(7,0)": 0.0  # p_base_y
+  "(8,0)": 0.8135  # p_base_z
+  "(9,0)": 0.0  # theta_base_z
+  "(10,0)": 0.0  # theta_base_y
+  "(11,0)": 0.0  # theta_base_x
+
+  # ; Joint Positions: ;;
+  "(12,0)": 0.0    # leg_l1_joint - left hip roll
+  "(13,0)": 0.0    # leg_l2_joint - left hip yaw
+  "(14,0)": -0.30  # leg_l3_joint - left hip pitch
+  "(15,0)": 0.70   # leg_l4_joint - left knee
+  "(16,0)": -0.40  # leg_l5_joint - left ankle pitch
+  "(17,0)": 0.0    # leg_l6_joint - left ankle roll
+  "(18,0)": 0.0    # leg_r1_joint - right hip roll
+  "(19,0)": 0.0    # leg_r2_joint - right hip yaw
+  "(20,0)": -0.30  # leg_r3_joint - right hip pitch
+  "(21,0)": 0.70   # leg_r4_joint - right knee
+  "(22,0)": -0.40  # leg_r5_joint - right ankle pitch
+  "(23,0)": 0.0    # leg_r6_joint - right ankle roll
+
+# standard state weight matrix
+Q:
+  scaling: 1
+
+  # ; Normalized Centroidal Momentum: [linear, angular] ;;
+  # The linear entries are the only thing asking the MPC to reach the commanded CoM velocity, so they must stay
+  # within an order of magnitude of the largest joint entry below or under-striding becomes the cheap option.
+  "(0,0)": 15.0  # h_com_x / robotMass
+  "(1,1)": 15.0  # h_com_y / robotMass
+  "(2,2)": 15.0  # h_com_z / robotMass
+  "(3,3)": 15.0  # L_x / robotMass
+  "(4,4)": 40.0  # L_y / robotMass
+  "(5,5)": 4.0  # L_z / robotMass
+
+  # ; Base Pose: [position, orientation] ;;
+  # Live, because useComAndAcomTracking is false. Roll is weighted hardest: with only 0.150 m between the hips SA01
+  # has less lateral base motion available than any other robot here before a foot has to move.
+  "(6,6)": 20.0  # p_base_x
+  "(7,7)": 20.0  # p_base_y
+  "(8,8)": 30.0  # p_base_z
+  # euler angles for base to world rotation
+  "(9,9)": 0.0  # theta_base_z
+  "(10,10)": 5.0  # theta_base_y
+  "(11,11)": 85.0  # theta_base_x
+
+  # ; Joint Positions ;;
+  # Hip roll and hip yaw are regularised, the sagittal chain is left almost free so the leg can stride. Keep hip roll
+  # low: its nominal is 0, i.e. legs vertical in the frontal plane, so a large weight here directly opposes the
+  # lateral pelvis shift that unloads the swing foot. Self-collision is enforced by collision_constraint, not by this.
+  "(12,12)": 1.25  # leg_l1_joint - left hip roll
+  "(13,13)": 4.0   # leg_l2_joint - left hip yaw
+  "(14,14)": 0.02  # leg_l3_joint - left hip pitch
+  "(15,15)": 0.02  # leg_l4_joint - left knee
+  "(16,16)": 0.01  # leg_l5_joint - left ankle pitch
+  "(17,17)": 0.01  # leg_l6_joint - left ankle roll
+  "(18,18)": 1.25  # leg_r1_joint - right hip roll
+  "(19,19)": 4.0   # leg_r2_joint - right hip yaw
+  "(20,20)": 0.02  # leg_r3_joint - right hip pitch
+  "(21,21)": 0.02  # leg_r4_joint - right knee
+  "(22,22)": 0.01  # leg_r5_joint - right ankle pitch
+  "(23,23)": 0.01  # leg_r6_joint - right ankle roll
+
+# control weight matrix
+R:
+  scaling: 0.01
+
+  # ; Feet Contact Forces: [LF, RF] ;;
+  "(0,0)": 0.05  # left_force_x
+  "(1,1)": 0.05  # left_force_y
+  "(2,2)": 0.01  # left_force_z
+  "(3,3)": 0.05  # left_moment_x
+  "(4,4)": 0.05  # left_moment_y
+  "(5,5)": 0.2   # left_moment_z
+  "(6,6)": 0.05  # right_force_x
+  "(7,7)": 0.05  # right_force_y
+  "(8,8)": 0.01  # right_force_z
+  "(9,9)": 0.05  # right_moment_x
+  "(10,10)": 0.05  # right_moment_y
+  "(11,11)": 0.2   # right_moment_z
+
+  # ; Joint Velocities ;;
+  # Hip yaw is held an order of magnitude stiffer than the rest: it is the one leg degree of freedom the gait does
+  # not need and the one that scuffs the foot when it moves.
+  "(12,12)": 20.0   # leg_l1_joint - left hip roll
+  "(13,13)": 200.0  # leg_l2_joint - left hip yaw
+  "(14,14)": 10.0   # leg_l3_joint - left hip pitch
+  "(15,15)": 10.0   # leg_l4_joint - left knee
+  "(16,16)": 20.0   # leg_l5_joint - left ankle pitch
+  "(17,17)": 20.0   # leg_l6_joint - left ankle roll
+  "(18,18)": 20.0   # leg_r1_joint - right hip roll
+  "(19,19)": 200.0  # leg_r2_joint - right hip yaw
+  "(20,20)": 10.0   # leg_r3_joint - right hip pitch
+  "(21,21)": 10.0   # leg_r4_joint - right knee
+  "(22,22)": 20.0   # leg_r5_joint - right ankle pitch
+  "(23,23)": 20.0   # leg_r6_joint - right ankle roll
+
+# DCM (capture point) terminal cost, active when useDcmTerminalCost is true (it then replaces terminal_cost /
+# Q_final). At the end of the horizon the DCM  xi = p_com + v_com / omega  (omega = sqrt(g / comHeight)) is pulled
+# towards the centre of the terminal support plus velocityOffsetFactor * v_cmd / omega, so that the horizon ends in a
+# capturable state consistent with the commanded walking speed.
+# LINT.IfChange(dcm_terminal_cost_config)
+dcm_terminal_cost:
+  # The true CoM height above the sole in the nominal standing pose, measured with MuJoCo on zq_sa01.xml: the CoM
+  # sits 0.201 m below base_link, so 0.8135 - 0.2011 = 0.6124. omega = sqrt(9.81 / 0.6124) = 4.00 rad/s.
+  comHeight: 0.6124  # [m]
+  gravity: 9.81      # [m/s^2]
+  # Scaled from Atlas's 400 by the mass ratio (33.11 / 159.70): the cost is quadratic in a position error in metres,
+  # so it has to be commensurate with the robot's weight to trade off against the same Q.
+  weight_x: 85  # weight on the longitudinal DCM error
+  weight_y: 85  # weight on the lateral DCM error
+  velocityOffsetFactor: 0  # 0..1, scales the v_cmd / omega offset of the DCM reference
+  supportBlendTime: 0.1    # [s] support weights ramp through lift-off / touch-down so the reference never jumps
+# LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/src/cost/DcmTerminalCost.cpp:dcm_terminal_cost_keys)
+
+# Quadratic terminal cost on the full state (terminal_cost). Ignored while useDcmTerminalCost is true.
+terminalCostScaling: 3
+Q_final:
+  scaling: 1
+
+  # ; Normalized Centroidal Momentum: [linear, angular] ;;
+  "(0,0)": 15.0  # h_com_x / robotMass
+  "(1,1)": 15.0  # h_com_y / robotMass
+  "(2,2)": 15.0  # h_com_z / robotMass
+  "(3,3)": 15.0  # L_x / robotMass
+  "(4,4)": 40.0  # L_y / robotMass
+  "(5,5)": 4.0  # L_z / robotMass
+
+  # ; Base Pose: [position, orientation] ;;
+  # The horizontal position is free at the terminal node - pinning where the base ends up fights the gait - while
+  # height and roll stay regulated.
+  "(6,6)": 0.0  # p_base_x
+  "(7,7)": 0.0  # p_base_y
+  "(8,8)": 30.0  # p_base_z
+  # euler angles for base to world rotation
+  "(9,9)": 0.0  # theta_base_z
+  "(10,10)": 5.0  # theta_base_y
+  "(11,11)": 85.0  # theta_base_x
+
+  # ; Joint Positions ;;
+  "(12,12)": 1.25  # leg_l1_joint - left hip roll
+  "(13,13)": 4.0   # leg_l2_joint - left hip yaw
+  "(14,14)": 0.02  # leg_l3_joint - left hip pitch
+  "(15,15)": 0.02  # leg_l4_joint - left knee
+  "(16,16)": 0.01  # leg_l5_joint - left ankle pitch
+  "(17,17)": 0.01  # leg_l6_joint - left ankle roll
+  "(18,18)": 1.25  # leg_r1_joint - right hip roll
+  "(19,19)": 4.0   # leg_r2_joint - right hip yaw
+  "(20,20)": 0.02  # leg_r3_joint - right hip pitch
+  "(21,21)": 0.02  # leg_r4_joint - right knee
+  "(22,22)": 0.01  # leg_r5_joint - right ankle pitch
+  "(23,23)": 0.01  # leg_r6_joint - right ankle roll
+
+icp_cost_weights:
+  icpErrorWeight: 0.0
+
+task_space_foot_cost_weights:
+  activeInStance: false
+  # pos_x / pos_y weigh the swing foot against wherever it is being told to land, and are switched off inside the
+  # cost when nothing supplies a horizontal target - which is the case here, because useContactPlanning is false and
+  # nominal_foothold.stepWidth is 0. They are written as 0 so that turning either of those on is a deliberate act.
+  pos_x: 0.0
+  pos_y: 0.0
+  # 0 because the swing height is imposed exactly by the HARD normal_velocity constraint; nothing is left for a cost
+  # to shape. It only becomes load-bearing in the contact-implicit formulation, where normal_velocity moves to
+  # soft_constraints.
+  pos_z: 0.0
+  # This is the only thing holding the swing foot level, and it matters more on SA01 than on any other robot here:
+  # its toe is 0.125 m ahead of the contact frame, so a degree of droop drops the toe 2.2 mm - more than Atlas's
+  # 2.1 mm on a leg 0.15 m shorter. 1000 is G1's and R1's value.
+  orientation_x: 1000.0
+  orientation_y: 1000.0
+  orientation_z: 0.0
+  lin_velocity_x: 10.0
+  lin_velocity_y: 10.0
+  lin_velocity_z: 0.0
+  ang_velocity_x: 1.0
+  ang_velocity_y: 1.0
+  ang_velocity_z: 0.005
+  lin_acceleration_x: 0.0
+  lin_acceleration_y: 0.0
+  lin_acceleration_z: 0.0
+  ang_acceleration_x: 0.0
+  ang_acceleration_y: 0.0
+  ang_acceleration_z: 0.0
+
+left_leg_torque_cost:
+  activeJointNames:
+    - leg_l1_joint
+    - leg_l2_joint
+    - leg_l3_joint
+    - leg_l4_joint
+    - leg_l5_joint
+    - leg_l6_joint
+
+  weights:
+    scaling: 1.0e-4
+
+    "(0,0)": 2.0  # leg_l1_joint - left hip roll
+    "(1,0)": 1.0  # leg_l2_joint - left hip yaw
+    "(2,0)": 2.0  # leg_l3_joint - left hip pitch
+    "(3,0)": 8.0  # leg_l4_joint - left knee
+    # The ankle entries are 5x R1's 0.2. SA01's ankle actuators are 24 N.m against R1's 50 N.m while the robot is
+    # 15% heavier, so ankle torque is the scarcest resource on this machine and the cost has to say so. Scaled by the
+    # ratio of the squared torque limits, (50/24)^2 = 4.3.
+    "(4,0)": 1.0  # leg_l5_joint - left ankle pitch
+    "(5,0)": 1.0  # leg_l6_joint - left ankle roll
+
+right_leg_torque_cost:
+  activeJointNames:
+    - leg_r1_joint
+    - leg_r2_joint
+    - leg_r3_joint
+    - leg_r4_joint
+    - leg_r5_joint
+    - leg_r6_joint
+
+  weights:
+    scaling: 1.0e-4
+
+    "(0,0)": 2.0  # leg_r1_joint - right hip roll
+    "(1,0)": 1.0  # leg_r2_joint - right hip yaw
+    "(2,0)": 2.0  # leg_r3_joint - right hip pitch
+    "(3,0)": 8.0  # leg_r4_joint - right knee
+    "(4,0)": 1.0  # leg_r5_joint - right ankle pitch
+    "(5,0)": 1.0  # leg_r6_joint - right ankle roll
+
+contacts:
+  contact_frame_translation:
+    # ; Translation vector from parent joint to contact frame (center of foot support polygon) ;;
+    # From leg_?6_joint (ankle roll, coincident with ankle pitch) to the centre of the sole. The four contact spheres
+    # of zq_sa01.xml sit at ankle-frame x = -0.065 / +0.185 with radius 0.010 at z = -0.045, so the sole plane is
+    # 0.055 below the ankle and its centre is 0.060 ahead of it.
+    # y is 0 even though each sole is 5 mm outboard of its ankle: ContactCenterPoint reads one shared translation for
+    # both feet, so the mirrored offset cannot be expressed and is absorbed into the rectangle below.
+    x: 0.06
+    y: 0.0
+    z: -0.055
+  contact_rectangle:
+    # ; length specified in contact frame ;;
+    # The geometric support polygon is x in [-0.125, +0.125], y in [-0.035, +0.035] about the frame above (the y
+    # bounds are the rectangle inscribed in BOTH soles, each of which spans -0.035..+0.045 or -0.045..+0.035 because
+    # of the 5 mm outboard offset).
+    #
+    # x_max is NOT the geometric +0.125. SA01's ankle pitch actuator is 24 N.m and the robot weighs 324.8 N, so in
+    # SINGLE support the ankle can only hold the centre of pressure within 24 / 324.8 = 0.074 m of the ankle joint,
+    # i.e. contact-frame x in [-0.134, +0.014]; in double support, with half the weight per foot, the budget doubles
+    # to +-0.148 m and x_max becomes +0.088. Nothing in the MPC knows about ankle torque limits - the wrench cone
+    # bounds the centre of pressure geometrically only - so a geometric x_max of +0.125 would let the solver plan a
+    # forward CoP the ankle physically cannot hold and SA01 would pitch over its toes. 0.09 is the double-support
+    # budget, which is the regime in which the forward CoP is actually used, during weight transfer.
+    #
+    # If the 24 N.m in the URDF turns out to be a motor-side figure ahead of a reduction, raise this to the geometric
+    # 0.125 and delete this note. If SA01 still pitches forward in single support, lower it towards +0.014.
+    # The heel side needs no such cap: the geometric -0.125 is already inside the -0.134 the ankle can hold.
+    # Laterally the ankle roll actuator is the same 24 N.m, giving a +-0.074 m budget against a +-0.035 rectangle,
+    # so the y bounds are purely geometric.
+    x_max: 0.09
+    x_min: -0.125
+    y_max: 0.035
+    y_min: -0.035
+
+  contactWrenchConeSoftConstraint:
+    # With useContactBasisVectorInputs: true these same values build the wrench-cone generators, so the friction, CoP
+    # and torsional limits are enforced structurally and this soft constraint is skipped. minNormalForce and
+    # gripperForce are then NOT enforced: a conic combination is homogeneous and cannot represent an affine offset of
+    # the cone. The interface logs a warning when they are non-zero.
+    # 0.5 against the 1.0 the MuJoCo floor actually provides (zq_sa01.xml), so the plan stays inside what the ground
+    # can deliver.
+    frictionCoefficient: 0.5
+    torsionalFrictionCoefficient: 0.05
+    minNormalForce: 5
+    gripperForce: 0
+    numBasisVectors: 4          # friction pyramid facets; the basis spans exactly the same polyhedral friction cone
+    # relaxed log barrier parameters
+    mu: 0.2
+    delta: 5
+
+  # Barrier penalty enforcing lambda >= 0 for basis-vector contact inputs.
+  # Only active when useContactBasisVectorInputs: true.
+  # LINT.IfChange(basis_barrier_config)
+  basisNonNegativityBarrier:
+    mu: 0.01
+    delta: 0.001
+  # LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/src/CentroidalMpcInterface.cpp:basis_barrier_yaml_path)
+
+  # Quadratic regularization on the basis-vector scalings lambda (only active when useContactBasisVectorInputs is
+  # true). Each foot has more generators than wrench components, so the transformed input Hessian is singular and
+  # this makes it positive definite. Keep it small relative to the R force weights.
+  # LINT.IfChange(basis_regularization_config)
+  basisScalingRegularization: 0.0001
+  # LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/src/CentroidalMpcInterface.cpp:basis_regularization_yaml_path)
+
+  # Read only when friction_force_cone / contact_moment_xy are listed in soft_constraints instead of the combined
+  # contact_wrench_cone above.
+  frictionForceConeSoftConstraint:
+    frictionCoefficient: 0.5
+    # relaxed log barrier parameters
+    mu: 0.2
+    delta: 5.0
+
+  contactMomentXYSoftConstraint:
+    # relaxed log barrier parameters
+    mu: 0.6
+    delta: 0.03
+
+jointLimits:
+  # relaxed log barrier parameters. delta is 0.1 rad, so the barrier starts paying 0.1 rad before a limit: the knee's
+  # 0.0 rad lower bound is 0.70 rad away at the nominal crouch, and the ankle pitch's -1.0 rad bound 0.60 rad away.
+  mu: 1200.0
+  delta: 0.1
+
+collision_constraint:
+  foot:
+    leftAnkleFrame: leg_l6_joint
+    rightAnkleFrame: leg_r6_joint
+
+    # The constraint keeps the two contact frames 2 * radius apart. SA01's ankles are 0.1503 m apart at the nominal
+    # stance. The MuJoCo contact spheres nearest the centreline sit 0.035 m inboard of each ankle with a 0.010 m
+    # radius, so the feet physically touch once the ankles close to 0.1503 - 0.0802 + 0.020 = 0.0901 m.
+    # 0.045 puts the bound at exactly 0.090 m, i.e. the constraint engages essentially where the feet really meet -
+    # there is no margin beyond it, which is what SA01's 0.150 m hip spacing allows and no more. It cannot simply be
+    # raised: the relaxed barrier is 0.05 m wide (delta below), so a radius above 0.050 would have the term pushing
+    # the feet apart while the robot merely stands at its 0.1503 m nominal stance.
+    footCollisionSphereRadius: 0.045
+  knee:
+    leftKneeFrame: leg_l4_joint
+    rightKneeFrame: leg_r4_joint
+
+    # Same reasoning: the knees are 0.150 m apart at the nominal stance and the 0.04 m thigh capsules of zq_sa01.xml
+    # touch at 0.080 m.
+    kneeCollisionSphereRadius: 0.045
+  # relaxed log barrier parameters
+  mu: 30000
+  delta: 0.05

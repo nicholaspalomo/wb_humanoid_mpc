@@ -42,14 +42,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <humanoid_centroidal_mpc/CentroidalMpcInterface.h>
 #include "absl/log/check.h"
+#include "absl/log/globals.h"
+#include "absl/log/initialize.h"
 
 using namespace ocs2;
 using namespace ocs2::humanoid;
 
 int main(int argc, char* argv[]) {
+  // Route Abseil log records to stderr. Without InitializeLog() Abseil warns once and writes everything to
+  // stderr anyway; with it the default stderr threshold is ERROR, so the INFO records have to be asked for.
+  absl::InitializeLog();
+  absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
   std::vector<std::string> programArgs;
   programArgs = rclcpp::remove_ros_arguments(argc, argv);
-  if (programArgs.size() < 5) {
+  // argv[0] .. argv[5] are dereferenced below, so 6 arguments must be present.
+  if (programArgs.size() < 6) {
     throw std::runtime_error("No robot name, config folder, target command file, or description name specified. Aborting.");
   }
 

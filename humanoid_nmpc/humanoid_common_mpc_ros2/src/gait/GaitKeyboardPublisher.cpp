@@ -38,6 +38,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_ros2/gait/ModeSequenceTemplateRos.h"
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 
 /******************************************************************************************************/
@@ -47,13 +49,13 @@ GaitKeyboardPublisher::GaitKeyboardPublisher(rclcpp::Node::SharedPtr& nodeHandle
                                              const std::string& gaitFile,
                                              const std::string& robotName,
                                              bool verbose) {
-  std::cout << (robotName + "_mpc_mode_schedule node is setting up ...") << std::endl;
+  LOG(INFO) << (robotName + "_mpc_mode_schedule node is setting up ...");
   loadData::loadStdVector(gaitFile, "list", gaitList_, verbose);
 
   modeSequenceTemplatePublisher_ = nodeHandle->create_publisher<ocs2_ros2_msgs::msg::ModeSchedule>(robotName + "_mpc_mode_schedule", 1);
 
   gaitMap_ = getGaitMap(gaitFile);
-  std::cout << (robotName + "_mpc_mode_schedule command node is ready.") << std::endl;
+  LOG(INFO) << (robotName + "_mpc_mode_schedule command node is ready.");
 }
 
 /******************************************************************************************************/
@@ -61,7 +63,7 @@ GaitKeyboardPublisher::GaitKeyboardPublisher(rclcpp::Node::SharedPtr& nodeHandle
 /******************************************************************************************************/
 void GaitKeyboardPublisher::getKeyboardCommand() {
   const std::string commadMsg = "Enter the desired gait, for the list of available gait enter \"list\"";
-  std::cout << commadMsg << ": ";
+  LOG(INFO) << commadMsg << ": ";
 
   auto shouldTerminate = []() { return !rclcpp::ok(); };
   const auto commandLine = stringToWords(getCommandLineString(shouldTerminate));
@@ -71,7 +73,7 @@ void GaitKeyboardPublisher::getKeyboardCommand() {
   }
 
   if (commandLine.size() > 1) {
-    std::cout << "WARNING: The command should be a single word." << std::endl;
+    LOG(WARNING) << "The command should be a single word.";
     return;
   }
 
@@ -88,7 +90,7 @@ void GaitKeyboardPublisher::getKeyboardCommand() {
     ModeSequenceTemplate modeSequenceTemplate = gaitMap_.at(gaitCommand);
     modeSequenceTemplatePublisher_->publish(createModeSequenceTemplateMsg(modeSequenceTemplate));
   } catch (const std::out_of_range& e) {
-    std::cout << "Gait \"" << gaitCommand << "\" not found.\n";
+    LOG(INFO) << "Gait \"" << gaitCommand << "\" not found.\n";
     printGaitList(gaitList_);
   }
 }
@@ -97,12 +99,12 @@ void GaitKeyboardPublisher::getKeyboardCommand() {
 /******************************************************************************************************/
 /******************************************************************************************************/
 void GaitKeyboardPublisher::printGaitList(const std::vector<std::string>& gaitList) const {
-  std::cout << "List of available gaits:\n";
+  LOG(INFO) << "List of available gaits:\n";
   size_t itr = 0;
   for (const auto& s : gaitList) {
-    std::cout << "[" << itr++ << "]: " << s << "\n";
+    LOG(INFO) << "[" << itr++ << "]: " << s << "\n";
   }
-  std::cout << std::endl;
+  LOG(INFO);
 }
 
 }  // namespace ocs2::humanoid

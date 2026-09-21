@@ -41,6 +41,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <humanoid_centroidal_mpc_ros2/gains/StateInputConstraintGainsUpdater.h>
 #include <humanoid_centroidal_mpc_ros2/gains/StateInputSoftConstraintGainsUpdater.h>
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid::utils {
 
 std::vector<std::string> getStateDescriptions(const ocs2::humanoid::ModelSettings& modelSettings) {
@@ -50,7 +52,7 @@ std::vector<std::string> getStateDescriptions(const ocs2::humanoid::ModelSetting
   // Centroidal state: 6 normalized momentum + 6 base pose entries followed by the MPC joints.
   const size_t expectedStateDim = 12 + modelSettings.mpc_joint_dim;
   if (stateDescriptions.size() != expectedStateDim) {
-    std::cout << stateDescriptions.size() << " VS " << expectedStateDim << std::endl;
+    LOG(INFO) << stateDescriptions.size() << " VS " << expectedStateDim;
     throw std::runtime_error("[getStateDescriptions] Dimension mismatch!");
   }
   return stateDescriptions;
@@ -79,7 +81,7 @@ std::vector<std::string> getInputDescriptions(const ocs2::humanoid::ModelSetting
     inputDescriptions.emplace_back("vel_" + jointName);
   }
   if (inputDescriptions.size() != inputDim) {
-    std::cout << inputDescriptions.size() << " VS " << inputDim << std::endl;
+    LOG(INFO) << inputDescriptions.size() << " VS " << inputDim;
     throw std::runtime_error("[getInputDescriptions] Dimension mismatch!");
   }
   return inputDescriptions;
@@ -137,7 +139,7 @@ std::unordered_map<std::string, std::shared_ptr<GainsUpdaterInterface>> getGains
     checkAndAddCandidate(std::make_shared<StateInputConstraintGainsUpdater>(gui));
     checkAndAddCandidate(std::make_shared<StateInputSoftConstraintGainsUpdater>(gui));
 
-    if (!found) std::cout << "[getGainsUpdaters] Could not find updater for `" << description << "`" << std::endl;
+    if (!found) LOG(INFO) << "[getGainsUpdaters] Could not find updater for `" << description << "`";
   }
 
   return gainsUpdaters;

@@ -79,6 +79,7 @@ class MpcParamsTab(ttk.Frame):
         "Unitree G1 (WB)": "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.yaml",
         "Unitree R1 (Centroidal)": "robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.yaml",
         "Unitree G1 (Centroidal)": "robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.yaml",
+        "EngineAI SA01 (Centroidal)": "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml",
     }
 
     # Measured contact state of the controller, selected by name in the task file (robot_model/ContactEstimatorRegistry.h)

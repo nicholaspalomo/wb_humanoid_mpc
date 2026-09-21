@@ -33,6 +33,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "mujoco_sim_interface/MujocoSimInterface.h"
 
+#include "absl/log/log.h"
+
 namespace robot::mujoco_sim_interface {
 
 CheaterSimContactEstimator::CheaterSimContactEstimator(const MujocoSimInterface& sim) : sim_(sim) {}
@@ -55,9 +57,8 @@ std::vector<bool> CheaterSimContactEstimator::estimateContactFlags(const robot::
   const std::vector<bool> groundTruth = sim_.getGroundTruthContactFlags();
   if (groundTruth.empty() && !warnedNoContactDetection_) {
     warnedNoContactDetection_ = true;
-    std::cerr << "[CheaterSimContactEstimator] the simulator has no contact detection (no contact frame names were configured); every "
-                 "contact point is reported as touching."
-              << std::endl;
+    LOG(INFO) << "[CheaterSimContactEstimator] the simulator has no contact detection (no contact frame names were configured); every "
+                 "contact point is reported as touching.";
   }
   uint32_t groundTruthMask = 0;
   for (size_t i = 0; i < groundTruth.size() && i < 32; ++i) {
@@ -72,7 +73,7 @@ void registerCheaterSimContactEstimator(robot::model::ContactEstimatorRegistry& 
                [&sim] { return std::make_shared<CheaterSimContactEstimator>(sim); });
 }
 // clang-format off
-// LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:contact_estimator, //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.yaml:contact_estimator, //robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.yaml:contact_estimator, //robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.yaml:contact_estimator)
+// LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:contact_estimator, //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.yaml:contact_estimator, //robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.yaml:contact_estimator, //robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.yaml:contact_estimator, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:contact_estimator)
 // clang-format on
 
 }  // namespace robot::mujoco_sim_interface

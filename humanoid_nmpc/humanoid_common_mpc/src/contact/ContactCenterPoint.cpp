@@ -36,6 +36,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_core/misc/LoadData.h>
 #include "humanoid_common_mpc/common/ModelSettings.h"
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 
 ContactCenterPoint ContactCenterPoint::loadContactCenterPoint(const std::string& taskFile,
@@ -47,17 +49,20 @@ ContactCenterPoint ContactCenterPoint::loadContactCenterPoint(const std::string&
   loadData::readPropertyTree(taskFile, pt);
   const std::string prefix = "contacts.";
 
-  scalar_t x, y, z;
+  // loadPtreeValue leaves its target untouched when the key is absent, so these must start at a defined value.
+  scalar_t x = 0.0;
+  scalar_t y = 0.0;
+  scalar_t z = 0.0;
   if (verbose) {
-    std::cerr << "\n #### Contact Center Point Settings: ";
-    std::cerr << "\n #### =============================================================================\n";
+    LOG(INFO) << "\n #### Contact Center Point Settings: ";
+    LOG(INFO) << "\n #### =============================================================================\n";
   }
   loadData::loadPtreeValue(pt, x, prefix + "contact_frame_translation.x", verbose);
   loadData::loadPtreeValue(pt, y, prefix + "contact_frame_translation.y", verbose);
   loadData::loadPtreeValue(pt, z, prefix + "contact_frame_translation.z", verbose);
 
   if (verbose) {
-    std::cerr << " #### =============================================================================\n";
+    LOG(INFO) << " #### =============================================================================\n";
   }
 
   vector3_t translationFromParent;

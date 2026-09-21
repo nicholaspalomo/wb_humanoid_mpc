@@ -32,20 +32,24 @@ Copyright (c) 2024, Unitree R1 Centroidal MPC
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
 
+#include "absl/log/globals.h"
+#include "absl/log/initialize.h"
+#include "absl/log/log.h"
+
 using namespace ocs2;
 using namespace ocs2::humanoid;
 
 void printModelDimensionality(PinocchioInterface pin_interface) {
   pinocchio::Model model = pin_interface.getModel();
-  std::cout << "model name: " << model.name << std::endl;
-  std::cout << "n q: " << model.nq << std::endl;
-  std::cout << "n v: " << model.nv << std::endl;
+  LOG(INFO) << "model name: " << model.name;
+  LOG(INFO) << "n q: " << model.nq;
+  LOG(INFO) << "n v: " << model.nv;
 }
 
 void printJointNames(PinocchioInterface pin_interface) {
   pinocchio::Model model = pin_interface.getModel();
   for (pinocchio::JointIndex joint_id = 0; joint_id < (pinocchio::JointIndex)model.njoints; ++joint_id) {
-    std::cout << std::setw(28) << std::left << model.names[joint_id] << std::endl;
+    LOG(INFO) << std::setw(28) << std::left << model.names[joint_id];
   }
 }
 
@@ -56,23 +60,27 @@ void computeForwardKinematics(PinocchioInterface pin_interface, Eigen::VectorXd 
   pinocchio::forwardKinematics(model, data, q);
   pinocchio::updateFramePlacements(model, data);
 
-  std::cout << "###########################################" << std::endl;
-  std::cout << "############### Model Joints ##############" << std::endl;
-  std::cout << "###########################################" << std::endl;
+  LOG(INFO) << "###########################################";
+  LOG(INFO) << "############### Model Joints ##############";
+  LOG(INFO) << "###########################################";
   for (pinocchio::JointIndex joint_id = 0; joint_id < (pinocchio::JointIndex)model.njoints; ++joint_id) {
-    std::cout << std::setw(5) << std::left << "ID: " << joint_id << ", " << std::setw(28) << model.names[joint_id] << ": " << std::fixed
-              << std::setprecision(5) << data.oMi[joint_id].translation().transpose() << std::endl;
+    LOG(INFO) << std::setw(5) << std::left << "ID: " << joint_id << ", " << std::setw(28) << model.names[joint_id] << ": " << std::fixed
+              << std::setprecision(5) << data.oMi[joint_id].translation().transpose();
   }
-  std::cout << "###########################################" << std::endl;
-  std::cout << "############### Model Frames ##############" << std::endl;
-  std::cout << "###########################################" << std::endl;
+  LOG(INFO) << "###########################################";
+  LOG(INFO) << "############### Model Frames ##############";
+  LOG(INFO) << "###########################################";
   for (pinocchio::FrameIndex frame_id = 0; frame_id < (pinocchio::FrameIndex)model.nframes; ++frame_id) {
-    std::cout << std::setw(10) << std::left << "ID: " << frame_id << ", name: " << std::setw(28) << model.frames[frame_id].name
-              << " : Pos: " << std::setprecision(5) << data.oMf[frame_id].translation().transpose() << std::endl;
+    LOG(INFO) << std::setw(10) << std::left << "ID: " << frame_id << ", name: " << std::setw(28) << model.frames[frame_id].name
+              << " : Pos: " << std::setprecision(5) << data.oMf[frame_id].translation().transpose();
   }
 }
 
 int main(int argc, char** argv) {
+  // Route Abseil log records to stderr. Without InitializeLog() Abseil warns once and writes everything to
+  // stderr anyway; with it the default stderr threshold is ERROR, so the INFO records have to be asked for.
+  absl::InitializeLog();
+  absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
   (void)argc;
   (void)argv;
   const std::string path(__FILE__);
@@ -87,14 +95,14 @@ int main(int argc, char** argv) {
 
   const std::string taskFile = dir + "/../config/mpc/task.yaml";
 
-  std::cout << "urdf filename: " << urdfFile << std::endl;
+  LOG(INFO) << "urdf filename: " << urdfFile;
 
-  std::cout << "\n=== Testing Default PinocchioInterface for Unitree R1 ===" << std::endl;
+  LOG(INFO) << "\n=== Testing Default PinocchioInterface for Unitree R1 ===";
   PinocchioInterface pin_interface = createDefaultPinocchioInterface(urdfFile);
   printModelDimensionality(pin_interface);
   printJointNames(pin_interface);
 
-  std::cout << "\n=== Testing Custom PinocchioInterface for Unitree R1 ===" << std::endl;
+  LOG(INFO) << "\n=== Testing Custom PinocchioInterface for Unitree R1 ===";
   ModelSettings modelSettings(taskFile, urdfFile, "test_pinocchio", "true");
   PinocchioInterface custom_pin_interface = createCustomPinocchioInterface(taskFile, urdfFile, modelSettings);
   printModelDimensionality(custom_pin_interface);
@@ -104,6 +112,6 @@ int main(int argc, char** argv) {
   q[2] = 0.68;
   computeForwardKinematics(custom_pin_interface, q);
 
-  std::cout << "\n✅ Unitree R1 Pinocchio Interface test completed successfully." << std::endl;
+  LOG(INFO) << "\n✅ Unitree R1 Pinocchio Interface test completed successfully.";
   return 0;
 }

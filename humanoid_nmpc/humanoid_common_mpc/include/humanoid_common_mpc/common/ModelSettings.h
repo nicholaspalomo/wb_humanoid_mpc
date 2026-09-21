@@ -160,7 +160,7 @@ class ModelSettings {
   bool recompileLibrariesCppAd = true;
   std::string modelFolderCppAd = "build/cppad_autocode_gen";
 
-  scalar_t phaseTransitionStanceTime;
+  scalar_t phaseTransitionStanceTime = 0.0;
 
   // Fixed joints , add from the fullJointNames to consider them as fixed in the MPC
   std::vector<std::string> fullJointNames;
@@ -183,10 +183,17 @@ class ModelSettings {
   size_t mpc_joint_dim;
   size_t full_joint_dim;
 
+  // The four joints the procedural arm swing of SwitchedModelReferenceManager drives, named by
+  // model_settings.armJointNames in the task file. A legs-only robot such as the EngineAI SA01 has no such joints and
+  // simply omits the block; hasArmSwingJoints is then false, the four indices below are meaningless, and the arm
+  // swing is never enabled. When the block IS present every name must resolve to a joint of the MPC model - a
+  // misspelled or fixed-out joint still fails loudly at load time.
   std::string j_l_shoulder_y_name;
   std::string j_r_shoulder_y_name;
   std::string j_l_elbow_y_name;
   std::string j_r_elbow_y_name;
+
+  bool hasArmSwingJoints = false;
 
   size_t j_l_shoulder_y_index;
   size_t j_r_shoulder_y_index;

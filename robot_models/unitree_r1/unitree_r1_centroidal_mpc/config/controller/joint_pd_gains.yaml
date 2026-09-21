@@ -5,97 +5,127 @@
 #   chatter/flailing on low-inertia links (0.3-0.8 kg).
 # - Leg joints maintain adequate stiffness for locomotion (Kp: 40-100, Kd: 4-10).
 
+# torque_limit is read by the MRT joint controller, which clamps the commanded joint torque against it and
+# falls back to a hard-coded 500 N*m for any joint that does not carry one. These values are the model's own
+# actuatorfrcrange, so the controller and the simulator now agree on what each actuator can deliver.
 default_gains:
   kp: 60.0
   kd: 6.0
+  torque_limit: 60.0
 
 joint_gains:
   # Left Leg
   left_hip_pitch_joint:
     kp: 60.0
     kd: 6.0
+    torque_limit: 60.0
   left_hip_roll_joint:
     kp: 60.0
     kd: 6.0
+    torque_limit: 60.0
   left_hip_yaw_joint:
     kp: 60.0
     kd: 6.0
+    torque_limit: 60.0
   left_knee_joint:
     kp: 100.0
     kd: 10.0
+    torque_limit: 60.0
   left_ankle_pitch_joint:
     kp: 40.0
     kd: 4.0
+    torque_limit: 50.0
   left_ankle_roll_joint:
     kp: 40.0
     kd: 4.0
+    torque_limit: 50.0
 
   # Right Leg
   right_hip_pitch_joint:
     kp: 60.0
     kd: 6.0
+    torque_limit: 60.0
   right_hip_roll_joint:
     kp: 60.0
     kd: 6.0
+    torque_limit: 60.0
   right_hip_yaw_joint:
     kp: 60.0
     kd: 6.0
+    torque_limit: 60.0
   right_knee_joint:
     kp: 100.0
     kd: 10.0
+    torque_limit: 60.0
   right_ankle_pitch_joint:
     kp: 40.0
     kd: 4.0
+    torque_limit: 50.0
   right_ankle_roll_joint:
     kp: 40.0
     kd: 4.0
+    torque_limit: 50.0
 
   # Waist / Torso
   waist_roll_joint:
     kp: 60.0
     kd: 6.0
+    torque_limit: 60.0
   waist_yaw_joint:
     kp: 60.0
     kd: 6.0
+    torque_limit: 60.0
 
   # Left Arm (Compliant low-level holding gains matching Unitree SDK)
   left_shoulder_pitch_joint:
     kp: 20.0
     kd: 1.5
+    torque_limit: 60.0
   left_shoulder_roll_joint:
     kp: 20.0
     kd: 1.5
+    torque_limit: 60.0
   left_shoulder_yaw_joint:
     kp: 15.0
     kd: 1.2
+    torque_limit: 33.0
   left_elbow_joint:
     kp: 15.0
     kd: 1.0
+    torque_limit: 33.0
   left_wrist_roll_joint:
     kp: 8.0
     kd: 0.6
+    torque_limit: 33.0
 
   # Right Arm (Compliant low-level holding gains matching Unitree SDK)
   right_shoulder_pitch_joint:
     kp: 20.0
     kd: 1.5
+    torque_limit: 60.0
   right_shoulder_roll_joint:
     kp: 20.0
     kd: 1.5
+    torque_limit: 60.0
   right_shoulder_yaw_joint:
     kp: 15.0
     kd: 1.2
+    torque_limit: 33.0
   right_elbow_joint:
     kp: 15.0
     kd: 1.0
+    torque_limit: 33.0
   right_wrist_roll_joint:
     kp: 8.0
     kd: 0.6
+    torque_limit: 33.0
 
   # Head
   head_pitch_joint:
     kp: 10.0
     kd: 0.8
+    torque_limit: 33.0
   head_yaw_joint:
     kp: 10.0
     kd: 0.8
+    torque_limit: 33.0

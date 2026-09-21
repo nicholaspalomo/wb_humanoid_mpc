@@ -32,6 +32,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/logic/ContactLogicState.h"
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 
 std::string EventShiftLocalSearchStage::describe() const {
@@ -95,7 +97,7 @@ void EventShiftLocalSearchStage::afterSearch(SearchRun& run) const {
             improved = true;
             statistics.localSearchImproved = true;
             if (run.verbose) {
-              std::cout << "[LipContactPlanner] local search improved the objective to " << objective << std::endl;
+              LOG(INFO) << "[LipContactPlanner] local search improved the objective to " << objective;
             }
           }
         }

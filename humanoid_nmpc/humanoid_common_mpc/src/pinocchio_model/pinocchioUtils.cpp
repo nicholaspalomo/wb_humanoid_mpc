@@ -35,6 +35,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <pinocchio/multibody/model.hpp>
 #include "pinocchio/parsers/urdf.hpp"
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 
 /******************************************************************************************************/
@@ -45,14 +47,14 @@ void checkPinocchioJointNaming(const PinocchioInterface& pinocchioInterface, con
   const pinocchio::Model& model = pinocchioInterface.getModel();
   for (size_t i = 0; i < modelSettings.mpcModelJointNames.size(); i++) {
     if (verbose) {
-      std::cout << "URDF Joint Name " << i << ": " << model.names[i + 2] << std::endl;
-      std::cout << "Model Settings Joint Name " << i << ": " << modelSettings.mpcModelJointNames[i] << std::endl;
+      LOG(INFO) << "URDF Joint Name " << i << ": " << model.names[i + 2];
+      LOG(INFO) << "Model Settings Joint Name " << i << ": " << modelSettings.mpcModelJointNames[i];
     }
     // Offset of 2 required to skip universe and root joint
     assert(modelSettings.mpcModelJointNames[i] == model.names[i + 2] && "Joint name of PinocchioModel and Model Settings do not match!");
   }
   if (verbose) {
-    std::cout << "Joint naming check of pinocchio model passed. " << std::endl;
+    LOG(INFO) << "Joint naming check of pinocchio model passed. ";
   }
 }
 
@@ -70,9 +72,9 @@ std::pair<vector_t, vector_t> readPinocchioJointLimits(const PinocchioInterface&
   vector_t upper_limits = model.upperPositionLimit.tail(modelSettings.mpcModelJointNames.size());
   vector_t lower_limits = model.lowerPositionLimit.tail(modelSettings.mpcModelJointNames.size());
   if (verbose) {
-    std::cout << "Joint Name , min, max" << std::endl;
+    LOG(INFO) << "Joint Name , min, max";
     for (size_t i = 0; i < modelSettings.mpcModelJointNames.size(); i++) {
-      std::cout << modelSettings.mpcModelJointNames[i] << ": " << lower_limits[i] << ", " << upper_limits[i] << std::endl;
+      LOG(INFO) << modelSettings.mpcModelJointNames[i] << ": " << lower_limits[i] << ", " << upper_limits[i];
     }
   }
   return {lower_limits, upper_limits};
@@ -86,9 +88,9 @@ void scalePinocchioModelInertia(pinocchio::ModelTpl<scalar_t>& model, scalar_t t
   scalar_t robotMass = pinocchio::computeTotalMass(model);
   scalar_t inertiaScaleFactor = targetRobotMass / robotMass;
   if (verbose) {
-    std::cout << "Current robot mass: " << robotMass << std::endl;
-    std::cout << "Target robot mass: " << targetRobotMass << std::endl;
-    std::cout << "Adapting robot mass by a factor of " << inertiaScaleFactor << "." << std::endl;
+    LOG(INFO) << "Current robot mass: " << robotMass;
+    LOG(INFO) << "Target robot mass: " << targetRobotMass;
+    LOG(INFO) << "Adapting robot mass by a factor of " << inertiaScaleFactor << ".";
   }
   for (size_t i = 0; i < model.inertias.size(); i++) {
     const auto inertia = model.inertias[i];
@@ -99,7 +101,7 @@ void scalePinocchioModelInertia(pinocchio::ModelTpl<scalar_t>& model, scalar_t t
     model.inertias[i] = pinocchio::ModelTpl<scalar_t>::Inertia(scaledMass, inertia.lever(), scaledInertia);
   }
   if (verbose) {
-    std::cout << "Robot mass scaled to " << pinocchio::computeTotalMass(model) << "." << std::endl;
+    LOG(INFO) << "Robot mass scaled to " << pinocchio::computeTotalMass(model) << ".";
   }
 }
 
