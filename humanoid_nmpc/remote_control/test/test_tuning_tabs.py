@@ -158,6 +158,7 @@ class TestTuningTabsWithFiles(unittest.TestCase):
             "robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.yaml",
             "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.yaml",
             "robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.yaml",
+            "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml",
         ]
         for rel_path in task_files:
             abs_path = os.path.join(self.repo_root, rel_path)

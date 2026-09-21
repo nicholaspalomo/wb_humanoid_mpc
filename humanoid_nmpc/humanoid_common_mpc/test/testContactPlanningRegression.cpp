@@ -54,6 +54,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/LipContactPlanner.h"
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 
 namespace {
@@ -253,7 +255,7 @@ void checkOrRecord(const char* name, const Fixture& fixture, const char* header)
     out << "# " << header << "\n# recorded by testContactPlanningRegression; regenerate with REGENERATE_CONTACT_PLANNING_FIXTURES\n";
     out << fixtureText(fixture);
     ASSERT_TRUE(out.good()) << "cannot write " << path;
-    std::cout << "[regression] recorded " << path << std::endl;
+    LOG(INFO) << "[regression] recorded " << path;
     return;
   }
   const Fixture recorded = readFixture(path);

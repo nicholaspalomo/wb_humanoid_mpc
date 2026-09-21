@@ -40,6 +40,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <humanoid_wb_mpc/common/WBAccelMpcRobotModel.h>
 
+#include "absl/log/globals.h"
+#include "absl/log/initialize.h"
+#include "absl/log/log.h"
+
 using namespace ocs2;
 
 namespace {
@@ -101,9 +105,14 @@ TargetTrajectories commandLineToTargetTrajectories(const vector_t& commadLineTar
 }
 
 int main(int argc, char* argv[]) {
+  // Route Abseil log records to stderr. Without InitializeLog() Abseil warns once and writes everything to
+  // stderr anyway; with it the default stderr threshold is ERROR, so the INFO records have to be asked for.
+  absl::InitializeLog();
+  absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
   std::vector<std::string> programArgs;
   programArgs = rclcpp::remove_ros_arguments(argc, argv);
-  if (programArgs.size() < 3) {
+  // argv[0] .. argv[4] are dereferenced below, so 5 arguments must be present.
+  if (programArgs.size() < 5) {
     throw std::runtime_error("No robot name, config folder, target command file, or description name specified. Aborting.");
   }
 
@@ -114,7 +123,7 @@ int main(int argc, char* argv[]) {
   const std::string referenceFile(argv[3]);
   const std::string urdfFile(argv[4]);
 
-  std::cerr << "Loading reference file: " << referenceFile << std::endl;
+  LOG(INFO) << "Loading reference file: " << referenceFile;
 
   loadData::loadCppDataType(referenceFile, "defaultBaseHeight", defaultBaseHeight);
   loadData::loadEigenMatrix(referenceFile, "defaultJointState", defaultJointState);

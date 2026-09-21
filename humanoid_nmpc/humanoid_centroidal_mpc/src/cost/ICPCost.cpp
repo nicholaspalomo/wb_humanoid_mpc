@@ -48,6 +48,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_pinocchio_interface/PinocchioStateInputMapping.h>
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 
 /******************************************************************************************************/
@@ -67,7 +69,7 @@ ICPCost::ICPCost(const SwitchedModelReferenceManager& referenceManager,
       mpcRobotModelAdPtr_(mpcRobotModelAD.clone()) {
   initialize(mpcRobotModelAD.getStateDim(), mpcRobotModelAD.getInputDim(), 2, costName, modelSettings.modelFolderCppAd,
              modelSettings.recompileLibrariesCppAd);
-  std::cout << "Initialized ICPCost with weights: " << weights.transpose() << std::endl;
+  LOG(INFO) << "Initialized ICPCost with weights: " << weights.transpose();
 }
 
 /******************************************************************************************************/
@@ -142,13 +144,13 @@ vector2_t ICPCost::getWeights(const std::string& taskFile, const std::string pre
   scalar_t icpErrorWeight = 0;
 
   if (verbose) {
-    std::cerr << "\n #### ICP Cost Weights: ";
-    std::cerr << "\n #### =============================================================================\n";
+    LOG(INFO) << "\n #### ICP Cost Weights: ";
+    LOG(INFO) << "\n #### =============================================================================\n";
   }
   loadData::loadPtreeValue(pt, icpErrorWeight, prefix + "icpErrorWeight", verbose);
 
   if (verbose) {
-    std::cerr << " #### =============================================================================\n";
+    LOG(INFO) << " #### =============================================================================\n";
   }
 
   vector2_t weights;

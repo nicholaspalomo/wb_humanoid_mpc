@@ -202,7 +202,7 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   mjContact* mujocoContact_ = NULL;
   // mjfSensor mujocoSenor_;
 
-  bool simInit_;
+  bool simInit_ = false;
   const bool headless_;
   const bool verbose_;
   std::atomic<bool> terminate_{false};

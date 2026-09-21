@@ -524,7 +524,9 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
   // LINT.IfChange(terrain_height_updater_yaml_path)
   scalar_t terrainHeight = std::numeric_limits<scalar_t>::quiet_NaN();
   loadData::loadPtreeValue(pt, terrainHeight, "terrainHeight", false);
-  // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:terrain_height_config)
+  // clang-format off
+  // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:terrain_height_config, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:terrain_height_config)
+  // clang-format on
   // The hinge's two parameters. `delta` is structurally zero: it is the offset of the hinge's zero, and the whole
   // point of using a hinge for h >= 0 is that its zero sits exactly on the ground. A positive delta would demand
   // clearance from a foot that is supposed to be resting on the floor.
@@ -557,7 +559,7 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
   scalar_t normalVelSoftWeight = -1.0;
   loadData::loadPtreeValue(pt, normalVelSoftWeight, "model_settings.foot_constraint.normalVelocitySoftConstraintWeight", false);
   // clang-format off
-  // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:foot_constraint_section, //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.yaml:foot_constraint_section)
+  // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:foot_constraint_section, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:foot_constraint_section, //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.yaml:foot_constraint_section)
   // clang-format on
   // ────────────────────────────────────────────────────────────────
   // 3b. Parse foot constraint error gains

@@ -165,9 +165,9 @@ void CentroidalMpcMrtJointController::loadPdGains(const std::string& pdGainsFile
   }
 
   // Diagnostic: print actual gain values after loading
-  std::cerr << "[PD_GAINS_DEBUG] default_kp=" << defaultKp << " default_kd=" << defaultKd << std::endl;
+  LOG(INFO) << "[PD_GAINS_DEBUG] default_kp=" << defaultKp << " default_kd=" << defaultKd;
   for (size_t i = 0; i < mpcJointIndices_.size(); ++i) {
-    std::cerr << "  mpc_joint[" << i << "] " << mpcModelJointNames_[i] << " kp=" << mpcJointKp_[i] << " kd=" << mpcJointKd_[i] << std::endl;
+    LOG(INFO) << "  mpc_joint[" << i << "] " << mpcModelJointNames_[i] << " kp=" << mpcJointKp_[i] << " kd=" << mpcJointKd_[i];
   }
 }
 
@@ -182,7 +182,7 @@ void CentroidalMpcMrtJointController::subscribePdGains(rclcpp::Node::SharedPtr n
         std::lock_guard<std::mutex> lock(pdGainsPendingMutex_);
         pdGainsPendingYamlContent_ = msg->data;
         hasNewPdGainsTopicData_.store(true);
-        std::cerr << "[CentroidalMpcMrtJointController] topicCallback received " << msg->data.size() << " chars" << std::endl;
+        LOG(INFO) << "[CentroidalMpcMrtJointController] topicCallback received " << msg->data.size() << " chars";
       });
   LOG(INFO) << "[CentroidalMpcMrtJointController] Subscribed to /pd_gains_updates topic.";
 }
@@ -305,7 +305,7 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
         ofs << yamlContent;
       }
       loadPdGains(tempFile);
-      std::cerr << "[CentroidalMpcMrtJointController] Applied PD gains from topic." << std::endl;
+      LOG(INFO) << "[CentroidalMpcMrtJointController] Applied PD gains from topic.";
     }
   }
 
@@ -446,15 +446,15 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
       vector_t gravTorques = computeGravityCompensation(robotState);
       double Fz_total = footWrenches[0][2] + footWrenches[1][2];
 
-      std::cerr << "\n[TRANSITION t=" << currentMpcObservation_.time << " cycle=" << transitionCounter_ << "]"
+      LOG(INFO) << "\n[TRANSITION t=" << currentMpcObservation_.time << " cycle=" << transitionCounter_ << "]"
                 << "\n  Base z: planned=" << effectiveModelPtr_->getGeneralizedCoordinates(mpcPolicyState)(2)
                 << " actual=" << effectiveModelPtr_->getGeneralizedCoordinates(currentMpcObservation_.state)(2)
                 << "\n  Base pitch: planned=" << effectiveModelPtr_->getGeneralizedCoordinates(mpcPolicyState)(4)
                 << " actual=" << effectiveModelPtr_->getGeneralizedCoordinates(currentMpcObservation_.state)(4)
-                << "\n  Fz_total=" << Fz_total << " (mg≈" << (9.81 * pinocchioInterface_.getModel().inertias[0].mass()) << ")" << std::endl;
+                << "\n  Fz_total=" << Fz_total << " (mg≈" << (9.81 * pinocchioInterface_.getModel().inertias[0].mass()) << ")";
 
       // Per-joint breakdown for leg joints (indices 12..23 in MPC joint order = leg joints)
-      std::cerr << "  Joint breakdown (leg joints): q_des | q_cur | err | PD_tau | FF_tau | grav_tau" << std::endl;
+      LOG(INFO) << "  Joint breakdown (leg joints): q_des | q_cur | err | PD_tau | FF_tau | grav_tau";
       for (size_t i = 0; i < mpcJointIndices_.size(); i++) {
         size_t index = mpcJointIndices_[i];
         double q_cur = robotState.getJointPosition(index);
@@ -468,8 +468,8 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
 
         // Only print if significant error or large torque
         if (std::abs(q_des - q_cur) > 0.02 || std::abs(total) > 50.0) {
-          std::cerr << "    [" << mpcModelJointNames_[i] << "] q_des=" << q_des << " q_cur=" << q_cur << " err=" << (q_des - q_cur)
-                    << " PD=" << pd_torque << " FF=" << ff_torque << " grav=" << gravTorques[i] << " total=" << total << std::endl;
+          LOG(INFO) << "    [" << mpcModelJointNames_[i] << "] q_des=" << q_des << " q_cur=" << q_cur << " err=" << (q_des - q_cur)
+                    << " PD=" << pd_torque << " FF=" << ff_torque << " grav=" << gravTorques[i] << " total=" << total;
         }
       }
     }
@@ -512,7 +512,7 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
   }
 
   else {
-    std::cerr << "Apply weight compensating torque..." << std::endl;
+    LOG(INFO) << "Apply weight compensating torque...";
     //   Apply weight compensated input around current state
     vector_t qdd_j_des = vector_t::Zero(effectiveModelPtr_->getJointDim());
     // State-aware overload: the vertical world-frame force is expressed in the input parameterization of the effective
@@ -588,14 +588,14 @@ void CentroidalMpcMrtJointController::fillJointPdAction(const ::robot::model::Ro
   // Debug: print gravity comp torques and position errors (throttled)
   static size_t debugCount = 0;
   if (++debugCount % 500 == 1) {
-    std::cerr << "[JOINT_PD] gravTorques: " << gravTorques.transpose() << std::endl;
+    LOG(INFO) << "[JOINT_PD] gravTorques: " << gravTorques.transpose();
     for (size_t i = 0; i < mpcJointIndices_.size(); i++) {
       size_t index = mpcJointIndices_[i];
       double q_cur = robotState.getJointPosition(index);
       double q_des = nominalJointPositions_.empty() ? 0.0 : nominalJointPositions_[index];
       if (std::abs(q_des - q_cur) > 0.05) {
-        std::cerr << "  joint[" << index << "] err=" << (q_des - q_cur) << " q_cur=" << q_cur << " q_des=" << q_des
-                  << " kp=" << mpcJointKp_[i] << " gravFF=" << gravTorques[i] << std::endl;
+        LOG(INFO) << "  joint[" << index << "] err=" << (q_des - q_cur) << " q_cur=" << q_cur << " q_des=" << q_des
+                  << " kp=" << mpcJointKp_[i] << " gravFF=" << gravTorques[i];
       }
     }
   }
@@ -672,7 +672,7 @@ void CentroidalMpcMrtJointController::solverWorker() {
   mcpMrtInterface_.resetMpcNode(currentObservationToResetTrajectory(mcpMrtInterface_.getCurrentObservation()));
   policyActivated_.store(false);
   solvesSinceReset_.store(0);
-  std::cerr << "MPC is reset. NMPC solver started!" << std::endl;
+  LOG(INFO) << "MPC is reset. NMPC solver started!";
 
   size_t slowWarningCount = 0;
   while (!terminateThread_.load()) {
@@ -683,7 +683,7 @@ void CentroidalMpcMrtJointController::solverWorker() {
       mcpMrtInterface_.resetMpcNode(currentObservationToResetTrajectory(mcpMrtInterface_.getCurrentObservation()));
       policyActivated_.store(false);
       solvesSinceReset_.store(0);
-      std::cerr << "MPC reset to current observation (external request)." << std::endl;
+      LOG(INFO) << "MPC reset to current observation (external request).";
     }
 
     absl::Status mpcStatus = mcpMrtInterface_.advanceMpc();
@@ -701,7 +701,7 @@ void CentroidalMpcMrtJointController::solverWorker() {
       if (currentTime > targetTimeForNextIteration) {
         auto delay = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - targetTimeForNextIteration).count();
         if (delay > 1000 && (++slowWarningCount % 20 == 0)) {
-          std::cerr << "Warning: MPC loop running slow by " << delay << " microseconds." << std::endl;
+          LOG(WARNING) << "MPC loop running slow by " << delay << " microseconds.";
         }
       } else {
         // Sleep in case sim loop is faster than specified
@@ -709,7 +709,7 @@ void CentroidalMpcMrtJointController::solverWorker() {
       }
     }
   }
-  std::cerr << "Shutting down NMPC" << std::endl;
+  LOG(INFO) << "Shutting down NMPC";
 }
 
 /******************************************************************************************************/
@@ -740,10 +740,10 @@ TargetTrajectories CentroidalMpcMrtJointController::currentObservationToResetTra
 
   const TargetTrajectories resetTargetTrajectories({t0, t1}, {targetState, targetState}, {targetInput, targetInput});
 
-  std::cerr << "[CentroidalMPC] Resetting MPC target trajectory. Base pos: " << targetState.segment<3>(6).transpose()
+  LOG(INFO) << "[CentroidalMPC] Resetting MPC target trajectory. Base pos: " << targetState.segment<3>(6).transpose()
             << " Base z: " << targetState(8)
             << " Input forces (world): " << effectiveModelPtr_->getContactForceInWorldFrame(targetState, targetInput, 0).transpose()
-            << " / " << effectiveModelPtr_->getContactForceInWorldFrame(targetState, targetInput, 1).transpose() << std::endl;
+            << " / " << effectiveModelPtr_->getContactForceInWorldFrame(targetState, targetInput, 1).transpose();
   return resetTargetTrajectories;
 }
 

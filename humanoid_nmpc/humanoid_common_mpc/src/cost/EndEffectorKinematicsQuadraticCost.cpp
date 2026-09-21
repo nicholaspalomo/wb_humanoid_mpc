@@ -30,6 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/cost/EndEffectorKinematicsQuadraticCost.h"
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 
 /******************************************************************************************************/
@@ -47,13 +49,13 @@ EndEffectorKinematicsQuadraticCost::EndEffectorKinematicsQuadraticCost(EndEffect
       endEffectorKinematicsPtr_(endEffectorKinematics.clone()),
       pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
       mpcRobotModelADPtr(mpcRobotModelAD.clone()) {
-  std::cout << "Initialized EndEffectorKinematicsQuadraticCost with weights: " << weights.toVector().transpose() << std::endl;
-  std::cout << "Frame name: " << endEffectorName << std::endl;
+  LOG(INFO) << "Initialized EndEffectorKinematicsQuadraticCost with weights: " << weights.toVector().transpose();
+  LOG(INFO) << "Frame name: " << endEffectorName;
   frameID_ = pinocchioInterface.getModel().getFrameId(endEffectorName);
-  std::cout << "Frame ID: " << frameID_ << std::endl;
-  std::cout << "State dim: " << mpcRobotModelADPtr->getStateDim() << std::endl;
-  std::cout << "Input dim: " << mpcRobotModelADPtr->getInputDim() << std::endl;
-  std::cout << "Parameters dim: " << n_parameters_ << std::endl;
+  LOG(INFO) << "Frame ID: " << frameID_;
+  LOG(INFO) << "State dim: " << mpcRobotModelADPtr->getStateDim();
+  LOG(INFO) << "Input dim: " << mpcRobotModelADPtr->getInputDim();
+  LOG(INFO) << "Parameters dim: " << n_parameters_;
 
   initialize(mpcRobotModelADPtr->getStateDim(), mpcRobotModelADPtr->getInputDim(), n_parameters_,
              endEffectorName + "_KinematicsQuadraticCost", modelSettings.modelFolderCppAd, modelSettings.recompileLibrariesCppAd,

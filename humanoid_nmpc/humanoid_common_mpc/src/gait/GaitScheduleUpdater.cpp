@@ -30,6 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/gait/GaitScheduleUpdater.h"
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 
 /******************************************************************************************************/
@@ -46,10 +48,10 @@ void GaitScheduleUpdater::updateGaitSchedule(std::shared_ptr<GaitSchedule>& gait
                                              const ModeSequenceTemplate& updatedGait,
                                              scalar_t initTime,
                                              scalar_t finalTime) {
-  std::cerr << updatedGait;
+  LOG(INFO) << updatedGait;
   const scalar_t timeHorizon = finalTime - initTime;
   const scalar_t earliestSwitchingTime = (0.7 * finalTime + 0.3 * initTime);  // This is a heuristic
-  std::cerr << "[GaitScheduleUpdater]: Setting new gait after time " << earliestSwitchingTime << "\n";
+  LOG(INFO) << "[GaitScheduleUpdater]: Setting new gait after time " << earliestSwitchingTime << "\n";
   // Find the first time that is greater than current_time
   const auto& modeSchedule = gaitSchedulePtr->getModeSchedule(initTime, finalTime + timeHorizon);
 

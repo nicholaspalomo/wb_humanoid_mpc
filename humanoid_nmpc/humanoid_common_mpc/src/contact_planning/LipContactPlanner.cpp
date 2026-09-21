@@ -38,6 +38,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/ContactPlanningTermFactory.h"
 #include "humanoid_common_mpc/contact_planning/model/LipBlockIndices.h"
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 
 static_assert(static_cast<int>(LipContactPlanner::CX) == static_cast<int>(LIP_CX) &&
@@ -287,7 +289,7 @@ ContactPlan LipContactPlanner::plan(const ContactPlannerInput& input) {
     ctx = makeContext(input, nominal);
     lastProblem_ = problem_.assemble(ctx);
   } catch (const std::exception& e) {
-    std::cerr << "[LipContactPlanner] cannot build the problem: " << e.what() << std::endl;
+    LOG(ERROR) << "[LipContactPlanner] cannot build the problem: " << e.what();
     lastResult_ = MiqpResult();
     ctx.numNodes = config_.planner.numNodes;
     return decode(input, ctx, lastResult_);
@@ -316,7 +318,7 @@ ContactPlan LipContactPlanner::plan(const ContactPlannerInput& input) {
   try {
     lastResult_ = miqp_->solve(lastProblem_, binaries, initial, propagateFn, setup.warmStart ? &*setup.warmStart : nullptr, costFn);
   } catch (const std::exception& e) {
-    std::cerr << "[LipContactPlanner] solver failure: " << e.what() << std::endl;
+    LOG(ERROR) << "[LipContactPlanner] solver failure: " << e.what();
     lastResult_ = MiqpResult();
   }
   statistics_.numBranchAndBoundRelaxations = lastResult_.numNodes;
@@ -348,7 +350,7 @@ ContactPlan LipContactPlanner::plan(const ContactPlannerInput& input) {
     try {
       searchStages_.at(i).afterSearch(run);
     } catch (const std::exception& e) {
-      std::cerr << "[LipContactPlanner] search stage '" << searchStages_.nameAt(i) << "' failed: " << e.what() << std::endl;
+      LOG(ERROR) << "[LipContactPlanner] search stage '" << searchStages_.nameAt(i) << "' failed: " << e.what();
     }
   }
 
@@ -357,9 +359,9 @@ ContactPlan LipContactPlanner::plan(const ContactPlannerInput& input) {
   // its own dt, so the whole plan - event times, horizon, foothold lookup - follows from this one field.
   if (run.chosenDt > 0.0) plan.dt = run.chosenDt;
   if (config_.planner.verbose) {
-    std::cout << "[LipContactPlanner] valid=" << plan.valid << " objective=" << plan.objective
+    LOG(INFO) << "[LipContactPlanner] valid=" << plan.valid << " objective=" << plan.objective
               << " relaxations=" << statistics_.numBranchAndBoundRelaxations << " localSearchQps=" << statistics_.numLocalSearchQps
-              << " time=" << elapsedSeconds(start) << "s optimal=" << plan.optimal << std::endl;
+              << " time=" << elapsedSeconds(start) << "s optimal=" << plan.optimal;
   }
   if (plan.valid) {
     previousPlan_ = plan;

@@ -37,6 +37,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_core/misc/LoadData.h>
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 
 ContactRectangle::ContactRectangle(const PolygonBounds& polygonBounds,
@@ -71,8 +73,8 @@ ContactRectangle ContactRectangle::loadContactRectangle(const std::string& taskF
   scalar_t y_max = 0;
   scalar_t scaleFactor = 1.0;
   if (verbose) {
-    std::cerr << "\n #### Contact Rectangle Settings: ";
-    std::cerr << "\n #### =============================================================================\n";
+    LOG(INFO) << "\n #### Contact Rectangle Settings: ";
+    LOG(INFO) << "\n #### =============================================================================\n";
   }
   loadData::loadPtreeValue(pt, x_min, prefix + "contact_rectangle.x_min", verbose);
   loadData::loadPtreeValue(pt, x_max, prefix + "contact_rectangle.x_max", verbose);
@@ -81,7 +83,7 @@ ContactRectangle ContactRectangle::loadContactRectangle(const std::string& taskF
   loadData::loadPtreeValue(pt, scaleFactor, prefix + "contact_rectangle.scale_factor", verbose);
 
   if (verbose) {
-    std::cerr << " #### =============================================================================\n";
+    LOG(INFO) << " #### =============================================================================\n";
   }
 
   ContactCenterPoint ccp(ContactCenterPoint::loadContactCenterPoint(taskFile, modelSettings, contactIndex, verbose));

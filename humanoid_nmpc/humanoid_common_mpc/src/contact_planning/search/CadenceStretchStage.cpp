@@ -33,6 +33,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/logic/ContactLogicState.h"
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 namespace {
 
@@ -135,7 +137,7 @@ void CadenceStretchStage::afterSearch(SearchRun& run) const {
         bestSolution = std::move(solution);
       }
     } catch (const std::exception& e) {
-      std::cerr << "[LipContactPlanner] cadence stretch failure: " << e.what() << std::endl;
+      LOG(ERROR) << "[LipContactPlanner] cadence stretch failure: " << e.what();
       break;
     }
   }
@@ -147,7 +149,7 @@ void CadenceStretchStage::afterSearch(SearchRun& run) const {
   // The plan is emitted on the stretched grid; ContactPlan carries its own node duration.
   run.chosenDt = bestStretch * dt;
   if (run.verbose) {
-    std::cerr << "[LipContactPlanner] cadence stretched by " << bestStretch << " to dt " << run.chosenDt << std::endl;
+    LOG(INFO) << "[LipContactPlanner] cadence stretched by " << bestStretch << " to dt " << run.chosenDt;
   }
 }
 

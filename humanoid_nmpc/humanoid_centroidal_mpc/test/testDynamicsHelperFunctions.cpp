@@ -40,6 +40,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "ocs2_centroidal_model/ModelHelperFunctions.h"
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 
 TEST(TestDynamicsHelperFunctions, computeContactCoP) {
@@ -57,8 +59,8 @@ TEST(TestDynamicsHelperFunctions, computeContactCoP) {
   std::vector<vector3_t> contactPositions = computeContactPositions<scalar_t>(q, pinocchioInterface);
   std::vector<vector3_t> contactCoPs = computeContactsCoP(input, pinocchioInterface, {1, 1}, testingModelInterface.getMpcRobotModel());
 
-  std::cout << "contactCoP[0]; " << contactCoPs[0].transpose() << std::endl;
-  std::cout << "contactCoP[1]; " << contactCoPs[1].transpose() << std::endl;
+  LOG(INFO) << "contactCoP[0]; " << contactCoPs[0].transpose();
+  LOG(INFO) << "contactCoP[1]; " << contactCoPs[1].transpose();
 
   EXPECT_TRUE(contactPositions[0].isApprox(contactCoPs[0]));
   EXPECT_TRUE(contactPositions[1].isApprox(contactCoPs[1]));

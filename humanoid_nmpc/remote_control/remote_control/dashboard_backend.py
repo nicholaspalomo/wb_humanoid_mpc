@@ -153,6 +153,18 @@ class SimProcessManager:
             "type": "mujoco",
             "robot": "r1",
         },
+        "sa01_centroidal_dummy": {
+            "name": "EngineAI SA01 Centroidal — Dummy Sim (RViz)",
+            "command": "make launch-sa01-dummy-sim-vnc",
+            "type": "dummy",
+            "robot": "sa01",
+        },
+        "sa01_centroidal_sim": {
+            "name": "EngineAI SA01 Centroidal — MuJoCo Physics Sim",
+            "command": "make launch-sa01-sim-vnc",
+            "type": "mujoco",
+            "robot": "sa01",
+        },
     }
 
     def __init__(self, workspace_dir: Optional[str] = None):

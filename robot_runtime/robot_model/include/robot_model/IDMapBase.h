@@ -56,7 +56,8 @@ class IDMapBase {
   }
 
   bool inRange(size_t id) const noexcept {
-    if (id > map_elements_.size()) {
+    // id == size() is out of range: the valid ids are 0 .. size() - 1.
+    if (id >= map_elements_.size()) {
       return false;
     } else {
       return true;

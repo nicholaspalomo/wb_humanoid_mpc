@@ -35,6 +35,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_core/misc/LoadData.h>
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 
 VECTOR18_T<scalar_t> EndEffectorDynamicsWeights::toVector() {
@@ -72,8 +74,8 @@ EndEffectorDynamicsWeights EndEffectorDynamicsWeights::getWeights(const std::str
   scalar_t ang_acceleration_y = 0;
   scalar_t ang_acceleration_z = 0;
   if (verbose) {
-    std::cerr << "\n #### Humanoid End Effector Foot Cost Weights: ";
-    std::cerr << "\n #### =============================================================================\n";
+    LOG(INFO) << "\n #### Humanoid End Effector Foot Cost Weights: ";
+    LOG(INFO) << "\n #### =============================================================================\n";
   }
   loadData::loadPtreeValue(pt, pos_x, prefix + "pos_x", verbose);
   loadData::loadPtreeValue(pt, pos_y, prefix + "pos_y", verbose);
@@ -95,7 +97,7 @@ EndEffectorDynamicsWeights EndEffectorDynamicsWeights::getWeights(const std::str
   loadData::loadPtreeValue(pt, ang_acceleration_z, prefix + "ang_acceleration_z", verbose);
 
   if (verbose) {
-    std::cerr << " #### =============================================================================\n";
+    LOG(INFO) << " #### =============================================================================\n";
   }
 
   EndEffectorDynamicsWeights weights;

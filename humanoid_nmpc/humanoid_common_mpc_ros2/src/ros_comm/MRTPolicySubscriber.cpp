@@ -60,7 +60,7 @@ void MRTPolicySubscriber::readPolicyMsg(const ocs2_ros2_msgs::msg::MpcFlattenedC
   if (N == 0) {
     throw std::runtime_error("[MRTPolicySubscriber::readPolicyMsg] controller message is empty!");
   }
-  if (msg.state_trajectory.size() != N && msg.input_trajectory.size() != N) {
+  if (msg.state_trajectory.size() != N || msg.input_trajectory.size() != N) {
     throw std::runtime_error("[MRTPolicySubscriber::readPolicyMsg] state and input trajectories must have same length!");
   }
   // if (msg.data.size() != N) {

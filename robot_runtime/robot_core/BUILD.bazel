@@ -10,6 +10,7 @@ cc_library(
     includes = ["include"],
     deps = [
         "@eigen",
+        "@abseil-cpp//absl/log:log",
         "@ros2_ament_index_cpp",
     ],
 )

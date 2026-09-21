@@ -207,7 +207,9 @@ CentroidalMpcInterface::CentroidalMpcInterface(const std::string& taskFile,
     constexpr scalar_t kDefaultBasisScalingRegularization = 1e-4;
     basisScalingRegularization_ = kDefaultBasisScalingRegularization;
     loadData::loadPtreeValue(pt, basisScalingRegularization_, "contacts.basisScalingRegularization", verbose_);
-    // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:basis_regularization_config)
+    // clang-format off
+    // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:basis_regularization_config, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:basis_regularization_config)
+    // clang-format on
     if (basisScalingRegularization_ < 0.0) {
       throw std::invalid_argument("[CentroidalMpcInterface] contacts.basisScalingRegularization must be non-negative");
     }
@@ -282,7 +284,8 @@ CentroidalMpcInterface::CentroidalMpcInterface(const std::string& taskFile,
         GaitSchedule::loadGaitSchedule(referenceFile, modelSettings_, verbose_), std::move(swingTrajectoryPlanner), *pinocchioInterfacePtr_,
         *effectiveMpcRobotModelPtr_);
   }
-  referenceManagerPtr_->setArmSwingReferenceActive(true);
+  // A legs-only robot omits model_settings.armJointNames and has no arm to swing.
+  referenceManagerPtr_->setArmSwingReferenceActive(modelSettings_.hasArmSwingJoints);
 
   // initial state
   initialState_.setZero(centroidalModelInfo_.stateDim);
@@ -480,7 +483,9 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
         constexpr scalar_t kDefaultLambdaBarrierDelta = 1e-3;
         // LINT.IfChange(basis_barrier_yaml_path)
         const std::string barrierPrefix = "contacts.basisNonNegativityBarrier.";
-        // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:basis_barrier_config)
+        // clang-format off
+        // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:basis_barrier_config, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:basis_barrier_config)
+        // clang-format on
         scalar_t lambdaBarrierMu = kDefaultLambdaBarrierMu;
         scalar_t lambdaBarrierDelta = kDefaultLambdaBarrierDelta;
         boost::property_tree::ptree barrierPt;

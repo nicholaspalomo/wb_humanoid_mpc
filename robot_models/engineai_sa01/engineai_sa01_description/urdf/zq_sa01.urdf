@@ -6,8 +6,11 @@ Stephen Brawner (brawner@gmail.com)
 <robot
   name="zqsa01">
 
+  <!-- Only read when this URDF is converted to MJCF. The hand-written MuJoCo model next to this file
+       (zq_sa01.xml) is the one the simulator loads, and it resolves its meshes through its own
+       <compiler meshdir="../meshes"/>. -->
   <mujoco>
-    <compiler meshdir="../meshes/" />
+    <compiler meshdir="package://engineai_sa01_description/meshes" discardvisual="false" />
   </mujoco>
 
   <link
@@ -32,7 +35,7 @@ Stephen Brawner (brawner@gmail.com)
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/Base_link.STL" />
+          filename="package://engineai_sa01_description/meshes/Base_link.STL" />
       </geometry>
       <material
         name="">
@@ -46,7 +49,7 @@ Stephen Brawner (brawner@gmail.com)
         rpy="0 0 0" />
       <!-- <geometry>
         <mesh
-          filename="../meshes/Base_link.STL" />
+          filename="package://engineai_sa01_description/meshes/Base_link.STL" />
       </geometry> -->
       <geometry>
         <box size="0.2 0.2 0.3" />
@@ -76,7 +79,7 @@ Stephen Brawner (brawner@gmail.com)
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/LeftLeg_Link_01.STL" />
+          filename="package://engineai_sa01_description/meshes/LeftLeg_Link_01.STL" />
       </geometry>
       <material
         name="">
@@ -90,7 +93,7 @@ Stephen Brawner (brawner@gmail.com)
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/LeftLeg_Link_01.STL" />
+          filename="package://engineai_sa01_description/meshes/LeftLeg_Link_01.STL" />
       </geometry>
     </collision> -->
   </link>
@@ -137,7 +140,7 @@ Stephen Brawner (brawner@gmail.com)
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/LeftLeg_Link_02.STL" />
+          filename="package://engineai_sa01_description/meshes/LeftLeg_Link_02.STL" />
       </geometry>
       <material
         name="">
@@ -151,7 +154,7 @@ Stephen Brawner (brawner@gmail.com)
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/LeftLeg_Link_02.STL" />
+          filename="package://engineai_sa01_description/meshes/LeftLeg_Link_02.STL" />
       </geometry>
     </collision> -->
   </link>
@@ -198,7 +201,7 @@ Stephen Brawner (brawner@gmail.com)
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/LeftLeg_Link_03.STL" />
+          filename="package://engineai_sa01_description/meshes/LeftLeg_Link_03.STL" />
       </geometry>
       <material
         name="">
@@ -258,7 +261,7 @@ Stephen Brawner (brawner@gmail.com)
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/LeftLeg_Link_04.STL" />
+          filename="package://engineai_sa01_description/meshes/LeftLeg_Link_04.STL" />
       </geometry>
       <material
         name="">
@@ -325,7 +328,7 @@ Stephen Brawner (brawner@gmail.com)
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/LeftLeg_Link_05.STL" />
+          filename="package://engineai_sa01_description/meshes/LeftLeg_Link_05.STL" />
       </geometry>
       <material
         name="">
@@ -339,7 +342,7 @@ Stephen Brawner (brawner@gmail.com)
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/LeftLeg_Link_05.STL" />
+          filename="package://engineai_sa01_description/meshes/LeftLeg_Link_05.STL" />
       </geometry>
     </collision> -->
   </link>
@@ -394,7 +397,7 @@ Stephen Brawner (brawner@gmail.com)
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/LeftLeg_Link_06.STL" />
+          filename="package://engineai_sa01_description/meshes/LeftLeg_Link_06.STL" />
       </geometry>
       <material
         name="">
@@ -411,7 +414,7 @@ Stephen Brawner (brawner@gmail.com)
       </geometry> -->
       <geometry>
         <mesh
-          filename="../meshes/LeftLeg_Link_06.STL" />
+          filename="package://engineai_sa01_description/meshes/LeftLeg_Link_06.STL" />
       </geometry>
     </collision>
   </link>
@@ -458,7 +461,7 @@ Stephen Brawner (brawner@gmail.com)
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/RightLeg_Link_01.STL" />
+          filename="package://engineai_sa01_description/meshes/RightLeg_Link_01.STL" />
       </geometry>
       <material
         name="">
@@ -472,7 +475,7 @@ Stephen Brawner (brawner@gmail.com)
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/RightLeg_Link_01.STL" />
+          filename="package://engineai_sa01_description/meshes/RightLeg_Link_01.STL" />
       </geometry>
     </collision> -->
   </link>
@@ -519,7 +522,7 @@ Stephen Brawner (brawner@gmail.com)
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/RightLeg_Link_02.STL" />
+          filename="package://engineai_sa01_description/meshes/RightLeg_Link_02.STL" />
       </geometry>
       <material
         name="">
@@ -533,7 +536,7 @@ Stephen Brawner (brawner@gmail.com)
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/RightLeg_Link_02.STL" />
+          filename="package://engineai_sa01_description/meshes/RightLeg_Link_02.STL" />
       </geometry>
     </collision> -->
   </link>
@@ -580,7 +583,7 @@ Stephen Brawner (brawner@gmail.com)
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/RightLeg_Link_03.STL" />
+          filename="package://engineai_sa01_description/meshes/RightLeg_Link_03.STL" />
       </geometry>
       <material
         name="">
@@ -640,7 +643,7 @@ Stephen Brawner (brawner@gmail.com)
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/RightLeg_Link_04.STL" />
+          filename="package://engineai_sa01_description/meshes/RightLeg_Link_04.STL" />
       </geometry>
       <material
         name="">
@@ -707,7 +710,7 @@ Stephen Brawner (brawner@gmail.com)
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/RightLeg_Link_05.STL" />
+          filename="package://engineai_sa01_description/meshes/RightLeg_Link_05.STL" />
       </geometry>
       <material
         name="">
@@ -721,7 +724,7 @@ Stephen Brawner (brawner@gmail.com)
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/RightLeg_Link_05.STL" />
+          filename="package://engineai_sa01_description/meshes/RightLeg_Link_05.STL" />
       </geometry>
     </collision> -->
   </link>
@@ -776,7 +779,7 @@ Stephen Brawner (brawner@gmail.com)
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="../meshes/RightLeg_Link_06.STL" />
+          filename="package://engineai_sa01_description/meshes/RightLeg_Link_06.STL" />
       </geometry>
       <material
         name="">
@@ -793,7 +796,7 @@ Stephen Brawner (brawner@gmail.com)
       </geometry> -->
       <geometry>
         <mesh
-          filename="../meshes/RightLeg_Link_06.STL" />
+          filename="package://engineai_sa01_description/meshes/RightLeg_Link_06.STL" />
       </geometry>
     </collision>
   </link>

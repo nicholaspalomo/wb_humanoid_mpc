@@ -34,6 +34,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/cost/EndEffectorKinematicCostHelpers.h"
 
+#include "absl/log/log.h"
+
 using namespace ocs2;
 using namespace ocs2::humanoid;
 
@@ -48,7 +50,7 @@ int main(int argc, char** argv) {
 
   vector12_t errors = computeTaskSpaceErrors(currentCostElement, referenceCostElement);
 
-  std::cout << "Errors: " << errors.transpose() << std::endl;
+  LOG(INFO) << "Errors: " << errors.transpose();
 
   return 0;
 }

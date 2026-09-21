@@ -39,10 +39,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/log/check.h"
 #include "humanoid_wb_mpc/common/WBAccelPinocchioStateInputMapping.h"
 
+#include "absl/log/globals.h"
+#include "absl/log/initialize.h"
+#include "absl/log/log.h"
+
 using namespace ocs2;
 using namespace ocs2::humanoid;
 
 int main(int argc, char** argv) {
+  // Route Abseil log records to stderr. Without InitializeLog() Abseil warns once and writes everything to
+  // stderr anyway; with it the default stderr threshold is ERROR, so the INFO records have to be asked for.
+  absl::InitializeLog();
+  absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
   std::vector<std::string> programArgs;
   programArgs = rclcpp::remove_ros_arguments(argc, argv);
   if (programArgs.size() < 5) {
@@ -82,7 +90,7 @@ int main(int argc, char** argv) {
   // Initial state
   SystemObservation initObservation;
   initObservation.state = interface.getInitialState();
-  std::cout << "initial state:" << initObservation.state << std::endl;
+  LOG(INFO) << "initial state:" << initObservation.state;
   initObservation.input = vector_t::Zero(interface.getMpcRobotModel().getInputDim());
   initObservation.mode = ModeNumber::STANCE;
 

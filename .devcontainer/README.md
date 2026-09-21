@@ -45,6 +45,9 @@ Use the `-vnc` suffixed Make targets to automatically build Bazel targets, start
 | `make launch-r1-dummy-sim-vnc` | Unitree R1 centroidal MPC — dummy sim |
 | `make launch-r1-sim-vnc` | Unitree R1 centroidal MPC — MuJoCo sim |
 | `make launch-r1-sandbox-vnc` | Unitree R1 URDF viewer |
+| `make launch-sa01-dummy-sim-vnc` | EngineAI SA01 centroidal MPC — dummy sim |
+| `make launch-sa01-sim-vnc` | EngineAI SA01 centroidal MPC — MuJoCo sim |
+| `make launch-sa01-sandbox-vnc` | EngineAI SA01 URDF viewer |
 <!-- LINT.ThenChange(//Makefile:launch_targets, //setup_env.sh:registered_packages) -->
 
 Each `-vnc` target calls `start-vnc` automatically, so you do **not** need to run `make start-vnc` first.

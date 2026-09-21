@@ -37,13 +37,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 
 TargetTrajectoriesCalculatorBase::TargetTrajectoriesCalculatorBase(const std::string& referenceFile,
                                                                    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
                                                                    scalar_t mpcHorizon)
     : mpcRobotModelPtr_(mpcRobotModel.clone()), mpcHorizon_(mpcHorizon) {
-  std::cerr << "Loading reference file: " << referenceFile << std::endl;
+  LOG(INFO) << "Loading reference file: " << referenceFile;
   targetJointState_.resize(mpcRobotModel.getJointDim());
   loadData::loadEigenMatrix(referenceFile, "defaultJointState", targetJointState_);
   reloadCommandLimits(referenceFile);

@@ -35,6 +35,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <iostream>
 #include <string>
 
+#include "absl/log/log.h"
+
 namespace robot {
 
 class FPSTracker {
@@ -65,7 +67,7 @@ class FPSTracker {
 
   void reset() { initialized_ = false; }
 
-  void print() const { std::cerr << "FPS [" << name_ << "]: " << static_cast<int>(fps_) << std::endl; }
+  void print() const { LOG(INFO) << "FPS [" << name_ << "]: " << static_cast<int>(fps_); }
 
   double alpha() const { return alpha_; }
 

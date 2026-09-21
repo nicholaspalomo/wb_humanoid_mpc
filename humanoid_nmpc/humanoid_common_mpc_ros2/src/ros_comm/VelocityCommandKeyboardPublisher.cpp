@@ -34,6 +34,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_core/misc/Display.h>
 #include <ocs2_core/misc/LoadData.h>
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 
 /******************************************************************************************************/
@@ -64,11 +66,11 @@ void VelocityCommandKeyboardPublisher::publishKeyboardCommand(const std::string&
     reloadCommandLimits();
 
     // get command line
-    std::cout << commadMsg << ": ";
+    LOG(INFO) << commadMsg << ": ";
     const vector4_t commandLineInput = getCommandLine().cwiseMin(targetCommandLimits_).cwiseMax(-targetCommandLimits_);
 
     // display
-    std::cout << "The following command is published: [" << toDelimitedString(commandLineInput) << "]\n\n";
+    LOG(INFO) << "The following command is published: [" << toDelimitedString(commandLineInput) << "]\n\n";
 
     humanoid_mpc_msgs::msg::WalkingVelocityCommand msg;
     msg.linear_velocity_x = commandLineInput[0] / targetCommandLimits_[0];

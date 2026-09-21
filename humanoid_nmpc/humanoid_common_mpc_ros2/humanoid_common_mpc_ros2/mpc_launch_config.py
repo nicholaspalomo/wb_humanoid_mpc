@@ -6,6 +6,7 @@ import launch_ros
 import launch
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import Command, LaunchConfiguration
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def extract_constant_from_cpp(file_path, constant_name):
@@ -237,8 +238,13 @@ class MPCLaunchConfig:
             executable="robot_state_publisher",
             parameters=[
                 {
-                    "robot_description": Command(
-                        ["xacro ", LaunchConfiguration("description_name")]
+                    # ParameterValue(..., value_type=str) is required, not cosmetic: without it ROS 2 launch
+                    # tries to parse the expanded URDF as YAML, and a URDF whose text happens to look like YAML
+                    # aborts the launch. The EngineAI SA01's SolidWorks header comment carries a
+                    # "Commit Version: 1.6.0-..." line, which YAML reads as a mapping key.
+                    "robot_description": ParameterValue(
+                        Command(["xacro ", LaunchConfiguration("description_name")]),
+                        value_type=str,
                     ),
                     "publish_frequency": 180.0,
                 }
@@ -251,8 +257,13 @@ class MPCLaunchConfig:
             name="terminal_robot_state_publisher",
             parameters=[
                 {
-                    "robot_description": Command(
-                        ["xacro ", LaunchConfiguration("description_name")]
+                    # ParameterValue(..., value_type=str) is required, not cosmetic: without it ROS 2 launch
+                    # tries to parse the expanded URDF as YAML, and a URDF whose text happens to look like YAML
+                    # aborts the launch. The EngineAI SA01's SolidWorks header comment carries a
+                    # "Commit Version: 1.6.0-..." line, which YAML reads as a mapping key.
+                    "robot_description": ParameterValue(
+                        Command(["xacro ", LaunchConfiguration("description_name")]),
+                        value_type=str,
                     ),
                     "frame_prefix": "terminal_state/",
                     "publish_frequency": 180.0,
@@ -272,8 +283,13 @@ class MPCLaunchConfig:
             name="target_robot_state_publisher",
             parameters=[
                 {
-                    "robot_description": Command(
-                        ["xacro ", LaunchConfiguration("description_name")]
+                    # ParameterValue(..., value_type=str) is required, not cosmetic: without it ROS 2 launch
+                    # tries to parse the expanded URDF as YAML, and a URDF whose text happens to look like YAML
+                    # aborts the launch. The EngineAI SA01's SolidWorks header comment carries a
+                    # "Commit Version: 1.6.0-..." line, which YAML reads as a mapping key.
+                    "robot_description": ParameterValue(
+                        Command(["xacro ", LaunchConfiguration("description_name")]),
+                        value_type=str,
                     ),
                     "frame_prefix": "terminal_target/",
                     "publish_frequency": 180.0,

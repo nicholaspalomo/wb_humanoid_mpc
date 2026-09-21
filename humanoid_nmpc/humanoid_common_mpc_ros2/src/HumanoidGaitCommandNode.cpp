@@ -32,10 +32,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_ros2/gait/GaitKeyboardPublisher.h"
 
+#include "absl/log/globals.h"
+#include "absl/log/initialize.h"
+#include "absl/log/log.h"
+
 using namespace ocs2;
 using namespace ocs2::humanoid;
 
 int main(int argc, char* argv[]) {
+  // Route Abseil log records to stderr. Without InitializeLog() Abseil warns once and writes everything to
+  // stderr anyway; with it the default stderr threshold is ERROR, so the INFO records have to be asked for.
+  absl::InitializeLog();
+  absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
   std::vector<std::string> programArgs;
   programArgs = rclcpp::remove_ros_arguments(argc, argv);
   if (programArgs.size() < 3) {
@@ -44,7 +52,7 @@ int main(int argc, char* argv[]) {
 
   const std::string robotName(argv[1]);
   const std::string gaitCommandFile(argv[2]);
-  std::cerr << "Loading gait file: " << gaitCommandFile << std::endl;
+  LOG(INFO) << "Loading gait file: " << gaitCommandFile;
 
   rclcpp::init(argc, argv);
   auto nodeHandle = std::make_shared<rclcpp::Node>(robotName + "_mpc_mode_schedule");

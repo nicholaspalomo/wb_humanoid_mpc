@@ -32,6 +32,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_wb_mpc/dynamics/DynamicsHelperFunctions.h"
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 
 /******************************************************************************************************/
@@ -54,8 +56,8 @@ EndEffectorDynamicsQuadraticCost::EndEffectorDynamicsQuadraticCost(EndEffectorDy
   initialize(mpcRobotModelPtr_->getStateDim(), mpcRobotModelPtr_->getInputDim(), n_parameters, costName, modelSettings.modelFolderCppAd,
              modelSettings.recompileLibrariesCppAd);
   frameID_ = pinocchioInterface.getModel().getFrameId(endEffectorName);
-  std::cout << "Frame ID: " << frameID_ << std::endl;
-  std::cout << "Initialized CentroidalMpcEndEffectorFootCost with weights: " << weights.toVector().transpose() << std::endl;
+  LOG(INFO) << "Frame ID: " << frameID_;
+  LOG(INFO) << "Initialized CentroidalMpcEndEffectorFootCost with weights: " << weights.toVector().transpose();
 }
 
 /******************************************************************************************************/

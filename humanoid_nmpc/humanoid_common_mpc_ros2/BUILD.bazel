@@ -46,6 +46,8 @@ cc_library(
         "//lib/ocs2:ocs2_ros2_msgs",
         "//lib/ocs2:ocs2_sqp",
         "@abseil-cpp//absl/log:log",
+        "@abseil-cpp//absl/log:globals",
+        "@abseil-cpp//absl/log:initialize",
         "@eigen",
         "@boost",
         "@pinocchio",

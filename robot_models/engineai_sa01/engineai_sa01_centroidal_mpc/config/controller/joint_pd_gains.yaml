@@ -1,0 +1,82 @@
+# EngineAI SA01 (12-DoF) Joint Proportional and Derivative (PD) Controller Gains
+# Units: Kp in [N*m/rad], Kd in [N*m*s/rad], torque_limit in [N*m]
+#
+# These gains handle TRACKING error only. Gravity compensation reaches the joints through the feedforward torques the
+# MRT inverse dynamics builds from the MPC's planned contact wrenches, so the PD term does not have to fight gravity
+# and moderate gains are stable without saturating.
+#
+# Sizing. SA01 weighs 33.1 kg, which puts it within 6% of the Unitree G1 (35 kg), so the leg gains start from G1's and
+# are rescaled by the actuator each joint has. G1's leg gains sit at roughly 1.5 * the joint's torque limit
+# (hip 150 for 88 N*m, knee 200 for 139 N*m, ankle 80 for 50 N*m). SA01's hip and knee actuators are stronger than
+# G1's at 140 N*m, so those gains carry over unchanged; its ankles are much weaker at 24 N*m, so the ankle gains are
+# halved with them.
+#
+# torque_limit is NOT optional on this robot, and it is not only documentation. CentroidalMpcMrtJointController
+# clamps the commanded joint torque against it, and a joint missing from this file - or a file missing the key - falls
+# back to a hard-coded 500 N*m. On SA01 that would let the controller command twenty times what the 24 N*m ankle can
+# deliver, and the MuJoCo clamp against the model's actuatorfrcrange would then silently absorb the difference, so
+# the controller would be tracking a torque the robot never applied. The values here are the URDF effort limits, and
+# they match the actuatorfrcrange of zq_sa01.xml joint for joint.
+#
+# Kd rule of thumb: Kd ~ 0.06-0.08 * Kp for near-critical damping, the same ratio the other robots use.
+#
+# Untuned: these are a starting point for the first MuJoCo bring-up, not a validated set. The Controller GUI's
+# Joint PD tab edits this file in place while the simulation runs.
+
+default_gains:
+  kp: 150.0
+  kd: 10.0
+  torque_limit: 140.0
+
+joint_gains:
+  # Left Leg - hip roll, yaw and pitch and the knee are 140 N*m actuators; both ankle joints are 24 N*m.
+  leg_l1_joint:  # left hip roll
+    kp: 150.0
+    kd: 10.0
+    torque_limit: 140.0
+  leg_l2_joint:  # left hip yaw
+    kp: 150.0
+    kd: 10.0
+    torque_limit: 140.0
+  leg_l3_joint:  # left hip pitch - main sagittal driver
+    kp: 150.0
+    kd: 10.0
+    torque_limit: 140.0
+  leg_l4_joint:  # left knee - weight bearing
+    kp: 200.0
+    kd: 12.0
+    torque_limit: 140.0
+  leg_l5_joint:  # left ankle pitch
+    kp: 40.0
+    kd: 3.0
+    torque_limit: 24.0
+  leg_l6_joint:  # left ankle roll
+    kp: 40.0
+    kd: 3.0
+    torque_limit: 24.0
+
+  # Right Leg (symmetric)
+  leg_r1_joint:  # right hip roll
+    kp: 150.0
+    kd: 10.0
+    torque_limit: 140.0
+  leg_r2_joint:  # right hip yaw
+    kp: 150.0
+    kd: 10.0
+    torque_limit: 140.0
+  leg_r3_joint:  # right hip pitch
+    kp: 150.0
+    kd: 10.0
+    torque_limit: 140.0
+  leg_r4_joint:  # right knee
+    kp: 200.0
+    kd: 12.0
+    torque_limit: 140.0
+  leg_r5_joint:  # right ankle pitch
+    kp: 40.0
+    kd: 3.0
+    torque_limit: 24.0
+  leg_r6_joint:  # right ankle roll
+    kp: 40.0
+    kd: 3.0
+    torque_limit: 24.0

@@ -37,6 +37,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <thread>
 #include <vector>
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 
 /**
@@ -66,15 +68,14 @@ inline bool setThreadCpuAffinity(const std::vector<int>& cpuCores, pthread_t thr
   }
 
   if (validCores.empty()) {
-    std::cerr << "WARNING: No valid CPU cores specified for thread affinity" << (threadName.empty() ? "" : " on " + threadName) << "."
-              << std::endl;
+    LOG(WARNING) << "No valid CPU cores specified for thread affinity" << (threadName.empty() ? "" : " on " + threadName) << ".";
     return false;
   }
 
   int rc = pthread_setaffinity_np(thread, sizeof(cpu_set_t), &cpuset);
   if (rc != 0) {
-    std::cerr << "WARNING: Failed to set thread CPU affinity" << (threadName.empty() ? "" : " on " + threadName) << " (error code: " << rc
-              << ")." << std::endl;
+    LOG(WARNING) << "Failed to set thread CPU affinity" << (threadName.empty() ? "" : " on " + threadName) << " (error code: " << rc
+                 << ").";
     return false;
   }
 
@@ -82,8 +83,8 @@ inline bool setThreadCpuAffinity(const std::vector<int>& cpuCores, pthread_t thr
   for (size_t i = 0; i < validCores.size(); ++i) {
     oss << validCores[i] << (i + 1 < validCores.size() ? "," : "");
   }
-  std::cout << "[ThreadAffinity] Successfully pinned " << (threadName.empty() ? "thread" : threadName) << " to CPU core(s): [" << oss.str()
-            << "]" << std::endl;
+  LOG(INFO) << "[ThreadAffinity] Successfully pinned " << (threadName.empty() ? "thread" : threadName) << " to CPU core(s): [" << oss.str()
+            << "]";
 
   return true;
 }

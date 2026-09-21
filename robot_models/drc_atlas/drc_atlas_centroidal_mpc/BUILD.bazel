@@ -45,6 +45,8 @@ cc_binary(
         "@ros2_rclcpp",
         "@ros2_ament_index_cpp",
         "@abseil-cpp//absl/log:check",
+        "@abseil-cpp//absl/log:log",
+        "@abseil-cpp//absl/log:globals",
         "@abseil-cpp//absl/log:initialize",
     ],
 )

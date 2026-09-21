@@ -43,6 +43,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <pinocchio/multibody/data.hpp>
 #include <pinocchio/multibody/model.hpp>
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 
 /******************************************************************************************************/
@@ -61,7 +63,7 @@ JointTorqueCostCppAd::JointTorqueCostCppAd(const vector_t& weights,
   assert(weights.size() == mpcRobotModel.getJointDim());
   initialize(mpcRobotModel.getStateDim(), mpcRobotModel.getInputDim(), mpcRobotModel.getJointDim(), costName,
              modelSettings.modelFolderCppAd, modelSettings.recompileLibrariesCppAd);
-  std::cout << "Initialized JointTorqueCostCppAd with weights: " << weights.transpose() << std::endl;
+  LOG(INFO) << "Initialized JointTorqueCostCppAd with weights: " << weights.transpose();
 }
 
 /******************************************************************************************************/

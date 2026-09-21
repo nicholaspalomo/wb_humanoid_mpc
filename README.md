@@ -77,6 +77,7 @@ The formulation and the math of both features are described in [humanoid_nmpc/do
 | **Unitree G1** | ✅ | ✅ | ✅ | ✅ |
 | **Unitree R1** | ✅ | — | ✅ | ✅ |
 | **DRC Atlas** | ✅ | — | ✅ | ✅ |
+| **EngineAI SA01** | ✅ | — | ✅ | ✅ |
 | **1X Neo** | *Coming Soon* | *Coming Soon* | *Coming Soon* | *Coming Soon* |
 
 **Unitree G1:**
@@ -208,6 +209,15 @@ make launch-drc-atlas-dummy-sim     # RViz Dummy Sim (Native X11)
 make launch-drc-atlas-sandbox-vnc   # Interactive URDF Model Viewer
 ```
 
+#### 4. EngineAI SA01
+```bash
+make launch-sa01-sim-vnc         # MuJoCo Physics Sim (Browser / macOS / Remote)
+make launch-sa01-dummy-sim-vnc   # RViz Dummy Sim (Browser / macOS / Remote)
+make launch-sa01-sim             # MuJoCo Physics Sim (Native X11)
+make launch-sa01-dummy-sim       # RViz Dummy Sim (Native X11)
+make launch-sa01-sandbox-vnc     # Interactive URDF Model Viewer
+```
+
 > **Cleanup Tip:** Run `make kill-sims` at any time to clean up any orphaned simulation, publisher, or ROS 2 background processes.
 
 ---
@@ -249,7 +259,7 @@ The joystick GUI (`base_velocity_controller_gui`) features a dark-themed tabbed 
    - Individual real-time sliders and numeric input boxes for joint proportional ($K_p$) and derivative ($K_d$) feedback gains.
    - **Limb Grouping:** Organized collapsible accordion categories for Spine, Left Arm, Right Arm, Left Leg, and Right Leg.
    - **Master Scaling:** Global scale multipliers ($\times 0.5 \dots \times 2.0$) to scale all $K_p$ and $K_d$ gains simultaneously.
-   - **Robot Model Presets:** Instantly switch between Unitree G1, DRC Atlas, and Unitree R1 gain files.
+   - **Robot Model Presets:** Instantly switch between Unitree G1, DRC Atlas, Unitree R1, and EngineAI SA01 gain files.
    - **Comment-Preserving Save:** Saves modifications directly into `joint_pd_gains.yaml` preserving all existing comments, whitespace, and formatting, with automated timestamped `.bak` safety backups.
 
 3. **📈 MPC Parameters Tuning (`task.yaml`):**

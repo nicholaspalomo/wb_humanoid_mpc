@@ -43,6 +43,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/LipContactPlanner.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 
 namespace {
@@ -135,19 +137,19 @@ bool zmpInsideSupport(const ContactPlan& plan, const ContactPlanningConfig& conf
 }
 
 void printPlan(const ContactPlan& plan) {
-  std::cout << "plan valid=" << plan.valid << " objective=" << plan.objective << " nodes=" << plan.numBranchAndBoundNodes
+  LOG(INFO) << "plan valid=" << plan.valid << " objective=" << plan.objective << " nodes=" << plan.numBranchAndBoundNodes
             << " time=" << plan.solveTime << " s optimal=" << plan.optimal << "\n  contacts: ";
   if (!plan.valid) {
-    std::cout << "(none)\n";
+    LOG(INFO) << "(none)\n";
     return;
   }
-  for (const contact_flag_t& c : plan.contacts) std::cout << "[" << c[0] << c[1] << "]";
-  std::cout << "\n";
+  for (const contact_flag_t& c : plan.contacts) LOG(INFO) << "[" << c[0] << c[1] << "]";
+  LOG(INFO) << "\n";
   for (int k = 0; k <= plan.numIntervals(); ++k) {
-    std::cout << "  k=" << k << " com=" << plan.comPosition[k].transpose() << " v=" << plan.comVelocity[k].transpose()
+    LOG(INFO) << "  k=" << k << " com=" << plan.comPosition[k].transpose() << " v=" << plan.comVelocity[k].transpose()
               << " pL=" << plan.footholds[k][0].transpose() << " pR=" << plan.footholds[k][1].transpose();
-    if (k < plan.numIntervals()) std::cout << " zmp=" << plan.zmp[k].transpose();
-    std::cout << "\n";
+    if (k < plan.numIntervals()) LOG(INFO) << " zmp=" << plan.zmp[k].transpose();
+    LOG(INFO) << "\n";
   }
 }
 
@@ -217,7 +219,7 @@ TEST(LipContactPlannerTest, WalkingCommandProducesAlternatingSteps) {
   for (int k = 0; k < plan.numIntervals(); ++k) {
     EXPECT_TRUE(zmpInsideSupport(plan, config, k)) << "k=" << k << " zmp=" << plan.zmp[k].transpose();
   }
-  std::cout << "walking plan solved in " << plan.solveTime * 1e3 << " ms with " << plan.numBranchAndBoundNodes << " relaxations, "
+  LOG(INFO) << "walking plan solved in " << plan.solveTime * 1e3 << " ms with " << plan.numBranchAndBoundNodes << " relaxations, "
             << planner.getLastStatistics().totalQpIterations << " IPM iterations\n";
 }
 
@@ -1005,7 +1007,7 @@ TEST(LipContactPlannerTest, RecedingHorizonWarmStartKeepsPlanConsistent) {
       EXPECT_NEAR((second.footholds[k][foot] - first.footholds[k + 1][foot]).norm(), 0.0, 0.05) << "node " << k << " foot " << foot;
     }
   }
-  std::cout << "re-plan solved in " << second.solveTime * 1e3 << " ms with " << second.numBranchAndBoundNodes << " relaxations\n";
+  LOG(INFO) << "re-plan solved in " << second.solveTime * 1e3 << " ms with " << second.numBranchAndBoundNodes << " relaxations\n";
 }
 
 TEST(ContactPlanTest, ModeScheduleConversionAndMerge) {

@@ -33,6 +33,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_ros2/visualization/HumanoidVisualizerRos2Interface.h"
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 
 /******************************************************************************************************/
@@ -59,7 +61,7 @@ void HumanoidVisualizerRos2Interface::launchSubscribers() {
   observationSubscriberPtr_ = node_handle_->create_subscription<ocs2_ros2_msgs::msg::MpcObservation>(
       "/humanoid/mpc_observation", qos, std::bind(&HumanoidVisualizerRos2Interface::mpcObservationCallback, this, std::placeholders::_1));
 
-  std::cout << "observationSubscriberPtr_ initialized" << std::endl;
+  LOG(INFO) << "observationSubscriberPtr_ initialized";
 }
 
 /******************************************************************************************************/

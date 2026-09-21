@@ -376,8 +376,8 @@ ContactPlanningConfig loadContactPlanningConfig(const std::string& yamlFile, con
   loadData::readPropertyTree(yamlFile, pt);
   ContactPlanningConfig config;
   if (verbose) {
-    std::cerr << "\n #### Contact Planning Config:";
-    std::cerr << "\n #### =============================================================================\n";
+    LOG(INFO) << "\n #### Contact Planning Config:";
+    LOG(INFO) << "\n #### =============================================================================\n";
   }
   const std::string blockKey =
       prefix.empty() ? std::string() : prefix.substr(0, prefix.size() - 1);  // "contact_planning." -> "contact_planning"
@@ -402,7 +402,7 @@ ContactPlanningConfig loadContactPlanningConfig(const std::string& yamlFile, con
     loadStructured(pt, *block, prefix, config, verbose);
   }
   if (verbose) {
-    std::cerr << " #### =============================================================================" << std::endl;
+    LOG(INFO) << " #### =============================================================================";
   }
   if (validate) config.validate();
   return config;

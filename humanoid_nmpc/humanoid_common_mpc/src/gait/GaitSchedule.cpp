@@ -36,6 +36,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <boost/property_tree/info_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 
 /******************************************************************************************************/
@@ -167,11 +169,11 @@ std::shared_ptr<GaitSchedule> GaitSchedule::loadGaitSchedule(const std::string& 
 
   // display
   if (verbose) {
-    std::cerr << "\n#### Modes Schedule: ";
-    std::cerr << "\n#### =============================================================================\n";
-    std::cerr << "Initial Modes Schedule: \n" << initModeSchedule;
-    std::cerr << "Default Modes Sequence Template: \n" << defaultModeSequenceTemplate;
-    std::cerr << "#### =============================================================================\n";
+    LOG(INFO) << "\n#### Modes Schedule: ";
+    LOG(INFO) << "\n#### =============================================================================\n";
+    LOG(INFO) << "Initial Modes Schedule: \n" << initModeSchedule;
+    LOG(INFO) << "Default Modes Sequence Template: \n" << defaultModeSequenceTemplate;
+    LOG(INFO) << "#### =============================================================================\n";
   }
 
   return std::make_shared<GaitSchedule>(initModeSchedule, defaultModeSequenceTemplate, modelSettings.phaseTransitionStanceTime);

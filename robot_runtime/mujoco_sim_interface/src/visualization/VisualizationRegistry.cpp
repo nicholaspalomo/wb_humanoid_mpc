@@ -77,7 +77,7 @@ const std::vector<Entry>& registry() {
   return entries;
 }
 // clang-format off
-// LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:sim_visualizations, //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.yaml:sim_visualizations, //robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.yaml:sim_visualizations, //robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.yaml:sim_visualizations)
+// LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:sim_visualizations, //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.yaml:sim_visualizations, //robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.yaml:sim_visualizations, //robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.yaml:sim_visualizations, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:sim_visualizations)
 // clang-format on
 }  // namespace
 

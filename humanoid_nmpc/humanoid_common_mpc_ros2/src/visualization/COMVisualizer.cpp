@@ -46,6 +46,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "visualization_msgs/msg/marker.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
 
+#include "absl/log/globals.h"
+#include "absl/log/initialize.h"
 #include "humanoid_common_mpc_ros2/visualization/COMVisualizer.hpp"
 
 namespace ocs2::humanoid {
@@ -204,6 +206,10 @@ void COMVisualizer::updateJointPositions(const sensor_msgs::msg::JointState::Sha
 }
 }  // namespace ocs2::humanoid
 int main(int argc, char** argv) {
+  // Route Abseil log records to stderr. Without InitializeLog() Abseil warns once and writes everything to
+  // stderr anyway; with it the default stderr threshold is ERROR, so the INFO records have to be asked for.
+  absl::InitializeLog();
+  absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
   rclcpp::init(argc, argv);
   auto node = std::make_shared<ocs2::humanoid::COMVisualizer>();
   rclcpp::spin(node);

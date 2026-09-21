@@ -37,6 +37,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/LipContactPlanner.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 
+#include "absl/log/log.h"
+
 namespace ocs2::humanoid {
 namespace {
 
@@ -126,13 +128,13 @@ std::vector<std::pair<scalar_t, scalar_t>> doubleSupportsInside(const ModeSchedu
 }
 
 void printSchedule(const ModeSchedule& schedule) {
-  std::cout << "  schedule:";
+  LOG(INFO) << "  schedule:";
   for (size_t i = 0; i < schedule.eventTimes.size(); ++i) {
     const contact_flag_t c = modeNumber2StanceLeg(schedule.modeSequence[i]);
-    std::cout << " [" << c[0] << c[1] << "] " << schedule.eventTimes[i];
+    LOG(INFO) << " [" << c[0] << c[1] << "] " << schedule.eventTimes[i];
   }
   const contact_flag_t c = modeNumber2StanceLeg(schedule.modeSequence.back());
-  std::cout << " [" << c[0] << c[1] << "]\n";
+  LOG(INFO) << " [" << c[0] << c[1] << "]\n";
 }
 
 /**
