@@ -176,11 +176,21 @@ $$\pm \mathbf{e}_j^\top(\mathbf{z}_k - \mathbf{p}_{i,k}) \le r_j + M(1 - c_{i,k}
 In double support the region is the convex hull of the two boxes. Laterally the feet never cross, so the hull is exactly
 $\mathbf{e}_y^\top(\mathbf{p}_{R,k}) - r_y \le \mathbf{e}_y^\top \mathbf{z}_k \le \mathbf{e}_y^\top(\mathbf{p}_{L,k}) + r_y$ (each side relaxed by
 $M(1-c_{i,k})$). Along the heading the order of the feet is not known in advance and the exact hull would need one more
-binary per node; the planner uses the box of half-width $r_x$ around the midpoint of the feet instead, a conservative inner
-approximation that costs nothing (the region between the feet is part of the double-support polygon, so nothing planned
-inside the box is unsupported; the approximation only bites when the feet are more than $4 r_x$ apart along the heading,
-where the planned ZMP has to jump from the midpoint box into the remaining foot's box at lift-off instead of travelling
-there during the double support). These constraints are *soft* (HPIPM slacks with a quadratic and a linear penalty,
+binary per node; the planner uses the box of half-width $r_x$ around the midpoint of the feet instead.
+
+That box and the lateral strip are each a valid *projection* of the hull onto one axis, but what the solver sees is their
+**intersection**, and the intersection of a convex set's projections is its bounding box rather than the set. The two
+coincide only while the feet are level along the heading. Earlier revisions of this section called the result "a
+conservative inner approximation that costs nothing"; that is wrong, and wrong in the unsafe direction. In the transition
+double support of every step the feet are a step apart along the heading, and the admitted region then strictly *contains*
+the hull, over-admitting the far corners by about half the heading offset — up to half a step length. With
+$\mathbf{p}_L=(0.2,0.1)$, $\mathbf{p}_R=(0,-0.1)$, $r_x=0.08$, $r_y=0.04$ the point $(0.18,-0.14)$ satisfies both rows
+while the hull's support along $(1,-1)/\sqrt2$ is $0.22$ against that point's $0.32$.
+
+Closing it means cutting the two missing hull edges, whose normal depends on $\mathbf{p}_L-\mathbf{p}_R$ — decision
+variables — so the row is bilinear and has to be linearised about a nominal separation. That changes the feasible set of a
+*soft* constraint the whole-body MPC re-solves against the true wrench cone, so it is a conservatism choice to validate in
+simulation behind its own key, not a correctness repair. See `ZmpSupportRegionConstraint.h`. These constraints are *soft* (HPIPM slacks with a quadratic and a linear penalty,
 `constraintSlackWeight`, `constraintSlackLinearWeight`) so that the relaxations always stay feasible and an unavoidable
 violation shows up as cost instead of as a solver failure.
 

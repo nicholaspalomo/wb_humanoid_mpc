@@ -1060,8 +1060,22 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
 void MpcParameterUpdaterModule::applyContactPlanningUpdates(const std::string& yamlFile) {
   if (contactPlannerModulePtr_ == nullptr) return;
   // Applied before the planner's next run.
+  //
+  // The file is parsed WITHOUT the loader's own validation, which is exactly what CentroidalMpcInterface does at
+  // start-up: the parameters a robot is allowed to leave at 0 in contact_planning.yaml to mean "derive this one from
+  // the model" - shared.comHeight and the two zmp_support_region half widths - are only filled in afterwards, by
+  // ContactPlanningModelParameters::applyTo(), which ContactPlannerModule::setConfig() runs before it validates.
+  // This call used to leave the loader's `validate` argument at its default of true, which validated the freshly
+  // parsed configuration before applyTo() could ever see it, the exact inverse of the start-up order. The three
+  // fields applyTo() fills are precisely the ones validate() rejects at 0, so on a robot that takes the documented
+  // option every reload threw "[ContactPlanningConfig] shared.comHeight and shared.gravity must be positive" here.
+  // The throw was caught below and became one warning, and because the file watcher in preSolverRun() had already
+  // stored the new modification time, the edit was gone: every later save of that file was discarded for the rest of
+  // the run while the tuning GUI reported each change as applied. Nothing is left unvalidated by passing false here,
+  // since setConfig() applies the model parameters and then calls validate() itself, and its throw is caught by the
+  // same handler - so a genuinely inconsistent edit is still rejected and still reported.
   try {
-    contactPlannerModulePtr_->setConfig(loadContactPlanningConfig(yamlFile, "contact_planning.", false));
+    contactPlannerModulePtr_->setConfig(loadContactPlanningConfig(yamlFile, "contact_planning.", /*verbose=*/false, /*validate=*/false));
     LOG(INFO) << "[MpcParameterUpdaterModule] Applied the contact_planning configuration from " << yamlFile << ".";
   } catch (const std::exception& e) {
     LOG(WARNING) << "[MpcParameterUpdaterModule] contact_planning configuration of " << yamlFile << " could not be applied: " << e.what();

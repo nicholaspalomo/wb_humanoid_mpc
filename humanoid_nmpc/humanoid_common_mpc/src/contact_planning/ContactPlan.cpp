@@ -57,9 +57,28 @@ std::string ContactPlan::describe() const {
       int end = k;
       while (end < N && contacts[static_cast<size_t>(end)][foot] == inContact) ++end;
       out << " " << (inContact ? "C" : "S") << dt * static_cast<scalar_t>(end - k);
-      // The step of a swing: the foothold at its touch-down node against the one at its lift-off node.
-      if (!inContact && static_cast<size_t>(end) < footholds.size() && static_cast<size_t>(k) < footholds.size()) {
-        const vector2_t step = footholds[static_cast<size_t>(end)][foot] - footholds[static_cast<size_t>(k)][foot];
+      // The step of a swing: the foothold at its touch-down node measured against the last node the foot was still
+      // STANDING on, which is node k - 1, and not against the lift-off node k itself.
+      //
+      // This used to read footholds[k], and that printed a fabricated (0.000,0.000) for every stepping swing of an
+      // H-LIP plan - the default planner in both shipped robots - because the two planners do not agree about what
+      // the lift-off node holds. Under `lip_miqp` the foothold state has not jumped yet at node k: FootholdIntegrator
+      // integrates p_{k+1} = p_k + dp_k and FootMotionInSwingOnlyConstraint pins dp to zero on contact intervals, so
+      // node k still carries the stance the foot is about to leave and the old expression was right there. Under
+      // `hlip` HlipContactPlanner computes the landing spot of a swing BEFORE stamping plan.footholds over every node
+      // of that single-support phase, so node k already carries the LANDING position - and so does node `end`, since
+      // the double support that follows leaves the feet where the swing put them. The difference was then identically
+      // zero and the log said nothing at all about the step, which defeats the purpose of the line: numClippedSteps
+      // tells the operator that the reach clip had to cut a step, and this is where they look to see which one and by
+      // how much. It is the same lift-off off-by-one that footholdBeforeTime() exists to keep callers out of.
+      //
+      // Node k - 1 is a contact node for this foot under BOTH conventions - under `lip_miqp` footholds[k-1] equals
+      // footholds[k] because the foot was in contact through interval k - 1 - so the one expression serves both
+      // planners and the existing expectation on a hand-built mixed-integer plan is unchanged. A plan that already
+      // begins mid-swing has no pre-lift-off node to measure against; that swing prints its duration and no
+      // displacement, because printing a zero there would be exactly the silent lie this is fixing.
+      if (!inContact && k > 0 && static_cast<size_t>(end) < footholds.size()) {
+        const vector2_t step = footholds[static_cast<size_t>(end)][foot] - footholds[static_cast<size_t>(k - 1)][foot];
         out << "(" << step.x() << "," << step.y() << ")";
       }
       k = end;
@@ -113,6 +132,13 @@ std::optional<scalar_t> ContactPlan::footYawAtTime(size_t contactIndex, scalar_t
   return footYaws[clamped][contactIndex];
 }
 
+std::optional<scalar_t> ContactPlan::footYawBeforeTime(size_t contactIndex, scalar_t time) const {
+  if (!hasHeading() || footYaws.empty()) return std::nullopt;
+  const int node = static_cast<int>(std::lround((time - startTime) / dt)) - 1;
+  const int clamped = std::clamp(node, 0, static_cast<int>(footYaws.size()) - 1);
+  return footYaws[clamped][contactIndex];
+}
+
 std::optional<vector2_t> ContactPlan::comPositionAtTime(scalar_t time) const {
   return interpolateNodes(comPosition, startTime, dt, valid ? time : startTime);
 }
@@ -124,6 +150,13 @@ std::optional<vector2_t> ContactPlan::comVelocityAtTime(scalar_t time) const {
 std::optional<vector2_t> ContactPlan::footholdAtTime(size_t contactIndex, scalar_t time) const {
   if (!valid || footholds.empty()) return std::nullopt;
   const int node = static_cast<int>(std::lround((time - startTime) / dt));
+  const int clamped = std::clamp(node, 0, static_cast<int>(footholds.size()) - 1);
+  return footholds[clamped][contactIndex];
+}
+
+std::optional<vector2_t> ContactPlan::footholdBeforeTime(size_t contactIndex, scalar_t time) const {
+  if (!valid || footholds.empty()) return std::nullopt;
+  const int node = static_cast<int>(std::lround((time - startTime) / dt)) - 1;
   const int clamped = std::clamp(node, 0, static_cast<int>(footholds.size()) - 1);
   return footholds[clamped][contactIndex];
 }

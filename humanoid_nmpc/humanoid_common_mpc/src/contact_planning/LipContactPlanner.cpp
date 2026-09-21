@@ -144,8 +144,28 @@ std::string LipContactPlanner::formulationSummary(const ContactPlanningConfig& c
 int LipContactPlanner::previousPlanShift(const ContactPlannerInput& input) const {
   if (!previousPlan_ || !previousPlan_->valid || previousAssignment_.empty()) return -1;
   const ContactPlan& prev = *previousPlan_;
-  if (prev.numIntervals() != config_.planner.numNodes || std::abs(prev.dt - config_.planner.dt) > 1e-9) return -1;
-  const int shift = static_cast<int>(std::lround((input.time - prev.startTime) / config_.planner.dt));
+  // The node count still has to match, because the shift indexes the previous plan's per-node arrays and the previous
+  // assignment with the SAME node count the current problem has. A node duration is not that kind of mismatch: the
+  // shift is a number of nodes, and it is measured on the grid the stored plan was emitted on, which is the plan's own
+  // dt and not necessarily planner.dt.
+  //
+  // This guard used to also demand |prev.dt - planner.dt| <= 1e-9 and then divide by planner.dt. Nothing in the
+  // configuration can make those two differ - setConfig() calls reset() on any change of the grid - so the only plan
+  // the test ever rejected was one the planner itself had just produced on a stretched grid: CadenceStretchStage sets
+  // SearchRun::chosenDt and plan() copies it into ContactPlan::dt. The cycle after every stretch therefore came back
+  // with previousPlanShift() == -1 and ContactPlanningContext::previousPlan == nullptr, which silently disabled four
+  // things at once - WarmStartPreviousPlanStage returned immediately, PlanConsistencyCost contributed 0,
+  // PreviousFootholdConsistencyCost emitted no rows at all, and defaultNominal() fell back to the straight-line
+  // extrapolation of the command instead of the previous plan's heading, CoM and footholds. The two costs that exist
+  // to damp foothold and pattern jitter between cycles were inert exactly while the stretch kept firing, with nothing
+  // logged to say so, and the branch-and-bound restarted cold against planner.maxSolveTime every time.
+  //
+  // A node-index shift stays meaningful across a re-timed grid: the previous assignment is a per-node contact pattern
+  // over the same node count, and the foothold and heading lookups in defaultNominal() are per-node geometry, none of
+  // which is a function of how long a node lasts. Measuring the shift on prev.dt is what makes "the node of the
+  // previous plan that is live now" mean the same thing on both grids.
+  if (prev.numIntervals() != config_.planner.numNodes || !(prev.dt > 0.0)) return -1;
+  const int shift = static_cast<int>(std::lround((input.time - prev.startTime) / prev.dt));
   if (shift < 0 || shift >= config_.planner.numNodes) return -1;
   return shift;
 }
@@ -179,8 +199,15 @@ scalar_t LipContactPlanner::assignmentCost(const ContactPlannerInput& input, con
   return problem_.assignmentCost(makeLogicState(input), assignment);
 }
 
-HeadingNominal LipContactPlanner::defaultNominal(const ContactPlannerInput& input) const {
+HeadingNominal LipContactPlanner::defaultNominal(const ContactPlannerInput& input, scalar_t nodeDuration) const {
   const int N = config_.planner.numNodes;
+  // The grid this nominal is to be read on. It is planner.dt for the plan's own problem and the stretched node
+  // duration for a candidate of CadenceStretchStage, and the difference matters because the two branches below are of
+  // different kinds. The previous-plan branch is per-node GEOMETRY - node k of the previous plan is node k of this one
+  // shifted - and a re-timing of the grid re-times that plan's phases with it, so it is indexed by node whatever a
+  // node lasts. The commanded-ramp branch is a function of TIME: it integrates the commanded yaw rate and CoM
+  // velocity, so node k of a grid of duration `nodeDuration` sits at k * nodeDuration and must be sampled there.
+  const scalar_t dt = nodeDuration > 0.0 ? nodeDuration : config_.planner.dt;
   HeadingNominal nominal;
   nominal.heading.resize(static_cast<size_t>(N) + 1);
   nominal.com.resize(static_cast<size_t>(N) + 1);
@@ -207,7 +234,7 @@ HeadingNominal LipContactPlanner::defaultNominal(const ContactPlannerInput& inpu
       nominal.com[i] = previousPlan_->comPosition[source];
       nominal.feet[i] = previousPlan_->footholds[source];
     } else {
-      const scalar_t t = static_cast<scalar_t>(k) * config_.planner.dt;
+      const scalar_t t = static_cast<scalar_t>(k) * dt;
       nominal.heading[i] = input.heading + input.headingRateCommand * t;
       nominal.com[i] = input.comPosition + input.comVelocity * t;
       nominal.feet[i] = input.footPositions;
@@ -338,11 +365,45 @@ ContactPlan LipContactPlanner::plan(const ContactPlannerInput& input) {
   run.problem = &lastProblem_;
   run.result = &lastResult_;
   run.statistics = &statistics_;
-  run.assembleWithNominal = [this, &input](const HeadingNominal& relinearised) {
-    return problem_.assemble(makeContext(input, relinearised));
+  // Both re-assembly closures below build their context on the grid CURRENTLY IN FORCE, which is SearchRun::chosenDt
+  // once a stage has adopted a re-timed grid and planner.dt (the 0 fallback of makeContext) until then. The stages run
+  // in the order of the `search` list and every one of them sees the grid the one before it adopted, so the node
+  // duration survives whatever order cadence_stretch and heading_relinearisation are listed in.
+  //
+  // The LINEARISATION POINT does not compose the same way yet, and the asymmetry is worth stating: a stretch listed
+  // after a re-linearisation rebuilds the nominal from the command (or from the previous plan) and so drops that
+  // stage's relinearised frame, because SearchRun carries the adopted grid but has no field for the adopted nominal,
+  // and a stage's re-assembly closure is also called speculatively - for candidates it then rejects - so this side
+  // cannot infer the adopted point from the calls alone. Listing cadence_stretch before heading_relinearisation - the
+  // order setHeadingModel(true) produces when the stretch is already listed, since it appends - costs nothing and
+  // keeps both: the re-linearisation then runs last, on the stretched grid, around the incumbent's own heading.
+  //
+  // assembleWithNominal used to pass no node duration at all, so makeContext reset the grid to planner.dt. A
+  // heading_relinearisation listed after a cadence_stretch then re-solved the incumbent on the UNSTRETCHED grid and
+  // replaced *run.problem, result.solution and result.incumbentObjective with that solve, while run.chosenDt kept the
+  // stretched value that plan() copies into ContactPlan::dt below. The emitted plan paired a node duration of s * dt
+  // with trajectories that satisfy the dt recursion, and since ContactPlan::dt is the sole carrier of the grid -
+  // toModeSchedule() places every event at startTime + dt * k and footholdAtTime() rounds with it - a lift-off or
+  // touch-down at node k was handed to the whole-body MPC (s - 1) k dt late, 0.3 s at the end of a twelve-node horizon
+  // stretched by a quarter. Nothing rejected the order: the `search` list is
+  // documented as not order-sensitive and validate() imposes no order on it, and setHeadingModel(true) appends
+  // heading_relinearisation to a list that may already contain cadence_stretch.
+  run.assembleWithNominal = [this, &input, &run](const HeadingNominal& relinearised) {
+    return problem_.assemble(makeContext(input, relinearised, run.chosenDt));
   };
-  run.assembleWithGrid = [this, &input, &nominal](scalar_t nodeDuration) {
-    return problem_.assemble(makeContext(input, nominal, nodeDuration));
+  // The mirror of the same mistake: this closure used to capture the nominal that defaultNominal() built on the
+  // unstretched grid and hand it to a context whose dt alone had been overridden. A HeadingNominal is indexed by node,
+  // so on a grid of duration s * dt node k sits at time k * s * dt while nominal.heading[k] and nominal.com[k] still
+  // described k * dt. Every term that reads ctx.dt was re-timed (LipComDynamics, HeadingDoubleIntegrator,
+  // HeadingTrackingCost, StepLengthCost, TerminalDcmCost) and every term that reads ctx.nominal was not, so
+  // heading_tracking pulled the heading to the commanded ramp on the stretched clock while foot_yaw_tracking aimed the
+  // feet at the ramp on the old one, and the yaw-aligned frame the reachability, foot-separation and step-width rows
+  // are linearised in was rotated away from the heading the same QP was solving for. Rebuilding the nominal on the
+  // candidate grid removes that disagreement; the stretch then costs what it really costs, which is what
+  // CadenceStretchStage compares against the unstretched incumbent.
+  run.assembleWithGrid = [this, &input](scalar_t nodeDuration) {
+    const HeadingNominal retimed = defaultNominal(input, nodeDuration);
+    return problem_.assemble(makeContext(input, retimed, nodeDuration));
   };
   run.start = start;
   run.verbose = config_.planner.verbose;

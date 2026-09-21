@@ -119,17 +119,25 @@ at that cadence and command.
 
 ## 3b. The cadence is the lateral stability budget
 
-The lateral pendulum amplifies an offset by `cosh(w T_ssp)` every single support: **1.79** at `T_ssp = 0.35 s`,
-**2.82** at `0.5 s`, for `z0 = 0.85 m`. The deadbeat law cancels that, but only if the step it asks for is reachable.
-Worked example, starting to walk from a standstill with the centre of mass still between the feet:
+The lateral pendulum amplifies an offset by `cosh(w T_ssp)` every single support: **1.38** at the shipped
+`T_ssp = 0.25 s`, **1.79** at `0.35 s`, **2.82** at `0.5 s`, for `z0 = 0.85 m`. The deadbeat law cancels that, but only
+if the step it asks for is reachable. Worked example, starting to walk from a standstill with the centre of mass still
+between the feet, computed at **`T_dsp = 0.05 s`** and `stepWidth = 0.25 m`.
+
+Naming `T_dsp` is not pedantry. It enters the deadbeat gain directly — `K = [1, T_dsp + coth(w T_ssp) / w]` — so the
+last column moves with it (at `T_ssp = 0.35 s` the demand is 0.49 m with `T_dsp = 0`, 0.52 m at the shipped 0.05 s and
+0.55 m at 0.1 s), and this table used to quote no `T_dsp` at all, with rows that could not all be reproduced from any
+single value. `HlipContactPlanner::startUpLateralStep` computes that column, and the planner prints it at start-up, so
+it can always be checked against the configuration that is actually running rather than against the numbers here.
 
 | `T_ssp` | `cosh(w T_ssp)` | pre-impact lateral state | step the law asks for | reach clip |
 | --- | --- | --- | --- | --- |
 | 0.5 s | 2.82 | `p = 0.353 m`, `v = 1.12 m/s` | **0.79 m** | cut to 0.45 m — diverges |
-| 0.35 s | 1.79 | `p = 0.224 m`, `v = 0.63 m/s` | 0.49 m | cut to 0.45 m — marginal |
+| 0.35 s | 1.79 | `p = 0.224 m`, `v = 0.63 m/s` | **0.52 m** | cut to 0.45 m — this is the cadence that fell |
+| **0.25 s (shipped)** | 1.38 | `p = 0.173 m`, `v = 0.41 m/s` | 0.42 m | inside the 0.45 m reach — fits |
 | 0.35 s, after the centre of mass has moved over the stance foot | 1.79 | `p = 0.036 m`, `v = 0.10 m/s` | 0.12 m | within reach |
 
-The third row is why `dspDuration` is not zero here although the paper sets it to zero: the reduced model's double
+The last row is why `dspDuration` is not zero here although the paper sets it to zero: the reduced model's double
 support only drifts at constant velocity and does not represent the weight transfer, so its only real job is to give
 the whole-body MPC the time to move the centre of mass over the next stance foot before that foot has to carry the
 robot alone. Starting a single support with the centre of mass still between the feet is what makes the lateral step
@@ -143,36 +151,46 @@ of mass becomes the planned one, and the reference linear momentum — which in 
 mass velocity — becomes the planned centre-of-mass velocity.
 
 This is the paper's equations 11–14, not a correction heuristic, and it is not optional. The H-LIP's period-two orbit
-requires the centre of mass to be *falling towards the swing foot* at the pre-impact instant (about 0.23 m/s at the
-shipped cadence). A target trajectory built from the operator's command asks for the opposite: a straight line with
-zero lateral velocity. With both in the cost, the whole-body MPC holds the centre of mass laterally still, the planner
-reads that state back at the next cycle, concludes no lateral step is needed and narrows the step towards
-`minStepWidth` — the support narrows, the next cycle starts further from the orbit, and the robot sidesteps and falls.
-The rule is therefore listed in `execution` by default, and it is the only entry there; everything else in that list
-is a heuristic and stays off.
+requires the centre of mass to be *falling towards the swing foot* at the pre-impact instant — 0.165 m/s at the
+shipped `T_ssp = 0.25 s`, `T_dsp = 0.05 s`. A target trajectory built from the operator's command asks for the
+opposite: a straight line with zero lateral velocity. With both in the cost, the whole-body MPC holds the centre of
+mass laterally still, the planner reads that state back at the next cycle, concludes no lateral step is needed and
+narrows the step towards `minStepWidth` — the support narrows, the next cycle starts further from the orbit, and the
+robot sidesteps and falls. The rule is therefore listed in `execution` by default, and it is the only entry there;
+everything else in that list is a heuristic and stays off. Section 5 below is about what `planner.type: hlip` gives
+up, and this rule is the one thing in the `execution` list it does **not** give up.
 
 ### Every capturability reference must come from the plan too
 
 The centre-of-mass reference is not the only one. The terminal DCM cost (`useDcmTerminalCost`) carries its own: the
 centre of the terminal support plus `velocityOffsetFactor * v_cmd / omega`, i.e. "end the horizon able to come to rest
 over the feet". That is the right reference for a gait whose footholds are decided elsewhere, and the wrong one here.
-The H-LIP's lateral orbit puts the DCM *beyond* the stance foot, towards the foot about to land: at the shipped cadence
-the pre-impact orbit is `p = 0.115 m`, `v = 0.208 m/s` relative to the stance foot, so
+The H-LIP's lateral orbit puts the DCM *beyond* the stance foot, towards the foot about to land. At the shipped
+cadence — `T_ssp = 0.25 s`, `T_dsp = 0.05 s`, `z0 = 0.85 m` so `omega = 3.397`, `stepWidth = 0.25 m`, which makes the
+deadbeat gain `K = [1, T_dsp + coth(w T_ssp) / w] = [1, 0.476]` — the pre-impact orbit is `p = 0.121 m`,
+`v = 0.165 m/s` relative to the stance foot, so
 
 ```
-xi_orbit = p + v / omega = 0.115 + 0.208 / 3.397 = 0.176 m,   xi_support = 0
+xi_orbit = p + v / omega = 0.121 + 0.165 / 3.397 = 0.169 m,   xi_support = 0
 ```
 
-a 17.6 cm disagreement, and with `weight_x = weight_y = 400` and `velocityOffsetFactor: 0` the cost wins. The centre of
+a 16.9 cm disagreement, and with `weight_x = weight_y = 400` and `velocityOffsetFactor: 0` the cost wins. The centre of
 mass is then held over the stance foot with no lateral velocity, the planner reads that state back, and the deadbeat
 law asks for
 
 ```
-u_y = 0.25 + (0 - 0.115) + 0.455 (0 - 0.208) = 0.040 m
+u_y = 0.25 + (0 - 0.121) + 0.476 (0 - 0.165) = 0.051 m
 ```
 
 which the self-collision floor clips to `minStepWidth`. The feet come together, the support narrows, and the robot
 falls sideways — at any commanded speed, including walking in place.
+
+Every figure in the two blocks above is `HlipModel` evaluated at the cadence named at the top of this subsection. They
+were previously written for the 0.35 s / 0.1 s cadence that was retired when `sspDuration` was shortened, and labelled
+"the shipped cadence" rather than stated, so a reader who recomputed them from the configuration got `K = [1, 0.476]`
+where the text said 0.455 and a 16.9 cm disagreement where it said 17.6 cm. The conclusion never depended on the
+cadence — 0.051 m is as far below `minStepWidth: 0.15` as 0.040 m was — but a derivation that cannot be reproduced
+from the running configuration is not usable, so the cadence is spelled out here and in section 3b instead.
 
 So `SwitchedModelReferenceManager::getPlannedDcm(time, omega)` returns the plan's own DCM,
 `com(t) + v(t) / omega`, and `DcmTerminalCost` blends its reference towards it whenever a plan is active. Without a
@@ -221,18 +239,35 @@ Two deviations from the paper's Table II are deliberate:
 
 ## 5. What this removes
 
+The counts below are the **registry** — every term the mixed-integer formulation can be assembled from, which is what
+`knownTermNames()` in `ContactPlanningFormulation.cpp` lists — and not one robot's enabled lists, which are shorter.
+Keep them in step with that function; nothing checks them automatically. They were previously
+15 / 9 / 7 / 4, none of which matched the registry: 15 counted costs that no longer exist, 9 counted the headers in
+`constraint/` including the abstract base class, 7 folded the three assignment costs into the logic rules, and the
+search row silently dropped `cadence_stretch`.
+
 | Removed with `planner.type: hlip` | What it was |
 | --- | --- |
 | `MixedIntegerOcpQp`, branch and bound over HPIPM relaxations | the contact sequence as a mixed-integer program |
-| 15 cost terms (`velocity_tracking`, `step_width`, `zmp_regularization`, `terminal_dcm`, …) | the objective that shaped the footholds |
-| 9 constraint terms (`zmp_support_region`, `reachability`, `foot_separation`, `hip_yaw_range`, …) | the feasible region of that program |
-| 7 logic rules (`phase_durations`, `alternating_feet`, `minimum_double_support`, …) | combinatorial propagation on the contact binaries |
-| 4 search stages (`warm_start_previous_plan`, `diving`, `event_shift_local_search`, `heading_relinearisation`) | the search around the branch and bound |
-| 5 execution rules (`phase_resetting`, `energy_cadence_modulation`, `dcm_step_adjustment`, …) | after-the-fact corrections of the plans |
+| 13 cost terms (`velocity_tracking`, `step_width`, `zmp_regularization`, `terminal_dcm`, …) | the objective that shaped the footholds |
+| 8 constraint terms — 4 soft (`zmp_support_region`, `reachability`, `foot_separation`, `hip_yaw_range`) and 4 hard (`no_flight`, `foot_motion_in_swing_only`, `yaw_torque_budget`, `foot_yaw_pinned_in_contact`) | the feasible region of that program |
+| 4 logic rules (`phase_durations`, `no_flight`, `minimum_double_support`, `alternating_feet`) | combinatorial propagation on the contact binaries |
+| 3 assignment costs (`contact_switch`, `plan_consistency`, `double_support_penalty`) | costs on the binaries themselves, scored outside the QP |
+| 5 search stages (`warm_start_previous_plan`, `diving`, `event_shift_local_search`, `heading_relinearisation`, `cadence_stretch`) | the search around the branch and bound |
+| 4 of the 5 execution rules (`phase_resetting`, `energy_cadence_modulation`, `dcm_step_adjustment`, `planned_heading_override`) | heuristic corrections applied between plans — left off in the shipped configuration, **not** disabled by `planner.type` |
+
+**The execution list is not gated by `planner.type`.** That row used to say "5 execution rules", which was wrong twice
+over. `ContactPlanningReferenceManager::setConfig` and `rebuildExecutionRules` build the rules from
+`config.formulation.execution` whatever the planner is, and `preSolverRun` / `overrideTarget` apply them under either
+one, so switching to `hlip` removes nothing from that list: the four heuristics above are off because the shipped
+configurations comment them out. And the fifth rule, `planned_com_override`, is not a heuristic and is not off — it is
+the paper's equations 11–14 reference plumbing, it is listed in `execution` in both shipped robots, and without it the
+robot sidesteps and falls. See section 3c; do not empty the `execution` list when migrating a robot to `hlip`.
 
 What is left as a heuristic, and is documented as such in the configuration: the clip of the deadbeat step to
 `maxStepLength` / `[minStepWidth, maxStepWidth]`, which exists so that a foothold outside the leg's reach is clipped
-rather than handed to the whole-body MPC.
+rather than handed to the whole-body MPC — and, as the row above says, the one execution rule that stays on, which is
+reference plumbing rather than a heuristic.
 
 A plan costs microseconds instead of the mixed-integer planner's tens of milliseconds, so the node grid can be fine
 (`planner.dt: 0.025`); the cadence is continuous but a mode schedule is not, and a phase boundary is rounded to the
@@ -262,14 +297,26 @@ that it is deadbeat on the measured state. `lip_miqp` is the opposite case - a m
 milliseconds and must not block the solver - so it needs `true`, and `ContactPlanningConfig::validate()` warns when the
 two are mismatched.
 
-Every key of the `hlip` block is a slider in the remote control's MPC Parameters tab, under **Contact Planning**, and
-is hot-reloadable: the parameter updater re-parses the file and hands the configuration to the planner, which rebuilds
-its model from it. The tab's header names the planner that is actually running and marks the blocks it does not read,
-so the mixed-integer planner's term blocks are visibly inert while `hlip` is selected.
+Every numeric key of the `hlip` block is a slider in the remote control's MPC Parameters tab, under **Contact
+Planning**, and is hot-reloadable: the parameter updater re-parses the file and hands the configuration to the planner,
+which rebuilds its model from it. The tab renders every numeric leaf of the block generically, grouped by the
+sub-block its key path sits in (`hlip`, `hlip.blend`, `planner`, …), and nothing in it is written per parameter.
 
-`shared.comHeight` and `shared.gravity` are the pendulum's; the term lists, the per-term blocks and the gait limits
-belong to `lip_miqp` and are ignored. Whether the planner publishes a planned heading and planned foot yaws still
-follows `dynamics: [... heading_double_integrator]`, because that is what the rest of the pipeline keys off.
+That genericity has a consequence worth knowing before you tune: **the tab has no idea which planner is running.**
+`mpc_params_tab.py` never reads `planner.type`, so the mixed-integer planner's per-term blocks are rendered as ordinary
+live sliders while `hlip` is selected even though the planner never reads them, and moving one changes nothing. The
+term lists themselves (`dynamics`, `costs`, `soft_constraints`, `search`, `execution`) do not appear at all, because
+`yaml_param_tree.tunables` yields numeric scalars only and skips strings and lists — they are edited in the file. This
+document previously claimed the header named the running planner and marked the blocks it does not read; it never has,
+and re-introducing that would mean teaching the GUI about particular parameters, which is exactly what the generic
+renderer exists to avoid. If the marking is wanted, it belongs in the file's own structure or in a generic rule, not in
+a hand-written frame.
+
+`shared.comHeight` and `shared.gravity` are the pendulum's; the per-term blocks and the `costs`, `soft_constraints`,
+`hard_constraints`, `logic_rules`, `assignment_costs` and `search` lists belong to `lip_miqp` and are ignored. Two
+lists are not ignored: whether the planner publishes a planned heading and planned foot yaws still follows
+`dynamics: [... heading_double_integrator]`, because that is what the rest of the pipeline keys off, and `execution` is
+read in full under either planner (section 5).
 
 ## 7. Tests
 

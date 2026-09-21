@@ -111,6 +111,17 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
   /** The adhesion a non-gated cone drops, so that a caller can state what it asked for. */
   static Config withoutAdhesion(Config config);
 
+  /** The configuration this term ended up with, after any un-gating adjustment; exposed for the tests. */
+  const Config& getConfig() const { return config_; }
+
+  /**
+   * The 3 x getContactInputDim() block of d(contact force) / d(input) this term linearises through; for the tests.
+   *
+   * It is the identity for a wrench-space model and the force rows of `B_local` under BasisInputsModelDecorator, and
+   * pinning it is what keeps the cone's Jacobian tied to the parameterization actually in use.
+   */
+  const matrix_t& getContactForceInputJacobian() const { return contactForceInputJacobian_; }
+
   ~FrictionForceConeConstraint() override = default;
   FrictionForceConeConstraint* clone() const override { return new FrictionForceConeConstraint(*this); }
 
@@ -134,7 +145,9 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
  private:
   struct LocalForceDerivatives {
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-    matrix3_t dF_du;  // derivative local force w.r.t. forces in world frame
+    // 3 x contactInputDim_: derivative of the local-frame force w.r.t. THIS CONTACT'S INPUT BLOCK. It used to be the
+    // 3x3 rotation alone, which silently assumed the block held the three force components; see the member below.
+    matrix_t dF_du;
   };
 
   struct ConeLocalDerivatives {
@@ -145,13 +158,13 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
 
   struct ConeDerivatives {
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-    vector3_t dCone_du;
-    matrix3_t d2Cone_du2;
+    matrix_t dCone_du;    // 1 x contactInputDim_
+    matrix_t d2Cone_du2;  // contactInputDim_ x contactInputDim_
   };
 
   FrictionForceConeConstraint(const FrictionForceConeConstraint& other);
   vector_t coneConstraint(const vector3_t& localForces) const;
-  LocalForceDerivatives computeLocalForceDerivatives(const vector3_t& forcesInBodyFrame) const;
+  LocalForceDerivatives computeLocalForceDerivatives() const;
   ConeLocalDerivatives computeConeLocalDerivatives(const vector3_t& localForces) const;
   ConeDerivatives computeConeConstraintDerivatives(const ConeLocalDerivatives& coneLocalDerivatives,
                                                    const LocalForceDerivatives& localForceDerivatives) const;
@@ -165,6 +178,17 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
 
   const Config config_;
   const size_t contactPointIndex_;
+
+  // WHERE THIS CONTACT'S INPUTS ARE, AND HOW ITS FORCE DEPENDS ON THEM, read off the model at construction rather
+  // than assumed. The wrench-space CentroidalMpcRobotModel stores the three force components directly in the input,
+  // so d(force)/d(input) over the block is an identity and the derivative could be written as a 3x3 at the force
+  // start index. Under BasisInputsModelDecorator - which the shipped DRC Atlas runs - the same contact occupies a
+  // wider block of basis scalings and the force is `B_local * lambda`, so that 3x3 write lands on the first three
+  // scalings and is wrong in every entry: getValue() evaluated the cone on `B_local * lambda` while the solver was
+  // handed the Jacobian of a different function. See contactForceInputJacobian().
+  const size_t contactInputStart_;
+  const size_t contactInputDim_;
+  const matrix_t contactForceInputJacobian_;  // 3 x contactInputDim_
 
   // rotation world to terrain
   matrix3_t t_R_w = matrix3_t::Identity();

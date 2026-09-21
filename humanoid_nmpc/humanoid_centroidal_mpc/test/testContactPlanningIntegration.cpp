@@ -668,6 +668,119 @@ TEST_F(ContactPlanningIntegrationTest, AdaptsScheduleToContactEventsAndDcmError)
 }
 
 /**
+ * A plan whose whole horizon has passed must stop driving the references, not clamp to its last node forever.
+ *
+ * The mode-schedule merge already refused a stale plan (`planUsable` requires committedUntil >= initTime). Every plan
+ * derived REFERENCE was gated on hasActivePlan() alone, which has no time in it: `activePlan_` is assigned in one
+ * place and never cleared, and every ContactPlan lookup CLAMPS instead of reporting that the query ran off the end.
+ * So a controller whose planner had stopped producing plans - a dead thread, a solver that began failing - went on
+ * being steered by the last one indefinitely, which is exactly when that is least safe.
+ */
+/**
+ * Resampling the operator's target onto the plan grid must EXTEND it, not truncate it to the plan's horizon.
+ *
+ * The resample exists so that a rule rewriting a state at a plan node has a knot there. It replaced the whole target
+ * with a grid spanning [plan.startTime, plan.endTime()], and nothing intersected that with the solver horizon. OCS2
+ * zero-order-extrapolates past the last knot, so as soon as the plan was older than (plan horizon - MPC horizon) the
+ * entire reference tail froze at the plan-end sample. The replacement is permanent - ReferenceManager::preSolverRun
+ * keeps the mutated trajectory as the live one - so the operator's command past that point was discarded, not merely
+ * ignored for one cycle.
+ */
+TEST_F(ContactPlanningIntegrationTest, TheResampledTargetStillCoversTheSolverHorizon) {
+  auto module = interface_->getContactPlannerModulePtr();
+  ASSERT_NE(module, nullptr);
+  auto referenceManager = std::dynamic_pointer_cast<ContactPlanningReferenceManager>(interface_->getSwitchedModelReferenceManagerPtr());
+  ASSERT_NE(referenceManager, nullptr);
+
+  const vector_t state = interface_->getInitialState();
+  const scalar_t horizon = interface_->mpcSettings().timeHorizon_;
+  const size_t inputDim = interface_->getEffectiveMpcRobotModel().getInputDim();
+
+  // A target that RAMPS, so that a frozen tail is distinguishable from a correct one. Held constant, the truncated
+  // and the extended target would agree everywhere and the test would prove nothing.
+  vector_t start = vector_t::Zero(state.size());
+  start.segment(6, 6) = state.segment(6, 6);
+  vector_t far = start;
+  far(0) = 1.5;
+  const scalar_t rampEnd = 3.0;
+  referenceManager->setTargetTrajectories(
+      TargetTrajectories({0.0, rampEnd}, {start, far}, {vector_t::Zero(inputDim), vector_t::Zero(inputDim)}));
+
+  scalar_t t = 0.0;
+  referenceManager->preSolverRun(t, t + horizon, state, ModeNumber::STANCE);
+  module->preSolverRun(t, t + horizon, state, *referenceManager);
+  ASSERT_TRUE(module->getStatistics().lastPlanValid);
+  referenceManager->preSolverRun(t, t + horizon, state, ModeNumber::STANCE);
+  ASSERT_TRUE(referenceManager->hasActivePlan());
+  const scalar_t planEnd = referenceManager->getActiveContactPlan()->endTime();
+
+  // Age the plan past the point where its horizon stops covering the solver's, WITHOUT replanning.
+  t = planEnd - horizon + 0.3;
+  ASSERT_LT(planEnd, t + horizon) << "the plan must fall short of finalTime for this test to mean anything";
+  ASSERT_LT(t + horizon, rampEnd) << "the solver horizon must stay inside the ramp";
+  referenceManager->preSolverRun(t, t + horizon, state, ModeNumber::STANCE);
+
+  const TargetTrajectories& live = referenceManager->getTargetTrajectories();
+  ASSERT_FALSE(live.empty());
+  EXPECT_GE(live.timeTrajectory.back(), t + horizon - 1e-9)
+      << "the resampled target ends at " << live.timeTrajectory.back() << " but the solver runs to " << (t + horizon);
+
+  // And the value at the far end is the ramp's, not the plan-end sample held flat.
+  const scalar_t expected = 1.5 * (t + horizon) / rampEnd;
+  const scalar_t frozen = 1.5 * planEnd / rampEnd;
+  ASSERT_GT(std::abs(expected - frozen), 0.05) << "the two readings must differ for this test to discriminate";
+  EXPECT_NEAR(live.getDesiredState(t + horizon)(0), expected, 1e-3)
+      << "the reference tail froze at the plan-end sample instead of following the command";
+}
+
+TEST_F(ContactPlanningIntegrationTest, AnExpiredPlanStopsDrivingTheReferences) {
+  auto module = interface_->getContactPlannerModulePtr();
+  ASSERT_NE(module, nullptr);
+  auto referenceManager = std::dynamic_pointer_cast<ContactPlanningReferenceManager>(interface_->getSwitchedModelReferenceManagerPtr());
+  ASSERT_NE(referenceManager, nullptr);
+
+  const vector_t state = interface_->getInitialState();
+  const scalar_t horizon = interface_->mpcSettings().timeHorizon_;
+  const size_t inputDim = interface_->getEffectiveMpcRobotModel().getInputDim();
+  vector_t walkingTarget = vector_t::Zero(state.size());
+  walkingTarget.segment(6, 6) = state.segment(6, 6);
+  walkingTarget(0) = 0.4;
+  scalar_t t = 0.0;
+  referenceManager->setTargetTrajectories(TargetTrajectories({t}, {walkingTarget}, {vector_t::Zero(inputDim)}));
+
+  // One planning cycle, so that a plan becomes active.
+  referenceManager->preSolverRun(t, t + horizon, state, ModeNumber::STANCE);
+  module->preSolverRun(t, t + horizon, state, *referenceManager);
+  ASSERT_TRUE(module->getStatistics().lastPlanValid);
+  t += 0.02;
+  referenceManager->preSolverRun(t, t + horizon, state, ModeNumber::STANCE);
+  ASSERT_TRUE(referenceManager->hasActivePlan());
+
+  const ContactPlan& plan = *referenceManager->getActiveContactPlan();
+  const scalar_t planEnd = plan.endTime();
+  ASSERT_GT(planEnd, t) << "the plan should still be live at this point";
+  EXPECT_TRUE(referenceManager->planReferencesUsableAt(t));
+
+  // Now advance the solver WITHOUT ever running the planner again, past the end of that plan's horizon.
+  // referenceManager->preSolverRun is what the MPC calls every cycle; module->preSolverRun is what makes a new plan.
+  const scalar_t expiredTime = planEnd + 1.0;
+  for (scalar_t step = t; step <= expiredTime; step += 0.1) {
+    referenceManager->preSolverRun(step, step + horizon, state, ModeNumber::STANCE);
+  }
+  referenceManager->preSolverRun(expiredTime, expiredTime + horizon, state, ModeNumber::STANCE);
+
+  // The plan object is still there - nothing clears it - but it may no longer speak for the robot.
+  EXPECT_TRUE(referenceManager->hasActivePlan()) << "the plan is retained; only its authority expires";
+  EXPECT_FALSE(referenceManager->planReferencesUsableAt(expiredTime));
+  EXPECT_FALSE(referenceManager->getPlannedDcm(expiredTime, 3.5).has_value())
+      << "an expired plan must not go on aiming the terminal DCM cost";
+  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    EXPECT_FALSE(referenceManager->getSwingFootReference(foot, expiredTime).has_value())
+        << "an expired plan must not go on placing foot " << foot;
+  }
+}
+
+/**
  * The xy swing reference of a later swing of the same foot inside the horizon starts from where that foot will stand
  * after its earlier step, not from the position latched while it stands now. With a plan long enough to hold two swings
  * of one foot the two differ by a step length.
@@ -737,15 +850,21 @@ TEST_F(ContactPlanningIntegrationTest, LaterSwingOfTheSameFootStartsFromItsPlann
   EXPECT_LT((firstReference->position.head<2>() - measuredStance).norm(), 2e-3);
 
   // The second swing starts from the planned landing spot of the first, not from where the foot stands now.
+  //
+  // The expectation is the LANDING OF THE FIRST SWING, derived from the touch-down time alone. It used to be
+  // `footholdAtTime(second->liftOff - 0.5 * plan.dt + 1e-9)` - the very expression getSwingFootReference() used - so
+  // the test restated the implementation instead of checking it and could not have failed for an off-by-one in that
+  // rounding. It did not: `lround(k - 0.5 + eps) == k` reads the lift-off node, which under the `hlip` planner already
+  // holds the landing position.
   const auto secondReference = referenceManager->getSwingFootReference(foot, second->liftOff + 1e-4);
   ASSERT_TRUE(secondReference.has_value());
-  const vector2_t plannedStanceBeforeSecond = *plan.footholdAtTime(foot, second->liftOff - 0.5 * plan.dt + 1e-9);
   const vector2_t landingOfFirst = *plan.footholdAtTime(foot, first->touchDown);
-  EXPECT_LT((plannedStanceBeforeSecond - landingOfFirst).norm(), 1e-9) << "the foot does not move between its steps";
-  EXPECT_LT((secondReference->position.head<2>() - plannedStanceBeforeSecond).norm(), 2e-3)
-      << "reference " << secondReference->position.head<2>().transpose() << " vs planned stance " << plannedStanceBeforeSecond.transpose();
-  EXPECT_GT((plannedStanceBeforeSecond - measuredStance).norm(), 0.05)
-      << "the two starts must differ by a step for this test to mean anything";
+  EXPECT_LT((secondReference->position.head<2>() - landingOfFirst).norm(), 2e-3)
+      << "reference " << secondReference->position.head<2>().transpose() << " vs the first swing's landing " << landingOfFirst.transpose();
+  EXPECT_GT((landingOfFirst - measuredStance).norm(), 0.05) << "the two starts must differ by a step for this test to mean anything";
+  // And the reference must actually travel over the swing rather than sit at its target.
+  EXPECT_GT(secondReference->linearVelocity.head<2>().norm(), 1e-3)
+      << "a swing whose start equals its landing target commands zero xy velocity";
 
   module->setConfig(config);
 }

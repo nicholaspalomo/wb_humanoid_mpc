@@ -40,9 +40,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/constraint/ContactMomentXYConstraintCppAd.h"
 #include "humanoid_common_mpc/constraint/ContactWrenchConeConstraint.h"
 #include "humanoid_common_mpc/constraint/FrictionForceConeConstraint.h"
+#include "humanoid_common_mpc/contact/ContactInputJacobian.h"
 #include "humanoid_common_mpc/cost/StateInputQuadraticCost.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "support/DrcAtlasContactTestModel.h"
+#include "support/FiniteDifferenceChecks.h"
 
 namespace ocs2::humanoid {
 namespace {
@@ -499,6 +501,129 @@ TEST_F(ContactConstraintScheduleGatingTest, theQuadraticCostPricesALoadedSwingFo
   EXPECT_LT(cost.getValue(kTime, model_->nominalState(), stanceCarries, target, preComp),
             cost.getValue(kTime, model_->nominalState(), swingAlsoCarries, target, preComp))
       << "loading the scheduled swing foot must be the more expensive of the two";
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// The friction cone's INPUT JACOBIAN, which has to follow the input parameterization the model actually uses.
+//
+// Section 2a of the contact-implicit README names this term as one of the four that must be un-gated, so a task file
+// that follows it may list `friction_force_cone` alongside `useContactBasisVectorInputs: true`. The cone wrote its
+// derivative as a fixed 3x3 at getContactForceStartIndices(), i.e. it assumed the input stores the three force
+// components there. Under BasisInputsModelDecorator that index is the start of an 11-wide block of basis scalings and
+// the force is `B_local * lambda`, so the write landed on the first three scalings and the solver was handed the
+// Jacobian of a function the term was not evaluating. getValue() was right throughout, which is exactly why nothing
+// caught it.
+// ---------------------------------------------------------------------------------------------------------------
+
+/** A working point with a genuinely OBLIQUE contact force, so the tangential rows of dCone_dF do not vanish. */
+vector_t loadedInputWithTangentialForce(const DrcAtlasContactTestModel& model, const MpcRobotModelBase<scalar_t>& robotModel) {
+  vector_t input = model.makeInput(robotModel, kSwingFoot, 800.0);
+  const size_t start = robotModel.getContactWrenchStartIndices(kSwingFoot);
+  if (robotModel.getContactInputDim(kSwingFoot) == CONTACT_WRENCH_DIM) {
+    // Wrench-space: tilt the force directly.
+    input(static_cast<long>(start + WRENCH_FORCE_X_INDEX)) = 120.0;
+    input(static_cast<long>(start + WRENCH_FORCE_Y_INDEX)) = -80.0;
+  } else {
+    // Basis-vector: lean on two friction-pyramid edge generators, which are the first numBasisVectors columns of
+    // B_local and the only ones with a tangential component.
+    input(static_cast<long>(start + 0)) += 150.0;
+    input(static_cast<long>(start + 1)) += 60.0;
+  }
+  const vector3_t force = robotModel.getContactForce(input, kSwingFoot);
+  EXPECT_GT(force.head<2>().norm(), 10.0) << "the working point must have a tangential force, or the test proves nothing "
+                                             "about the x and y rows of the force Jacobian";
+  return input;
+}
+
+TEST_F(ContactConstraintScheduleGatingTest, theForceJacobianIsTheIdentityBlockOnTheWrenchModel) {
+  const std::unique_ptr<FrictionForceConeConstraint> cone = makeFrictionCone(/*scheduleGated=*/false);
+  const matrix_t jacobian = cone->getContactForceInputJacobian();
+
+  // The wrench model stores the force in the first three entries of a six-wide wrench block, so d(force)/d(block) is
+  // [I3 | 0]. This is the case the hard-coded 3x3 happened to be right for.
+  ASSERT_EQ(jacobian.rows(), 3);
+  ASSERT_EQ(jacobian.cols(), static_cast<long>(CONTACT_WRENCH_DIM));
+  EXPECT_TRUE(jacobian.leftCols<3>().isIdentity(1e-12)) << jacobian;
+  EXPECT_TRUE(jacobian.rightCols<3>().isZero(1e-12)) << "the moment cannot move the force";
+}
+
+TEST_F(ContactConstraintScheduleGatingTest, theForceJacobianIsTheBasisGeneratorsOnTheBasisModel) {
+  const FrictionForceConeConstraint cone(model_->referenceManager(), FrictionForceConeConstraint::Config(), kSwingFoot,
+                                         model_->basisModel(), /*scheduleGated=*/false);
+  const matrix_t jacobian = cone.getContactForceInputJacobian();
+
+  ASSERT_EQ(jacobian.rows(), 3);
+  ASSERT_EQ(jacobian.cols(), static_cast<long>(model_->numBasisPerFoot()))
+      << "the cone must linearise through the whole scaling block, not through three of it";
+
+  // It is the force rows of B_local. Every generator of ContactWrenchConeBasisMatrix is a unit normal force applied
+  // somewhere on the footprint, so the third row is all ones - the same property the load indicator rests on.
+  EXPECT_TRUE(jacobian.row(2).isOnes(1e-12)) << jacobian.row(2);
+  EXPECT_GT(jacobian.topRows<2>().cwiseAbs().maxCoeff(), 0.1)
+      << "the friction-pyramid generators must contribute tangential force, or the x and y columns are dead";
+  // And it is emphatically NOT the identity the pre-fix code wrote there.
+  EXPECT_FALSE(jacobian.leftCols<3>().isIdentity(1e-9));
+}
+
+TEST_F(ContactConstraintScheduleGatingTest, theConeDerivativesMatchFiniteDifferencesOnTheWrenchModel) {
+  const std::unique_ptr<FrictionForceConeConstraint> cone = makeFrictionCone(/*scheduleGated=*/false);
+  const vector_t input = loadedInputWithTangentialForce(*model_, model_->wrenchModel());
+  expectStateInputDerivativesMatchFiniteDifferences(*cone, model_->nominalState(), input);
+}
+
+TEST_F(ContactConstraintScheduleGatingTest, theConeDerivativesMatchFiniteDifferencesOnTheBasisModel) {
+  // The regression: this fails on the pre-fix code, for every column of the scaling block.
+  const FrictionForceConeConstraint cone(model_->referenceManager(), FrictionForceConeConstraint::Config(), kSwingFoot,
+                                         model_->basisModel(), /*scheduleGated=*/false);
+  const vector_t input = loadedInputWithTangentialForce(*model_, model_->basisModel());
+  expectStateInputDerivativesMatchFiniteDifferences(cone, model_->nominalState(), input);
+}
+
+TEST_F(ContactConstraintScheduleGatingTest, theConeHessianMatchesFiniteDifferencesOfItsGradientOnTheBasisModel) {
+  // The second-order block moved with the first, and the SQP solver reads it: getQuadraticApproximation() is what
+  // ConstraintOrder::Quadratic exists for. Differentiating the analytic gradient isolates d2Cone_du2 from dCone_du.
+  const FrictionForceConeConstraint::Config config;
+  const FrictionForceConeConstraint cone(model_->referenceManager(), config, kSwingFoot, model_->basisModel(),
+                                         /*scheduleGated=*/false);
+  const vector_t input = loadedInputWithTangentialForce(*model_, model_->basisModel());
+  const vector_t state = model_->nominalState();
+  const PreComputation preComp;
+
+  const VectorFunctionQuadraticApproximation quadratic = cone.getQuadraticApproximation(kTime, state, input, preComp);
+  ASSERT_EQ(quadratic.dfduu.size(), 1U);
+  // getQuadraticApproximation() subtracts the Hessian shift from the whole diagonal; add it back before comparing.
+  matrix_t analytic = quadratic.dfduu.front();
+  analytic.diagonal().array() += config.hessianDiagonalShift;
+
+  for (long column = 0; column < input.size(); ++column) {
+    vector_t perturbed = input;
+    perturbed(column) += kFiniteDifferenceStep;
+    const matrix_t forward = cone.getLinearApproximation(kTime, state, perturbed, preComp).dfdu;
+    perturbed(column) -= 2.0 * kFiniteDifferenceStep;
+    const matrix_t backward = cone.getLinearApproximation(kTime, state, perturbed, preComp).dfdu;
+    const vector_t numerical = ((forward - backward) / (2.0 * kFiniteDifferenceStep)).row(0).transpose();
+    for (long row = 0; row < numerical.size(); ++row) {
+      EXPECT_NEAR(analytic(row, column), numerical(row), kDerivativeTol) << "dfduu(" << row << ", " << column << ")";
+    }
+  }
+}
+
+TEST_F(ContactConstraintScheduleGatingTest, theConeTouchesOnlyItsOwnContactsInputs) {
+  // A Jacobian written at the wrong offset does not merely lose its own columns, it writes into a neighbour's. On the
+  // basis model the two feet's blocks are adjacent, so the left foot's cone reaching three columns past its start is
+  // how this would show up in the QP.
+  const FrictionForceConeConstraint cone(model_->referenceManager(), FrictionForceConeConstraint::Config(), kSwingFoot,
+                                         model_->basisModel(), /*scheduleGated=*/false);
+  const vector_t input = loadedInputWithTangentialForce(*model_, model_->basisModel());
+  const PreComputation preComp;
+  const matrix_t dfdu = cone.getLinearApproximation(kTime, model_->nominalState(), input, preComp).dfdu;
+
+  const long start = static_cast<long>(model_->basisModel().getContactWrenchStartIndices(kSwingFoot));
+  const long width = static_cast<long>(model_->numBasisPerFoot());
+  matrix_t outsideTheBlock = dfdu;
+  outsideTheBlock.middleCols(start, width).setZero();
+  EXPECT_TRUE(outsideTheBlock.isZero(1e-12)) << "the cone of one foot must not put gradient on another input: " << outsideTheBlock;
+  EXPECT_GT(dfdu.middleCols(start, width).cwiseAbs().maxCoeff(), 1e-6) << "and it must put some on its own";
 }
 
 }  // namespace

@@ -319,6 +319,35 @@ absl::StatusOr<MpcFormulationTasks> loadMpcFormulationTasks(absl::string_view ta
         "Remove 'zero_wrench' from hard_constraints to run the contact-implicit formulation "
         "(humanoid_nmpc/docs/contact_implicit_mpc/README.md).");
   }
+  // WITHOUT `zero_wrench` SOMETHING STILL HAS TO BOUND THE CONTACT WRENCH, and only a cone does.
+  //
+  // `zero_wrench` is what let every contact cone gate itself on the mode schedule: the swinging foot's wrench was
+  // already pinned to zero, so there was nothing left for a cone to bound. contactConstraintsAreScheduleGated() now
+  // keys the gate off that constraint, so dropping it un-gates the cones - but un-gating a cone that is not there
+  // enforces nothing. The relaxed complementarity conditions this formulation is built on are
+  //
+  //     f_n >= 0,   h >= 0,   f_n h = 0,
+  //
+  // and `contact_complementarity` and `ground_penetration` supply only the second and the third. The first is the
+  // cone's, and without it a foot may pull on the ground: at h = 0 the complementarity product is zero for ANY f_n,
+  // including a negative one, so nothing in the formulation objects to adhesion on a foot that is on the floor.
+  //
+  // Either cone will do here. `contact_wrench_cone` carries the friction, centre-of-pressure and torsional rows
+  // together; `friction_force_cone` carries mu*Fz - |F_xy| >= 0, which bounds the normal force below on its own. The
+  // basis-vector parameterization needs the first one specifically, because that is the branch that builds the
+  // non-negativity barrier on the scalings - CentroidalMpcInterface refuses the narrower combination.
+  if (!contactConstraintsAreScheduleGated(formulationTasks) &&
+      !formulationTasks.hasSoftConstraint(MpcSoftConstraintType::ContactWrenchCone) &&
+      !formulationTasks.hasSoftConstraint(MpcSoftConstraintType::FrictionForceCone)) {
+    return absl::InvalidArgumentError(
+        "[loadMpcFormulationTasks] with the hard 'zero_wrench' constraint removed, 'contact_wrench_cone' or "
+        "'friction_force_cone' must be listed in soft_constraints: 'zero_wrench' is what pinned the swinging foot's wrench "
+        "to zero, and it is also what let the contact cones gate themselves on the mode schedule, so without it and "
+        "without a cone nothing bounds any foot's wrench at all - adhesion, unlimited friction, a centre of pressure "
+        "anywhere. f_n >= 0 is the first of the three conditions the contact-implicit formulation rests on, and neither "
+        "'contact_complementarity' nor 'ground_penetration' supplies it "
+        "(humanoid_nmpc/docs/contact_implicit_mpc/README.md).");
+  }
   if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::ForceWeightedSlip) &&
       (formulationTasks.hasHardConstraint(MpcHardConstraintType::ZeroVelocity) ||
        formulationTasks.hasSoftConstraint(MpcSoftConstraintType::ZeroVelocity))) {

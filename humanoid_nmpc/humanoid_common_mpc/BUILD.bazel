@@ -123,6 +123,7 @@ cc_library(
         "src/contact/ContactPolygon.cpp",
         "src/contact/ContactRectangle.cpp",
         "src/contact/ContactWrenchConeBasisMatrix.cpp",
+        "src/contact/ContactInputJacobian.cpp",
         "src/contact/FootprintCornerHeights.cpp",
         "src/pinocchio_model/pinocchioUtils.cpp",
         "src/pinocchio_model/createPinocchioModel.cpp",
@@ -399,6 +400,17 @@ cc_test(
     name = "testHlipModel",
     size = "small",
     srcs = ["test/testHlipModel.cpp"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":contact_planning_core",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "testHlipStandingBlend",
+    size = "small",
+    srcs = ["test/testHlipStandingBlend.cpp"],
     copts = _COMMON_COPTS,
     deps = [
         ":contact_planning_core",

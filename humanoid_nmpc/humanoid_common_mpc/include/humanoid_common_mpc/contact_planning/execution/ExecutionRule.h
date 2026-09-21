@@ -86,6 +86,17 @@ class ExecutionRule : public ContactPlanningTerm {
   }
   /** Rewrites the MPC's target trajectory (the planned heading override). */
   virtual void overrideTarget(const ExecutionContext& /*ctx*/, TargetTrajectories& /*targetTrajectories*/) const {}
+
+  /**
+   * Whether this rule actually rewrites the target trajectory, i.e. whether it overrides overrideTarget() above.
+   *
+   * ContactPlanningReferenceManager resamples the operator's target onto the plan's node grid before calling the
+   * rules, because a rule that rewrites a state at a node needs a knot at that node. That resample is only worth
+   * paying for when some rule really does rewrite something: the gate used to be "any rule is listed at all", so a
+   * configuration listing only SCHEDULE rules - phase_resetting, energy_cadence_modulation, dcm_step_adjustment, none
+   * of which touch the target - paid for the resample, and for its truncation, in exchange for nothing.
+   */
+  virtual bool rewritesTarget() const { return false; }
 };
 
 }  // namespace ocs2::humanoid

@@ -35,6 +35,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_core/misc/LoadData.h>
 
 #include "absl/log/log.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/str_join.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerFactory.h"
 
 namespace ocs2::humanoid {
@@ -46,6 +48,19 @@ void ContactPlanningConfig::validate() const {
   const GaitLimits& g = s.gaitLimits;
   if (p.dt <= 0.0) fail("planner.dt must be positive");
   if (p.numNodes < 2) fail("planner.numNodes must be at least 2");
+  // planner.type selects the implementation ContactPlannerFactory builds, and every consumer of this configuration
+  // treats "validate() did not throw" as "this configuration can be applied": loadContactPlanningConfig and
+  // ContactPlanningReferenceManager::setConfig delegate their rejection here, and the parameter updater reports a
+  // reload that raised nothing as applied. Until now an unknown name was noticed only by the factory, one layer too
+  // late: by then ContactPlannerModule had already stored the whole new parameter set, rebuilt the execution rules and
+  // started or stopped the background worker, and the factory's failed status was logged and discarded, so the new
+  // parameters were handed to the planner the configuration no longer names and nothing retried until the next reload.
+  // Rejecting the name here makes the reload fail atomically with the previous configuration still in force, and the
+  // message lists the planners that exist so that a typo in the task file carries its own fix.
+  const std::string plannerName = canonicalPlannerName(p.type);
+  if (plannerName.empty()) {
+    fail(absl::StrCat("unknown planner.type '", p.type, "'; supported: ", absl::StrJoin(knownPlannerNames(), ", ")));
+  }
   if (s.comHeight <= 0.0 || s.gravity <= 0.0) fail("shared.comHeight and shared.gravity must be positive");
   if (g.minSwingDuration <= 0.0 || g.maxSwingDuration < g.minSwingDuration) fail("need 0 < minSwingDuration <= maxSwingDuration");
   if (g.minContactDuration <= 0.0) fail("minContactDuration must be positive");
@@ -61,6 +76,22 @@ void ContactPlanningConfig::validate() const {
   if (footSeparation.maxStepLength <= 0.0 || reachability.reachX <= 0.0) fail("maxStepLength and reachX must be positive");
   if (reachability.reachYOuter <= reachability.reachYInner) fail("reachYOuter must exceed reachYInner");
   if (s.bigM <= footSeparation.maxStepLength) fail("shared.bigM must exceed foot_separation.maxStepLength");
+  // The big-M must also cover the LATERAL separation of the feet, and that, not the heading axis guarded above, is the
+  // requirement that actually binds. In double support both contact binaries are one, so the +M c_i - M c_other terms
+  // of a single-support ZMP box cancel and that box relaxes to only |e_y'(zmp - p_i)| <= halfWidthY + M, while the
+  // double-support rows open the whole strip between the feet, e_y'p_R - halfWidthY <= e_y'zmp <= e_y'p_L + halfWidthY
+  // (ZmpSupportRegionConstraint::addRows). Intersecting the two, the opposite foot's relaxed row binds as soon as M is
+  // smaller than the separation w = e_y'(p_L - p_R), which foot_separation.maxStepWidth bounds from above; the
+  // half-width cancels, so the exact condition is bigM >= maxStepWidth. Below it the ZMP is pulled towards one foot in
+  // double support and every weight transfer past that point pays slack for a disjunction that was supposed to be
+  // switched off. The previous check constrained bigM only against maxStepLength, of which the heading axis needs no
+  // more than half, so it was neither necessary nor sufficient for the disjunction it claimed to guard: an operator
+  // following the shipped files' advice to keep bigM "just above maxStepLength" while tightening maxStepLength below
+  // the step width passed validation and then quietly paid slack on every double-support node.
+  if (s.bigM < footSeparation.maxStepWidth) {
+    fail(absl::StrCat("shared.bigM (", s.bigM, " m) must be at least foot_separation.maxStepWidth (", footSeparation.maxStepWidth,
+                      " m), otherwise the relaxed single-support ZMP box clips the double-support region laterally"));
+  }
   if (p.commitTime < 0.0) fail("planner.commitTime must be non-negative");
   if (cadenceStretch.samples < 0) fail("cadence_stretch.samples must be non-negative");
   if (cadenceStretch.samples > 0 && cadenceStretch.maxStretch < 1.0) {
@@ -108,18 +139,10 @@ void ContactPlanningConfig::validate() const {
   if (h.minStepWidth <= 0.0 || h.maxStepWidth < h.minStepWidth) fail("need 0 < hlip.minStepWidth <= hlip.maxStepWidth");
   if (h.stepWidth < h.minStepWidth || h.stepWidth > h.maxStepWidth) fail("hlip.stepWidth must lie within the hlip step width bounds");
   if (h.blend.sharpness <= 0.0) fail("hlip.blend.sharpness must be positive");
-  // The H-LIP deadbeat step is a feedback law on the measured state, and a plan costs microseconds because nothing is
-  // solved. Running it on a background thread at a fraction of the MPC rate therefore buys nothing and costs the one
-  // thing the law depends on: a plan posted at 10 Hz and handed over a cycle later is up to 100 ms stale, which is two
-  // fifths of a 0.25 s single support. This is a warning rather than an error because the threading is the operator's
-  // call and the mixed-integer planner genuinely needs the background thread.
-  if (canonicalPlannerName(p.type) == planner::kHlip && p.runInBackgroundThread) {
-    LOG(WARNING) << "[ContactPlanningConfig] planner.type: hlip with planner.runInBackgroundThread: true. The closed-form H-LIP "
-                    "planner costs microseconds, so the background thread only adds latency to a feedback law: its plan reaches the "
-                    "solver a cycle late and at most planner.planningFrequency ("
-                 << p.planningFrequency
-                 << " Hz) times a second. Set planner.runInBackgroundThread: false to plan in the pre-solve hook at the MPC rate.";
-  }
+  // rho_2. The activity phi is a sum of squared ratios and so is never negative, and isWalking compares it with
+  // `>=`, so a threshold of zero declares the robot to be walking at rest: standing becomes unreachable and the gait
+  // marches in place forever. Nothing checked this, while its neighbour rho_1 was checked right above.
+  if (h.blend.threshold <= 0.0) fail("hlip.blend.threshold must be positive, or the blend can never reach standing");
   if (h.blend.maxCommandedVelocityX <= 0.0 || h.blend.maxCommandedVelocityY <= 0.0 || h.blend.maxCommandedYawRate <= 0.0 ||
       h.blend.maxComVelocityX <= 0.0 || h.blend.maxComVelocityY <= 0.0) {
     fail("every hlip.blend command threshold must be positive");
@@ -135,7 +158,70 @@ void ContactPlanningConfig::validate() const {
     fail("heading model weights must be >= 0");
   }
   if (headingRelinearisation.passes < 0 || headingRelinearisation.passes > 5) fail("heading_relinearisation.passes must be in [0, 5]");
+  // Combinations that are legal but self-inconsistent are reported rather than rejected: they cost performance, not
+  // correctness, and rejecting them would stop a shipped robot's file from loading over a few millimetres of step
+  // width. They live in warnings() so that a test can assert on them; validate() is the one caller that emits them.
+  for (const std::string& warning : warnings()) {
+    LOG(WARNING) << "[ContactPlanningConfig] " << warning;
+  }
   formulation.validate();
+}
+
+std::vector<std::string> ContactPlanningConfig::warnings() const {
+  std::vector<std::string> out;
+  const PlannerSettings& p = planner;
+  const HlipParameters& h = hlip;
+  // Every finding below is about the `hlip` block, which only the closed-form planner reads: warning a lip_miqp
+  // operator about keys nothing in their formulation looks at would be noise.
+  if (canonicalPlannerName(p.type) != planner::kHlip) return out;
+
+  // The H-LIP deadbeat step is a feedback law on the measured state, and a plan costs microseconds because nothing is
+  // solved. Running it on a background thread at a fraction of the MPC rate therefore buys nothing and costs the one
+  // thing the law depends on: a plan posted at 10 Hz and handed over a cycle later is up to 100 ms stale, which is two
+  // fifths of a 0.25 s single support. This is a warning rather than an error because the threading is the operator's
+  // call and the mixed-integer planner genuinely needs the background thread.
+  if (p.runInBackgroundThread) {
+    out.push_back(
+        absl::StrCat("planner.type: hlip with planner.runInBackgroundThread: true. The closed-form H-LIP planner costs microseconds, so "
+                     "the background thread only adds latency to a feedback law: its plan reaches the solver a cycle late and at most "
+                     "planner.planningFrequency (",
+                     p.planningFrequency,
+                     " Hz) times a second. Set planner.runInBackgroundThread: false to plan in the pre-solve hook at the MPC rate."));
+  }
+
+  // The step width bounds are checked above against hlip.stepWidth alone, which is the nominal orbit at a ZERO lateral
+  // command. That is not the orbit the planner walks: HlipContactPlanner::deadbeatStep builds the period-two orbit at
+  // +-stepWidth + v_y,cmd * (sspDuration + dspDuration) and then clips the placed foot into [minStepWidth,
+  // maxStepWidth], so a sustained sidestep moves BOTH sides of the orbit by the drift of one step. The configuration is
+  // only self-consistent when the narrowed side still clears the self-collision margin and the widened side still fits
+  // the reach, at the largest lateral command the blend is normalised for. Nothing checked this before, and the
+  // consequence is not a divergence - the widening side keeps its margin and reabsorbs the error - but a permanently
+  // clipped narrow step: plan.numClippedSteps is non-zero on every cycle for as long as the command is held, so
+  // ContactPlan::describe() prints CLIPPED-STEPS forever and the one signal documented to mean "the legs cannot deliver
+  // this command at this cadence" becomes a standing false positive that hides genuine clipping, while the realised
+  // lateral rate quietly runs below the command.
+  const scalar_t stepDuration = h.sspDuration + h.dspDuration;
+  if (stepDuration <= 0.0) return out;  // an invalid cadence; validate() has already reported it
+  const scalar_t lateralDrift = h.blend.maxCommandedVelocityY * stepDuration;
+  if (h.stepWidth - lateralDrift < h.minStepWidth) {
+    out.push_back(absl::StrCat("a sustained sidestep at hlip.blend.maxCommandedVelocityY (", h.blend.maxCommandedVelocityY, " m/s) drifts ",
+                               lateralDrift, " m over a step of ", stepDuration,
+                               " s, so the step that places the "
+                               "trailing foot is planned at hlip.stepWidth - drift = ",
+                               h.stepWidth - lateralDrift, " m and clipped to hlip.minStepWidth (", h.minStepWidth,
+                               " m) on every occurrence. Raise hlip.stepWidth, or lower hlip.blend.maxCommandedVelocityY below ",
+                               (h.stepWidth - h.minStepWidth) / stepDuration, " m/s, or shorten the step."));
+  }
+  if (h.stepWidth + lateralDrift > h.maxStepWidth) {
+    out.push_back(absl::StrCat("a sustained sidestep at hlip.blend.maxCommandedVelocityY (", h.blend.maxCommandedVelocityY, " m/s) drifts ",
+                               lateralDrift, " m over a step of ", stepDuration,
+                               " s, so the step that places the "
+                               "leading foot is planned at hlip.stepWidth + drift = ",
+                               h.stepWidth + lateralDrift, " m and clipped to hlip.maxStepWidth (", h.maxStepWidth,
+                               " m) on every occurrence. Raise hlip.maxStepWidth, or lower hlip.blend.maxCommandedVelocityY below ",
+                               (h.maxStepWidth - h.stepWidth) / stepDuration, " m/s, or shorten the step."));
+  }
+  return out;
 }
 
 std::string resolveContactPlanningConfigFile(const std::string& taskFile) {
@@ -249,10 +335,20 @@ std::vector<std::string> readList(const ptree& block, const char* key, bool& pre
   return list;
 }
 
-void readSlack(const ptree& pt, const std::string& prefix, std::optional<SlackPenalty>& slack, bool verbose) {
-  const auto child = pt.get_child_optional(prefix + "slack");
+/**
+ * The `slack` block of one term, if it has one. `sharedDefault` is `shared.slack_penalty` as already loaded from the
+ * file, and it seeds the pair: loadPtreeValue leaves its destination untouched when the key is absent, so a block that
+ * supplies only one of the two numbers must inherit the other from the shared default. Seeding from a
+ * default-constructed SlackPenalty instead - which is what this function did - silently substituted the hard-coded
+ * struct value (1e4 / 100) for the half the operator omitted, so a file that retuned shared.slack_penalty and then
+ * overrode one number on one term ran that term on a penalty nobody wrote and that is not the shared default, against
+ * what LipConstraintBase and the planner's documentation promise ("the shared default otherwise").
+ */
+void readSlack(
+    const ptree& pt, const std::string& prefix, const SlackPenalty& sharedDefault, std::optional<SlackPenalty>& slack, bool verbose) {
+  const boost::optional<const ptree&> child = pt.get_child_optional(prefix + "slack");
   if (!child) return;
-  SlackPenalty penalty;
+  SlackPenalty penalty = sharedDefault;
   loadData::loadPtreeValue(pt, penalty.quadratic, prefix + "slack.quadratic", verbose);
   loadData::loadPtreeValue(pt, penalty.linear, prefix + "slack.linear", verbose);
   slack = penalty;
@@ -335,16 +431,16 @@ void loadStructured(const ptree& pt, const ptree& block, const std::string& pref
   load(config.terminalDcm.trackCommandedVelocity, std::string(term::kTerminalDcm) + ".trackCommandedVelocity");
   load(config.zmpSupportRegion.halfWidthX, std::string(term::kZmpSupportRegion) + ".halfWidthX");
   load(config.zmpSupportRegion.halfWidthY, std::string(term::kZmpSupportRegion) + ".halfWidthY");
-  readSlack(pt, prefix + term::kZmpSupportRegion + ".", config.zmpSupportRegion.slack, verbose);
+  readSlack(pt, prefix + term::kZmpSupportRegion + ".", s.slackPenalty, config.zmpSupportRegion.slack, verbose);
   load(config.reachability.reachX, std::string(term::kReachability) + ".reachX");
   load(config.reachability.reachYInner, std::string(term::kReachability) + ".reachYInner");
   load(config.reachability.reachYOuter, std::string(term::kReachability) + ".reachYOuter");
-  readSlack(pt, prefix + term::kReachability + ".", config.reachability.slack, verbose);
+  readSlack(pt, prefix + term::kReachability + ".", s.slackPenalty, config.reachability.slack, verbose);
   load(config.footSeparation.maxStepLength, std::string(term::kFootSeparation) + ".maxStepLength");
   load(config.footSeparation.minStepWidth, std::string(term::kFootSeparation) + ".minStepWidth");
   load(config.footSeparation.maxStepWidth, std::string(term::kFootSeparation) + ".maxStepWidth");
-  readSlack(pt, prefix + term::kFootSeparation + ".", config.footSeparation.slack, verbose);
-  readSlack(pt, prefix + term::kHipYawRange + ".", config.hipYawRange.slack, verbose);
+  readSlack(pt, prefix + term::kFootSeparation + ".", s.slackPenalty, config.footSeparation.slack, verbose);
+  readSlack(pt, prefix + term::kHipYawRange + ".", s.slackPenalty, config.hipYawRange.slack, verbose);
   load(config.contactSwitch.cost, std::string(term::kContactSwitch) + ".cost");
   load(config.doubleSupportPenalty.cost, std::string(term::kDoubleSupportPenalty) + ".cost");
   load(config.planConsistency.cost, std::string(term::kPlanConsistency) + ".cost");
@@ -364,8 +460,14 @@ void loadStructured(const ptree& pt, const ptree& block, const std::string& pref
   load(config.energyCadenceModulation.deadband, std::string(term::kEnergyCadenceModulation) + ".deadband");
   load(config.dcmStepAdjustment.gain, std::string(term::kDcmStepAdjustment) + ".gain");
   load(config.dcmStepAdjustment.maxOffset, std::string(term::kDcmStepAdjustment) + ".maxOffset");
+  // Both shipped robots open a contact_planning_config block that points back at this label, so both are named here: a
+  // key added above has to be documented in each of them. Only the DRC Atlas file used to be named, and the EngineAI
+  // SA01 file was left to drift out of sync with the loader unnoticed - exactly the failure the directive pair exists
+  // to prevent. The third target this directive carried, the tuning GUI's contact_planning_gui_keys, was deleted
+  // together with the GUI's hard-coded key list (the GUI renders the parameters generically now), so it pointed at a
+  // label that no longer exists anywhere, which a label-aware IFTTT checker reports as an error on any edit here.
   // clang-format off
-  // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/contact_planning.yaml:contact_planning_config, //humanoid_nmpc/remote_control/remote_control/tk_app/mpc_params_tab.py:contact_planning_gui_keys)
+  // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/contact_planning.yaml:contact_planning_config, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/contact_planning.yaml:contact_planning_config)
   // clang-format on
 }
 

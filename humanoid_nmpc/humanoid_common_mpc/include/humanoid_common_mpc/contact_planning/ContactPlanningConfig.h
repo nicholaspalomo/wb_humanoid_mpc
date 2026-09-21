@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include <ocs2_core/Types.h>
 
@@ -100,7 +101,11 @@ struct PlannerSettings {
 struct SharedParameters {
   scalar_t gravity = 9.81;    // [m/s^2]
   scalar_t comHeight = 0.85;  // [m] LIP height, omega = sqrt(g / comHeight); 0 = from the model
-  scalar_t bigM = 1.0;        // [m] big-M of the ZMP / foothold disjunctions (must exceed foot_separation.maxStepLength)
+  // [m] big-M of the ZMP / foothold disjunctions. Two bounds, not one: it must EXCEED foot_separation.maxStepLength,
+  // which the foothold displacement bound needs, and it must be at least foot_separation.maxStepWidth, because that is
+  // what it takes for a single-support ZMP box to actually switch off in double support (the lateral axis is the one
+  // that binds there; see the derivation next to the check in ContactPlanningConfig::validate()).
+  scalar_t bigM = 1.0;
   SlackPenalty slackPenalty;  // default of every soft constraint without a penalty of its own
   GaitLimits gaitLimits;
 };
@@ -127,10 +132,16 @@ struct HlipBlendParameters {
   scalar_t sharpness = 40.0;             // rho_1
   scalar_t threshold = 0.02;             // rho_2
   scalar_t maxCommandedVelocityX = 0.7;  // [m/s]
-  scalar_t maxCommandedVelocityY = 0.3;  // [m/s]
-  scalar_t maxCommandedYawRate = 0.61;   // [rad/s] (35 deg/s)
-  scalar_t maxComVelocityX = 0.5;        // [m/s]
-  scalar_t maxComVelocityY = 0.4;        // [m/s]
+  // [m/s]. This is a command range, but it is not free of the step geometry: the planner plans the period-two orbit at
+  // +-hlip.stepWidth + v_y (sspDuration + dspDuration), so at the largest lateral command the narrow side of the orbit
+  // must still clear hlip.minStepWidth and the wide side must still fit hlip.maxStepWidth
+  // (ContactPlanningConfig::warnings() checks both and says which key to move). The previous default of 0.3 missed the
+  // narrow relation by 5 mm against the step width and swing duration below, so the defaults themselves asked for a
+  // step the defaults then clipped.
+  scalar_t maxCommandedVelocityY = 0.25;
+  scalar_t maxCommandedYawRate = 0.61;  // [rad/s] (35 deg/s)
+  scalar_t maxComVelocityX = 0.5;       // [m/s]
+  scalar_t maxComVelocityY = 0.4;       // [m/s]
 };
 
 /**
@@ -376,6 +387,16 @@ struct ContactPlanningConfig {
 
   /** Throws std::invalid_argument if the configuration is inconsistent (every block, and the formulation). */
   void validate() const;
+
+  /**
+   * Combinations that are legal but self-inconsistent, one message per finding, empty when there is nothing to say.
+   *
+   * These cost performance rather than correctness - a warning, not an error, because rejecting them would stop a
+   * shipped robot's file from loading over a few millimetres of step width, and because some of them (the threading of
+   * the H-LIP planner) are the operator's call. validate() is what emits them, with LOG(WARNING); they are returned
+   * rather than only logged so that a test can assert on them.
+   */
+  std::vector<std::string> warnings() const;
 };
 
 /** Name of the planner's own configuration file, expected in the directory of the robot's task file. */

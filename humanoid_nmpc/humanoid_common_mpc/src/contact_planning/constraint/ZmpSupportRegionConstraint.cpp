@@ -86,17 +86,28 @@ void ZmpSupportRegionConstraint::addRows(const ContactPlanningContext& ctx, int 
     rows.addSoft(xc, uc, -kLipLooseBound, halfWidth[0] + 2.0 * M, penalty_);
   }
   // Double support, lateral axis: upper bound from the left foot, lower bound from the right foot.
+  //
+  // Both are relaxed by BOTH binaries, exactly like the heading row above, so that they bind only in double support.
+  // They used to carry one big-M each, which left one of the two active throughout single support: standing on the
+  // left foot, `e_y'(zmp - p_L) <= r_y` is not relaxed by c_L = 1 and states precisely what that foot's own
+  // single-support box already states. The bound was therefore correct but duplicated, and since these are SOFT rows
+  // the duplicate is not free - a lateral excursion past the support foot paid its slack penalty twice on the
+  // outward side and once everywhere else, quietly making the lateral ZMP cost asymmetric in single support, which is
+  // most of a stride. Relaxing by the other foot as well removes the duplicate without loosening anything: in single
+  // support the surviving constraint is the single-support box, which is the same inequality.
   {
-    Coefficients xc, uc;  // e_y'(zmp - p_L) <= r + M (1 - c_L)
+    Coefficients xc, uc;  // e_y'(zmp - p_L) <= r + M (1 - c_L) + M (1 - c_R)
     zmpMinusFoot(0, 1, 1.0, xc, uc);
     uc.push_back({idx_.contact[0], M});
-    rows.addSoft(xc, uc, -kLipLooseBound, halfWidth[1] + M, penalty_);
+    uc.push_back({idx_.contact[1], M});
+    rows.addSoft(xc, uc, -kLipLooseBound, halfWidth[1] + 2.0 * M, penalty_);
   }
   {
-    Coefficients xc, uc;  // -e_y'(zmp - p_R) <= r + M (1 - c_R)
+    Coefficients xc, uc;  // -e_y'(zmp - p_R) <= r + M (1 - c_L) + M (1 - c_R)
     zmpMinusFoot(1, 1, -1.0, xc, uc);
+    uc.push_back({idx_.contact[0], M});
     uc.push_back({idx_.contact[1], M});
-    rows.addSoft(xc, uc, -kLipLooseBound, halfWidth[1] + M, penalty_);
+    rows.addSoft(xc, uc, -kLipLooseBound, halfWidth[1] + 2.0 * M, penalty_);
   }
 }
 

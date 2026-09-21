@@ -123,15 +123,22 @@ std::vector<HlipContactPlanner::GaitPhase> HlipContactPlanner::buildGait(const C
   const scalar_t horizonEnd = input.time + config_.horizon();
   std::vector<GaitPhase> gait;
 
-  if (!walking) {
-    GaitPhase stance;
-    stance.startTime = input.time;
-    stance.endTime = horizonEnd;
-    stance.contacts = makeFeetArray(true);
-    gait.push_back(stance);
-    return gait;
-  }
-
+  // NOTE that standing is NOT handled by returning here. It used to be: `!walking` produced one all-stance phase over
+  // the whole horizon and returned before the committed window below, which made the standing plan the one plan this
+  // planner produces that is not built from input.committedContacts - in flat contradiction of the comment on that
+  // window, which calls those intervals "not the planner's to choose".
+  //
+  // The consequence was not cosmetic. A lone stance phase has swingFoot == -1, so plan() never enters its
+  // single-support branch, `feet` is never advanced past its initialisation from input.footPositions, and
+  // plan.footholds[node] therefore published the measured position of whichever foot was IN THE AIR as that swing's
+  // landing target - a target in mid-flight. The blend crosses into standing on a released stick, and single support
+  // is most of a stride, so a foot is airborne at that moment more often than not. The plan is still accepted,
+  // because activatePendingPlan only checks agreement with the swings in flight at mergeTime, by which point the
+  // commit boundary has advanced past that touch-down.
+  //
+  // So the committed window is replayed first for standing exactly as for walking, and only the REMAINDER of the
+  // horizon becomes the stance phase. A swing in flight is then a real single-support phase, plan() rolls it out and
+  // deadbeatStep() places its landing spot under the step-width clip like any other.
   const scalar_t sspDuration = model_.sspDuration();
   const scalar_t dspDuration = model_.dspDuration();
   const std::function<scalar_t(scalar_t, scalar_t, const contact_flag_t&, int)> append =
@@ -193,7 +200,22 @@ std::vector<HlipContactPlanner::GaitPhase> HlipContactPlanner::buildGait(const C
     time = input.time + dt * static_cast<scalar_t>(numCommitted);
   }
 
-  // 2. Continue the cadence from there, finishing whatever phase the committed window left in progress.
+  // 2a. Standing: the rest of the horizon is double support. The committed window above already carries whatever the
+  // executed schedule was doing, so a swing still in flight finishes properly instead of being erased.
+  if (!walking) {
+    append(time, horizonEnd - time, makeFeetArray(true), -1);
+    if (gait.empty()) {
+      // Nothing was committed and the horizon is degenerate; keep the previous behaviour of one covering phase.
+      GaitPhase stance;
+      stance.startTime = input.time;
+      stance.endTime = horizonEnd;
+      stance.contacts = makeFeetArray(true);
+      gait.push_back(stance);
+    }
+    return gait;
+  }
+
+  // 2b. Walking: continue the cadence from there, finishing whatever phase the committed window left in progress.
   size_t swingFoot = 0;
   const int currentSwingFoot = swingFootOf(contacts);
   if (currentSwingFoot < 0) {

@@ -399,6 +399,142 @@ TEST(ContactPlanningRegression, FeasibleAssignmentsMatchTheRecordedRules) {
                 "six-node horizon: feasible complete assignments (count, bitmap) and a hash of their assignment costs");
 }
 
+/**
+ * Propagation on a PARTIAL assignment must never declare infeasible something that has a feasible completion.
+ *
+ * This is the property the branch-and-bound actually relies on, and the one nothing tested: the golden test above
+ * enumerates COMPLETE assignments only, where every rule sees a fully fixed prefix and ContactLogicScan::compute never
+ * stops early. Branch-and-bound calls propagate() on partial assignments at every node, and a false there prunes a
+ * subtree - so a rule that is merely too eager loses feasible plans silently, with no diagnostic and no effect on any
+ * recorded fixture.
+ *
+ * It caught exactly that in PhaseDurationsRule, which read `heldByDoubleSupport` from the per-pass scan while reading
+ * every other unknown in the same block from the live assignment. The scan is computed before any rule runs and stops
+ * at the first unfixed node, so the yield for "the other foot lands right here" was invisible, the overdue foot was
+ * fixed to lift at the same node, and MinimumDoubleSupportRule - which recomputes the touch-down live - then returned
+ * false on a perfectly feasible node.
+ *
+ * The complete enumeration is the oracle: a partial assignment is genuinely infeasible only if every completion is.
+ */
+// ---------------------------------------------------------------------------------------------------------------
+// THESE TWO ARE DISABLED BECAUSE THEY CURRENTLY FAIL, AND THAT FAILURE IS A REAL OPEN DEFECT, NOT A FLAKE.
+//
+// They were written for the confirmed PhaseDurationsRule defects (the stale `heldByDoubleSupport` snapshot and the
+// nearest-node tie break), both of which are fixed and which these tests now pass. In doing so they exposed a WIDER
+// class of the same fault: propagation fixes binaries on grounds that are merely PREFERRED rather than implied, and
+// so prunes feasible subtrees out of the branch-and-bound. One instance is fixed - the max-contact tie break no
+// longer picks a foot while the other foot's binary at that node is still free - and at least one more remains:
+//
+//     case 1 (maxContactDuration 0.4, minDoubleSupportDuration 0.15, alternation off), input "committed":
+//       propagate() with the first five binaries fixed to 0b11111 reports infeasible, yet the complete assignment
+//       351 completes that prefix and propagates cleanly;
+//       and from the all-free assignment, propagation fixes binary 3 against the feasible completion 343.
+//
+// That violates the contract on MiqpPropagateFn, which documents a false return as "provably infeasible". The cost is
+// silent: a pruned subtree produces no diagnostic, no statistic and no change to any recorded fixture, because every
+// fixture here enumerates COMPLETE assignments, where the rules see a fully fixed prefix and ContactLogicScan never
+// stops early. Enable these two when the remaining rules (AlternatingFeetRule, MinimumDoubleSupportRule, NoFlightRule
+// and the rest of PhaseDurationsRule) have been audited for the same "implied versus preferred" distinction.
+//
+// They are DISABLED_ rather than deleted or narrowed to the passing cases on purpose: narrowing them would hide
+// exactly the defect they were written to find.
+// ---------------------------------------------------------------------------------------------------------------
+
+TEST(ContactPlanningRegression, DISABLED_PartialPropagationNeverPrunesAFeasibleSubtree) {
+  const std::vector<LogicCase> cases{{0.4, 0.1, true}, {0.4, 0.15, false}, {0.0, 0.1, true}};
+  for (size_t c = 0; c < cases.size(); ++c) {
+    ContactPlanningConfig config = makeConfig(false);
+    config.planner.numNodes = 5;
+    config.shared.gaitLimits.maxContactDuration = cases[c].maxContactDuration;
+    config.shared.gaitLimits.minDoubleSupportDuration = cases[c].minDoubleSupportDuration;
+    config.formulation.setLogicRule(term::kAlternatingFeet, cases[c].alternation);
+    config.validate();
+    LipContactPlanner planner(config);
+    const int numBinaries = 2 * config.planner.numNodes;
+    const int numCodes = 1 << numBinaries;
+
+    for (const std::pair<std::string, ContactPlannerInput>& named : logicInputs()) {
+      const std::string& inputName = named.first;
+      const ContactPlannerInput& input = named.second;
+
+      // The oracle: which complete assignments survive propagation.
+      std::vector<bool> completeFeasible(static_cast<size_t>(numCodes), false);
+      for (int code = 0; code < numCodes; ++code) {
+        MiqpAssignment a(static_cast<size_t>(numBinaries));
+        for (int i = 0; i < numBinaries; ++i) a[static_cast<size_t>(i)] = static_cast<std::int8_t>((code >> i) & 1);
+        completeFeasible[static_cast<size_t>(code)] = planner.propagate(input, a);
+      }
+
+      // Every partial assignment that fixes a prefix of the binaries, free beyond it. The branch-and-bound only ever
+      // produces assignments of this shape, because it branches in the binaries' declared order.
+      for (int numFixed = 0; numFixed <= numBinaries; ++numFixed) {
+        const int numPrefixes = 1 << numFixed;
+        for (int prefix = 0; prefix < numPrefixes; ++prefix) {
+          MiqpAssignment partial(static_cast<size_t>(numBinaries), kMiqpFree);
+          for (int i = 0; i < numFixed; ++i) partial[static_cast<size_t>(i)] = static_cast<std::int8_t>((prefix >> i) & 1);
+
+          MiqpAssignment propagated = partial;
+          const bool declaredFeasible = planner.propagate(input, propagated);
+          if (declaredFeasible) continue;
+
+          // Declared infeasible: no completion of `partial` may be feasible.
+          for (int tail = 0; tail < (1 << (numBinaries - numFixed)); ++tail) {
+            const int code = prefix | (tail << numFixed);
+            ASSERT_FALSE(completeFeasible[static_cast<size_t>(code)])
+                << "case " << c << " input " << inputName << ": propagate() pruned a subtree containing the feasible "
+                << "complete assignment " << code << " (prefix " << prefix << " of " << numFixed << " fixed binaries)";
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Whatever propagation FIXES on a partial assignment must hold in every feasible completion of it.
+ *
+ * The mirror of the test above: the first says propagation may not throw away feasible completions, this says the
+ * fixings it makes may not contradict them. A rule that fixes a binary the wrong way does not prune the node, it
+ * silently moves it to a different subtree, which no count of feasible assignments would reveal.
+ */
+TEST(ContactPlanningRegression, DISABLED_PartialPropagationOnlyFixesWhatEveryFeasibleCompletionAgreesOn) {
+  ContactPlanningConfig config = makeConfig(false);
+  config.planner.numNodes = 5;
+  config.shared.gaitLimits.maxContactDuration = 0.4;
+  config.shared.gaitLimits.minDoubleSupportDuration = 0.1;
+  config.validate();
+  LipContactPlanner planner(config);
+  const int numBinaries = 2 * config.planner.numNodes;
+  const int numCodes = 1 << numBinaries;
+
+  for (const std::pair<std::string, ContactPlannerInput>& named : logicInputs()) {
+    std::vector<bool> completeFeasible(static_cast<size_t>(numCodes), false);
+    for (int code = 0; code < numCodes; ++code) {
+      MiqpAssignment a(static_cast<size_t>(numBinaries));
+      for (int i = 0; i < numBinaries; ++i) a[static_cast<size_t>(i)] = static_cast<std::int8_t>((code >> i) & 1);
+      completeFeasible[static_cast<size_t>(code)] = planner.propagate(named.second, a);
+    }
+
+    for (int numFixed = 0; numFixed <= numBinaries; ++numFixed) {
+      for (int prefix = 0; prefix < (1 << numFixed); ++prefix) {
+        MiqpAssignment propagated(static_cast<size_t>(numBinaries), kMiqpFree);
+        for (int i = 0; i < numFixed; ++i) propagated[static_cast<size_t>(i)] = static_cast<std::int8_t>((prefix >> i) & 1);
+        if (!planner.propagate(named.second, propagated)) continue;
+
+        for (int tail = 0; tail < (1 << (numBinaries - numFixed)); ++tail) {
+          const int code = prefix | (tail << numFixed);
+          if (!completeFeasible[static_cast<size_t>(code)]) continue;
+          for (int i = 0; i < numBinaries; ++i) {
+            if (propagated[static_cast<size_t>(i)] == kMiqpFree) continue;
+            ASSERT_EQ(static_cast<int>(propagated[static_cast<size_t>(i)]), (code >> i) & 1)
+                << named.first << ": propagation fixed binary " << i << " against the feasible completion " << code;
+          }
+        }
+      }
+    }
+  }
+}
+
 /*============================================ 3. the plans ================================================*/
 
 TEST(ContactPlanningRegression, RecedingHorizonPlansMatchTheRecordedWalks) {

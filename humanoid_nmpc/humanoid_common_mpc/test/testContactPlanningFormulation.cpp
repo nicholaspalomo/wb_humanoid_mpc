@@ -29,9 +29,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <fstream>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
+#include "humanoid_common_mpc/contact_planning/ContactPlannerFactory.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
+#include "humanoid_common_mpc/contact_planning/problem/Layout.h"
 
 namespace ocs2::humanoid {
 
@@ -128,6 +131,121 @@ TEST(ContactPlanningFormulation, SummaryListsEveryCollection) {
   EXPECT_NE(summary.find("execution (0): (none)"), std::string::npos) << summary;
 }
 
+/*============================================ configuration validation ====================================*/
+
+TEST(ContactPlanningConfigValidation, AnUnknownPlannerTypeIsRejectedNamingThePlannersThatExist) {
+  // The whole reload path - loadContactPlanningConfig, ContactPlanningReferenceManager::setConfig, the parameter
+  // updater - reads "validate() did not throw" as "this configuration can be applied", so a name only the factory
+  // rejects is caught after the new parameters have already been stored and the background worker started or stopped.
+  ContactPlanningConfig config;
+  config.planner.type = "lipmiqp2";
+  try {
+    config.validate();
+    FAIL() << "an unknown planner.type must not survive validation";
+  } catch (const std::invalid_argument& e) {
+    const std::string what = e.what();
+    EXPECT_NE(what.find("lipmiqp2"), std::string::npos) << "the message must quote what was written: " << what;
+    for (const std::string& name : knownPlannerNames()) {
+      EXPECT_NE(what.find(name), std::string::npos) << "the message must name " << name << ": " << what;
+    }
+  }
+  for (const std::string& name : knownPlannerNames()) {
+    ContactPlanningConfig known;
+    known.planner.type = name;
+    EXPECT_NO_THROW(known.validate()) << name;
+  }
+  ContactPlanningConfig spelledDifferently;
+  spelledDifferently.planner.type = "LIP-MIQP";  // the factory matches names without case or separators
+  EXPECT_NO_THROW(spelledDifferently.validate());
+}
+
+TEST(ContactPlanningConfigValidation, BigMMustCoverTheLateralFootSeparation) {
+  // In double support both contact binaries are one, the +-M terms of a single-support ZMP box cancel and the box
+  // relaxes to |e_y'(zmp - p_i)| <= halfWidthY + M, so a big-M below the lateral separation of the feet clips the
+  // double-support region instead of switching off with it. The guard against maxStepLength alone did not see this.
+  ContactPlanningConfig config;
+  config.footSeparation.maxStepLength = 0.30;
+  config.footSeparation.maxStepWidth = 0.45;
+  config.shared.bigM = 0.35;  // above maxStepLength, below maxStepWidth
+  EXPECT_THROW(config.validate(), std::invalid_argument);
+  config.shared.bigM = 0.45;  // exactly the widest separation the feet may reach is enough
+  EXPECT_NO_THROW(config.validate());
+
+  // Both shipped robots stay well clear of the new bound and must keep loading.
+  ContactPlanningConfig atlas;  // drc_atlas contact_planning.yaml
+  atlas.shared.bigM = 1.5;
+  atlas.footSeparation.maxStepLength = 0.5;
+  atlas.footSeparation.minStepWidth = 0.15;
+  atlas.footSeparation.maxStepWidth = 0.45;
+  EXPECT_NO_THROW(atlas.validate());
+  ContactPlanningConfig sa01;  // engineai_sa01 contact_planning.yaml
+  sa01.shared.bigM = 0.7;
+  sa01.footSeparation.maxStepLength = 0.58;
+  sa01.footSeparation.minStepWidth = 0.13;
+  sa01.footSeparation.maxStepWidth = 0.32;
+  EXPECT_NO_THROW(sa01.validate());
+}
+
+TEST(ContactPlanningConfigWarnings, TheBackgroundThreadWarningIsReportedForTheClosedFormPlanner) {
+  const ContactPlanningConfig config;  // planner.type hlip and runInBackgroundThread true are both defaults
+  const std::vector<std::string> warnings = config.warnings();
+  ASSERT_EQ(warnings.size(), 1u) << (warnings.empty() ? std::string() : warnings.front());
+  EXPECT_NE(warnings.front().find("runInBackgroundThread"), std::string::npos) << warnings.front();
+}
+
+TEST(ContactPlanningConfigWarnings, ASustainedSidestepMustFitInsideTheStepWidthClips) {
+  // deadbeatStep plans the period-two orbit at +-hlip.stepWidth + v_y (sspDuration + dspDuration) and then clips the
+  // placed foot into [minStepWidth, maxStepWidth]. Only the nominal orbit at a zero lateral command was ever checked
+  // against those clips, so a configuration could ask, at full stick, for a step it clips on every occurrence.
+  ContactPlanningConfig config;
+  config.planner.runInBackgroundThread = false;  // its own warning, covered above
+  const std::vector<std::string> defaults = config.warnings();
+  EXPECT_TRUE(defaults.empty()) << "the library defaults must be self-consistent, but: " << (defaults.empty() ? "" : defaults.front());
+
+  ContactPlanningConfig narrow = config;
+  narrow.hlip.blend.maxCommandedVelocityY = 0.3;  // 0.3 * 0.35 s = 0.105 m of drift against stepWidth - minStepWidth = 0.10
+  const std::vector<std::string> narrowWarnings = narrow.warnings();
+  ASSERT_EQ(narrowWarnings.size(), 1u);
+  EXPECT_NE(narrowWarnings.front().find("hlip.minStepWidth"), std::string::npos) << narrowWarnings.front();
+  EXPECT_NE(narrowWarnings.front().find("hlip.blend.maxCommandedVelocityY"), std::string::npos) << narrowWarnings.front();
+  EXPECT_NO_THROW(narrow.validate()) << "a warning, not an error: a shipped file must not stop loading over this";
+
+  ContactPlanningConfig wide = config;
+  wide.hlip.maxStepWidth = 0.30;  // stepWidth + 0.25 * 0.35 = 0.3375 m does not fit
+  const std::vector<std::string> wideWarnings = wide.warnings();
+  ASSERT_EQ(wideWarnings.size(), 1u);
+  EXPECT_NE(wideWarnings.front().find("hlip.maxStepWidth"), std::string::npos) << wideWarnings.front();
+
+  ContactPlanningConfig miqp = narrow;
+  miqp.planner.type = planner::kLipMiqp;
+  EXPECT_TRUE(miqp.warnings().empty()) << "the hlip block is not read by the mixed-integer planner";
+}
+
+/*============================================ the variable layout =========================================*/
+
+TEST(ContactPlanningLayout, PerFootHeadingIndicesAreAbsentWithoutTheHeadingBlock) {
+  // The well-known indices are documented as -1 when their block is absent, and the per-foot accessors used to be
+  // plain offset arithmetic: footYaw(1) came out as 0, an in-bounds index that aliases c_x, so a term following the
+  // documented contract would silently read or write the centre-of-mass state on a heading-less formulation.
+  const Layout none;
+  EXPECT_FALSE(none.hasHeading);
+  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    EXPECT_EQ(none.footYaw(foot), -1) << "foot " << foot;
+    EXPECT_EQ(none.yawTorque(foot), -1) << "foot " << foot;
+    EXPECT_EQ(none.footYawDelta(foot), -1) << "foot " << foot;
+  }
+  Layout heading;
+  heading.hasHeading = true;
+  heading.footYaw0 = 8;
+  heading.yawTorque0 = 5;
+  heading.footYawDelta0 = 7;
+  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    EXPECT_EQ(heading.footYaw(foot), 8 + static_cast<int>(foot)) << "foot " << foot;
+    EXPECT_EQ(heading.yawTorque(foot), 5 + static_cast<int>(foot)) << "foot " << foot;
+    EXPECT_EQ(heading.footYawDelta(foot), 7 + static_cast<int>(foot)) << "foot " << foot;
+  }
+}
+
 /*============================================ the structured file =========================================*/
 
 TEST(ContactPlanningConfigFile, StructuredLayoutLoadsListsAndTermBlocks) {
@@ -193,6 +311,44 @@ TEST(ContactPlanningConfigFile, StructuredLayoutLoadsListsAndTermBlocks) {
   EXPECT_FALSE(loaded.reachability.slack.has_value()) << "no slack block: the shared default applies";
   EXPECT_NEAR(loaded.dcmStepAdjustment.gain, 0.9, kTol);
   EXPECT_NEAR(loaded.dcmStepAdjustment.maxOffset, 0.02, kTol);
+}
+
+TEST(ContactPlanningConfigFile, APartialSlackBlockInheritsTheSharedDefaultForTheHalfItOmits) {
+  // loadPtreeValue leaves its destination untouched when a key is absent, and the term's penalty used to be seeded
+  // from a default-constructed SlackPenalty (1e4 / 100) rather than from shared.slack_penalty as the file wrote it.
+  // A block that overrides one of the two numbers therefore ran on a hard-coded value nobody asked for.
+  const std::string file = writeTemp("partial_slack_contact_planning.yaml",
+                                     "contact_planning:\n"
+                                     "  shared:\n"
+                                     "    slack_penalty:\n"
+                                     "      quadratic: 500.0\n"
+                                     "      linear: 7.0\n"
+                                     "  zmp_support_region:\n"
+                                     "    slack:\n"
+                                     "      quadratic: 42.0\n"
+                                     "  reachability:\n"
+                                     "    slack:\n"
+                                     "      linear: 3.0\n");
+  const ContactPlanningConfig loaded = loadContactPlanningConfig(file, "contact_planning.", false);
+  std::remove(file.c_str());
+  ASSERT_TRUE(loaded.zmpSupportRegion.slack.has_value());
+  EXPECT_NEAR(loaded.zmpSupportRegion.slack->quadratic, 42.0, kTol) << "the key the file wrote";
+  EXPECT_NEAR(loaded.zmpSupportRegion.slack->linear, 7.0, kTol) << "the key it omitted comes from shared.slack_penalty";
+  ASSERT_TRUE(loaded.reachability.slack.has_value());
+  EXPECT_NEAR(loaded.reachability.slack->quadratic, 500.0, kTol) << "the key it omitted comes from shared.slack_penalty";
+  EXPECT_NEAR(loaded.reachability.slack->linear, 3.0, kTol) << "the key the file wrote";
+  EXPECT_FALSE(loaded.footSeparation.slack.has_value()) << "no slack block at all still means the shared default";
+}
+
+TEST(ContactPlanningConfigFile, AnUnknownPlannerTypeStopsTheFileFromLoading) {
+  const std::string file = writeTemp("unknown_planner_contact_planning.yaml",
+                                     "contact_planning:\n"
+                                     "  planner:\n"
+                                     "    type: hilp\n"
+                                     "    runInBackgroundThread: true\n");
+  EXPECT_THROW(loadContactPlanningConfig(file, "contact_planning.", false), std::invalid_argument)
+      << "a typo must fail the reload atomically, leaving the running planner and its configuration in force";
+  std::remove(file.c_str());
 }
 
 TEST(ContactPlanningConfigFile, StructuredLayoutRejectsAnUnknownTermInAList) {

@@ -116,8 +116,11 @@ contact_planning:
     #
     # Second, and the one that decides whether the gait can start at all: a robot standing still has its centre of
     # mass half a step width from either foot with no lateral velocity, so the moment the first foot leaves the ground
-    # it falls sideways fast. Catching it takes a first step far wider than the nominal one - 0.55 m at 0.35 s, 0.42 m
-    # at 0.25 s - and if that does not fit inside maxStepWidth it is clipped. A clipped step is no longer the deadbeat
+    # it falls sideways fast. Catching it takes a first step far wider than the nominal one - at the dspDuration 0.05
+    # set below, 0.52 m at 0.35 s and 0.42 m at 0.25 s - and if that does not fit inside maxStepWidth it is clipped.
+    # (The 0.35 s figure used to be quoted as 0.55 m, which is the value for dspDuration 0.1: the double support
+    # enters the deadbeat gain as K = [1, dspDuration + coth(omega sspDuration) / omega], so this demand cannot be
+    # quoted without saying which dspDuration it was computed at.) A clipped step is no longer the deadbeat
     # step, the residual grows by the factor above every step, and the gait locks into an alternating wide and narrow
     # limit cycle it cannot leave: the feet come together, the robot walks itself sideways and falls. At 0.35 s with
     # maxStepWidth 0.45 that is exactly what happened. The planner prints this demand and whether it fits at start-up.
@@ -148,10 +151,16 @@ contact_planning:
       maxComVelocityX: 0.5  # [m/s]
       maxComVelocityY: 0.4  # [m/s]
 
-  # ---- the formulation: what the planner is assembled from (planner.type: lip_miqp only) ----
-  # Every list below and every per-term block after it belongs to the mixed-integer planner. With planner.type: hlip
-  # only `dynamics` is consulted, and only for whether heading_double_integrator is listed: that is what tells the H-LIP
-  # planner to publish a planned heading and planned foot yaws, which the foot cost tracks when the robot turns.
+  # ---- the formulation: what the planner is assembled from ----
+  # The `costs`, `soft_constraints`, `hard_constraints`, `logic_rules`, `assignment_costs` and `search` lists below,
+  # and every per-term block after them, belong to the mixed-integer planner and are ignored with planner.type: hlip.
+  # Two of the lists are read under BOTH planners and are not part of that:
+  #   dynamics   only for whether heading_double_integrator is listed: that is what tells the H-LIP planner to publish
+  #              a planned heading and planned foot yaws, which the foot cost tracks when the robot turns.
+  #   execution  in full. ContactPlanningReferenceManager::setConfig builds the execution rules from this list whatever
+  #              the planner is, and preSolverRun / overrideTarget apply them under either one. This comment used to
+  #              say only `dynamics` was consulted, which is how the `execution` list below came to be described as
+  #              empty under hlip while it holds the one entry the gait cannot walk without.
   dynamics:                           # model blocks; order fixes the variable layout, the first two are mandatory
     - lip_com                         # LIP centre of mass: c, v; input zmp (zero-order hold)
     - foothold_integrator             # foot positions p_i; inputs dp_i and the contact binaries c_i
@@ -200,12 +209,20 @@ contact_planning:
     - event_shift_local_search
     - heading_relinearisation
   # Execution rules of the reference manager, applied between plans (measured contact events, closed-form LIP
-  # corrections). Each changes the closed loop: with none listed the reference manager merges plans exactly as it did
-  # before they existed, which is the behaviour the gait is tuned against. Enable one at a time and validate it in MuJoCo
-  # before hardware. phase_resetting must precede energy_cadence_modulation when both are listed.
-  # With planner.type: hlip the list is empty on purpose: the H-LIP replans from the measured state at every MPC solve
-  # and the whole-body MPC absorbs what is left, which is the point of the paper's split. Each rule below is a heuristic
-  # correction applied between plans; enable one at a time and validate it in MuJoCo before hardware.
+  # corrections). This list is read under BOTH planners; it is not part of the lip_miqp-only formulation above.
+  #
+  # With planner.type: hlip it holds exactly one entry, planned_com_override, and that entry is mandatory: it is the
+  # paper's equations 11-14 reference plumbing rather than a heuristic, and the comment on it below says what happens
+  # without it. Every other rule here is a heuristic correction between plans and stays commented out, because the
+  # H-LIP replans from the measured state at every MPC solve and the whole-body MPC absorbs what is left, which is the
+  # point of the paper's split. Enable a heuristic one at a time and validate it in MuJoCo before hardware;
+  # phase_resetting must precede energy_cadence_modulation when both are listed.
+  #
+  # This block used to claim that "with planner.type: hlip the list is empty on purpose" and that "with none listed
+  # the reference manager merges plans exactly as it did before they existed, which is the behaviour the gait is tuned
+  # against" - three lines above the entry that must be there, and directly contradicted by the comment on that entry.
+  # An operator who believed it and commented planned_com_override out would walk the robot sideways into the floor,
+  # so the wording is now the same one the EngineAI SA01 copy of this file carries.
   execution:
     # Not a heuristic: this is the reference plumbing of the paper (its equations 11-14). The H-LIP's lateral orbit
     # requires the centre of mass to fall towards the swing foot, while the target trajectory built from the operator's

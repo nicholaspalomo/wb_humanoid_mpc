@@ -244,18 +244,48 @@ TEST_F(ContactImplicitFormulationTest, theContactImplicitTaskFileLoadsCleanly) {
   EXPECT_FALSE(tasks->hasHardConstraint(MpcHardConstraintType::NormalVelocity));
 }
 
-TEST_F(ContactImplicitFormulationTest, basisVectorInputsWithoutTheWrenchConeKeyAreRefused) {
-  // In basis-vector mode CentroidalMpcInterface builds the non-negativity barrier on the basis scalings only inside
-  // the `contact_wrench_cone` branch. Without zero_wrench to pin the swing foot's scalings to zero, a task file that
-  // omits that key would leave them with no lower bound at all - and a negative scaling is an adhesive,
-  // outside-the-cone wrench that the sign-blind complementarity product would not object to.
+TEST_F(ContactImplicitFormulationTest, noConeAtAllIsRefusedWhateverTheInputParameterization) {
+  // f_n >= 0 is the FIRST of the three conditions of rigid contact, and the formulation supplies only the other two:
+  // `ground_penetration` gives h >= 0 and `contact_complementarity` gives f_n h = 0, which at h = 0 is satisfied by
+  // any f_n at all, a negative one included. So a foot resting on the floor could pull on it for free. The bound is
+  // the cone's, and the cones stop bounding anything the moment `zero_wrench` goes, because that is what they gate
+  // themselves on. This is refused at the LOADER, before any parameterization-specific reasoning.
   std::vector<std::string> soft = contactImplicitSoftConstraints();
   soft.erase(std::remove(soft.begin(), soft.end(), std::string("contact_wrench_cone")), soft.end());
-  const std::string taskFile = writeTaskFile("noWrenchCone", {}, soft);
+  const std::string taskFile = writeTaskFile("noCone", {}, soft);
+
+  const absl::StatusOr<MpcFormulationTasks> tasks = loadMpcFormulationTasks(taskFile, false);
+  ASSERT_FALSE(tasks.ok()) << "nothing would bound any foot's wrench";
+  EXPECT_NE(std::string(tasks.status().message()).find("friction_force_cone"), std::string::npos) << tasks.status().message();
+
+  // And the interface refuses it too, since it loads through the same function.
+  const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> interface =
+      CentroidalMpcInterface::Create(taskFile, urdfFile_, referenceFile_);
+  EXPECT_FALSE(interface.ok());
+}
+
+TEST_F(ContactImplicitFormulationTest, basisVectorInputsWithoutTheWrenchConeKeyAreRefused) {
+  // The loader accepts EITHER cone, because either bounds the normal force below. Basis-vector mode needs
+  // `contact_wrench_cone` specifically: it is the branch that builds the non-negativity barrier on the scalings, and
+  // lambda >= 0 is the whole of the cone there. `friction_force_cone` bounds the assembled wrench and says nothing
+  // about the individual scalings, so the centre-of-pressure and torsional limits would go unenforced and a negative
+  // scaling - an adhesive, outside-the-cone generator that the sign-blind complementarity product ignores - would
+  // still be free. Substituting it is therefore the case that must reach the interface's own check.
+  std::vector<std::string> soft = contactImplicitSoftConstraints();
+  std::replace(soft.begin(), soft.end(), std::string("contact_wrench_cone"), std::string("friction_force_cone"));
+  const std::string taskFile = writeTaskFile("frictionConeOnly", {}, soft);
+
+  // The loader is satisfied: a friction cone does bound f_n below.
+  const absl::StatusOr<MpcFormulationTasks> tasks = loadMpcFormulationTasks(taskFile, false);
+  ASSERT_TRUE(tasks.ok()) << tasks.status().message();
+
+  // The interface is not, because this robot runs useContactBasisVectorInputs: true.
   const absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> interface =
       CentroidalMpcInterface::Create(taskFile, urdfFile_, referenceFile_);
   ASSERT_FALSE(interface.ok());
   EXPECT_NE(std::string(interface.status().message()).find("contact_wrench_cone"), std::string::npos) << interface.status().message();
+  EXPECT_NE(std::string(interface.status().message()).find("friction_force_cone"), std::string::npos)
+      << "the message must say why the friction cone does not stand in: " << interface.status().message();
 }
 
 // ---------------------------------------------------------------------------------------------------------------

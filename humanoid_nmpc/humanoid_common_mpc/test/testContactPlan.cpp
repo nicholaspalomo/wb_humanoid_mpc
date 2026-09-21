@@ -30,11 +30,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <iostream>
 #include <limits>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
 #include "humanoid_common_mpc/contact_planning/LipContactPlanner.h"
+#include "humanoid_common_mpc/contact_planning/hlip/HlipContactPlanner.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 
 #include "absl/log/log.h"
@@ -170,6 +172,225 @@ ModeSchedule expectMergedScheduleHonoursMinimumDurations(const ModeSchedule& app
 }
 
 }  // namespace
+
+// ---------------------------------------------------------------------------------------------------------------
+// footholdBeforeTime / footYawBeforeTime: the stance a foot leaves at a lift-off.
+//
+// These exist because "the node before the lift-off" cannot be expressed by nudging footholdAtTime()'s argument. The
+// caller used `liftOffTime - 0.5 * dt + 1e-6`, and lround(k - 0.5 + eps) == k, so it read the LIFT-OFF node. Under the
+// shipped `hlip` planner that node already holds the swing's landing position, which collapsed the whole swing
+// reference to a constant at its own target. See ContactPlan.h.
+// ---------------------------------------------------------------------------------------------------------------
+
+/** A plan whose foothold at node k is (k, -k) for the left foot, so a node index is readable straight off the value. */
+ContactPlan makeCountingPlan(scalar_t startTime, scalar_t dt, int numNodes) {
+  ContactPlan plan;
+  plan.valid = true;
+  plan.startTime = startTime;
+  plan.dt = dt;
+  plan.footholds.resize(static_cast<size_t>(numNodes) + 1);
+  plan.footYaws.resize(static_cast<size_t>(numNodes) + 1);
+  plan.heading.assign(static_cast<size_t>(numNodes) + 1, 0.0);
+  plan.contacts.assign(static_cast<size_t>(numNodes), makeFeetArray(true));
+  for (int k = 0; k <= numNodes; ++k) {
+    const scalar_t value = static_cast<scalar_t>(k);
+    plan.footholds[static_cast<size_t>(k)] = makeFeetArray(vector2_t(value, -value));
+    plan.footYaws[static_cast<size_t>(k)] = makeFeetArray(value);
+  }
+  return plan;
+}
+
+TEST(ContactPlanNodeLookup, footholdBeforeTimeReadsTheNodeBeforeAGridAlignedLiftOff) {
+  const ContactPlan plan = makeCountingPlan(/*startTime=*/2.0, /*dt=*/0.025, /*numNodes=*/20);
+  for (int k = 1; k <= 20; ++k) {
+    const scalar_t liftOff = plan.startTime + plan.dt * static_cast<scalar_t>(k);
+    const std::optional<vector2_t> before = plan.footholdBeforeTime(CONTACT_LEFT_INDEX, liftOff);
+    ASSERT_TRUE(before.has_value());
+    EXPECT_NEAR(before->x(), static_cast<scalar_t>(k - 1), kTol) << "lift-off node " << k;
+    // The trap this replaced: the nearest node to liftOff - dt/2 is the lift-off node itself, not the one before it.
+    const std::optional<vector2_t> halfStepBack = plan.footholdAtTime(CONTACT_LEFT_INDEX, liftOff - 0.5 * plan.dt + 1e-6);
+    ASSERT_TRUE(halfStepBack.has_value());
+    EXPECT_NEAR(halfStepBack->x(), static_cast<scalar_t>(k), kTol) << "the half-step nudge must still round up, node " << k;
+  }
+}
+
+TEST(ContactPlanNodeLookup, footholdBeforeTimeStaysOnAStanceNodeForAnOffGridLiftOff) {
+  // A lift-off that schedule adaptation has moved off the node grid. The node it resolves to must be the one before
+  // the node HlipContactPlanner's own lround boundary rule puts the swing phase's first node at.
+  const ContactPlan plan = makeCountingPlan(/*startTime=*/0.0, /*dt=*/0.1, /*numNodes=*/12);
+  struct Case {
+    scalar_t fraction;
+    scalar_t expected;
+  };
+  const std::vector<Case> cases = {{0.0, 4.0}, {0.4, 4.0}, {0.5, 5.0}, {0.6, 5.0}, {0.9, 5.0}};
+  for (const Case& testCase : cases) {
+    const scalar_t liftOff = plan.dt * (5.0 + testCase.fraction);
+    const std::optional<vector2_t> before = plan.footholdBeforeTime(CONTACT_LEFT_INDEX, liftOff);
+    ASSERT_TRUE(before.has_value());
+    EXPECT_NEAR(before->x(), testCase.expected, kTol) << "lift-off at node 5 + " << testCase.fraction;
+  }
+}
+
+TEST(ContactPlanNodeLookup, footholdBeforeTimeClampsAtBothEnds) {
+  const ContactPlan plan = makeCountingPlan(/*startTime=*/0.0, /*dt=*/0.1, /*numNodes=*/6);
+  // A lift-off at node 0 has no earlier node; clamping keeps it in range rather than reading footholds[-1].
+  const std::optional<vector2_t> atStart = plan.footholdBeforeTime(CONTACT_LEFT_INDEX, plan.startTime);
+  ASSERT_TRUE(atStart.has_value());
+  EXPECT_NEAR(atStart->x(), 0.0, kTol);
+  const std::optional<vector2_t> beforeStart = plan.footholdBeforeTime(CONTACT_LEFT_INDEX, plan.startTime - 10.0);
+  ASSERT_TRUE(beforeStart.has_value());
+  EXPECT_NEAR(beforeStart->x(), 0.0, kTol);
+  // Past the end it clamps to the last node, one short of what footholdAtTime returns there.
+  const std::optional<vector2_t> pastEnd = plan.footholdBeforeTime(CONTACT_LEFT_INDEX, plan.startTime + 100.0);
+  ASSERT_TRUE(pastEnd.has_value());
+  EXPECT_NEAR(pastEnd->x(), 6.0, kTol);
+}
+
+TEST(ContactPlanNodeLookup, footYawBeforeTimeMatchesTheFootholdRuleAndNeedsTheHeadingModel) {
+  const ContactPlan plan = makeCountingPlan(/*startTime=*/0.0, /*dt=*/0.1, /*numNodes=*/8);
+  ASSERT_TRUE(plan.hasHeading());
+  const std::optional<scalar_t> yaw = plan.footYawBeforeTime(CONTACT_RIGHT_INDEX, plan.dt * 3.0);
+  ASSERT_TRUE(yaw.has_value());
+  EXPECT_NEAR(*yaw, 2.0, kTol);
+
+  ContactPlan withoutHeading = plan;
+  withoutHeading.heading.clear();
+  ASSERT_FALSE(withoutHeading.hasHeading());
+  EXPECT_FALSE(withoutHeading.footYawBeforeTime(CONTACT_RIGHT_INDEX, plan.dt * 3.0).has_value());
+}
+
+TEST(ContactPlanNodeLookup, theBeforeLookupsAreEmptyOnAnInvalidPlan) {
+  ContactPlan invalid = makeCountingPlan(/*startTime=*/0.0, /*dt=*/0.1, /*numNodes=*/4);
+  invalid.valid = false;
+  EXPECT_FALSE(invalid.footholdBeforeTime(CONTACT_LEFT_INDEX, 0.2).has_value());
+  EXPECT_FALSE(invalid.footYawBeforeTime(CONTACT_LEFT_INDEX, 0.2).has_value());
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// describe(): the length of every step, the line planner.logPlans writes.
+//
+// The step used to be measured from the LIFT-OFF node - footholds[end] - footholds[k] - which is the same off-by-one
+// footholdBeforeTime() exists to keep callers out of. Under the shipped `hlip` planner the lift-off node already
+// carries the swing's LANDING position, and so does the touch-down node, so the difference was identically zero and
+// every stepping swing of every H-LIP plan logged a (0.000,0.000) displacement. It is now measured from node k - 1,
+// the last node the foot was still standing on, which is a contact node under both planners.
+// ---------------------------------------------------------------------------------------------------------------
+
+/** Every "(dx,dy)" foothold displacement in a describe() line, in the order it printed them. */
+std::vector<vector2_t> stepsInDescription(const std::string& line) {
+  std::vector<vector2_t> steps;
+  size_t position = 0;
+  while (true) {
+    const size_t open = line.find('(', position);
+    if (open == std::string::npos) break;
+    const size_t comma = line.find(',', open);
+    const size_t close = line.find(')', open);
+    if (comma == std::string::npos || close == std::string::npos || comma > close) break;
+    steps.emplace_back(std::stod(line.substr(open + 1, comma - open - 1)), std::stod(line.substr(comma + 1, close - comma - 1)));
+    position = close + 1;
+  }
+  return steps;
+}
+
+/** The shipped H-LIP cadence: a 0.25 s single support and a 0.05 s double support at the shipped pendulum height. */
+ContactPlanningConfig makeHlipConfig() {
+  ContactPlanningConfig config;
+  config.planner.type = "hlip";
+  config.planner.dt = 0.025;
+  config.planner.numNodes = 56;  // 1.4 s, four and a half steps of the 0.3 s cadence
+  config.planner.commitTime = 0.05;
+  config.shared.comHeight = 0.85;
+  config.shared.gaitLimits.minSwingDuration = 0.25;
+  config.shared.gaitLimits.maxSwingDuration = 0.35;
+  config.shared.gaitLimits.minDoubleSupportDuration = 0.0;
+  config.hlip.sspDuration = 0.25;
+  config.hlip.dspDuration = 0.05;
+  config.hlip.stepWidth = 0.25;
+  config.validate();
+  return config;
+}
+
+TEST(ContactPlanDescribe, AStepIsMeasuredFromTheLastStanceNodeAndNotFromTheLiftOffNode) {
+  if (N_CONTACTS < 2) GTEST_SKIP() << "needs a second foot";
+  ContactPlan plan;
+  plan.valid = true;
+  plan.startTime = 0.0;
+  plan.dt = 0.1;
+  // Left: contact over intervals 0 and 1, swing over 2, 3 and 4, contact over 5. Right: down throughout. Six
+  // intervals, seven nodes.
+  plan.contacts = {{true, true}, {true, true}, {false, true}, {false, true}, {false, true}, {true, true}};
+  // The convention HlipContactPlanner writes: the landing spot is stamped over every node of the single-support
+  // phase, so node 2 - the lift-off node - already holds it, and the double support that follows leaves it there, so
+  // node 5 holds it too. Only nodes 0 and 1 hold the stance the foot leaves. Measuring the step between nodes 2 and 5
+  // therefore returned zero; measuring it between node 1 and node 5 returns the step the planner chose.
+  plan.footholds.assign(7, {vector2_t(0.0, 0.1), vector2_t(0.0, -0.1)});
+  for (size_t k = 2; k < 7; ++k) plan.footholds[k][CONTACT_LEFT_INDEX] = vector2_t(0.4, 0.14);
+
+  const std::string line = plan.describe();
+  const std::vector<vector2_t> steps = stepsInDescription(line);
+  ASSERT_EQ(steps.size(), 1u) << line;
+  EXPECT_NEAR(steps[0].x(), 0.4, kTol) << line;
+  EXPECT_NEAR(steps[0].y(), 0.04, kTol) << line;
+  EXPECT_NE(line.find("| L: C0.200 S0.300(0.400,0.040) C0.100"), std::string::npos) << line;
+  EXPECT_NE(line.find("| R: C0.600"), std::string::npos) << line;
+}
+
+TEST(ContactPlanDescribe, ASwingAlreadyInFlightAtTheStartOfThePlanPrintsNoStepAtAll) {
+  if (N_CONTACTS < 2) GTEST_SKIP() << "needs a second foot";
+  // A plan that begins mid-swing holds no pre-lift-off foothold for that foot: the lift-off happened before node 0.
+  // There is no step to report, and reporting a zero would be the very thing this pins - a displacement of zero read
+  // as "the planner is stepping in place" when it means "this line cannot tell you".
+  ContactPlan plan;
+  plan.valid = true;
+  plan.startTime = 0.0;
+  plan.dt = 0.1;
+  plan.contacts = {{false, true}, {false, true}, {true, true}};
+  plan.footholds.assign(4, {vector2_t(0.0, 0.1), vector2_t(0.0, -0.1)});
+  for (size_t k = 0; k < 4; ++k) plan.footholds[k][CONTACT_LEFT_INDEX] = vector2_t(0.4, 0.1);
+
+  const std::string line = plan.describe();
+  EXPECT_TRUE(stepsInDescription(line).empty()) << "no node precedes the lift-off, so no step may be printed: " << line;
+  EXPECT_NE(line.find("| L: S0.200 C0.100"), std::string::npos) << line;
+}
+
+TEST(ContactPlanDescribe, EveryStepOfARealHlipPlanReportsTheDisplacementTheDeadbeatLawChose) {
+  if (N_CONTACTS < 2) GTEST_SKIP() << "needs a second foot";
+  const ContactPlanningConfig config = makeHlipConfig();
+  HlipContactPlanner planner(config);
+
+  ContactPlannerInput input;
+  input.time = 0.0;
+  input.comPosition = vector2_t::Zero();
+  input.comVelocity = vector2_t::Zero();
+  input.footPositions[CONTACT_LEFT_INDEX] = vector2_t(0.0, 0.5 * config.hlip.stepWidth);
+  input.footPositions[CONTACT_RIGHT_INDEX] = vector2_t(0.0, -0.5 * config.hlip.stepWidth);
+  input.contacts = makeFeetArray(true);
+  // A double support that has only just begun, so the nominal cadence serves out its remaining 0.05 s before the
+  // first foot leaves the ground. Every swing in the plan then has a stance node in front of it, which is what makes
+  // this a test of the measurement rather than of the mid-swing case above.
+  input.phaseElapsedTime = makeFeetArray(0.0);
+  input.velocityCommand = vector2_t(0.4, 0.0);
+  input.committedUntil = input.time;
+  ASSERT_TRUE(planner.isWalking(input));
+
+  const ContactPlan plan = planner.plan(input);
+  ASSERT_TRUE(plan.valid);
+  const std::string line = plan.describe();
+  const std::vector<vector2_t> steps = stepsInDescription(line);
+  // 1.4 s of horizon at the 0.3 s cadence lands at least two swings of each foot.
+  ASSERT_GE(steps.size(), 4u) << line;
+  for (size_t i = 0; i < steps.size(); ++i) {
+    EXPECT_GT(steps[i].norm(), 0.05) << "swing " << i << " of an H-LIP plan reported no displacement: " << line;
+  }
+  // The exact symptom: with the step read off the lift-off node every one of these was (0.000,0.000).
+  EXPECT_EQ(line.find("(0.000,0.000)"), std::string::npos) << line;
+
+  // Walking forward at 0.4 m/s the plan must advance: the steps of a foot sum to the distance its foothold covers
+  // over the horizon, which the log is read to check against the command.
+  scalar_t forwardTravel = 0.0;
+  for (const vector2_t& step : steps) forwardTravel += step.x();
+  EXPECT_GT(forwardTravel, 0.5) << line;
+}
 
 TEST(ContactPlanMerge, TouchDownAtTheCommitBoundaryDoesNotShortenTheFollowingPhases) {
   if (N_CONTACTS < 2) GTEST_SKIP() << "needs a second foot";

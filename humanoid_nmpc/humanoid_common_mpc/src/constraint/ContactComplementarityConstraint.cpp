@@ -31,37 +31,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-vector_t normalContactForceRow(const MpcRobotModelBase<scalar_t>& mpcRobotModel, size_t contactPointIndex) {
-  // The contact force is linear in the input for every parameterization the model offers (the wrench block itself, or
-  // the basis scalings of BasisInputsModelDecorator), so the row is read off once by probing the unit inputs of this
-  // contact's block. Every other input, the joint velocities and the other foot, probes to zero.
-  const size_t inputDim = mpcRobotModel.getInputDim();
-  vector_t row = vector_t::Zero(inputDim);
-  const vector_t zeroInput = vector_t::Zero(inputDim);
-  const scalar_t offset = mpcRobotModel.getContactForce(zeroInput, contactPointIndex)(2);
-  CHECK_LE(std::abs(offset), 1e-12) << "[ContactComplementarityConstraint] the contact force must be linear in the input";
-  for (size_t index = 0; index < inputDim; ++index) {
-    vector_t probe = vector_t::Zero(inputDim);
-    probe(index) = 1.0;
-    row(index) = mpcRobotModel.getContactForce(probe, contactPointIndex)(2);
-  }
-  // Both terms built on this row use it as a LOAD INDICATOR: a number that is zero exactly when the foot carries no
-  // contact wrench, and grows with the load. That is the property the complementarity and slip products need, and it
-  // is the property this check defends, because it is the one a new input parameterization could quietly break.
-  //
-  // A non-negative row is necessary for it. It is also sufficient given the sign constraint each parameterization
-  // already carries: the wrench models bound the world-vertical force below by zero through the friction cone, and
-  // under BasisInputsModelDecorator every generator of ContactWrenchConeBasisMatrix is built with a local normal force
-  // of exactly 1, so the row is all ones over this foot's block and the indicator is the sum of the scalings, which
-  // BasisScalingNonNegativityConstraint keeps non-negative. There the indicator is exact: it vanishes if and only if
-  // every scaling does, i.e. if and only if the whole wrench is zero.
-  CHECK((row.array() >= -1e-12).all()) << "[ContactComplementarityConstraint] the normal contact force must be non-negative in the "
-                                          "model's input parameterization, or it cannot serve as a load indicator";
-  CHECK_GT(row.cwiseAbs().maxCoeff(), 1e-12) << "[ContactComplementarityConstraint] no input of contact " << contactPointIndex
-                                             << " produces a normal force";
-  return row;
-}
-
 ContactComplementarityConstraint::ContactComplementarityConstraint(const FootprintCornerHeights& cornerHeights,
                                                                    const MpcRobotModelBase<scalar_t>& mpcRobotModel,
                                                                    size_t contactPointIndex,
