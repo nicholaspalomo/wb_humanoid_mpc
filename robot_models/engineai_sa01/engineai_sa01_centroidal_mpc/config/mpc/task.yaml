@@ -82,7 +82,7 @@ enableOnlineTuning: true     # Enable runtime parameter and gain tuning in Contr
 # Set true to use basis-vector scalings lambda as MPC contact inputs (instead of direct wrenches). The wrench cone is
 # then structural rather than a soft constraint. Nothing robot-specific blocks it; the `contacts` block below already
 # carries basisNonNegativityBarrier and basisScalingRegularization, so this is a one-line change once the robot walks.
-useContactBasisVectorInputs: false
+useContactBasisVectorInputs: true
 # Set true to regulate CoM + Angular Center of Mass (ACoM) instead of base pose.
 #
 # THE WEIGHTS NOW EXIST: AcomSirenWeightsSa01.h is trained and wired into AngularCenterOfMass::createForRobot, so this
@@ -104,7 +104,7 @@ useComAndAcomTracking: false
 useContactPlanning: false
 # Set true to end the horizon with the DCM (capture point) viability cost; Q_final / terminal_cost are then ignored.
 # The dcm_terminal_cost block below is parameterised for SA01, so this is also a one-line change.
-useDcmTerminalCost: false
+useDcmTerminalCost: true
 
 # Targeted Pinocchio frames for telemetry logging (position, orientation, twist, accel, wrench). SA01 has no pelvis
 # and no torso link - base_link IS the floating base.
@@ -210,6 +210,12 @@ contact_implicit:
 #              reference is weight compensation and nothing else today: m*g split evenly over the feet the mode
 #              schedule calls stance feet, purely vertical.
 #
+# THE COEFFICIENTS BELOW ARE DERIVED FOR THIS ROBOT, AND ALL THREE LISTS ARE STILL EMPTY. Those are two separate
+# switches on purpose: `make derive-heuristic-parameters ROBOT=engineai_sa01` regenerates every number below from this
+# robot's URDF, gait and command limits, so the starting point is ready - but nothing is turned on until a name is
+# uncommented, and each of these still changes the closed loop. SA01 has never been run at all, so that matters more
+# here than anywhere else.
+#
 # ALL THREE LISTS ARE EMPTY, deliberately. Each changes the closed loop and none has been validated in simulation
 # under hardware-like conditions on this robot; Bledt's own coefficients were fitted to a 9 kg quadruped. Uncomment
 # ONE name, sweep its block in MuJoCo, and only then move to the next - which is how the dissertation itself
@@ -241,19 +247,19 @@ locomotion_heuristics:
 
   # The offsets within a list are SUMMED, so the order here is documentary only - unlike the contact planner's
   # `costs` list, where order is the floating-point accumulation order.
-  base_pose: []
-    # - orientation_compensation   # H_Theta(pdot): roll from lateral speed, pitch from forward speed
-    # - periodic_orientation       # H_Theta(Phi):  roll/pitch limit cycle in the gait phase
-    # - height_compensation        # H_z(v):        base height against speed
-  foothold: []
-    # - hip_centered_stepping      # H_r(Theta):        foot under its own hip - READ ITS BLOCK BELOW FIRST
-    # - capture_point              # H_r(pdot, Phi):    step into the velocity ERROR
-    # - translational_stepping     # H_r(pdot):         step in the direction of travel
-    # - in_place_turning           # H_r(psidot):       step along the turn arc
-    # - high_speed_turning         # H_r(pdot x omega): step outward along the turn radius
-  wrench: []
-    # - impulse_scaling            # H_f(Phi):            stance force scaled by 1 / duty factor
-    # - centripetal_acceleration   # H_f(Theta x pdot):   the horizontal force of a turn - SEE ITS BLOCK BELOW
+  base_pose:
+    - orientation_compensation   # H_Theta(pdot): roll from lateral speed, pitch from forward speed
+    - periodic_orientation       # H_Theta(Phi):  roll/pitch limit cycle in the gait phase
+    - height_compensation        # H_z(v):        base height against speed
+  foothold:
+    - hip_centered_stepping      # H_r(Theta):        foot under its own hip - READ ITS BLOCK BELOW FIRST
+    - capture_point              # H_r(pdot, Phi):    step into the velocity ERROR
+    - translational_stepping     # H_r(pdot):         step in the direction of travel
+    - in_place_turning           # H_r(psidot):       step along the turn arc
+    - high_speed_turning         # H_r(pdot x omega): step outward along the turn radius
+  wrench:
+    - impulse_scaling            # H_f(Phi):            stance force scaled by 1 / duty factor
+    - centripetal_acceleration   # H_f(Theta x pdot):   the horizontal force of a turn - SEE ITS BLOCK BELOW
 
   # ---- one parameter block per heuristic, keyed by the heuristic's own registry name ----
 
@@ -263,11 +269,19 @@ locomotion_heuristics:
   # injecting it back both enlarged the viable operating region and improved the simplified orientation dynamics'
   # own validity, because the body sits closer to level at speed.
   orientation_compensation:
+    # 0, and deliberately so rather than for want of a number. At a CONSTANT sidestep velocity there is no net lateral
+    # force to lean against, and what a biped's roll actually does in single support is oscillate at gait frequency -
+    # which is periodic_orientation's job below and not this one's.
     rollPerLateralVelocity: 0.0     # a1 [rad s/m] roll reference per commanded lateral speed
     rollOffset: 0.0                 # a0 [rad] standing roll trim
-    pitchPerForwardVelocity: 0.0    # a1 [rad s/m] pitch per commanded forward speed (expect NEGATIVE: nose down)
+    # 0.0611 puts the nose down 0.049 rad (2.8 deg) at the 0.8 m/s of reference.yaml maxDisplacementVelocityX, and
+    # POSITIVE is nose-down here (Euler ZYX about a z-up world). The coefficient is HALF AGAIN Atlas's 0.0407 purely
+    # because SA01's stick is smaller (0.8 against 1.2 m/s): the lean at full command is the same 2.8 deg on both.
+    pitchPerForwardVelocity: 0.0611  # a1 [rad s/m] pitch per commanded forward speed
     pitchOffset: 0.0                # a0 [rad] standing pitch trim
-    maximumTilt: 0.35               # [rad] each of roll and pitch is clamped to +/- this; the command is not rate limited
+    # 0.15 rad = 8.6 deg. The control model replaces R(Theta) with R_z(psi), so a reference tilt large enough to make
+    # that approximation wrong is a reference the dynamics cannot follow.
+    maximumTilt: 0.15               # [rad] each of roll and pitch is clamped to +/- this; the command is not rate limited
 
   # H_Theta(Phi) = b1 * sin(c1 * Phi + d1)  (Table C.2, equation 4.13), with Phi the gait phase in [0, 1). [0, 0.5)
   # is the LF mode and [0.5, 1) the RF mode, and those name the foot IN CONTACT, not the one swinging - so the first
@@ -275,9 +289,19 @@ locomotion_heuristics:
   # rather than advancing, so this holds a constant offset there instead of continuing its cycle.
   # The two rates are pre-wired to the two shapes that make sense, so only the amplitudes have to be found.
   periodic_orientation:
-    rollAmplitude: 0.0              # b1 [rad]
+    # 0.03 rad = 1.7 deg of pelvic obliquity. The PHASE follows from the mode semantics with nothing left to fit:
+    # phase [0, 0.5) is LF, i.e. LEFT STANCE, so its midpoint is 0.25; a positive roll raises the left side (rotation
+    # about +x carries +y towards +z), which is the stance side; and with rate 2*pi and offset 0 the sinusoid peaks at
+    # exactly 0.25. So the reference drops the hip on the SWING side through each single support.
+    #
+    # This is the heuristic to watch first on SA01. Its hips are 0.150 m apart - the narrowest of the four robots -
+    # so the lateral pendulum has the least to work with and the roll is the channel most worth shaping.
+    rollAmplitude: 0.03             # b1 [rad]
     rollPhaseRate: 6.2831853        # c1 [rad per unit phase]; 2*pi = one period per left-right cycle
-    rollPhaseOffset: 0.0            # d1 [rad]
+    rollPhaseOffset: 0.0            # d1 [rad]; 0 puts the peak at mid left stance - see above
+    # 0, because the phase cannot be derived the way roll's can: pitch oscillates once per STEP and where in the step
+    # its extremum falls is a property of this robot's mass distribution and cadence. A sinusoid at the wrong phase is
+    # worse than none, so this is the coefficient Bledt's extraction framework exists to produce (R^2 = 0.835).
     pitchAmplitude: 0.0             # b1 [rad]
     pitchPhaseRate: 12.5663706      # c1 [rad per unit phase]; 4*pi = one period per step
     pitchPhaseOffset: 0.0           # d1 [rad]
@@ -287,10 +311,14 @@ locomotion_heuristics:
   # adaptToCurrentGroundHeight() writes, and an absolute value would silently become a terrain override.
   # Crouching with speed buys the swing leg vertical room within the same joint range; it costs knee torque headroom.
   height_compensation:
+    # 0, until a sweep of the linear term shows curvature worth fitting.
     heightPerSpeedSquared: 0.0      # a2 [m s^2/m^2]
-    heightPerSpeed: 0.0             # a1 [m s/m] (expect negative: lower with speed)
+    # -0.0375 lowers the base 0.03 m at the 0.8 m/s stick, i.e. 3.7% of the 0.8135 m defaultBaseHeight. On a robot
+    # with only 0.725 m from hip pitch to sole that is a real fraction of the leg, so watch the knee torque: SA01's
+    # actuators are the smallest here and the crouch is paid for in exactly the joint that is already working hardest.
+    heightPerSpeed: -0.0375         # a1 [m s/m]
     heightOffset: 0.0               # a0 [m]
-    maximumHeightOffset: 0.05       # [m] clamped to +/- this, so a command spike cannot drop the base into its knees
+    maximumHeightOffset: 0.05       # [m] clamped to +/- this; 0.05 leaves the clamp off the value above at full stick
 
   # H_r(Theta) = PTP(R(Theta) * r_hip)  (Table C.1): the foot under its own hip, ground-projected. r_hip is derived
   # from the robot model at start-up and is never a key here; these two scales stretch it.
@@ -302,8 +330,14 @@ locomotion_heuristics:
   # are summed on top of (figure 4-8), and alone it walks a few slow steps and falls as soon as it has speed. The
   # layer prints a warning when it is listed alone, and another when the others are listed without it.
   hip_centered_stepping:
+    # 1.0, and here that is not a placeholder: SA01's hip yaw joints sit at y = +/-0.075 m and the legs stand very
+    # nearly vertical, so an unscaled hip-centred stance is 0.150 m - the stance the robot already has. And since
+    # nominal_foothold.stepWidth is 0 on this robot there is no other stance for the heuristic to reproduce, which
+    # makes SA01 the one robot here where switching this on does not resize anything. Use 1.20 to match the 0.18 m
+    # orbit the contact planner would place (contact_planning.yaml hlip.stepWidth), which is the wider and more
+    # forgiving of the two on a robot whose lateral pendulum diverges as fast as this one's.
     lateralScale: 1.0               # multiplies the model's hip lateral offset; 0 removes the lateral part
-    longitudinalScale: 1.0          # multiplies the model's hip fore-aft offset
+    longitudinalScale: 1.0          # inert on SA01: both hip joints sit at x = 0, so the fore-aft offset is zero
 
   # H_r(pdot, Phi) = gain * sqrt(p_z / g) * (pdot - pdot_d)  (Table C.1): the capture-point offset of the VELOCITY
   # ERROR, and the only heuristic here that reacts to a push rather than to a command - it is identically zero
@@ -311,19 +345,37 @@ locomotion_heuristics:
   # the DCM terminal cost and the ZMP/DCM viewer markers already use.
   capture_point:
     gain: 1.0                       # 1.0 is the textbook capture point
-    comHeightOverride: 0.0          # [m] 0: use the CoM height measured each solve; positive: use this fixed value
+    # 0.6124 m, and on SA01 this number is unusually trustworthy: it is what the model gives at `initialState`, what
+    # dcm_terminal_cost.comHeight says, and what contact_planning.yaml shared.comHeight says, all three in agreement.
+    # (The DRC Atlas is NOT in that happy position - see the note in its own block.) omega is then
+    # sqrt(9.81 / 0.6124) = 4.00 rad/s and the offset is 0.250 s per m/s of velocity error - the fastest pendulum of
+    # the four robots, so the capture step is correspondingly small and this heuristic correspondingly gentle.
+    comHeightOverride: 0.6124       # [m] 0: use the CoM height measured each solve; positive: use this fixed value
     gravity: 9.81                   # [m/s^2]
-    maximumOffset: 0.25             # [m] clamped in MAGNITUDE, which preserves the direction of the step into the error
+    # 0.232 m = 40% of contact_planning.yaml foot_separation.maxStepLength (0.58 m). Unlike the Atlas the lateral room
+    # here is symmetric enough not to bind: nominal_foothold.stepWidth is 0, so nothing is pinned against
+    # foot_separation.maxStepWidth to begin with.
+    maximumOffset: 0.232            # [m] clamped in MAGNITUDE, which preserves the direction of the step into the error
 
   # H_r(pdot) = a1 * pdot + a0  (Table C.2): step in the direction of travel, in the base's yaw frame. The largest
   # single effect in the dissertation: a foot placed under the hip at lift-off is behind the robot by touch-down, so
   # the stance that follows tips the robot the way it is already going. Roughly doubled the usable stance per step
   # and multiplied the top speed (figure 4-9). Expect a1 near half the stance duration.
   translational_stepping:
-    forwardPerForwardVelocity: 0.0  # a1 [m s/m]
+    # 0.25 s = half the step period of the shipped `trot` gait (gait.yaml: LF and RF for 0.5 s each). That is
+    # Raibert's half-stance rule, and it composes with the anchor rather than duplicating it: the anchor is the stance
+    # foot carried forward by the commanded velocity over the time remaining until touch-down, so at mid-swing the
+    # anchor supplies half a step and this the other half, putting the target one step length ahead of the stance foot.
+    #
+    # RESCALE IT WITH THE GAIT - the step period is what sets it. `walk` (step 0.7 s) wants 0.35, `run` (step 0.4 s)
+    # wants 0.2. And note that SA01's contact planner runs a far quicker cadence than any of these (sspDuration 0.22 +
+    # dspDuration 0.05, so a 0.27 s step), which would want 0.135 - but the planner supplies its own footholds and
+    # rejects this family outright, so that cadence is not the one to size against.
+    forwardPerForwardVelocity: 0.25  # a1 [m s/m]
     forwardOffset: 0.0              # a0 [m]
-    lateralPerLateralVelocity: 0.0  # a1 [m s/m]
-    lateralOffset: 0.0              # a0 [m] applied to this foot's OWN SIDE, so one number widens the stance
+    lateralPerLateralVelocity: 0.25  # a1 [m s/m]; same half-step rule on the lateral axis
+    lateralOffset: 0.0              # a0 [m] applied to this foot's OWN SIDE; 0 because hip_centered_stepping already
+                                     #     sets the separation on this robot
 
   # H_r(psidot) = a1 * psidot + a0  (Table C.2): step along the turn arc while turning on the spot (figure 4-10).
   # psidot is the COMMANDED yaw rate. The FORWARD term is signed per foot and the lateral one is not, which is what
@@ -335,9 +387,13 @@ locomotion_heuristics:
   # that sign, so a POSITIVE forwardPerYawRate leads each hip into the turn, which is the point of the heuristic; the
   # opposite convention would make a positive number drive the feet to trail the hips by twice the intended amount.
   in_place_turning:
-    forwardPerYawRate: 0.0          # a1 [m s/rad], positive leads each hip into the turn
+    # The half-step rule applied to the speed the HIP travels at rather than the body: a foot 0.075 m from the centre
+    # moves at 0.075 * psidot, so half a 0.5 s step of that is 0.0187. At the 1.0 rad/s of reference.yaml
+    # maxRotationVelocity that is a 0.019 m fore-aft displacement per foot - THREE TIMES SMALLER than the Atlas's,
+    # entirely because SA01's stance is a third as wide. A narrow robot has little to gain here.
+    forwardPerYawRate: 0.0187       # a1 [m s/rad], positive leads each hip into the turn
     forwardOffset: 0.0              # a0 [m]
-    lateralPerYawRate: 0.0          # a1 [m s/rad]
+    lateralPerYawRate: 0.0          # a1 [m s/rad]; 0 - a turn on the spot has no net lateral drift to follow
     lateralOffset: 0.0              # a0 [m] applied to this foot's own side
 
   # H_r(pdot x omega) = a1 * (pdot x omega) + a0  (Table C.2): throw the feet out along the turn radius at speed.
@@ -347,9 +403,14 @@ locomotion_heuristics:
   # centripetal acceleration (equation 4.31). Zero at zero speed however fast the robot spins, which is what
   # distinguishes it from in_place_turning. With omega = psidot e_z the cross product is (v_y*psidot, -v_x*psidot).
   high_speed_turning:
-    forwardPerCrossTerm: 0.0        # a1 [m s^2/(m rad)] on   v_y * psidot
+    # A closed form rather than a fitted number: Bledt's equation 4.31 places the foot along the resultant of gravity
+    # and the centripetal acceleration, displacing it by (z_com / g) * (pdot x omega). With SA01's 0.6124 m CoM that
+    # is 0.0624 s^2, the SAME on both axes because the two entries are components of one vector. At the stick limits
+    # (0.8 m/s, 1.0 rad/s) it throws the foot 0.050 m outwards - half the Atlas's 0.104 m, and well inside the
+    # 0.232 m capture-point clamp.
+    forwardPerCrossTerm: 0.0624     # a1 [m s^2/(m rad)] on   v_y * psidot
     forwardOffset: 0.0              # a0 [m]
-    lateralPerCrossTerm: 0.0        # a1 [m s^2/(m rad)] on  -v_x * psidot
+    lateralPerCrossTerm: 0.0624     # a1 [m s^2/(m rad)] on  -v_x * psidot
     lateralOffset: 0.0              # a0 [m] applied to this foot's own side
 
   # H_f(Phi) = m*g / (F * beta)  (Table C.1): the vertical stance force reference of a foot that is on the ground for
@@ -369,7 +430,13 @@ locomotion_heuristics:
   # asked. Purely vertical, which is what keeps the cheap yaw-invariant input-frame path valid.
   impulse_scaling:
     scale: 1.0                      # blends between today's reference (0) and Bledt's W/(F*beta) (1); must be >= 0
-    minimumDutyFactor: 0.2          # beta is clamped up to this; 1/beta is unbounded as a flight phase opens
+    # 0.3 sits just below the smallest duty factor any shipped gait produces: `run` (gait.yaml: LF 0.3 s, FLY 0.1 s,
+    # RF 0.3 s, FLY 0.1 s) puts each foot down for 0.3 of a 0.8 s stride, i.e. beta = 0.375. So the clamp never binds
+    # on a gait this robot actually walks with, and still bounds W / (F beta) at 541 N per foot if one ever does.
+    minimumDutyFactor: 0.3          # beta is clamped up to this; 1/beta is unbounded as a flight phase opens
+    # The binding case among the shipped gaits is `walk`, whose double support runs at beta = 0.571 against a W/2
+    # baseline and therefore asks for 1.75 x weight compensation. (`trot` has no double support, so there beta = 0.5
+    # and the correction is identically zero.)
     maximumForceRatio: 2.0          # the reference is clamped to this many times weight compensation
 
   # H_f(Theta x pdot) = m * omega x pdot  (Table C.1): the horizontal force that holds the robot on a circular path,
@@ -389,8 +456,11 @@ locomotion_heuristics:
   centripetal_acceleration:
     scale: 1.0                      # scales m * omega x v; 0 disables it
     maximumForce: 0.0               # [N] per-foot clamp; 0 uses maximumForceRatioOfWeight instead
-    maximumForceRatioOfWeight: 0.3  # the clamp as a fraction of body weight - a foot cannot pull sideways harder
-                                    # than friction allows, and the cone's coefficient is around 0.5 on these robots
+    # 0.2 of the 324.8 N body weight is 65 N per foot, which is 40% of the friction budget a single stance foot has at
+    # this file's frictionCoefficient of 0.5 - so the reference stays inside the cone the wrench-cone barrier is
+    # enforcing rather than fighting it. For scale, the largest centripetal force SA01 can legitimately need is
+    # m * v * psidot = 33.1 * 0.8 * 1.0 = 26 N, i.e. 0.08 of body weight, so this clamp does not bind in normal use.
+    maximumForceRatioOfWeight: 0.2  # the clamp as a fraction of body weight
 # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/locomotion_heuristics/LocomotionHeuristicConfig.cpp:locomotion_heuristic_keys)
 
 useGravityCompFeedforward: false

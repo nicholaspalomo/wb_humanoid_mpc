@@ -500,10 +500,11 @@ The script also reports the three configuration facts that decide whether any of
 `useComAndAcomTracking`, `useContactPlanning`, and `task_space_foot_cost_weights.pos_x`/`pos_y` — because each makes
 a listed heuristic silently inert.
 
-### What it found on the DRC Atlas
+### What it found on the two robots that ship derived values
 
-Atlas is the only robot whose block ships with derived values rather than zeros. Two things the derivation surfaced
-are worth carrying into any tuning of it:
+The **DRC Atlas** and the **EngineAI SA01** ship derived coefficients; the two Unitree robots still ship zeros.
+
+On Atlas, two things the derivation surfaced are worth carrying into any tuning of it:
 
 * **The controller's LIP height disagrees with the robot's.** `dcm_terminal_cost.comHeight` and the contact planner's
   `shared.comHeight` are both `0.85`, but at `initialState` the centre of mass sits **1.0805 m** above the feet — 21%
@@ -517,6 +518,22 @@ are worth carrying into any tuning of it:
 
 Also note that Atlas ships `useComAndAcomTracking: true`, so **its three `base_pose` heuristics are inert as
 shipped** — their values are derived and ready, and they do nothing until base-pose tracking is selected.
+
+SA01 is the easier robot of the two to start on, and the contrast is instructive:
+
+* **Its LIP height is self-consistent.** The model, `dcm_terminal_cost.comHeight` and the planner's `shared.comHeight`
+  all agree on `0.6124 m`, so the script emits no warning. It is also the *fastest* pendulum of the four robots
+  ($\omega = 4.00$ rad/s), which makes its capture step the smallest and this heuristic the gentlest.
+* **Switching on `hip_centered_stepping` resizes nothing.** `nominal_foothold.stepWidth` is `0`, and the hips at
+  ±0.075 m already give the 0.150 m stance the robot stands in, so `lateralScale: 1.0` is the real answer rather than
+  a placeholder — the only robot here where that is true.
+* **Its coefficients are larger where its stick is smaller and smaller where its geometry is.**
+  `pitchPerForwardVelocity` is `0.0611` against Atlas's `0.0407` only because the command limit is 0.8 m/s rather than
+  1.2 — the lean at full stick is the same 2.8° on both. `in_place_turning.forwardPerYawRate`, by contrast, is a third
+  of Atlas's, because the stance it pivots about is a third as wide. A narrow robot has little to gain from that one.
+* **`periodic_orientation` is the one to try first.** SA01's hips are the narrowest of the four, so its lateral
+  pendulum has the least to work with and the roll is the channel most worth shaping — and the roll phase is the one
+  coefficient in the family that is derived rather than fitted.
 
 ### Preconditions the layer checks for you
 

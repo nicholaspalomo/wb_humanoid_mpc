@@ -19,7 +19,7 @@ cleanup_trap := trap 'pkill -P $$$$ 2>/dev/null; wait' EXIT INT TERM
 # Build targets
 ############################################################
 .PHONY: build-all build-debug build-release build-relwithdebinfo build \
-        test-all test clean clean-all format lint ci-local \
+        test-all test test-heuristic-parameters derive-heuristic-parameters clean clean-all format lint ci-local \
         launch-g1-dummy-sim launch-g1-sim launch-wb-g1-dummy-sim launch-wb-g1-sim \
         launch-drc-atlas-dummy-sim launch-drc-atlas-sim launch-drc-atlas-sandbox test-pinocchio-model-atlas \
         launch-r1-dummy-sim launch-r1-sim launch-r1-sandbox test-pinocchio-model-r1 \
@@ -194,6 +194,16 @@ format:
 ## Lint repository (IFTTT directives, formatting checks, whitespace, and EOF newlines)
 lint:
 	@python3 tools/hooks/lint_code.py
+
+## Check the locomotion-heuristic coefficients against the robots' URDFs (humanoid_nmpc/docs/locomotion_heuristics)
+# Not a bazel target: Pinocchio reaches Python through the ROS install, which bazel's hermetic toolchain cannot see.
+test-heuristic-parameters:
+	@python3 -m unittest discover -s tools/locomotion_heuristics -p "test_*.py" -v
+
+## Print the derived locomotion-heuristic block for one robot: make derive-heuristic-parameters ROBOT=drc_atlas
+derive-heuristic-parameters:
+	@$(if $(ROBOT),python3 tools/locomotion_heuristics/derive_parameters.py --robot $(ROBOT),\
+		@echo "Usage: make derive-heuristic-parameters ROBOT=drc_atlas|engineai_sa01|unitree_g1|unitree_r1")
 
 ## Install git pre-commit hook
 install-hooks:

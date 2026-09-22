@@ -494,7 +494,12 @@ def derive_parameters(
         "longitudinalScale": 1.0,
     }
     notes.append(
-        "hip_centered_stepping.lateralScale = nominal_foothold.stepWidth %.3f / hip width %.3f = %.3f%s"
+        (
+            "hip_centered_stepping.lateralScale = nominal_foothold.stepWidth %.3f / hip width %.3f = %.3f%s"
+            if step_width > 0
+            else "hip_centered_stepping.lateralScale = 1.0: nominal_foothold.stepWidth is %.3f, so there is no stance "
+            "to reproduce and the hips' own %.3f m is the width%.0s%s"
+        )
         % (
             step_width,
             hip_width,

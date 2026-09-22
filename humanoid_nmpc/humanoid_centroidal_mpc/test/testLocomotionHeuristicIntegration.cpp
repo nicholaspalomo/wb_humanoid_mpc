@@ -172,9 +172,11 @@ TEST_F(LocomotionHeuristicIntegrationTest, EmptyListsLeaveTheContactForceReferen
       << "getDesiredInput must reproduce weightCompensatingInput when no wrench heuristic is listed";
 }
 
-TEST_F(LocomotionHeuristicIntegrationTest, AListedHeuristicWithShippedCoefficientsIsStillInert) {
-  // The list and the coefficients are independent switches: every fitted coefficient ships at zero, so turning a name
-  // on and finding its number are two separate experiments. This is what makes that claim true end to end.
+TEST_F(LocomotionHeuristicIntegrationTest, TheShippedCoefficientsReachTheReferenceWhenAHeuristicIsListed) {
+  // The DRC Atlas and the EngineAI SA01 ship DERIVED coefficients rather than zeros - regenerate them with
+  // `make derive-heuristic-parameters ROBOT=drc_atlas` - so listing a name on those two is not a no-op, and this is
+  // the test that says so. The LIST is still the switch: it is empty on every robot, which
+  // tools/locomotion_heuristics/test_derive_parameters.py pins separately.
   const std::shared_ptr<LocomotionHeuristicLayer>& layer = enabled_->getLocomotionHeuristicLayerPtr();
   ASSERT_FALSE(layer->empty()) << "the test's task file did not take effect";
 
@@ -184,7 +186,20 @@ TEST_F(LocomotionHeuristicIntegrationTest, AListedHeuristicWithShippedCoefficien
   enabled_->getMpcRobotModel().setBaseComLinearVelocity(targetState, vector3_t(1.0, 0.0, 0.0));
   const vector_t desiredState = referenceManager->getDesiredState(targetOf(*enabled_, targetState), state, 0.0);
   const vector6_t basePose = enabled_->getMpcRobotModel().getBasePose(desiredState);
-  EXPECT_NEAR(basePose(4), 0.0, 1e-12) << "orientation_compensation is listed but its coefficients are zero";
+
+  // Index 4 is PITCH: the base pose is Euler ZYX with yaw FIRST. The shipped Atlas coefficient is
+  // pitchPerForwardVelocity = 0.0407 rad s/m, so a 1 m/s forward command leans the reference that far nose-down -
+  // POSITIVE being nose-down about a z-up world. Read off the file rather than hard-coded, because the value is
+  // derived from the robot and will move when the robot or its command limits do; what is pinned here is that the
+  // number in the file is the number that reaches the reference.
+  const std::string taskFileText = readFile(shippedTaskFile());
+  const std::smatch::size_type pitchPosition = taskFileText.find("pitchPerForwardVelocity:");
+  ASSERT_NE(pitchPosition, std::string::npos);
+  const scalar_t shippedPitchCoefficient = std::stod(taskFileText.substr(pitchPosition + std::string("pitchPerForwardVelocity:").size()));
+  EXPECT_GT(shippedPitchCoefficient, 0.0) << "the DRC Atlas is expected to ship a derived, non-zero lean";
+  EXPECT_NEAR(basePose(4), shippedPitchCoefficient, 1e-9) << "the shipped coefficient must reach the pitch reference";
+  // Roll follows the LATERAL command, which is zero here, and rollPerLateralVelocity is deliberately 0 anyway.
+  EXPECT_NEAR(basePose(5), 0.0, 1e-12);
 }
 
 TEST_F(LocomotionHeuristicIntegrationTest, AnEnabledBasePoseHeuristicReachesTheStateReference) {
