@@ -65,6 +65,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/cost/EndEffectorKinematicCostHelpers.h"
 #include "humanoid_common_mpc/cost/EndEffectorKinematicsQuadraticCost.h"
 #include "humanoid_common_mpc/cost/ExternalTorqueQuadraticCostAD.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 
 namespace ocs2::humanoid {
@@ -1053,6 +1054,31 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
   if (pt.get_child_optional("contact_planning")) {
     applyContactPlanningUpdates(yamlFile);
   }
+
+  // ── Locomotion heuristics: the coefficients of Bledt's RPC reference-shaping layer
+  // (humanoid_nmpc/docs/locomotion_heuristics/README.md) ──
+  //
+  // The layer lives on the reference manager, which is shared rather than cloned per worker, so there is nothing to
+  // walk here - one reconfigure() reaches every thread's view of it. It is safe from this thread because
+  // preSolverRun() runs before any worker exists for the solve that follows.
+  //
+  // LINT.IfChange(locomotion_heuristics_updater_yaml_path)
+  if (locomotionHeuristicLayerPtr_ != nullptr && pt.get_child_optional(kLocomotionHeuristicsBlockKey)) {
+    const absl::StatusOr<LocomotionHeuristicConfig> heuristicConfig = loadLocomotionHeuristicConfig(yamlFile, /*verbose=*/false);
+    if (!heuristicConfig.ok()) {
+      // Reported and skipped rather than thrown: a half-typed coefficient in the tuning GUI must not take the
+      // controller down, and the layer keeps running on the values it already has.
+      LOG(WARNING) << "[MpcParameterUpdaterModule] locomotion_heuristics not applied: " << heuristicConfig.status().message();
+    } else if (const absl::Status status = locomotionHeuristicLayerPtr_->reconfigure(*heuristicConfig); !status.ok()) {
+      LOG(WARNING) << "[MpcParameterUpdaterModule] locomotion_heuristics not applied: " << status.message();
+    } else if (!locomotionHeuristicLayerPtr_->empty()) {
+      LOG(INFO) << "[MpcParameterUpdaterModule] Applied the locomotion_heuristics coefficients from " << yamlFile << ":\n"
+                << locomotionHeuristicLayerPtr_->summary();
+    }
+  }
+  // clang-format off
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/locomotion_heuristics/LocomotionHeuristicConfig.cpp:locomotion_heuristic_keys)
+  // clang-format on
 
   LOG(INFO) << "[MpcParameterUpdaterModule] Successfully applied in-place parameter updates to SqpSolver.";
 }

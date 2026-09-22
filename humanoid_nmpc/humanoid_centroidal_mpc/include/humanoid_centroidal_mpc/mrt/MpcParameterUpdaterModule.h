@@ -49,6 +49,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/contact/ContactWrenchGate.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerModule.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicLayer.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
 namespace ocs2::humanoid {
@@ -102,6 +103,13 @@ class MpcParameterUpdaterModule : public SolverSynchronizedModule {
    * `contact_planning` block of contact_planning.yaml next to the task file (watched like the task file), or of the task
    * file itself when the block still lives there, and of the YAML published on the parameter topic.
    */
+  /**
+   * Registers the locomotion-heuristic layer so that its COEFFICIENTS follow edits to the task file, exactly as the
+   * cost weights beside them do. Which heuristics are listed is structural and is not reloaded; the layer says so
+   * once if a list has changed on disk. Without this registration the block is launch-time only.
+   */
+  void setLocomotionHeuristicLayer(std::shared_ptr<LocomotionHeuristicLayer> layer) { locomotionHeuristicLayerPtr_ = std::move(layer); }
+
   void setContactPlannerModule(std::shared_ptr<ContactPlannerModule> contactPlannerModule) {
     contactPlannerModulePtr_ = std::move(contactPlannerModule);
   }
@@ -179,6 +187,7 @@ class MpcParameterUpdaterModule : public SolverSynchronizedModule {
   std::optional<BasisInputsCostTransformConfig> basisCostTransform_;
   /// Optional contact planner whose configuration is hot-reloaded from the `contact_planning` section.
   std::shared_ptr<ContactPlannerModule> contactPlannerModulePtr_;
+  std::shared_ptr<LocomotionHeuristicLayer> locomotionHeuristicLayerPtr_;
 
   // File-watching state
   std::filesystem::file_time_type taskFileLastWriteTime_;

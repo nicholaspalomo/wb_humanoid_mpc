@@ -157,6 +157,21 @@ cc_library(
         "src/swing_foot_planner/CubicSpline.cpp",
         "src/swing_foot_planner/SplineCpg.cpp",
         "src/swing_foot_planner/SwingTrajectoryPlanner.cpp",
+        "src/locomotion_heuristics/LocomotionHeuristicConfig.cpp",
+        "src/locomotion_heuristics/LocomotionHeuristicFactory.cpp",
+        "src/locomotion_heuristics/LocomotionHeuristicFormulation.cpp",
+        "src/locomotion_heuristics/LocomotionHeuristicLayer.cpp",
+        "src/locomotion_heuristics/LocomotionHeuristicModelParameters.cpp",
+        "src/locomotion_heuristics/base_pose/HeightCompensationHeuristic.cpp",
+        "src/locomotion_heuristics/base_pose/OrientationCompensationHeuristic.cpp",
+        "src/locomotion_heuristics/base_pose/PeriodicOrientationHeuristic.cpp",
+        "src/locomotion_heuristics/foothold/CapturePointHeuristic.cpp",
+        "src/locomotion_heuristics/foothold/HighSpeedTurningHeuristic.cpp",
+        "src/locomotion_heuristics/foothold/HipCenteredSteppingHeuristic.cpp",
+        "src/locomotion_heuristics/foothold/InPlaceTurningHeuristic.cpp",
+        "src/locomotion_heuristics/foothold/TranslationalSteppingHeuristic.cpp",
+        "src/locomotion_heuristics/wrench/CentripetalAccelerationHeuristic.cpp",
+        "src/locomotion_heuristics/wrench/ImpulseScalingHeuristic.cpp",
         "src/reference_manager/SwitchedModelReferenceManager.cpp",
         "src/reference_manager/ProceduralMpcMotionManager.cpp",
         "src/HumanoidCostConstraintFactory.cpp",
@@ -235,6 +250,28 @@ cc_binary(
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
+    ],
+)
+
+cc_test(
+    name = "testLocomotionHeuristics",
+    size = "small",
+    srcs = ["test/testLocomotionHeuristics.cpp"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "testStanceDutyFactor",
+    size = "small",
+    srcs = ["test/testStanceDutyFactor.cpp"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        "@googletest//:gtest_main",
     ],
 )
 

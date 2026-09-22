@@ -203,7 +203,7 @@ std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getStateInputQuad
   }
 
   return std::unique_ptr<StateInputCost>(
-      new StateInputQuadraticCost(std::move(Q), std::move(R), *referenceManagerPtr_, *pinocchioInterfacePtr_, *mpcRobotModelPtr_));
+      new StateInputQuadraticCost(std::move(Q), std::move(R), *referenceManagerPtr_, *mpcRobotModelPtr_));
 }
 
 /******************************************************************************************************/
@@ -267,8 +267,8 @@ std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getInputQuadratic
               << " #### =============================================================================";
   }
 
-  return std::unique_ptr<StateInputCost>(new InputQuadraticCost(std::move(R), mpcRobotModelADPtr_->getStateDim(), *referenceManagerPtr_,
-                                                                *pinocchioInterfacePtr_, *mpcRobotModelPtr_));
+  return std::unique_ptr<StateInputCost>(
+      new InputQuadraticCost(std::move(R), mpcRobotModelADPtr_->getStateDim(), *referenceManagerPtr_, *mpcRobotModelPtr_));
 }
 
 /******************************************************************************************************/

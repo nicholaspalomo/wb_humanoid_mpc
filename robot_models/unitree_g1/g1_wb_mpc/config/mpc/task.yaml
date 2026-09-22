@@ -70,6 +70,20 @@ costs:
   - terminal_cost
   - task_space_foot_cost
 
+# Locomotion heuristics (Bledt RPC, humanoid_nmpc/docs/locomotion_heuristics/README.md) are NOT configurable here.
+#
+# They are built and installed by CentroidalMpcInterface::setupLocomotionHeuristics(), and WBMpcInterface has no
+# counterpart, so nothing in the whole-body path ever reads a `locomotion_heuristics` block. A block in this file
+# would be silently inert - exactly the failure the layer refuses to allow elsewhere - so it is deliberately absent
+# rather than present and dead. The centroidal task file of this same robot
+# (robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.yaml) carries the real one.
+#
+# Two things stand between here and supporting it. The reference manager and the base-pose seam are shared and would
+# work unchanged, but the commanded yaw rate the foothold and wrench heuristics read is recovered by inverting the
+# CENTROIDAL state's angular-momentum channel, and the whole-body state has no such channel; and
+# MpcParameterUpdaterModule, which hot-reloads the coefficients, lives in humanoid_centroidal_mpc only.
+
+
 interface:
   verbose: false  # show the loaded parameters
   useAnalyticalGradientsDynamics: false

@@ -159,6 +159,17 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
   const vector2_t& commandedVelocity() const { return commandedVelocity_; }
   /** The same command, for the terms that ask through the base class. Solver thread only. */
   vector2_t getCommandedVelocity(scalar_t /*time*/) const override { return commandedVelocity_; }
+
+  /**
+   * The operator's commanded yaw rate, from the same latched copy as getCommandedVelocity().
+   *
+   * The base class recovers it by inverting the target's angular-momentum channel with a composite yaw inertia that
+   * captureMeasuredState() latches - and this manager overrides modifyReferences() without calling that, so without
+   * this override the base implementation would see an inertia of zero and answer 0 for ever. Two of the locomotion
+   * heuristics are functions of the turn rate, so they would be configured, printed in the start-up banner, tunable
+   * in the GUI, and silently contribute nothing.
+   */
+  scalar_t getCommandedYawRate(scalar_t /*time*/) const override { return commandedYawRate_; }
   /** The plan's own DCM, so that the terminal capturability cost aims where the footholds are going. Solver thread only. */
   std::optional<vector2_t> getPlannedDcm(scalar_t time, scalar_t omega) const override;
 

@@ -83,6 +83,23 @@ std::optional<std::pair<scalar_t, scalar_t>> swingPhaseAtTime(const ModeSchedule
 std::optional<size_t> touchDownEventIndex(const ModeSchedule& schedule, size_t foot, scalar_t time);
 
 /**
+ * Stance duty factor of `foot` over the window [time, time + window]: the fraction of it the schedule has that foot on
+ * the ground, in [0, 1].
+ *
+ * Bledt's beta (Appendix C, the impulse-scaling heuristic), which is the whole content of the statement that a foot
+ * down for a fraction beta of the cycle must push m*g/beta while it is down. A window is used rather than "one gait
+ * cycle" because this schedule has no cycle to speak of: it is a mode sequence the gait scheduler or the online
+ * contact planner may re-time at any moment, and the only horizon over which its duty factor is defined at all is the
+ * one the MPC is looking at. Pass the MPC's own time horizon, which is what the reference manager does.
+ *
+ * Clipped to what the schedule actually covers, so a window running past the end of the mode sequence measures the
+ * part that exists rather than assuming the foot lifts. Returns 1 - i.e. "always down", which makes the impulse
+ * correction vanish - for an empty schedule or a non-positive window, so a caller never has to guard against a divide
+ * by zero.
+ */
+scalar_t stanceDutyFactor(const ModeSchedule& schedule, size_t foot, scalar_t time, scalar_t window);
+
+/**
  * Lift-off time of the swing of `foot` that is in flight at `time`, or of its next swing if the foot is in contact at
  * `time`. Empty if the schedule has no such lift-off event.
  */

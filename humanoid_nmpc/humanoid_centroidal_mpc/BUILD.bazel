@@ -326,6 +326,32 @@ cc_test(
 )
 
 cc_test(
+    name = "testLocomotionHeuristicIntegration",
+    size = "large",  # builds a CentroidalMpcInterface, which compiles the CppAD libraries on a cold cache
+    srcs = ["test/testLocomotionHeuristicIntegration.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+        "-DBOOST_VARIANT_LIMIT_TYPES=50",
+        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+    ],
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":humanoid_centroidal_mpc",
+        "@googletest//:gtest_main",
+        "@ros2_ament_index_cpp",
+    ],
+)
+
+cc_test(
     name = "testContactPlanningIntegration",
     size = "large",
     srcs = ["test/testContactPlanningIntegration.cpp"],

@@ -52,6 +52,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerModule.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningModelParameters.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicLayer.h"
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
@@ -106,6 +107,9 @@ class CentroidalMpcInterface final : public RobotInterface {
 
   bool usesContactBasisVectorInputs() const { return useContactBasisVectorInputs_; }
 
+  /** The locomotion-heuristic layer, for the parameter updater's hot reload. Never null after construction. */
+  const std::shared_ptr<LocomotionHeuristicLayer>& getLocomotionHeuristicLayerPtr() const { return locomotionHeuristicLayerPtr_; }
+
   /** True when the mode schedule and footholds come from the online mixed-integer contact planner (useContactPlanning). */
   bool usesContactPlanning() const { return contactPlannerModulePtr_ != nullptr; }
   /**
@@ -150,6 +154,14 @@ class CentroidalMpcInterface final : public RobotInterface {
    */
   CentroidalMpcInterface(const std::string& taskFile, const std::string& urdfFile, const std::string& referenceFile, bool setupOCP = false);
 
+  /**
+   * Builds the locomotion-heuristic layer from the task file and installs it on the reference manager.
+   *
+   * Called first by setupOptimalControlProblem(), because the two input costs it builds afterwards read their
+   * contact-force reference through the reference manager and so through this layer.
+   */
+  absl::Status setupLocomotionHeuristics();
+
   absl::Status setupOptimalControlProblem();
 
   std::unique_ptr<StateInputConstraint> getStanceFootConstraint(const EndEffectorKinematics<scalar_t>& eeKinematics,
@@ -173,6 +185,10 @@ class CentroidalMpcInterface final : public RobotInterface {
   std::shared_ptr<SwitchedModelReferenceManager> referenceManagerPtr_;
   std::shared_ptr<ContactPlannerModule> contactPlannerModulePtr_;
   std::optional<ContactPlanningModelParameters> contactPlanningModelParameters_;  // derived from the model, applied to every planner config
+  // The reference-shaping layer of Bledt's RPC heuristics, also held by the reference manager. Kept here so that the
+  // parameter updater can reach it to hot-reload the coefficients; empty, and therefore an exact no-op, on every robot
+  // whose task file lists none. See humanoid_nmpc/docs/locomotion_heuristics/README.md.
+  std::shared_ptr<LocomotionHeuristicLayer> locomotionHeuristicLayerPtr_;
 
   std::unique_ptr<CentroidalMpcRobotModel<scalar_t>> mpcRobotModelPtr_;
   std::unique_ptr<CentroidalMpcRobotModel<ad_scalar_t>> mpcRobotModelADPtr_;

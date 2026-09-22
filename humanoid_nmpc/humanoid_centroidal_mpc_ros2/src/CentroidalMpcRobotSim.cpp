@@ -144,6 +144,9 @@ int main(int argc, char** argv) {
       interface.modelSettings().contactNames, dynamic_cast<const SwitchedModelReferenceManager*>(interface.getReferenceManagerPtr().get()),
       interface.getBasisInputsCostTransformConfig());
   mpcParameterUpdater->setContactPlannerModule(interface.getContactPlannerModulePtr());
+  // Without this the locomotion_heuristics coefficients are launch-time only and the tuning GUI's sliders for them
+  // write the file without reaching the running controller.
+  mpcParameterUpdater->setLocomotionHeuristicLayer(interface.getLocomotionHeuristicLayerPtr());
   mpcParameterUpdater->subscribe(nodeHandle);
   mpc.getSolverPtr()->addSynchronizedModule(mpcParameterUpdater);
 

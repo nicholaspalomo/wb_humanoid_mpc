@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicLayer.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 
 namespace ocs2::humanoid {
@@ -134,6 +135,38 @@ class SwitchedModelReferenceManager : public ReferenceManager {
   vector_t getDesiredState(const TargetTrajectories& targetTrajectories, const vector_t& state, scalar_t time) const;
 
   /**
+   * The contact-force reference the input costs regularize against at `time`: weight compensation, shaped by any
+   * listed wrench heuristic.
+   *
+   * It exists because the input channel of `targetTrajectories` is not a reference at all - it is constructed all-zero
+   * and commented "they are not used", and both InputQuadraticCost and StateInputQuadraticCost ignore it and build
+   * their own nominal input from weightCompensatingInput() instead. That nominal input is contact-flag dependent and
+   * the stance set changes several times inside one horizon, which is why it cannot live in a three-knot trajectory
+   * and why this manager - the only object that knows the contact flags at an arbitrary node time - is where it
+   * belongs.
+   *
+   * With no wrench heuristic listed this returns exactly the vector those two costs built for themselves before,
+   * computed by the same call, so routing them through here is a no-op on every robot shipped here.
+   */
+  vector_t getDesiredInput(const TargetTrajectories& targetTrajectories, const vector_t& state, scalar_t time) const;
+
+  /**
+   * Installs the reference-shaping layer of Bledt's Regularized Predictive Control heuristics
+   * (humanoid_nmpc/docs/locomotion_heuristics/README.md).
+   *
+   * Called once by the MPC interface after the task file has been read, because the layer needs model constants that
+   * are derived from the Pinocchio model this class is handed a copy of. Until it is called - and on every robot whose
+   * task file lists no heuristic - the layer is empty and every seam below short-circuits, so the three references are
+   * bit for bit what they were before the layer existed.
+   *
+   * The layer is shared rather than owned because the parameter updater needs to reach it to hot-reload the
+   * coefficients, and because the reference manager is itself held by shared_ptr.
+   */
+  void setLocomotionHeuristicLayer(std::shared_ptr<LocomotionHeuristicLayer> layer);
+
+  const std::shared_ptr<LocomotionHeuristicLayer>& getLocomotionHeuristicLayer() const { return heuristicLayerPtr_; }
+
+  /**
    * The operator's commanded CoM velocity at `time`, for the terms that want the command itself rather than whatever
    * the reference currently asks for.
    *
@@ -144,6 +177,23 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    * this from the untouched copy of what the operator published.
    */
   virtual vector2_t getCommandedVelocity(scalar_t time) const;
+
+  /**
+   * [rad/s] The operator's commanded yaw rate at `time`, recovered from the angular channel of the target's momentum.
+   *
+   * The counterpart of getCommandedVelocity(), and needed for the same reason: two of Bledt's foothold heuristics are
+   * functions of the turn rate and one of his force heuristics is a function of the turn rate and the speed together.
+   *
+   * The recovery is an inversion rather than a read, because the channel does not carry the rate. The target
+   * calculator writes the momentum of the whole body turning about the vertical through its centre of mass,
+   * h_z = I_zz * psidot / m, so the rate comes back out as m * h_z / I_zz with the same composite inertia - which is
+   * why the yaw inertia is latched once per solve alongside the other measurements rather than being a constant.
+   *
+   * The target's base YAW is not usable for this. It carries the commanded heading, which the reference blends from
+   * the measured one over the first stretch of the horizon and which the planned-heading override rewrites outright,
+   * so differentiating it would recover the reference's own smoothing rather than the operator's command.
+   */
+  virtual scalar_t getCommandedYawRate(scalar_t time) const;
 
   /**
    * The divergent component of motion the reduced-order plan asks for at `time`, when a plan is active.
@@ -183,6 +233,30 @@ class SwitchedModelReferenceManager : public ReferenceManager {
   scalar_t measuredBaseYaw_{0.0};
   /// Where each foot was the last time it was measured in contact, i.e. where it lifted off from.
   feet_array_t<vector2_t> liftOffPositions_{makeFeetArray(vector2_t(vector2_t::Zero()))};
+  /// [m/s] measured CoM linear velocity, and [m] measured CoM height above the mean foot height, at the last solve.
+  /// Latched for the foothold heuristics, which are feedback laws on where the robot actually is rather than on the
+  /// plan; filled only while a foothold heuristic is listed.
+  vector2_t measuredComVelocity_{vector2_t::Zero()};
+  scalar_t measuredComHeight_{0.0};
+  /// [kg] the robot's mass, and [kg m^2] the yaw component of its composite inertia about the centre of mass at the
+  /// last solve. Together they invert the target's angular-momentum channel back into a commanded yaw rate.
+  scalar_t totalMass_{0.0};
+  scalar_t yawInertia_{0.0};
+  /// [s] The window every per-node stance duty factor is measured over: the solver's own time horizon, latched in
+  /// modifyReferences(). Fixed rather than "whatever is left until the last scheduled event", so that beta is a
+  /// property of the gait and not of where in the horizon it is asked. 1 s until the first solve says otherwise.
+  scalar_t dutyFactorWindow_{1.0};
+
+  /** True while anything downstream needs captureMeasuredState() to do its work; see that function. */
+  bool needsMeasuredState() const;
+  /** The context the foothold heuristics are evaluated with, built from the last latched measurement. */
+  FootholdHeuristicContext footholdContext(size_t contactIndex, scalar_t time) const;
+
+  /**
+   * The reference-shaping layer of Bledt's heuristics. Empty - and therefore an exact no-op - until
+   * setLocomotionHeuristicLayer() is called, and on every robot that lists none.
+   */
+  std::shared_ptr<LocomotionHeuristicLayer> heuristicLayerPtr_{std::make_shared<LocomotionHeuristicLayer>()};
 
   bool armSwingReferenceActive_{false};
 

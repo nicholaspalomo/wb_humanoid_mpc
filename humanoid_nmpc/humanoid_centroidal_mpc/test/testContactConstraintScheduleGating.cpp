@@ -490,7 +490,7 @@ TEST_F(ContactConstraintScheduleGatingTest, theQuadraticCostPricesALoadedSwingFo
   const matrix_t R = matrix_t::Identity(inputDim, inputDim);
   const PreComputation preComp;
   const TargetTrajectories target({kTime}, {model_->nominalState()}, {vector_t::Zero(inputDim)});
-  const StateInputQuadraticCost cost(Q, R, model_->referenceManager(), model_->pinocchioInterface(), model_->wrenchModel());
+  const StateInputQuadraticCost cost(Q, R, model_->referenceManager(), model_->wrenchModel());
 
   // The schedule says the left foot is swinging. An input that loads it must cost more than one that does not, or
   // nothing in the problem prefers the gait the plan is proposing.

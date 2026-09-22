@@ -92,6 +92,44 @@ std::optional<size_t> touchDownEventIndex(const ModeSchedule& schedule, size_t f
   return range->second;
 }
 
+scalar_t stanceDutyFactor(const ModeSchedule& schedule, size_t foot, scalar_t time, scalar_t window) {
+  // 1 rather than 0 is the right answer to "no schedule": it is the always-in-contact case, and it is the value at
+  // which the impulse-scaling correction is identically zero, so an unknown schedule leaves the contact-force
+  // reference exactly as it was instead of inventing a scaling from nothing.
+  //
+  // A schedule with NO EVENT TIMES counts as no schedule, and that case is not hypothetical: `ModeSchedule()` is
+  // defined as ModeSchedule({}, {0}), i.e. one FLY mode and no events, and that is what SwitchedModelReferenceManager
+  // holds until its first modifyReferences(). Walking it would report a duty factor of zero - no foot ever in contact
+  // - which the caller clamps to minimumDutyFactor and turns into a fivefold contact-force reference on the strength
+  // of a placeholder. A duty factor is a fraction of a CYCLE, and a schedule with no events describes no cycle.
+  if (schedule.modeSequence.empty() || schedule.eventTimes.empty() || !(window > 0.0)) return 1.0;
+
+  const scalar_t windowEnd = time + window;
+  scalar_t contactDuration = 0.0;
+  scalar_t coveredDuration = 0.0;
+  // A well-formed schedule has N modes and N - 1 events, but nothing in ModeSchedule enforces that and its default
+  // constructor produces one mode and no events at all. Bounding the walk by BOTH sizes is what keeps a malformed or
+  // half-filled schedule from being read past the end of its event array.
+  const size_t numPhases = std::min(schedule.modeSequence.size(), schedule.eventTimes.size() + 1);
+  for (size_t phase = 0; phase < numPhases; ++phase) {
+    // Phase `p` runs from eventTimes[p - 1] to eventTimes[p]; the first and last phases are unbounded, and are clipped
+    // to the window rather than skipped so that a window lying entirely inside one of them still measures something.
+    const scalar_t phaseStart = phase == 0 ? time : schedule.eventTimes[phase - 1];
+    const scalar_t phaseEnd = phase < schedule.eventTimes.size() ? schedule.eventTimes[phase] : windowEnd;
+    const scalar_t overlapStart = std::max(phaseStart, time);
+    const scalar_t overlapEnd = std::min(phaseEnd, windowEnd);
+    if (overlapEnd <= overlapStart) continue;
+    const scalar_t overlap = overlapEnd - overlapStart;
+    coveredDuration += overlap;
+    if (footInContact(schedule, phase, foot)) contactDuration += overlap;
+  }
+  // Measured against what the schedule COVERS rather than against the requested window. A schedule that ends inside
+  // the window would otherwise report the missing tail as swing, which would scale the force up on the strength of
+  // events that were never scheduled.
+  if (!(coveredDuration > 0.0)) return 1.0;
+  return std::clamp(contactDuration / coveredDuration, 0.0, 1.0);
+}
+
 std::optional<scalar_t> currentOrNextLiftOffTime(const ModeSchedule& schedule, size_t foot, scalar_t time) {
   if (schedule.modeSequence.empty()) return std::nullopt;
   size_t index = modeIndexAtTime(schedule, time);

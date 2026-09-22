@@ -43,22 +43,15 @@ namespace ocs2::humanoid {
 StateInputQuadraticCost::StateInputQuadraticCost(matrix_t Q,
                                                  matrix_t R,
                                                  const SwitchedModelReferenceManager& referenceManager,
-                                                 const PinocchioInterface& pinocchioInterface,
                                                  const MpcRobotModelBase<scalar_t>& mpcRobotModel)
-    : QuadraticStateInputCost(std::move(Q), std::move(R)),
-      referenceManagerPtr_(&referenceManager),
-      pinInterface_(pinocchioInterface),
-      mpcRobotModelPtr_(&mpcRobotModel) {}
+    : QuadraticStateInputCost(std::move(Q), std::move(R)), referenceManagerPtr_(&referenceManager), mpcRobotModelPtr_(&mpcRobotModel) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
 StateInputQuadraticCost::StateInputQuadraticCost(const StateInputQuadraticCost& rhs)
-    : QuadraticStateInputCost(rhs),
-      referenceManagerPtr_(rhs.referenceManagerPtr_),
-      pinInterface_(rhs.pinInterface_),
-      mpcRobotModelPtr_(rhs.mpcRobotModelPtr_) {}
+    : QuadraticStateInputCost(rhs), referenceManagerPtr_(rhs.referenceManagerPtr_), mpcRobotModelPtr_(rhs.mpcRobotModelPtr_) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -81,15 +74,15 @@ std::pair<vector_t, vector_t> StateInputQuadraticCost::getStateInputDeviation(sc
   // weight, and the complementarity penalty's curvature on that foot's height is
   // complementarityWeight * (f_n/f_ref)^2 / heightReference^2 - about 1950 at half body weight, against the swing
   // height reference's 150. The foot then rises a few millimetres and stops, which is what was observed on hardware-like
-  // simulation when this was tried.
-  const contact_flag_t contactFlags = referenceManagerPtr_->getContactFlags(time);
+  // simulation when this was tried. The contact flags it rests on are now read inside getDesiredInput() rather than
+  // here, which is the only change: the reference is still derived from the mode schedule, node by node.
   vector_t xNominal = referenceManagerPtr_->getDesiredState(targetTrajectories, state, time);
 
-  // All reference stuff should eventually be moved out of here.
-  // Input-only nominal input on purpose: the nominal contact force is purely vertical and a stance foot is flat, so
-  // it is identical in the world and local contact frames (yaw-invariant). The state-aware overload would add a
-  // forward-kinematics pass per node and iteration to this hot path for no practical gain.
-  const vector_t uNominal = weightCompensatingInput(pinInterface_, contactFlags, *mpcRobotModelPtr_);
+  // The contact-force reference, from the reference manager rather than computed here - the same move, and for the
+  // same reasons, as in InputQuadraticCost. With no wrench heuristic listed getDesiredInput() makes exactly the call
+  // this line used to make, so nothing changes on any robot shipped here; with one listed it is the seam Bledt's H_f
+  // heuristics shape (humanoid_nmpc/docs/locomotion_heuristics/README.md).
+  const vector_t uNominal = referenceManagerPtr_->getDesiredInput(targetTrajectories, state, time);
 
   return {state - xNominal, input - uNominal};
 }

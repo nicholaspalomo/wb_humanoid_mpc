@@ -21,6 +21,15 @@ whole-body formulation by the term lists of `task.yaml`. Two further documents c
 * [contact_implicit_mpc](contact_implicit_mpc/README.md) — the relaxed complementarity formulation of contact in the
   whole-body NMPC, which lets the solver depart from the planner's nominal contact sequence. Off by default.
 
+A third document covers a feature that is not a formulation toggle but a reference-shaping layer over the ones that
+already exist:
+
+* [locomotion_heuristics](locomotion_heuristics/README.md) — the ten regularization heuristics of Bledt's
+  *Regularized Predictive Control Framework for Robust Dynamic Legged Locomotion* (MIT, 2020), selected by name in
+  the `locomotion_heuristics` block of `task.yaml`. They shape the base-pose, foothold and contact-force references
+  the existing quadratic costs already regularize against — the base's roll and pitch reference in particular is a
+  hard zero today. Every list ships empty, so the layer is an exact no-op until a robot is opted in.
+
 ---
 
 ## 1. DCM terminal cost (`useDcmTerminalCost`)

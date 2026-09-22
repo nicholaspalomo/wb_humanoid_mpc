@@ -77,6 +77,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningModelParameters.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicLayer.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicModelParameters.h"
 
 #include "humanoid_common_mpc/common/BasisInputsMappingDecorator.h"
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
@@ -316,7 +319,39 @@ absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> CentroidalMpcInterface::
 /******************************************************************************************************/
 /******************************************************************************************************/
 
+absl::Status CentroidalMpcInterface::setupLocomotionHeuristics() {
+  // The reference-shaping layer of Bledt's Regularized Predictive Control heuristics
+  // (humanoid_nmpc/docs/locomotion_heuristics/README.md).
+  //
+  // Here rather than in the constructor because every failure it can have is a configuration error the operator has to
+  // read - an unknown name, a name in the wrong list, a coefficient outside its range, a foothold heuristic under an
+  // online contact planner - and this is the function that returns a Status. `initialState_` is already loaded by the
+  // time this runs, which matters: the model constants the heuristics need (the hip positions and the nominal CoM
+  // height) are properties of the nominal standing posture.
+  //
+  // Every robot ships with all three lists empty, so on all of them this builds an empty layer and every reference
+  // downstream is bit for bit what it was before this subsystem existed.
+  ASSIGN_OR_RETURN(const LocomotionHeuristicConfig heuristicConfig, loadLocomotionHeuristicConfig(taskFile_, verbose_));
+  ASSIGN_OR_RETURN(const LocomotionHeuristicModelParameters heuristicModel,
+                   deriveLocomotionHeuristicModelParameters(*pinocchioInterfacePtr_, *effectiveMpcRobotModelPtr_, initialState_));
+  ASSIGN_OR_RETURN(std::unique_ptr<LocomotionHeuristicLayer> heuristicLayer,
+                   LocomotionHeuristicLayer::Create(heuristicConfig, heuristicModel, modelSettings_.useContactPlanning,
+                                                    useContactBasisVectorInputs_, verbose_));
+  locomotionHeuristicLayerPtr_ = std::shared_ptr<LocomotionHeuristicLayer>(std::move(heuristicLayer));
+  referenceManagerPtr_->setLocomotionHeuristicLayer(locomotionHeuristicLayerPtr_);
+  if (!locomotionHeuristicLayerPtr_->empty()) {
+    LOG(INFO) << "[CentroidalMpcInterface] locomotion heuristics active:\n" << locomotionHeuristicLayerPtr_->summary();
+  }
+  return absl::OkStatus();
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
 absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
+  RETURN_IF_ERROR(setupLocomotionHeuristics());
+
   // Loaded before the factory is built: the factory needs to know whether the contact cones it creates may gate
   // themselves on the mode schedule, and that follows the hard `zero_wrench` constraint.
   ASSIGN_OR_RETURN(const MpcFormulationTasks formulationTasks, loadMpcFormulationTasks(taskFile_, verbose_));

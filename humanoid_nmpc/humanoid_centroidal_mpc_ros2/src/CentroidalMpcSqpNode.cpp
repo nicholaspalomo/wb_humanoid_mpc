@@ -114,6 +114,9 @@ int main(int argc, char** argv) {
       interface.modelSettings().contactNames, dynamic_cast<const SwitchedModelReferenceManager*>(interface.getReferenceManagerPtr().get()),
       interface.getBasisInputsCostTransformConfig());
   mpcParameterUpdater->setContactPlannerModule(interface.getContactPlannerModulePtr());
+  // Without this the locomotion_heuristics coefficients are launch-time only and the tuning GUI's sliders for them
+  // write the file without reaching the running controller.
+  mpcParameterUpdater->setLocomotionHeuristicLayer(interface.getLocomotionHeuristicLayerPtr());
   // The command limits and ramps come from reference.yaml, which is read once at construction by both of these. With
   // the reloaders registered, the Command Limits tab of the remote control changes them on the running controller
   // instead of needing a restart. Both objects outlive the updater: they live in this scope, as it does.
