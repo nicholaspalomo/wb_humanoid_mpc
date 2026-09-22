@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/constraint/ContactComplementarityConstraint.h"
 #include "humanoid_common_mpc/constraint/ForceWeightedSlipConstraint.h"
 #include "humanoid_common_mpc/constraint/GroundPenetrationConstraint.h"
+#include "humanoid_common_mpc/contact/ContactInputJacobian.h"
 #include "humanoid_common_mpc/contact/FootprintCornerHeights.h"
 #include "support/DrcAtlasContactTestModel.h"
 #include "support/FiniteDifferenceChecks.h"
@@ -101,6 +102,43 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest, theNormalForceRowIsANonNegativeLoa
   // Everything else - the joint velocities and the other foot - contributes nothing.
   EXPECT_NEAR(row.sum(), static_cast<scalar_t>(numBasis), 1e-12);
   EXPECT_TRUE((row.array() >= -1e-12).all()) << "a negative entry would let a positive scaling reduce the indicator";
+}
+
+TEST_F(ContactImplicitTermsOnBasisInputsTest, theForceJacobianIsTheParameterizationAndTheNormalRowIsItsThirdRow) {
+  // normalContactForceRow() is one row of contactForceInputJacobian(), and the friction cone linearises through the
+  // other two. Pinning the relationship keeps the three terms reading one description of the parameterization: a
+  // future input layout that broke it would otherwise break them one at a time and in different ways.
+  const matrix_t jacobian = contactForceInputJacobian(model_->basisModel(), kFoot);
+  const vector_t row = normalContactForceRow(model_->basisModel(), kFoot);
+
+  ASSERT_EQ(jacobian.rows(), 3);
+  ASSERT_EQ(jacobian.cols(), static_cast<long>(model_->basisModel().getInputDim()));
+  EXPECT_TRUE(jacobian.row(2).transpose().isApprox(row, 1e-12)) << "the normal row must be the third row of the Jacobian";
+
+  // Over this foot's block it is the force rows of B_local: every generator is a unit normal force applied somewhere
+  // on the footprint, and the friction-pyramid generators tilt it.
+  const long start = static_cast<long>(model_->basisModel().getContactWrenchStartIndices(kFoot));
+  const long width = static_cast<long>(model_->numBasisPerFoot());
+  EXPECT_TRUE(jacobian.block(2, start, 1, width).isOnes(1e-12)) << jacobian.block(2, start, 1, width);
+  EXPECT_GT(jacobian.block(0, start, 2, width).cwiseAbs().maxCoeff(), 0.1) << "the tangential rows must not be dead";
+
+  // And nothing outside the block moves this foot's force - not the joint velocities, not the other foot.
+  matrix_t outsideTheBlock = jacobian;
+  outsideTheBlock.middleCols(start, width).setZero();
+  EXPECT_TRUE(outsideTheBlock.isZero(1e-12)) << outsideTheBlock;
+}
+
+TEST_F(ContactImplicitTermsOnBasisInputsTest, theForceJacobianIsTheIdentityBlockOnTheWrenchModel) {
+  // The same probe on the wrench-space model returns the identity that the hand-written 3x3 assumed - which is why
+  // that assumption survived: it is right in exactly one of the two parameterizations this repository ships.
+  const matrix_t jacobian = contactForceInputJacobian(model_->wrenchModel(), kFoot);
+  const long start = static_cast<long>(model_->wrenchModel().getContactForceStartIndices(kFoot));
+
+  ASSERT_EQ(jacobian.rows(), 3);
+  EXPECT_TRUE(jacobian.middleCols(start, 3).isIdentity(1e-12)) << jacobian.middleCols(start, 3);
+  matrix_t outsideTheForce = jacobian;
+  outsideTheForce.middleCols(start, 3).setZero();
+  EXPECT_TRUE(outsideTheForce.isZero(1e-12)) << "the moment and the joint velocities cannot move the force";
 }
 
 TEST_F(ContactImplicitTermsOnBasisInputsTest, theIndicatorVanishesExactlyWhenTheFootCarriesNoWrench) {

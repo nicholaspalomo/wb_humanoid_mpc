@@ -54,8 +54,23 @@ _ROBOT_CONFIGS = {
         "urdf": "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf",
         "fixed_joints": ["l_arm_wry", "l_arm_wrx", "r_arm_wry", "r_arm_wrx"],
     },
+    # The EngineAI SA01 is LEGS ONLY: twelve joints, six per leg, with no arms, no waist and no torso link - its
+    # only body above the legs is base_link, which is the floating base itself. There is therefore nothing to fix
+    # here, unlike the wrists the other two hold at zero, and the aCOM offset is a function of the leg joints alone.
+    #
+    # That also sets expectations for what the coordinate buys on this robot. The aCOM exists because limb motion
+    # decouples whole-body orientation from base orientation, and the limbs doing most of that on Atlas and G1 are
+    # the arms. On SA01 the legs are the only contributors, so the offset is real but smaller, and it is largest in
+    # exactly the configurations where the legs are far from the nominal crouch.
+    "sa01": {
+        "xml": "robot_models/engineai_sa01/engineai_sa01_description/urdf/zq_sa01.xml",
+        "urdf": "robot_models/engineai_sa01/engineai_sa01_description/urdf/zq_sa01.urdf",
+        "fixed_joints": [],
+    },
 }
-# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/acom/AngularCenterOfMass.cpp:acom_robot_dispatch)
+# clang-format off
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/acom/AngularCenterOfMass.cpp:acom_robot_dispatch, //humanoid_learning/acom/BUILD.bazel:acom_train_data)
+# clang-format on
 
 # Number of sinusoidal layers the C++ evaluator is hard-coded to load. See the
 # static_assert in AngularCenterOfMass::createFromStaticWeights, which requires

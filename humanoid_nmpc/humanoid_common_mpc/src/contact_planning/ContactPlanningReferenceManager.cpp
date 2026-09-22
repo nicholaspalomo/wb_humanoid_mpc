@@ -95,6 +95,13 @@ bool ContactPlanningReferenceManager::rulesNeedComState() const {
   return false;
 }
 
+bool ContactPlanningReferenceManager::rulesRewriteTarget() const {
+  for (const std::unique_ptr<ExecutionRule>& rule : executionRules_) {
+    if (rule->rewritesTarget()) return true;
+  }
+  return false;
+}
+
 std::string ContactPlanningReferenceManager::executionSummary() const {
   std::ostringstream out;
   out << "execution (" << executionRules_.size() << "):\n";
@@ -167,7 +174,9 @@ void ContactPlanningReferenceManager::captureOperatorCommand(scalar_t initTime, 
 }
 
 std::optional<vector2_t> ContactPlanningReferenceManager::getPlannedDcm(scalar_t time, scalar_t omega) const {
-  if (!hasActivePlan() || omega <= 0.0) return std::nullopt;
+  // planReferencesUsable(), not hasActivePlan(): an expired plan clamps to its last node rather than reporting that
+  // the query ran off its horizon, so it would keep aiming the terminal DCM cost at a stale target forever.
+  if (!planReferencesUsable() || omega <= 0.0) return std::nullopt;
   const std::optional<vector2_t> position = activePlan_->comPositionAtTime(time);
   const std::optional<vector2_t> velocity = activePlan_->comVelocityAtTime(time);
   if (!position.has_value() || !velocity.has_value()) return std::nullopt;
@@ -358,7 +367,10 @@ void ContactPlanningReferenceManager::modifyReferences(scalar_t initTime,
   ctx.measuredContact = modeNumber2StanceLeg(initMode);
   ctx.config = &config;
   ctx.totalMass = totalMass_;
-  ctx.activePlan = activePlan_.has_value() ? &*activePlan_ : nullptr;
+  // An expired plan is withheld from the execution rules for the same reason the schedule merge refuses it: every
+  // ContactPlan lookup clamps, so PlannedComOverride and PlannedHeadingOverride would steer the whole-body MPC
+  // towards the last node of a horizon that has already passed.
+  ctx.activePlan = planReferencesUsableAt(initTime) ? &*activePlan_ : nullptr;
   // Only the rules that compare the centre of mass with the NMPC's prediction need the kinematics; skip them when none is
   // listed so that the default configuration does exactly the work it did before they existed.
   if (rulesNeedComState()) {
@@ -409,19 +421,47 @@ void ContactPlanningReferenceManager::modifyReferences(scalar_t initTime,
 
   captureOperatorCommand(initTime, initState);
 
-  if (hasActivePlan() && !targetTrajectories.empty() && !executionRules_.empty()) {
+  // The operator's target is resampled onto the plan's node grid so that a rule which rewrites the state at a node has
+  // a knot there to rewrite. Two things about this used to be wrong.
+  //
+  // It was gated on `!executionRules_.empty()`, i.e. on ANY rule being listed, while ExecutionRule::overrideTarget is
+  // a no-op by default and only the two planned_*_override rules implement it - so a configuration listing only
+  // schedule rules (phase_resetting, energy_cadence_modulation, dcm_step_adjustment) paid for the resample, and for
+  // the truncation below, in exchange for nothing at all. It now asks whether a listed rule really rewrites.
+  //
+  // And it REPLACED the target with a grid spanning the plan's horizon alone. Nothing intersected that with the
+  // solver horizon, and OCS2 zero-order-extrapolates past the last knot, so whenever the plan ended before finalTime -
+  // which is any time the plan is older than (plan horizon - MPC horizon), the same regime as an expiring plan - the
+  // whole reference tail froze at the plan-end sample instead of following the command. The replacement is permanent,
+  // because ReferenceManager::preSolverRun keeps the mutated trajectory as the live one, so the operator's command
+  // beyond that point was not merely ignored for a cycle, it was discarded. The grid is now EXTENDED with the
+  // operator's own knots past the plan's end, and with a final sample at finalTime when even those fall short.
+  if (planReferencesUsableAt(initTime) && !targetTrajectories.empty() && rulesRewriteTarget()) {
     const ContactPlan& plan = *activePlan_;
     TargetTrajectories denseTarget;
     const size_t numNodes = plan.comPosition.size();
-    denseTarget.timeTrajectory.reserve(numNodes);
-    denseTarget.stateTrajectory.reserve(numNodes);
+    const size_t numOperatorKnots = targetTrajectories.timeTrajectory.size();
+    denseTarget.timeTrajectory.reserve(numNodes + numOperatorKnots + 1);
+    denseTarget.stateTrajectory.reserve(numNodes + numOperatorKnots + 1);
     const bool hasInput = !targetTrajectories.inputTrajectory.empty();
-    if (hasInput) denseTarget.inputTrajectory.reserve(numNodes);
+    if (hasInput) denseTarget.inputTrajectory.reserve(numNodes + numOperatorKnots + 1);
     for (size_t i = 0; i < numNodes; ++i) {
       const scalar_t time = plan.startTime + static_cast<scalar_t>(i) * plan.dt;
       denseTarget.timeTrajectory.push_back(time);
       denseTarget.stateTrajectory.push_back(targetTrajectories.getDesiredState(time));
       if (hasInput) denseTarget.inputTrajectory.push_back(targetTrajectories.getDesiredInput(time));
+    }
+    const scalar_t lastDenseTime = denseTarget.timeTrajectory.empty() ? plan.startTime : denseTarget.timeTrajectory.back();
+    for (size_t i = 0; i < numOperatorKnots; ++i) {
+      if (targetTrajectories.timeTrajectory[i] <= lastDenseTime) continue;
+      denseTarget.timeTrajectory.push_back(targetTrajectories.timeTrajectory[i]);
+      denseTarget.stateTrajectory.push_back(targetTrajectories.stateTrajectory[i]);
+      if (hasInput) denseTarget.inputTrajectory.push_back(targetTrajectories.inputTrajectory[i]);
+    }
+    if (denseTarget.timeTrajectory.empty() || denseTarget.timeTrajectory.back() < finalTime) {
+      denseTarget.timeTrajectory.push_back(finalTime);
+      denseTarget.stateTrajectory.push_back(targetTrajectories.getDesiredState(finalTime));
+      if (hasInput) denseTarget.inputTrajectory.push_back(targetTrajectories.getDesiredInput(finalTime));
     }
     targetTrajectories = std::move(denseTarget);
   }
@@ -442,7 +482,7 @@ void ContactPlanningReferenceManager::modifyReferences(scalar_t initTime,
 
 void ContactPlanningReferenceManager::updateTargetContactPoses(scalar_t initTime, scalar_t terrainHeight) {
   feet_array_t<TargetContactPose> poses = makeFeetArray(TargetContactPose{});
-  if (hasActivePlan() && footBookkeepingInitialized_) {
+  if (planReferencesUsableAt(initTime) && footBookkeepingInitialized_) {
     TargetContactPoseInputs inputs;
     inputs.time = initTime;
     inputs.footPositions = footPositions_;
@@ -503,7 +543,7 @@ std::optional<std::pair<scalar_t, scalar_t>> ContactPlanningReferenceManager::sw
 }
 
 std::optional<SwingFootReference> ContactPlanningReferenceManager::getSwingFootReference(size_t contactIndex, scalar_t time) const {
-  if (!hasActivePlan() || !footBookkeepingInitialized_) return std::nullopt;
+  if (!planReferencesUsable() || !footBookkeepingInitialized_) return std::nullopt;
   const auto phase = swingPhase(contactIndex, time);
   if (!phase.has_value()) return std::nullopt;
   const auto [liftOffTime, touchDownTime] = *phase;
@@ -522,14 +562,18 @@ std::optional<SwingFootReference> ContactPlanningReferenceManager::getSwingFootR
 
   // The xy interpolation starts where the foot stands at lift-off. For the swing that ends the foot's current contact
   // phase (in flight now, or the next to lift) that is the latched measured position. For a later swing of the same foot
-  // inside the horizon the foot first lands somewhere else, so the start is the planned foot position at that lift-off
-  // (the node at or before it, i.e. the stance position before the foot moves).
+  // inside the horizon the foot first lands somewhere else, so the start is the planned foot position at the node
+  // BEFORE that lift-off, i.e. the stance position before the foot moves.
+  //
+  // footholdBeforeTime(), not footholdAtTime() with the argument nudged back half a step: the nudge rounds back up to
+  // the lift-off node itself, and under the shipped `hlip` planner that node already carries the swing's LANDING
+  // position, so `start` became `*landing`, `delta` became zero, and this whole reference collapsed to a constant at
+  // the landing target with zero commanded velocity for every later swing in the horizon. See ContactPlan.h.
   vector2_t start = liftOffPositions_[contactIndex].head<2>();
   const std::optional<scalar_t> currentLiftOff = currentOrNextLiftOffTime(appliedSchedule_, contactIndex, lastSolveTime_);
   const bool endsCurrentContactPhase = currentLiftOff.has_value() && std::abs(*currentLiftOff - liftOffTime) <= kSameSwingTolerance;
   if (!endsCurrentContactPhase) {
-    const std::optional<vector2_t> plannedStance =
-        activePlan_->footholdAtTime(contactIndex, liftOffTime - 0.5 * activePlan_->dt + kSameSwingTolerance);
+    const std::optional<vector2_t> plannedStance = activePlan_->footholdBeforeTime(contactIndex, liftOffTime);
     if (plannedStance.has_value()) start = *plannedStance;
   }
   const scalar_t tau = std::clamp((time - liftOffTime) / duration, 0.0, 1.0);
@@ -559,8 +603,7 @@ std::optional<SwingFootReference> ContactPlanningReferenceManager::getSwingFootR
     if (landingYaw.has_value()) {
       scalar_t startYaw = liftOffYaws_[contactIndex];
       if (!endsCurrentContactPhase) {
-        const std::optional<scalar_t> plannedYaw =
-            activePlan_->footYawAtTime(contactIndex, liftOffTime - 0.5 * activePlan_->dt + kSameSwingTolerance);
+        const std::optional<scalar_t> plannedYaw = activePlan_->footYawBeforeTime(contactIndex, liftOffTime);
         if (plannedYaw.has_value()) startYaw = *plannedYaw;
       }
       reference.yaw = startYaw + blend * (moduloAngleWithReference(*landingYaw, startYaw) - startYaw);

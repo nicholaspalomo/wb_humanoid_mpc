@@ -19,6 +19,19 @@ simMaxBaseTiltAngle: 1  # [rad] 0 disables
 #                      phase_resetting execution rule of contact_planning.yaml
 #   robot_state        the contact flags of the RobotState (in MuJoCo the same ground truth)
 #   always_in_contact  every contact point touching: the executed schedule is taken as the measured contact state
+# How the virtual gantry holds the floating base while it is locked. Two different physical models, so the name selects
+# one rather than a boolean switching a feature on:
+#   weld_constraint    a MuJoCo weld the solver satisfies INSIDE mj_step, so the base is really supported while the
+#                      dynamics are integrated. This is what a physical gantry does, and the only setting under which
+#                      GRAVITY_COMP holds the limbs still.
+#   kinematic_teleport legacy: qpos/qvel are overwritten just BEFORE mj_step, leaving the base unsupported during the
+#                      step. The robot is then in free fall while integrating, and a free-falling chain in uniform
+#                      gravity needs zero joint torque to keep its shape, so the commanded gravity torque is entirely
+#                      surplus lift: measured ~130 deg of joint drift in 3 s, into the stops. Kept only to reproduce
+#                      recorded runs.
+# LINT.IfChange(gantry_hold)
+gantryHold: weld_constraint
+# LINT.ThenChange(//robot_runtime/mujoco_sim_interface/include/mujoco_sim_interface/MujocoSimInterface.h:gantry_hold_names)
 # LINT.IfChange(contact_estimator)
 contactEstimator: cheater_sim
 # LINT.ThenChange(//robot_runtime/robot_model/src/ContactEstimatorRegistry.cpp:contact_estimator_names, //robot_runtime/mujoco_sim_interface/src/CheaterSimContactEstimator.cpp:cheater_sim_contact_estimator_name)
@@ -227,6 +240,11 @@ useGravityCompFeedforward: false
 # the pre-reset policy until then), and targets, gains and feedforward torques are then ramped linearly into the MPC
 # action over this duration. Try 0.3 to 0.5 once validated in MuJoCo.
 mpcEntryBlendTime: 2
+
+# SAFETY mode: time constant [s] of the exponential decay applied to both joint PD gains once SAFETY is entered. The
+# robot holds the posture it had at entry with torque alpha * (kp * (q_hold - q) - kd * qd), alpha = exp(-t / tau), and
+# is commanded true zero torque once alpha falls below 2%, i.e. after about 4 * tau seconds.
+safetyDecayTimeConstant: 0.5
 # Touch-down shaping of the planned contact wrenches in the inverse dynamics of the MRT joint controller. A foot's planned
 # wrench is projected into feedforward torques only while the foot is measured in contact (contactEstimator above). By
 # default it is applied in full from the first control cycle of measured contact, i.e. as a step at the first heel or toe

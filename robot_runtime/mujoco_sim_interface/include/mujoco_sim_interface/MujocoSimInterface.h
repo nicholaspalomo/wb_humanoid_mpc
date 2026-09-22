@@ -46,6 +46,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <Eigen/Dense>
 
+#include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
+
 #include <robot_model/RobotState.h>
 #include "mujoco_sim_interface/MujocoContactPatch.h"
 #include "mujoco_sim_interface/MujocoRenderer.h"
@@ -58,6 +61,35 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace robot::mujoco_sim_interface {
 
+/**
+ * How the virtual gantry holds the floating base while it is locked.
+ *
+ * These are two different physical models rather than one feature switched on and off, so the robot task file names the
+ * one it wants (`gantryHold`) and gantryHoldFromName resolves it.
+ *
+ * kWeldConstraint is what a real gantry does: a MuJoCo weld equality that the constraint solver satisfies INSIDE
+ * mj_step, so the base is genuinely supported while the dynamics are integrated. A limb then needs exactly its own
+ * gravity torque to hover, which is what GRAVITY_COMP commands.
+ *
+ * kKinematicTeleport is the legacy behaviour and is unphysical: it overwrites qpos and qvel immediately BEFORE mj_step
+ * and so leaves the base unsupported during the step itself. The whole robot is then in free fall while integrating,
+ * and a free-falling chain in uniform gravity needs ZERO relative joint torque to keep its shape - so the commanded
+ * g_j(q) is entirely surplus torque in the lifting direction. Measured on the shipped scenes, that drives the limbs
+ * through about 130 degrees in three seconds and into their joint stops, while the weld holds them under 0.06 degrees.
+ * Kept only so that recorded runs can be reproduced.
+ */
+// LINT.IfChange(gantry_hold_names)
+enum class GantryHold {
+  kWeldConstraint,     ///< "weld_constraint": a real constraint solved inside mj_step (default)
+  kKinematicTeleport,  ///< "kinematic_teleport": legacy qpos/qvel overwrite before mj_step, base unsupported during it
+};
+
+/// Resolves a task-file `gantryHold` name, naming the valid ones when it does not match.
+absl::StatusOr<GantryHold> gantryHoldFromName(absl::string_view name);
+// clang-format off
+// LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:gantry_hold, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:gantry_hold)
+// clang-format on
+
 struct MujocoSimConfig {
   std::string scenePath;
   std::shared_ptr<model::RobotState> initStatePtr_;
@@ -68,6 +100,8 @@ struct MujocoSimConfig {
   bool enableGantry{true};
   bool isGantryLocked{true};
   double gantryHeight{0.0};
+  // Which base-hold implementation the gantry uses, by name (GantryHold above). An unknown name is rejected at start-up.
+  std::string gantryHold{"weld_constraint"};
 
   // Contact points of the controller, in its order (URDF frame or link names). They drive the ground-truth contact
   // detection behind the viewer's contact timeline, the contact flags of the RobotState handed to the controller and
@@ -169,6 +203,12 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   void setupContactDetection();
   void updateGroundTruthContacts();
 
+  /**
+   * Holds the floating base at the gantry height for one step, by whichever implementation gantryHold_ names.
+   * Called once per step immediately before mj_step; a no-op when the gantry is disabled.
+   */
+  void applyGantryHold();
+
   void setupJointIndexMaps();
 
   void setSimState(const model::RobotState& robotState);
@@ -229,6 +269,9 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
 
   std::atomic<bool> isGantryLocked_{true};
   std::atomic<double> gantryHeight_{0.0};
+  GantryHold gantryHold_{GantryHold::kWeldConstraint};
+  /// Index of the scene's "gantry" weld equality, or -1 when the scene declares none.
+  int gantryWeldEqId_{-1};
   std::atomic<bool> zeroTorqueMode_{true};  // Start in zero-torque mode by default
   std::vector<mjtNum> originalDofDamping_;  // Saved dof_damping values for restore on enableTorques
 

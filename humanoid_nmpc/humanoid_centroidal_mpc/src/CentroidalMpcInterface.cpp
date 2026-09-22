@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <string>
 
+#include "absl/log/check.h"
 #include "absl/log/log.h"
 #include "absl/strings/str_cat.h"
 
@@ -321,18 +322,22 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
   ASSIGN_OR_RETURN(const MpcFormulationTasks formulationTasks, loadMpcFormulationTasks(taskFile_, verbose_));
   const bool scheduleGatedContactConstraints = contactConstraintsAreScheduleGated(formulationTasks);
 
-  // In basis-vector mode the friction, centre-of-pressure and torsional limits are enforced structurally by the
-  // non-negativity of the basis scalings, and that term is only built inside the `contact_wrench_cone` branch below.
+  // loadMpcFormulationTasks() has already insisted that SOME cone is listed once `zero_wrench` is gone. In
+  // basis-vector mode that is not enough: it has to be `contact_wrench_cone` specifically, because that is the branch
+  // below which builds the non-negativity barrier on the basis scalings, and lambda >= 0 is the whole of the cone
+  // here. `friction_force_cone` is not a substitute - it bounds mu*Fz - |F_xy| on the assembled wrench and says
+  // nothing about the individual scalings, so the centre-of-pressure and torsional limits would go unenforced and a
+  // negative scaling (an adhesive, outside-the-cone generator) would still be free.
+  //
   // While `zero_wrench` is listed a missing `contact_wrench_cone` is harmless, because the swing foot's scalings are
-  // pinned to zero by that equality anyway. Without it, a task file that omits the key would leave the scalings with
-  // no lower bound at all - negative scalings are adhesive, outside-the-cone wrenches - so the combination is refused
-  // rather than silently patched by adding a term the user did not ask for.
+  // pinned to zero by that equality anyway, and the stance foot's are bounded by the gated barrier.
   if (useContactBasisVectorInputs_ && !scheduleGatedContactConstraints &&
       !formulationTasks.hasSoftConstraint(MpcSoftConstraintType::ContactWrenchCone)) {
     return absl::InvalidArgumentError(
         "[CentroidalMpcInterface] with useContactBasisVectorInputs: true and the hard 'zero_wrench' constraint removed, "
         "'contact_wrench_cone' must be listed in soft_constraints: it is what builds the non-negativity barrier on the basis "
-        "scalings, which is then the only bound keeping each contact wrench inside its friction cone "
+        "scalings, which is then the only bound keeping each contact wrench inside its friction cone. 'friction_force_cone' "
+        "does not stand in for it - it bounds the assembled wrench, not the scalings "
         "(humanoid_nmpc/docs/contact_implicit_mpc/README.md).");
   }
 
@@ -493,6 +498,28 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
         loadData::loadPtreeValue(barrierPt, lambdaBarrierMu, absl::StrCat(barrierPrefix, "mu"), verbose_);
         loadData::loadPtreeValue(barrierPt, lambdaBarrierDelta, absl::StrCat(barrierPrefix, "delta"), verbose_);
         const PieceWisePolynomialBarrierPenalty::Config lambdaBarrierConfig(lambdaBarrierMu, lambdaBarrierDelta);
+
+        // WHAT `mu` IS NOW BEING ASKED TO DO. Gated, this term is a redundant bound: the swing foot's scalings are
+        // pinned to zero by `zero_wrench` and the stance foot's are pulled positive by R's weight-compensating
+        // nominal, so 0.01 was tuned as a regulariser. Un-gated it becomes the ONLY thing holding every contact
+        // wrench inside its cone, at every node, which is the job `contactWrenchConeSoftConstraint.mu` does in the
+        // wrench parameterization - and there it is 0.2. A scaling pair (+a, -a) costs only `mu * a^2` and leaves the
+        // load indicator f_n = sum(lambda) at zero, so both contact-implicit products stay blind to it.
+        //
+        // Raising it is a closed-loop tuning decision and not one this loader may take on the operator's behalf, so
+        // the mismatch is reported rather than patched. See humanoid_nmpc/docs/contact_implicit_mpc/README.md.
+        if (!scheduleGatedContactConstraints) {
+          scalar_t wrenchConeMu = 0.0;
+          loadData::loadPtreeValue(barrierPt, wrenchConeMu, "contacts.contactWrenchConeSoftConstraint.mu", false);
+          if (lambdaBarrierMu < wrenchConeMu) {
+            LOG(WARNING) << "[CentroidalMpcInterface] " << footName << ": contacts.basisNonNegativityBarrier.mu = " << lambdaBarrierMu
+                         << " is the ONLY bound on this contact's wrench once the schedule gate is off, and it is softer than the "
+                         << "contacts.contactWrenchConeSoftConstraint.mu = " << wrenchConeMu
+                         << " that does the same job in the wrench parameterization. Tune it against a foot in flight before "
+                         << "trusting the contact-implicit formulation on hardware.";
+          }
+        }
+
         const size_t lambdaStartIdx = basisDecoratorPtr_->getContactWrenchStartIndices(i);
         const size_t numBasis = basisDecoratorPtr_->getNumBasisPerFoot();
 
@@ -559,7 +586,14 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
       problemPtr_->softConstraintPtr->add(absl::StrCat(footName, "_contactComplementarity"),
                                           std::make_unique<StateInputSoftConstraint>(std::move(complementarity), std::move(penalty)));
     }
-    if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::ForceWeightedSlip) && eeKinematicsPtr) {
+    if (formulationTasks.hasSoftConstraint(MpcSoftConstraintType::ForceWeightedSlip)) {
+      // Not `&& eeKinematicsPtr`, which is how the neighbouring terms guard themselves: this one is load bearing.
+      // loadMpcFormulationTasks() refuses `contact_complementarity` without `force_weighted_slip`, because nothing
+      // else holds a LOADED foot still once the schedule-gated zero-velocity constraint is gone. Silently skipping it
+      // because `needsEeKinematics` above had drifted would defeat that guarantee and leave a foot carrying full body
+      // weight free to slide.
+      CHECK(eeKinematicsPtr != nullptr) << "[CentroidalMpcInterface] 'force_weighted_slip' needs the contact frame's kinematics; "
+                                           "needsEeKinematics must list it.";
       std::unique_ptr<StateInputConstraint> slip =
           std::make_unique<ForceWeightedSlipConstraint>(*eeKinematicsPtr, *effectiveMpcRobotModelPtr_, i, forceReference,
                                                         contactImplicit.velocityReference, contactImplicit.angularVelocityReference);

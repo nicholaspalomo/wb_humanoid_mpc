@@ -33,6 +33,19 @@ simMaxBaseTiltAngle: 1.0                # [rad] 0 disables
 #                      phase_resetting execution rule of contact_planning.yaml
 #   robot_state        the contact flags of the RobotState (in MuJoCo the same ground truth)
 #   always_in_contact  every contact point touching: the executed schedule is taken as the measured contact state
+# How the virtual gantry holds the floating base while it is locked. Two different physical models, so the name selects
+# one rather than a boolean switching a feature on:
+#   weld_constraint    a MuJoCo weld the solver satisfies INSIDE mj_step, so the base is really supported while the
+#                      dynamics are integrated. This is what a physical gantry does, and the only setting under which
+#                      GRAVITY_COMP holds the limbs still.
+#   kinematic_teleport legacy: qpos/qvel are overwritten just BEFORE mj_step, leaving the base unsupported during the
+#                      step. The robot is then in free fall while integrating, and a free-falling chain in uniform
+#                      gravity needs zero joint torque to keep its shape, so the commanded gravity torque is entirely
+#                      surplus lift: measured ~130 deg of joint drift in 3 s, into the stops. Kept only to reproduce
+#                      recorded runs.
+# LINT.IfChange(gantry_hold)
+gantryHold: weld_constraint
+# LINT.ThenChange(//robot_runtime/mujoco_sim_interface/include/mujoco_sim_interface/MujocoSimInterface.h:gantry_hold_names)
 # LINT.IfChange(contact_estimator)
 contactEstimator: cheater_sim
 # LINT.ThenChange(//robot_runtime/robot_model/src/ContactEstimatorRegistry.cpp:contact_estimator_names, //robot_runtime/mujoco_sim_interface/src/CheaterSimContactEstimator.cpp:cheater_sim_contact_estimator_name)
@@ -71,12 +84,19 @@ enableOnlineTuning: true     # Enable runtime parameter and gain tuning in Contr
 # carries basisNonNegativityBarrier and basisScalingRegularization, so this is a one-line change once the robot walks.
 useContactBasisVectorInputs: false
 # Set true to regulate CoM + Angular Center of Mass (ACoM) instead of base pose.
-# NOT AVAILABLE FOR SA01. The ACoM coordinate is a learned SIREN network dispatched by model_settings.robotName
-# (AngularCenterOfMass::createForRobot, humanoid_common_mpc/src/acom/AngularCenterOfMass.cpp:89-99), and only
-# `atlas` and `g1` have trained weights. Setting this true throws "Unknown robot 'engineai_sa01'" at start-up.
-# Enabling it means first training SA01 weights with humanoid_learning/acom and adding an AcomSirenWeightsSa01.h to
-# that dispatch. Because it is false, Q's base-pose block (6..11) below is live and Q_com / Q_acom are not read, so
-# they are deliberately absent rather than present and dead.
+#
+# THE WEIGHTS NOW EXIST: AcomSirenWeightsSa01.h is trained and wired into AngularCenterOfMass::createForRobot, so this
+# no longer throws "Unknown robot 'engineai_sa01'" at start-up. Retrain with
+#   bazel run //humanoid_learning/acom:train_main -- --robot sa01 --install_header
+#
+# It is still false, and that is a tuning decision rather than a missing part. Two things stand between here and true:
+#  - Q_com and Q_acom are absent from this file. While this is false, Q's base-pose block (6..11) below is live and
+#    those two are not read, so they are deliberately absent rather than present and dead; turning this on means
+#    writing them, because the base-pose block is zeroed by the factory in that mode.
+#  - SA01 is LEGS ONLY - twelve joints, no arms, no waist, no torso link. The aCOM coordinate exists because limb
+#    motion decouples whole-body orientation from base orientation, and on Atlas and G1 the arms do most of that
+#    work. Here only the legs contribute, so the offset is a real but smaller correction, and whether it earns the
+#    retune is a question for simulation rather than for this comment.
 useComAndAcomTracking: false
 # Set true to plan the contact sequence, timing and footholds online with the reduced-order contact planner instead
 # of the gait schedule. Its parameters are the contact_planning block of contact_planning.yaml next to this file,
@@ -173,6 +193,11 @@ useGravityCompFeedforward: false
 # entry reset is active and then ramps targets, gains and feedforward torques into the MPC action over this duration.
 # Try 0.3 to 0.5 once the robot stands in MuJoCo.
 mpcEntryBlendTime: 0.0
+
+# SAFETY mode: time constant [s] of the exponential decay applied to both joint PD gains once SAFETY is entered. The
+# robot holds the posture it had at entry with torque alpha * (kp * (q_hold - q) - kd * qd), alpha = exp(-t / tau), and
+# is commanded true zero torque once alpha falls below 2%, i.e. after about 4 * tau seconds.
+safetyDecayTimeConstant: 0.5
 # Touch-down shaping of the planned contact wrenches in the inverse dynamics of the MRT joint controller. Both at 0
 # apply the planned wrench in full from the first control cycle of measured contact, i.e. as a step at the first heel
 # or toe strike. debounceTime: measured contact must persist this long before the wrench is applied. rampTime: the

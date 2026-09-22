@@ -28,10 +28,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <thread>
 #include <tuple>
 
@@ -130,6 +132,84 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testPdGainsHotReloading) {
 
   // Trigger again
   EXPECT_NO_THROW({ controller.computeJointControlAction(0.02, robotState, jointAction); });
+}
+
+// SAFETY must be a damped joint PD about the posture held at mode entry whose torques decay smoothly to zero. Before
+// this test the mode had no branch at all in the controller: SimFsmBridge enabled the torques and forwarded the name,
+// and the mode then fell through to the active MPC path, so "SAFETY" ran the solver at full authority.
+TEST_F(CentroidalMpcMrtJointControllerTest, testSafetyModeDecaysADampedPdToZeroTorque) {
+  MockMpc mockMpc;
+  ::robot::model::RobotDescription robotDesc(testingModelInterface.urdfFile);
+  robot::model::RobotState robotState(robotDesc);
+
+  const scalar_t timeConstant = 0.5;
+  CentroidalMpcMrtJointController controller(robotDesc, testingModelInterface.getModelSettings(), testingModelInterface.getMpcRobotModel(),
+                                             mockMpc, testingModelInterface.getPinocchioInterface(), 400.0, nullptr,
+                                             tempPdGainsFile_.string());
+  controller.setSafetyDecayTimeConstant(timeConstant);
+
+  // The gains SAFETY decays from are the ones JOINT_PD commands, so take that mode's action as the reference.
+  controller.setControlMode("JOINT_PD");
+  robot::model::RobotJointAction reference(robotDesc);
+  robotState.setTime(0.0);
+  controller.computeJointControlAction(0.0, robotState, reference);
+
+  // Move the joints off the nominal posture so that "holds the posture at entry" is distinguishable from "returns to
+  // the nominal posture", which is the behaviour that would make a safety stop a lunge.
+  for (size_t index = 0; index < robotDesc.getNumJoints(); ++index) {
+    robotState.setJointPosition(index, robotState.getJointPosition(index) + 0.3);
+  }
+
+  controller.setControlMode("SAFETY");
+  robot::model::RobotJointAction atEntry(robotDesc);
+  robotState.setTime(1.0);
+  controller.computeJointControlAction(1.0, robotState, atEntry);
+
+  size_t checkedJoints = 0;
+  for (size_t index = 0; index < robotDesc.getNumJoints(); ++index) {
+    if (!atEntry.at(index).has_value() || !reference.at(index).has_value()) continue;
+    const robot::model::JointAction& action = atEntry.at(index).value();
+    // Full authority at the instant of entry: the torque must not jump when the mode is switched.
+    EXPECT_NEAR(action.kp, reference.at(index)->kp, 1e-9);
+    EXPECT_NEAR(action.kd, reference.at(index)->kd, 1e-9);
+    // The posture held is the measured one, and nothing model-derived is fed forward: SAFETY is what runs when the
+    // model or the solver is the problem.
+    EXPECT_NEAR(action.q_des, robotState.getJointPosition(index), 1e-9);
+    EXPECT_DOUBLE_EQ(action.qd_des, 0.0);
+    EXPECT_DOUBLE_EQ(action.feed_forward_effort, 0.0);
+    ++checkedJoints;
+  }
+  ASSERT_GT(checkedJoints, 0u) << "the fixture produced no actuated joints, so nothing was verified";
+
+  // The gains decay monotonically and reach exactly zero within four time constants.
+  scalar_t previousKp = std::numeric_limits<scalar_t>::max();
+  for (int step = 0; step <= 20; ++step) {
+    const scalar_t time = 1.0 + 0.2 * step * timeConstant;
+    robotState.setTime(time);
+    robot::model::RobotJointAction action(robotDesc);
+    controller.computeJointControlAction(time, robotState, action);
+    scalar_t maxKp = 0.0;
+    for (size_t index = 0; index < robotDesc.getNumJoints(); ++index) {
+      if (!action.at(index).has_value()) continue;
+      maxKp = std::max(maxKp, action.at(index)->kp);
+      EXPECT_DOUBLE_EQ(action.at(index)->feed_forward_effort, 0.0);
+    }
+    EXPECT_LE(maxKp, previousKp + 1e-9) << "the SAFETY gains must never climb back up at t = " << time;
+    previousKp = maxKp;
+  }
+
+  robotState.setTime(1.0 + 4.0 * timeConstant);
+  robot::model::RobotJointAction afterDecay(robotDesc);
+  controller.computeJointControlAction(1.0 + 4.0 * timeConstant, robotState, afterDecay);
+  EXPECT_TRUE(controller.isSafetyDecayComplete());
+  for (size_t index = 0; index < robotDesc.getNumJoints(); ++index) {
+    if (!afterDecay.at(index).has_value()) continue;
+    const robot::model::JointAction& action = afterDecay.at(index).value();
+    EXPECT_DOUBLE_EQ(action.kp, 0.0);
+    EXPECT_DOUBLE_EQ(action.kd, 0.0);
+    EXPECT_DOUBLE_EQ(action.feed_forward_effort, 0.0);
+    EXPECT_DOUBLE_EQ(action.getTotalFeedbackTorque(robotState.getJointPosition(index), 5.0), 0.0);
+  }
 }
 
 // Entering WB_MPC from JOINT_PD requests an MPC reset, but the MRT keeps handing out the policy solved before the reset

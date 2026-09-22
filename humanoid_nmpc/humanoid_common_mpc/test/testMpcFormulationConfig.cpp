@@ -29,9 +29,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <fstream>
 #include <stdexcept>
+#include <string>
 #include "absl/log/globals.h"
 #include "absl/log/initialize.h"
 #include "absl/log/log.h"
+#include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "humanoid_common_mpc/common/MpcFormulationConfig.h"
 
@@ -43,6 +45,28 @@ using namespace ocs2::humanoid;
       throw std::runtime_error(absl::StrCat("Check failed: ", (msg))); \
     }                                                                  \
   } while (0)
+
+/**
+ * Writes a task file with the contact-implicit formulation switched on - `zero_wrench` dropped, the three terms
+ * listed - and `cone` (a cone term name, or empty for none) in soft_constraints, then loads it.
+ */
+absl::StatusOr<MpcFormulationTasks> loadContactImplicitTaskFile(const std::string& path, const std::string& cone) {
+  {
+    std::ofstream ofs(path);
+    ofs << "hard_constraints: []\n\n"
+        << "soft_constraints:\n"
+        << "  - joint_limits\n";
+    if (!cone.empty()) {
+      ofs << "  - " << cone << "\n";
+    }
+    ofs << "  - contact_complementarity\n"
+        << "  - force_weighted_slip\n"
+        << "  - ground_penetration\n\n"
+        << "costs:\n"
+        << "  - state_quadratic_cost\n";
+  }
+  return loadMpcFormulationTasks(path, false);
+}
 
 int main() {
   absl::InitializeLog();
@@ -193,6 +217,65 @@ int main() {
   absl::StatusOr<MpcFormulationTasks> conflictResult = loadMpcFormulationTasks(testConflictYamlPath, false);
   CHECK_TRUE(!conflictResult.ok(), "conflicting zero_velocity should fail");
   CHECK_TRUE(conflictResult.status().code() == absl::StatusCode::kInvalidArgument, "conflict code should be InvalidArgument");
+
+  // ---------------------------------------------------------------------------------------------------------------
+  // Dropping the hard `zero_wrench` constraint un-gates the contact cones, and a cone that is not listed enforces
+  // nothing. f_n >= 0 is the first of the three conditions of rigid contact, and neither `contact_complementarity`
+  // (f_n h = 0, which at h = 0 is satisfied by ANY f_n, adhesion included) nor `ground_penetration` (h >= 0) supplies
+  // it. See humanoid_nmpc/docs/contact_implicit_mpc/README.md section 2a.
+  // ---------------------------------------------------------------------------------------------------------------
+
+  // The hole: the whole contact-implicit formulation listed, and nothing bounding any foot's wrench.
+  const absl::StatusOr<MpcFormulationTasks> noCone = loadContactImplicitTaskFile("/tmp/test_mpc_ci_no_cone.yaml", "");
+  CHECK_TRUE(!noCone.ok(), "contact-implicit without a cone must fail");
+  CHECK_TRUE(noCone.status().code() == absl::StatusCode::kInvalidArgument, "no-cone code should be InvalidArgument");
+  CHECK_TRUE(absl::StrContains(noCone.status().message(), "friction_force_cone"),
+             "the no-cone message must name both cones, so the operator knows either will do");
+
+  // Either cone closes it. `contact_wrench_cone` carries the friction, CoP and torsional rows together...
+  const absl::StatusOr<MpcFormulationTasks> wrenchCone =
+      loadContactImplicitTaskFile("/tmp/test_mpc_ci_wrench_cone.yaml", "contact_wrench_cone");
+  CHECK_TRUE(wrenchCone.ok(), absl::StrCat("contact-implicit with contact_wrench_cone must load: ", wrenchCone.status().message()));
+  CHECK_TRUE(!contactConstraintsAreScheduleGated(*wrenchCone), "without zero_wrench the cones must be un-gated");
+  CHECK_TRUE(usesContactImplicitFormulation(*wrenchCone), "the three terms must be recognised as the contact-implicit formulation");
+
+  // ...and `friction_force_cone` bounds the normal force below on its own, which is all this condition asks for.
+  const absl::StatusOr<MpcFormulationTasks> frictionCone =
+      loadContactImplicitTaskFile("/tmp/test_mpc_ci_friction_cone.yaml", "friction_force_cone");
+  CHECK_TRUE(frictionCone.ok(), absl::StrCat("contact-implicit with friction_force_cone must load: ", frictionCone.status().message()));
+
+  // The gate is keyed off `zero_wrench`, not off the contact-implicit terms, so dropping it alone is enough to
+  // require a cone - a task file may legitimately drop it without listing the three terms.
+  const std::string bareUngatedPath = "/tmp/test_mpc_bare_ungated.yaml";
+  {
+    std::ofstream ofs(bareUngatedPath);
+    ofs << "hard_constraints:\n"
+        << "  - zero_velocity\n\n"
+        << "soft_constraints:\n"
+        << "  - joint_limits\n\n"
+        << "costs:\n"
+        << "  - state_quadratic_cost\n";
+  }
+  const absl::StatusOr<MpcFormulationTasks> bareUngated = loadMpcFormulationTasks(bareUngatedPath, false);
+  CHECK_TRUE(!bareUngated.ok(), "dropping zero_wrench without any cone must fail even with no contact-implicit term");
+  CHECK_TRUE(bareUngated.status().code() == absl::StatusCode::kInvalidArgument, "bare un-gated code should be InvalidArgument");
+
+  // And the shipped arrangement is untouched: while `zero_wrench` is listed the cones gate themselves on the mode
+  // schedule, so a missing cone is merely redundant rather than dangerous.
+  const std::string gatedNoConePath = "/tmp/test_mpc_gated_no_cone.yaml";
+  {
+    std::ofstream ofs(gatedNoConePath);
+    ofs << "hard_constraints:\n"
+        << "  - zero_wrench\n"
+        << "  - zero_velocity\n\n"
+        << "soft_constraints:\n"
+        << "  - joint_limits\n\n"
+        << "costs:\n"
+        << "  - state_quadratic_cost\n";
+  }
+  const absl::StatusOr<MpcFormulationTasks> gatedNoCone = loadMpcFormulationTasks(gatedNoConePath, false);
+  CHECK_TRUE(gatedNoCone.ok(), absl::StrCat("a gated task file without a cone must still load: ", gatedNoCone.status().message()));
+  CHECK_TRUE(contactConstraintsAreScheduleGated(*gatedNoCone), "with zero_wrench the cones must be gated");
 
   LOG(INFO) << "All MPC Formulation Config tests passed successfully!";
   return 0;

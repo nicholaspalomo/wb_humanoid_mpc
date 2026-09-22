@@ -41,26 +41,44 @@ namespace {
 /** Stretches closer to 1 than this change nothing worth a QP. */
 constexpr scalar_t kStretchTolerance = 1e-3;
 
-/** The longest run of equal contact state of `foot` in the assignment, in nodes, for the contact and the swing state. */
-std::pair<int, int> longestPhases(const MiqpAssignment& assignment, int numNodes, size_t foot) {
-  int longestContact = 0;
-  int longestSwing = 0;
+/**
+ * The runs of equal contact state of one foot in an assignment, in nodes.
+ *
+ * The run that contains node 0 is reported separately and is NOT counted in the two longest runs, because it is the
+ * only one whose real duration is not the number of nodes it occupies: the phase was already in flight when the plan
+ * was made, and the gait limits apply to the whole of it. Every other run starts inside the horizon, where the nodes
+ * are the phase.
+ */
+struct FootPhaseRuns {
+  int longestContact = 0;                // longest run in contact that starts inside the horizon, in nodes
+  int longestSwing = 0;                  // longest run in the air that starts inside the horizon, in nodes
+  int leadingNodes = 0;                  // nodes of the run that contains node 0
+  std::int8_t leadingValue = kMiqpFree;  // its contact state (kMiqpFree when node 0 is not decided)
+};
+
+FootPhaseRuns footPhaseRuns(const MiqpAssignment& assignment, int numNodes, size_t foot) {
+  FootPhaseRuns runs;
   int run = 0;
-  std::int8_t runValue = -1;
+  std::int8_t runValue = kMiqpFree;
+  bool leading = true;
   for (int node = 0; node < numNodes; ++node) {
     const std::int8_t value = assignment[static_cast<size_t>(ContactLogicState::contactBinaryIndex(node, foot))];
-    if (value != runValue) {
+    if (value != runValue || node == 0) {
+      if (node > 0) leading = false;
       runValue = value;
       run = 0;
     }
     ++run;
-    if (runValue > 0) {
-      longestContact = std::max(longestContact, run);
+    if (leading) {
+      runs.leadingNodes = run;
+      runs.leadingValue = runValue;
+    } else if (runValue > 0) {
+      runs.longestContact = std::max(runs.longestContact, run);
     } else if (runValue == 0) {
-      longestSwing = std::max(longestSwing, run);
+      runs.longestSwing = std::max(runs.longestSwing, run);
     }
   }
-  return {longestContact, longestSwing};
+  return runs;
 }
 
 }  // namespace
@@ -88,19 +106,37 @@ void CadenceStretchStage::configure(const ContactPlanningConfig& config) {
 scalar_t CadenceStretchStage::admissibleStretch(const ContactPlanningConfig& config,
                                                 const MiqpAssignment& assignment,
                                                 int numNodes,
-                                                scalar_t maxStretch) {
+                                                scalar_t maxStretch,
+                                                const ContactPlannerInput* input) {
   const GaitLimits& limits = config.shared.gaitLimits;
   const scalar_t dt = config.planner.dt;
   scalar_t stretch = std::max(1.0, maxStretch);
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-    const std::pair<int, int> phases = longestPhases(assignment, numNodes, foot);
+    const FootPhaseRuns runs = footPhaseRuns(assignment, numNodes, foot);
     // A maximum that is already violated at s = 1 cannot be repaired by stretching further, so the bound is only ever
     // applied where the phase still fits: max(1, ...) leaves such a plan alone rather than refusing to stretch at all.
-    if (limits.maxSwingDuration > 0.0 && phases.second > 0) {
-      stretch = std::min(stretch, std::max(1.0, limits.maxSwingDuration / (dt * static_cast<scalar_t>(phases.second))));
+    if (limits.maxSwingDuration > 0.0 && runs.longestSwing > 0) {
+      stretch = std::min(stretch, std::max(1.0, limits.maxSwingDuration / (dt * static_cast<scalar_t>(runs.longestSwing))));
     }
-    if (limits.maxContactDuration > 0.0 && phases.first > 0) {
-      stretch = std::min(stretch, std::max(1.0, limits.maxContactDuration / (dt * static_cast<scalar_t>(phases.first))));
+    if (limits.maxContactDuration > 0.0 && runs.longestContact > 0) {
+      stretch = std::min(stretch, std::max(1.0, limits.maxContactDuration / (dt * static_cast<scalar_t>(runs.longestContact))));
+    }
+    // The phase that is already in flight gets the same limit, minus what it has already spent: only the in-horizon
+    // remainder is stretched, and the seconds behind the plan's start are not re-timed by anything. Without this the
+    // leading run was budgeted the whole maximum for its remainder alone, which is the reading PhaseDurationsRule
+    // contradicts (it counts initialPhaseNodes(foot, true) plus the in-horizon nodes against the same limit), and the
+    // executed phase came out longer than the gait limit the rest of the stack is tuned for.
+    if (runs.leadingNodes > 0 && runs.leadingValue != kMiqpFree) {
+      const bool leadingInContact = runs.leadingValue > 0;
+      const scalar_t limit = leadingInContact ? limits.maxContactDuration : limits.maxSwingDuration;
+      // The elapsed time belongs to the phase the foot is in AT PLANNING TIME. When the assignment already switches at
+      // node 0 the leading run is a different phase that starts there with nothing behind it, so charging it would
+      // shorten the bound for a phase that has not begun.
+      const bool elapsedBelongsToLeadingRun = input != nullptr && input->contacts[foot] == leadingInContact;
+      const scalar_t elapsed = elapsedBelongsToLeadingRun ? std::max(0.0, input->phaseElapsedTime[foot]) : 0.0;
+      if (limit > 0.0) {
+        stretch = std::min(stretch, std::max(1.0, (limit - elapsed) / (dt * static_cast<scalar_t>(runs.leadingNodes))));
+      }
     }
   }
   return stretch;
@@ -110,7 +146,7 @@ void CadenceStretchStage::afterSearch(SearchRun& run) const {
   MiqpResult& result = *run.result;
   if (samples_ <= 0 || !result.hasIncumbent) return;
 
-  const scalar_t upperStretch = admissibleStretch(*run.config, result.assignment, run.config->planner.numNodes, maxStretch_);
+  const scalar_t upperStretch = admissibleStretch(*run.config, result.assignment, run.config->planner.numNodes, maxStretch_, run.input);
   if (upperStretch <= 1.0 + kStretchTolerance) return;
 
   const scalar_t dt = run.config->planner.dt;

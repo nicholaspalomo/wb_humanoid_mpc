@@ -44,11 +44,19 @@ Provides:
 from enum import Enum
 import glob
 import os
+import math
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 import xml.etree.ElementTree as ET
 import numpy as np
 import yaml
+
+
+# Decay fraction below which SAFETY commands true zero torque. Matches kSafetyDecayCutoff in
+# CentroidalMpcMrtJointController.h; with a time constant of a quarter of the window this is reached at the end of it.
+# LINT.IfChange(safety_decay_cutoff)
+SAFETY_DECAY_CUTOFF = 0.02
+# LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/include/humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h:safety_decay_cutoff)
 
 
 class ControlMode(str, Enum):
@@ -670,13 +678,23 @@ class HumanoidFSM:
     def get_safety_progress(
         self, now: Optional[float] = None
     ) -> Tuple[float, float, float]:
-        """Returns (decay_fraction, current_kp, current_kd) during SAFETY mode."""
+        """Returns (decay_fraction, current_kp, current_kd) during SAFETY mode.
+
+        The fraction decays exponentially rather than linearly, so the torques fall away fastest at the moment SAFETY is
+        entered and then taper, instead of holding most of their authority through the first half of the window. The
+        time constant is a quarter of ``safety_decay_duration`` and the fraction is snapped to zero below
+        ``SAFETY_DECAY_CUTOFF``, so the decay still completes after ``safety_decay_duration`` seconds. This mirrors
+        ``CentroidalMpcMrtJointController::safetyDecayFactor``, which is the path that runs on the robot.
+        """
         if self.current_mode != ControlMode.SAFETY or self._safety_start_time is None:
             return 1.0, self.default_kp, self.default_kd
 
         current_time = now if now is not None else time.time()
-        elapsed = current_time - self._safety_start_time
-        fraction = max(0.0, 1.0 - (elapsed / self.safety_decay_duration))
+        elapsed = max(0.0, current_time - self._safety_start_time)
+        time_constant = max(1e-3, self.safety_decay_duration / 4.0)
+        fraction = math.exp(-elapsed / time_constant)
+        if fraction < SAFETY_DECAY_CUTOFF:
+            fraction = 0.0
 
         current_kp = self.default_kp * fraction
         current_kd = self.default_kd * fraction
@@ -769,10 +787,36 @@ class HumanoidFSM:
 
         # 3. GRAVITY_COMP Mode
         elif self.current_mode == ControlMode.GRAVITY_COMP:
-            if mj_data is not None and hasattr(mj_data, "qfrc_bias"):
-                # qfrc_bias contains gravity and Coriolis forces
-                tau_grav = mj_data.qfrc_bias[6 : 6 + self.num_actuators].copy()
-                # Damping to stabilize posture against residual drift
+            if (
+                mj_model is not None
+                and mj_data is not None
+                and hasattr(mj_data, "qvel")
+            ):
+                # GRAVITY compensation is g(q) alone, i.e. RNEA at zero velocity AND zero acceleration.
+                #
+                # This used to read mj_data.qfrc_bias directly, which is the BIAS force C(q, v) v + g(q) - the
+                # Coriolis and centrifugal terms included, evaluated at the live velocity. Feeding that forward does
+                # not compensate gravity, it cancels the robot's own velocity-dependent coupling as well, and this is
+                # the one mode whose whole purpose is for an operator to push the limbs around by hand: v is large
+                # exactly when the error is. The cancelled term grows with v^2, so the limb gets lighter the faster it
+                # is already moving, which is negative damping wearing a feedforward's clothes and is precisely the
+                # "residual drift" the 0.15 * kd term below was added to paper over.
+                #
+                # mj_rne with flg_acc = 0 computes C v + g at the CURRENT qvel, so qvel is zeroed around the call to
+                # leave g(q). The full generalized vector is returned, hence the floating-base offset of 6.
+                # Imported here rather than at module scope: this module is imported by the GUI and by
+                # test_state_machine.py in environments that have no MuJoCo, and every other mode works without it.
+                import mujoco
+
+                qvel_saved = mj_data.qvel.copy()
+                try:
+                    mj_data.qvel[:] = 0.0
+                    bias_at_rest = np.zeros(mj_model.nv, dtype=np.float64)
+                    mujoco.mj_rne(mj_model, mj_data, 0, bias_at_rest)
+                finally:
+                    mj_data.qvel[:] = qvel_saved
+                tau_grav = bias_at_rest[6 : 6 + self.num_actuators].copy()
+                # Light damping, to settle the posture rather than to hide a wrong feedforward.
                 tau = tau_grav - (0.15 * self.kd_vector) * v
                 return tau
             else:
@@ -802,7 +846,7 @@ class HumanoidFSM:
             ) * v
 
             # Once decay completes, automatically transition to ZERO_TORQUE
-            if fraction <= 1e-4:
+            if fraction <= 0.0:
                 self.set_mode(ControlMode.ZERO_TORQUE)
 
             return tau

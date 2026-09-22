@@ -51,6 +51,7 @@ class PlannedHeadingOverride final : public ExecutionRule {
   std::vector<std::string> requiredBlocks() const override { return {term::kHeadingDoubleIntegrator}; }
   void configure(const ContactPlanningConfig& /*config*/) override {}
   void overrideTarget(const ExecutionContext& ctx, TargetTrajectories& targetTrajectories) const override;
+  bool rewritesTarget() const override { return true; }
 
  private:
   const MpcRobotModelBase<scalar_t>* mpcRobotModel_;

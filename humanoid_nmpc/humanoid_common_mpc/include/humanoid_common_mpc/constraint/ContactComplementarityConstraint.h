@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
+#include "humanoid_common_mpc/contact/ContactInputJacobian.h"
 #include "humanoid_common_mpc/contact/FootprintCornerHeights.h"
 
 namespace ocs2::humanoid {
@@ -146,8 +147,5 @@ class ContactComplementarityConstraint final : public StateInputConstraint {
   scalar_t inverseHeightReference_;
   vector_t normalForceRow_;
 };
-
-/** The row that maps the input to the normal force of `contactPointIndex`, probed from the model's linear accessor. */
-vector_t normalContactForceRow(const MpcRobotModelBase<scalar_t>& mpcRobotModel, size_t contactPointIndex);
 
 }  // namespace ocs2::humanoid

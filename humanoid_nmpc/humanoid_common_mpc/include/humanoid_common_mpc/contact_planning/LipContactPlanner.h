@@ -111,7 +111,15 @@ class LipContactPlanner final : public ContactPlannerInterface {
   /** Builds the OCP-QP around the default nominal heading trajectory (previous plan, or the commanded yaw integrated). */
   OcpQpProblem buildProblem(const ContactPlannerInput& input) const;
   OcpQpProblem buildProblem(const ContactPlannerInput& input, const HeadingNominal& nominal) const;
-  HeadingNominal defaultNominal(const ContactPlannerInput& input) const;
+  /**
+   * The nominal trajectory the frame terms are linearised around: the previous plan shifted to `input.time` when there
+   * is a usable one, the commanded yaw rate and CoM velocity integrated from the input otherwise.
+   *
+   * `nodeDuration > 0` builds it for a grid of that node duration instead of planner.dt, which is what the cadence
+   * stretch needs: the integrated branch is a function of time, so node k of a stretched grid has to be sampled at
+   * k * nodeDuration. The previous-plan branch is per-node geometry and is indexed by node on either grid.
+   */
+  HeadingNominal defaultNominal(const ContactPlannerInput& input, scalar_t nodeDuration = 0.0) const;
   static HeadingNominal nominalFromSolution(const Layout& layout, const OcpQpSolution& solution);
   /** Yaw inertia used by the heading model, from the input (the robot model). Throws if it is not positive. */
   scalar_t yawInertia(const ContactPlannerInput& input) const;

@@ -33,10 +33,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <regex>
 #include <stdexcept>
 #include <string>
+#include <system_error>
 #include <thread>
 
 #include <ocs2_core/cost/QuadraticStateCost.h>
@@ -64,9 +66,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/constraint/ForceWeightedSlipConstraint.h"
 #include "humanoid_common_mpc/constraint/GroundPenetrationConstraint.h"
 #include "humanoid_common_mpc/constraint/JointLimitsSoftConstraint.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlannerModule.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningModelParameters.h"
+#include "humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h"
 #include "humanoid_common_mpc/cost/ComAndAcomTrackingCost.h"
 #include "humanoid_common_mpc/cost/EndEffectorKinematicsQuadraticCost.h"
 #include "humanoid_common_mpc/cost/ExternalTorqueQuadraticCostAD.h"
+#include "humanoid_common_mpc/gait/GaitSchedule.h"
+#include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 
 #include <ocs2_core/penalties/penalties/QuadraticPenalty.h>
 #include <ocs2_sqp/SqpSettings.h>
@@ -1132,6 +1140,136 @@ TEST_F(MpcParameterUpdaterModuleTest, ThePositionErrorGainReachesTheSoftNormalVe
     ASSERT_NE(preComputationPtr, nullptr) << "the centroidal MPC is expected to use HumanoidPreComputation";
     EXPECT_NEAR(preComputationPtr->getNormalVelocityPositionErrorGain(), newGain, 1e-9);
   }
+}
+
+/******************************************************************************************************/
+// Test: ContactPlanningReloadAppliesModelParametersBeforeValidating
+/******************************************************************************************************/
+TEST_F(MpcParameterUpdaterModuleTest, ContactPlanningReloadAppliesModelParametersBeforeValidating) {
+  // A robot may write 0 for the planner parameters that are properties of the model rather than tuning - shared.comHeight
+  // and the two zmp_support_region half widths - and have them derived from the URDF and from the wrench cone instead
+  // (ContactPlanningModelParameters::applyTo, documented in ContactPlanningConfig.h and in both shipped
+  // contact_planning.yaml files). The start-up path in CentroidalMpcInterface therefore loads the file with the loader's
+  // own validation switched OFF, applies the derived parameters and validates only afterwards.
+  //
+  // The hot reload did the opposite: it left the loader's `validate` argument at its default of true, so the file was
+  // validated while those three fields were still 0 - and 0 in those three fields is exactly what validate() rejects.
+  // Every reload of such a file therefore threw inside the loader, before ContactPlannerModule::setConfig could run
+  // applyTo, the throw was caught and became a single warning, and because the file watcher in preSolverRun had already
+  // stored the new modification time the edit was gone for good: the operator moved a slider, the tuning GUI reported the
+  // change as applied, and the planner ran on its launch configuration for the rest of the session. No shipped robot uses
+  // the markers today, which is why nothing noticed; the first one to take the documented option would have lost every
+  // reload. This test therefore writes a planner file that takes that option and drives the real watcher over it.
+  const std::string shippedPlanningFile = resolveContactPlanningConfigFile(taskFile_);
+  if (shippedPlanningFile == taskFile_) {
+    GTEST_SKIP() << "this robot keeps the contact_planning block inside its task file, so there is no separate file to watch";
+  }
+
+  // A directory of its own: the planner file is found by its fixed name next to the task file, and the fixture's own
+  // temporary task file must not suddenly acquire one.
+  const std::filesystem::path planningDir = std::filesystem::path(testing::TempDir()) / "mpc_parameter_updater_contact_planning";
+  std::error_code ec;
+  std::filesystem::remove_all(planningDir, ec);
+  std::filesystem::create_directories(planningDir, ec);
+  ASSERT_FALSE(ec) << "could not create " << planningDir.string() << ": " << ec.message();
+  const std::string planningTaskFile = (planningDir / "task.yaml").string();
+  const std::string planningFile = (planningDir / kContactPlanningConfigFileName).string();
+  {
+    std::ifstream src(taskFile_);
+    std::ofstream dst(planningTaskFile);
+    dst << src.rdbuf();
+  }
+
+  std::string planning;
+  {
+    std::ifstream in(shippedPlanningFile);
+    ASSERT_TRUE(in.is_open()) << "could not read " << shippedPlanningFile;
+    planning.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+  }
+  // Replaces the value of one key, addressed with its exact indentation so that a key of the same name in another block
+  // (or the same word inside a comment) cannot be hit by accident.
+  const std::function<void(const std::string&, const std::string&)> setKey = [&planning](const std::string& key, const std::string& value) {
+    const std::string needle = "\n" + key + ":";
+    const size_t keyPos = planning.find(needle);
+    ASSERT_NE(keyPos, std::string::npos) << key << " is not a key of the shipped contact_planning.yaml";
+    const size_t valueStart = keyPos + needle.size();
+    const size_t lineEnd = planning.find('\n', valueStart);
+    planning.replace(valueStart, lineEnd - valueStart, " " + value);
+  };
+  const std::function<void()> writePlanningFile = [&planning, &planningFile]() {
+    std::ofstream out(planningFile);
+    out << planning;
+  };
+
+  setKey("    comHeight", "0.0");   // shared.comHeight: from the model
+  setKey("    halfWidthX", "0.0");  // zmp_support_region: from the sole's footprint
+  setKey("    halfWidthY", "0.0");
+  setKey("    runInBackgroundThread", "false");  // plan in the pre-solve hook, so this test starts no worker thread
+  writePlanningFile();
+  ASSERT_EQ(resolveContactPlanningConfigFile(planningTaskFile), planningFile);
+
+  // The file is the documented "derive it from the model" case: on its own it does NOT validate. That is the whole point
+  // - it is the reason the reload may not ask the loader to validate it before the model parameters have been applied.
+  EXPECT_THROW(loadContactPlanningConfig(planningFile, "contact_planning.", false), std::invalid_argument);
+  ContactPlanningConfig config = loadContactPlanningConfig(planningFile, "contact_planning.", false, /*validate=*/false);
+  ASSERT_EQ(config.shared.comHeight, 0.0);
+  ASSERT_EQ(config.zmpSupportRegion.halfWidthX, 0.0);
+
+  // Synthetic model parameters rather than the ones derived from the Atlas model: what is under test is the ORDER in
+  // which the reload applies and validates them, so the expected values are better off being constants this test owns.
+  ContactPlanningModelParameters modelParameters;
+  modelParameters.totalMass = 80.0;
+  modelParameters.comHeight = 0.93;
+  modelParameters.zmpHalfWidthX = 0.11;
+  modelParameters.zmpHalfWidthY = 0.055;
+  modelParameters.torsionalFrictionTorque = 12.0;
+  modelParameters.doubleSupportYawCouple = 34.0;
+  modelParameters.footYawOffsetLower = makeFeetArray(static_cast<scalar_t>(-0.4));
+  modelParameters.footYawOffsetUpper = makeFeetArray(static_cast<scalar_t>(0.4));
+  modelParameters.hipYawJoints.assign(N_CONTACTS, std::string());
+  modelParameters.applyTo(config);
+  ASSERT_NO_THROW(config.validate()) << "with the model parameters applied the very same file is valid";
+
+  std::shared_ptr<SwingTrajectoryPlanner> swingTrajectoryPlanner =
+      std::make_shared<SwingTrajectoryPlanner>(loadSwingTrajectorySettings(taskFile_, "swing_trajectory_config", false), N_CONTACTS);
+  std::shared_ptr<ContactPlanningReferenceManager> planningReferenceManager = std::make_shared<ContactPlanningReferenceManager>(
+      GaitSchedule::loadGaitSchedule(referenceFile_, interface_->modelSettings(), false), swingTrajectoryPlanner,
+      interface_->getPinocchioInterface(), interface_->getEffectiveMpcRobotModel(), config);
+  std::shared_ptr<ContactPlannerModule> plannerModule = std::make_shared<ContactPlannerModule>(planningReferenceManager, config);
+  plannerModule->setModelParameters(modelParameters);
+  ASSERT_NEAR(plannerModule->getConfig().shared.comHeight, modelParameters.comHeight, 1e-12) << "the module knows its model parameters";
+
+  // No MPC: this path updates the planner only, and the task file is never touched, so nothing else in the updater runs.
+  MpcParameterUpdaterModule updater(nullptr, planningTaskFile, urdfFile_, referenceFile_, stateDim_, inputDim_, contactNames_, nullptr,
+                                    basisCostTransform_);
+  updater.setContactPlannerModule(plannerModule);
+
+  // The operator moves a slider: the tuning GUI saves the planner file, and the watcher inside preSolverRun has to pick
+  // it up. The sleeps bracket the write because the watcher compares modification times, whose granularity is coarser
+  // than this test's own timing.
+  const scalar_t reloadedMaxSolveTime = 0.234;
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  setKey("    maxSolveTime", std::to_string(reloadedMaxSolveTime));
+  writePlanningFile();
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+  const vector_t dummyState = vector_t::Zero(stateDim_);
+  for (size_t i = 0; i < 101; ++i) {  // the file is stat-ed once every 100 pre-solve hooks
+    updater.preSolverRun(0.0, 1.0, dummyState, *interface_->getReferenceManagerPtr());
+  }
+
+  const ContactPlanningConfig applied = plannerModule->getConfig();
+  EXPECT_NEAR(applied.planner.maxSolveTime, reloadedMaxSolveTime, 1e-9)
+      << "the edited planner file never reached the module: the reload was rejected inside the loader, before the model-derived "
+         "comHeight and ZMP box could be applied, and the warning that followed is the only trace. The watcher has already stored the "
+         "new modification time, so this edit and every later one is lost for the rest of the run.";
+  EXPECT_NEAR(applied.shared.comHeight, modelParameters.comHeight, 1e-12) << "the reload has to re-apply the model-derived CoM height";
+  EXPECT_NEAR(applied.zmpSupportRegion.halfWidthX, modelParameters.zmpHalfWidthX, 1e-12);
+  EXPECT_NEAR(applied.zmpSupportRegion.halfWidthY, modelParameters.zmpHalfWidthY, 1e-12);
+  EXPECT_TRUE(applied.hasModelParameters());
+  EXPECT_NO_THROW(applied.validate()) << "skipping the loader's validation may never hand the planner an unvalidated configuration";
+
+  std::filesystem::remove_all(planningDir, ec);
 }
 
 }  // namespace ocs2::humanoid

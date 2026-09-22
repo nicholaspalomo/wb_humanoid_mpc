@@ -25,6 +25,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <gtest/gtest.h>
 
+#include <functional>
+
 #include <array>
 
 #include <algorithm>
@@ -41,6 +43,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
 #include "humanoid_common_mpc/contact_planning/LipContactPlanner.h"
+#include "humanoid_common_mpc/contact_planning/search/CadenceStretchStage.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 
 #include "absl/log/log.h"
@@ -518,14 +521,18 @@ TEST(LipContactPlannerTest, MaximumContactDurationYieldsToNoFlightAndDoubleSuppo
   // Foot 0 lifts now (swing 0..2, lands at 3, stands 3..7 which is the 0.6 s limit, lifts again at 8). Foot 1 yields
   // while it cannot lift (foot 0 in the air, then the one-node double support at 3) and lifts at the first node where
   // it can, node 4.
-  const auto sequence = [&](int secondLiftOff) {
+  // `firstFoot` lifts now (swing 0..2, lands at 3, stands to the 0.6 s limit, lifts again at 8); the other foot lifts
+  // at `secondLiftOff`.
+  const std::function<MiqpAssignment(size_t, int)> sequenceLifting = [&](size_t firstFoot, int secondLiftOff) {
+    const size_t secondFoot = 1 - firstFoot;
     MiqpAssignment a = planner.initialAssignment(input);
     for (int k = 0; k < config.planner.numNodes; ++k) {
-      a[LipContactPlanner::contactBinaryIndex(k, 0)] = (k < 3 || (k >= 8 && k < 11)) ? 0 : 1;
-      a[LipContactPlanner::contactBinaryIndex(k, 1)] = (k >= secondLiftOff && k < secondLiftOff + 3) ? 0 : 1;
+      a[LipContactPlanner::contactBinaryIndex(k, firstFoot)] = (k < 3 || (k >= 8 && k < 11)) ? 0 : 1;
+      a[LipContactPlanner::contactBinaryIndex(k, secondFoot)] = (k >= secondLiftOff && k < secondLiftOff + 3) ? 0 : 1;
     }
     return a;
   };
+  const std::function<MiqpAssignment(int)> sequence = [&](int secondLiftOff) { return sequenceLifting(0, secondLiftOff); };
   MiqpAssignment liftsWhenAllowed = sequence(4);
   EXPECT_TRUE(planner.propagate(input, liftsWhenAllowed));
   MiqpAssignment liftsInsideDoubleSupport = sequence(3);
@@ -533,12 +540,25 @@ TEST(LipContactPlannerTest, MaximumContactDurationYieldsToNoFlightAndDoubleSuppo
   MiqpAssignment staysTooLong = sequence(5);
   EXPECT_FALSE(planner.propagate(input, staysTooLong)) << "overdue and able to lift at node 4, so it must";
 
-  // Propagation on a free assignment lifts exactly one foot at the first free node and leaves the other down.
+  // Propagation on a free assignment must NOT choose WHICH foot lifts first.
+  //
+  // This assertion used to require exactly one foot to be fixed down at node 0, which recorded the old behaviour as
+  // correct. It was not: with both feet overdue, the rule fell through to a preference - who swung last, else who has
+  // stood longer, else the lower foot index - and used it to FIX a binary. A propagator may only fix what is IMPLIED
+  // (MiqpPropagateFn documents its false return as "provably infeasible", and a fixing has to hold in every feasible
+  // completion). Lifting either foot first is feasible here, as the two assertions below show, so fixing one closed
+  // the subtree that lifts the other and the branch-and-bound never looked at it. The preference belongs in the
+  // objective, where ContactSwitchCost and the assignment costs already price it.
   MiqpAssignment free = planner.initialAssignment(input);
   ASSERT_TRUE(planner.propagate(input, free));
-  const std::int8_t first = free[LipContactPlanner::contactBinaryIndex(0, 0)];
-  const std::int8_t second = free[LipContactPlanner::contactBinaryIndex(0, 1)];
-  EXPECT_EQ(static_cast<int>(first) + static_cast<int>(second), 1) << "one foot lifts, the other supports";
+  EXPECT_EQ(free[LipContactPlanner::contactBinaryIndex(0, 0)], kMiqpFree) << "the order of the two lift-offs is the search's to choose";
+  EXPECT_EQ(free[LipContactPlanner::contactBinaryIndex(0, 1)], kMiqpFree) << "the order of the two lift-offs is the search's to choose";
+
+  // ...because both orders really are feasible, which is exactly why neither may be fixed.
+  MiqpAssignment footZeroFirst = sequenceLifting(0, 4);
+  EXPECT_TRUE(planner.propagate(input, footZeroFirst)) << "foot 0 may lift first";
+  MiqpAssignment footOneFirst = sequenceLifting(1, 4);
+  EXPECT_TRUE(planner.propagate(input, footOneFirst)) << "and foot 1 may lift first: the rule must not prefer one";
 
   // And the planner produces a valid stepping plan from that state.
   const ContactPlan plan = planner.plan(input);
@@ -1682,6 +1702,250 @@ TEST(LipContactPlannerTest, DoubleSupportPenaltyLeavesStandingAlone) {
   for (int k = 0; k < plan.numIntervals(); ++k) {
     EXPECT_TRUE(plan.contacts[k][0] && plan.contacts[k][1])
         << "a standing robot stepped at node " << k << " to dodge the double support penalty: " << plan.describe();
+  }
+}
+
+/*===================================== the cadence stretch and the grid it emits =====================================*/
+
+namespace {
+
+/**
+ * A state in which CadenceStretchStage fires deterministically, which every stretch test below needs.
+ *
+ * The whole contact pattern is committed to double support, so the branch-and-bound has nothing left to decide and the
+ * stage re-times the one pattern there is; and the only thing the plan has to do is bring a centre of mass that is
+ * drifting forward to rest. The capture point starts at v / omega = 0.044 m, comfortably inside the 0.08 m
+ * double-support ZMP box, so the plan can stop by holding the ZMP under the capture point, and every stage cost of the
+ * shipped formulation is then a positive multiple of e^{-2 omega t}: the velocity error, the ZMP-to-CoM offset and the
+ * terminal capture-point residual all decay together, while the terms that do not decay (the step width and the
+ * foothold regularisation of two feet that cannot move) take the same value on every grid. Sampling that one
+ * converging motion on a longer node duration puts every node further along the decay, so the objective falls
+ * monotonically with the stretch and the stage keeps its largest sample.
+ *
+ * None of this is a tuning claim about cadence: the gait limits, the weights and the stretch bounds are the shipped
+ * defaults. It is only a state in which the accept/reject decision of the stage is arithmetic rather than a coin toss,
+ * which is what makes the assertions about the grid the plan is emitted on repeatable.
+ */
+ContactPlannerInput committedStoppingInput(const ContactPlanningConfig& config) {
+  ContactPlannerInput input = makeStandingInput();
+  input.comVelocity = vector2_t(0.15, 0.0);
+  input.velocityCommand = vector2_t::Zero();
+  input.committedContacts.assign(static_cast<size_t>(config.planner.numNodes), makeFeetArray(true));
+  return input;
+}
+
+ContactPlanningConfig cadenceStretchConfig() {
+  ContactPlanningConfig config = makeConfig();
+  config.formulation.search = {term::kCadenceStretch};
+  config.cadenceStretch.samples = 4;
+  config.cadenceStretch.maxStretch = 1.25;
+  config.validate();
+  return config;
+}
+
+/** The same with the heading model, for the tests that need a linearisation frame and a re-linearisation stage. */
+ContactPlanningConfig headingCadenceStretchConfig(const std::vector<std::string>& search) {
+  ContactPlanningConfig config = headingConfig();
+  config.formulation.search = search;
+  // step_width is the only cost besides heading_tracking that writes the linear term of the heading state, because it
+  // carries the first-order frame term of the foot separation. The last test below reads that entry to recover what
+  // the heading is being tracked against, so it is left out to isolate it; the feet cannot move in this scenario, so
+  // the term decides nothing here.
+  config.formulation.setCost(term::kStepWidth, false);
+  config.cadenceStretch.samples = 4;
+  config.cadenceStretch.maxStretch = 1.25;
+  // The feet are pinned by the committed double support, so foot_yaw_tracking carries a residual it cannot reduce and
+  // that grows with the horizon; at its shipped weight that residual, and not the motion, would decide the stretch.
+  // The term still has to be listed and weighted, because its target is what the last test reads.
+  config.footYawTracking.weight = 0.01;
+  config.validate();
+  return config;
+}
+
+ContactPlannerInput committedTurningStopInput(const ContactPlanningConfig& config, scalar_t yawRateCommand) {
+  ContactPlannerInput input = committedStoppingInput(config);
+  input.heading = 0.0;
+  input.yaw = 0.0;
+  // The robot is already turning at the commanded rate, so the commanded heading ramp is the free trajectory of the
+  // heading double integrator: it costs no ground torque and leaves the heading tracking residual at zero on any grid,
+  // which keeps the stretch decision with the translational motion.
+  input.headingRate = yawRateCommand;
+  input.headingRateCommand = yawRateCommand;
+  input.footYaws = makeFeetArray(0.0);
+  input.yawInertia = 15.0;
+  return input;
+}
+
+}  // namespace
+
+/**
+ * The gait limits bound a WHOLE phase, and the phase that is in flight when the plan is made is partly behind the
+ * plan's start: PhaseDurationsRule enforces the maximum as initialPhaseNodes(foot, true) plus the nodes of the phase
+ * inside the horizon. admissibleStretch() saw only that second part and budgeted the entire maximum for it, so it
+ * returned a stretch the total duration cannot absorb - a foot 0.4 s into a 0.6 s swing with two swing nodes left in
+ * the horizon was told it could stretch by three, and the executed swing came out at 0.4 + 0.25 = 0.65 s. Nothing
+ * downstream catches that: the propagation inside solveFixed runs on the unstretched grid, and mergeModeSchedules
+ * keeps the lift-off from the applied schedule while taking the stretched touch-down from the plan.
+ */
+TEST(LipContactPlannerTest, TheCadenceStretchBoundCountsTheElapsedPartOfThePhaseInFlight) {
+  ContactPlanningConfig config = makeConfig();
+  config.shared.gaitLimits.maxSwingDuration = 0.6;  // six nodes at dt 0.1
+  config.validate();
+  const int numNodes = config.planner.numNodes;
+
+  // The left foot is airborne over the first two nodes and lands at node 2; the right foot stands throughout.
+  MiqpAssignment assignment(static_cast<size_t>(LipContactPlanner::kBinariesPerNode * numNodes), 1);
+  for (int node = 0; node < 2; ++node) {
+    assignment[static_cast<size_t>(LipContactPlanner::contactBinaryIndex(node, 0))] = 0;
+  }
+
+  ContactPlannerInput input = makeStandingInput();
+  input.contacts = {false, true};
+  input.phaseElapsedTime = {0.4, 5.0};
+
+  // Without an input the bound keeps its old, optimistic reading: the whole 0.6 s for the two nodes that are left.
+  EXPECT_NEAR(CadenceStretchStage::admissibleStretch(config, assignment, numNodes, 4.0), 3.0, 1e-9);
+  // With it, the 0.4 s already flown are not re-timed by anything and only 0.2 s are left to spread over two nodes.
+  EXPECT_NEAR(CadenceStretchStage::admissibleStretch(config, assignment, numNodes, 4.0, &input), 1.0, 1e-9);
+
+  // The general property, over the whole range of elapsed times: what the robot executes is the elapsed part plus the
+  // stretched remainder, and it is that sum which has to fit inside the limit.
+  for (const scalar_t elapsed : {0.0, 0.1, 0.2, 0.3, 0.4, 0.55}) {
+    input.phaseElapsedTime[0] = elapsed;
+    const scalar_t stretch = CadenceStretchStage::admissibleStretch(config, assignment, numNodes, 4.0, &input);
+    EXPECT_GE(stretch, 1.0) << "elapsed " << elapsed << ": a phase that no longer fits is left alone, never shrunk";
+    if (stretch > 1.0 + 1e-9) {
+      EXPECT_LE(elapsed + stretch * config.planner.dt * 2.0, config.shared.gaitLimits.maxSwingDuration + 1e-9) << "elapsed " << elapsed;
+    }
+  }
+
+  // The elapsed time belongs to the phase the foot is in AT PLANNING TIME. When the assignment switches at node 0 the
+  // leading run is a phase that begins there with nothing behind it, and charging the previous phase's age to it would
+  // bound a swing that has not started: the foot below is in contact at planning time and lifts at node 0.
+  input.contacts = {true, true};
+  input.phaseElapsedTime = {0.4, 5.0};
+  EXPECT_NEAR(CadenceStretchStage::admissibleStretch(config, assignment, numNodes, 4.0, &input), 3.0, 1e-9);
+}
+
+/**
+ * A plan the stage re-timed carries its own node duration, and the planner has to take it back as the previous plan.
+ *
+ * previousPlanShift() used to reject any stored plan whose dt differed from planner.dt by more than a nanosecond, and
+ * to measure the shift with planner.dt rather than with the plan's own grid. Since setConfig() calls reset() on every
+ * change of the grid, the only plan that test ever threw away was one the planner itself had just stretched, and the
+ * cycle after each stretch then ran with previousPlanShift == -1 and previousPlan == nullptr - which switches off the
+ * warm start, the plan-consistency cost, the previous-foothold-consistency rows and the previous-plan heading nominal
+ * at once, silently, for as long as the stretch keeps firing.
+ */
+TEST(LipContactPlannerTest, ACadenceStretchedPlanIsStillUsableAsThePreviousPlan) {
+  const ContactPlanningConfig config = cadenceStretchConfig();
+  LipContactPlanner planner(config);
+  const ContactPlannerInput first = committedStoppingInput(config);
+  const ContactPlan plan = planner.plan(first);
+  ASSERT_TRUE(plan.valid);
+  ASSERT_GT(plan.dt, config.planner.dt + 1e-9) << "the scenario has to stretch, or the test cannot tell the two rules apart";
+
+  // One node of the plan's OWN grid later, which is what "the next cycle" means for a plan that was re-timed.
+  ContactPlannerInput next = first;
+  next.time = first.time + plan.dt;
+  next.comPosition = plan.comPosition[1];
+  next.comVelocity = plan.comVelocity[1];
+  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    next.footPositions[foot] = plan.footholds[1][foot];
+    next.phaseElapsedTime[foot] = first.phaseElapsedTime[foot] + plan.dt;
+  }
+  const LipContactPlanner::HeadingNominal nominal = planner.defaultNominal(next);
+  const ContactPlanningContext ctx = planner.makeContext(next, nominal);
+  EXPECT_EQ(ctx.previousPlanShift, 1) << "the shift is a node count on the grid the stored plan was emitted on";
+  EXPECT_NE(ctx.previousPlan, nullptr) << "the warm start and both consistency terms reach the previous plan through this";
+
+  const ContactPlan second = planner.plan(next);
+  EXPECT_TRUE(second.valid);
+}
+
+/**
+ * ContactPlan::dt is the only carrier of the grid a plan was solved on - toModeSchedule() places every event at
+ * startTime + dt * k and footholdAtTime() rounds with it - so the emitted node duration has to be the one the emitted
+ * trajectory actually satisfies.
+ *
+ * It was not, in one of the two orders the search stages can be listed in. SearchRun::assembleWithNominal passed no
+ * node duration, so a heading_relinearisation listed after a cadence_stretch rebuilt the problem on the UNSTRETCHED
+ * grid, re-solved the incumbent there and replaced the solution, while SearchRun::chosenDt kept the stretched value
+ * that plan() copies into ContactPlan::dt. The plan then paired a node duration of s * dt with trajectories that
+ * satisfy the dt recursion, which hands the whole-body MPC every lift-off and touch-down at node k a further
+ * (s - 1) k dt late. Both orders are legal: validate() imposes no order on `search` and setHeadingModel(true) appends
+ * heading_relinearisation to whatever is already listed.
+ */
+TEST(LipContactPlannerHeading, TheEmittedNodeDurationIsTheGridTheTrajectorySatisfies) {
+  const std::vector<std::vector<std::string>> orders{{term::kCadenceStretch, term::kHeadingRelinearisation},
+                                                     {term::kHeadingRelinearisation, term::kCadenceStretch}};
+  for (const std::vector<std::string>& search : orders) {
+    const ContactPlanningConfig c = headingCadenceStretchConfig(search);
+    LipContactPlanner planner(c);
+    const ContactPlannerInput in = committedTurningStopInput(c, 0.2);
+    const ContactPlan plan = planner.plan(in);
+    const std::string order = search.front() + " then " + search.back();
+    ASSERT_TRUE(plan.valid) << order;
+    ASSERT_TRUE(plan.hasHeading()) << order;
+    if (search.front() == term::kCadenceStretch) {
+      ASSERT_GT(plan.dt, c.planner.dt + 1e-9) << order << ": the scenario has to stretch, or the test proves nothing";
+    }
+
+    const scalar_t omega = c.omega();
+    for (int k = 0; k < c.planner.numNodes; ++k) {
+      for (int axis = 0; axis < 2; ++axis) {
+        const std::pair<scalar_t, scalar_t> predicted =
+            lipClosedForm(plan.comPosition[k](axis), plan.comVelocity[k](axis), plan.zmp[k](axis), omega, plan.dt);
+        EXPECT_NEAR(plan.comPosition[k + 1](axis), predicted.first, 1e-5) << order << ", node " << k << " axis " << axis;
+        EXPECT_NEAR(plan.comVelocity[k + 1](axis), predicted.second, 1e-5) << order << ", node " << k << " axis " << axis;
+      }
+    }
+    // The heading block is on the same grid: with the rate already at the command the plan turns at that rate, so over
+    // the horizon the plan reports it turned through rate * dt * N - the horizon its own dt claims, not another one.
+    EXPECT_NEAR(plan.heading.back() - plan.heading.front(), in.headingRateCommand * plan.dt * static_cast<scalar_t>(c.planner.numNodes),
+                2e-3)
+        << order;
+  }
+}
+
+/**
+ * The cadence stretch re-assembles the problem on a grid of node duration s * dt, and the trajectory it is linearised
+ * around has to be read on that same clock.
+ *
+ * SearchRun::assembleWithGrid used to hand the stretched context the nominal that defaultNominal() had built on the
+ * unstretched grid. A HeadingNominal is indexed by node, so node k of the stretched grid sits at time k * s * dt while
+ * nominal.heading[k] still described k * dt, and the terms split into two clocks: HeadingTrackingCost builds its
+ * target from ctx.dt and was re-timed, FootYawTrackingCost reads ctx.nominal->heading[node] and was not, and the
+ * yaw-aligned frame that the reachability, foot-separation and step-width rows are linearised in was rotated away from
+ * the heading the same QP was solving for. At 0.2 rad/s and a quarter of a stretch that is 0.055 rad of built-in
+ * disagreement by the end of a twelve-node horizon between two costs that agree exactly at s = 1, which
+ * HipYawRangeConstraint then has to absorb in slack; and the objective the stage compares against the unstretched
+ * incumbent carries the artifact too.
+ *
+ * The two targets are read back out of the assembled problem, where each is the only cost writing the linear term of
+ * its state: q = -2 w r for a residual (x - r)^2 of weight w.
+ */
+TEST(LipContactPlannerHeading, AStretchedProblemIsLinearisedOnTheStretchedClock) {
+  const ContactPlanningConfig c = headingCadenceStretchConfig({term::kCadenceStretch});
+  LipContactPlanner planner(c);
+  const ContactPlannerInput in = committedTurningStopInput(c, 0.2);
+  const ContactPlan plan = planner.plan(in);
+  ASSERT_TRUE(plan.valid);
+  ASSERT_GT(plan.dt, c.planner.dt + 1e-9) << "the scenario has to stretch, or the test proves nothing";
+
+  const LipContactPlanner::Layout& layout = planner.getLayout();
+  const OcpQpProblem& stretched = planner.getLastProblem();
+  ASSERT_EQ(stretched.stages.size(), static_cast<size_t>(c.planner.numNodes + 1));
+  for (int k = 0; k <= c.planner.numNodes; ++k) {
+    const OcpQpStage& stage = stretched.stages[static_cast<size_t>(k)];
+    const scalar_t headingTarget = -0.5 * stage.q(layout.heading) / c.headingTracking.weight;
+    EXPECT_NEAR(headingTarget, in.heading + in.headingRateCommand * static_cast<scalar_t>(k) * plan.dt, 1e-9)
+        << "node " << k << ": the commanded heading ramp is sampled on the grid the plan is emitted on";
+    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+      const scalar_t footYawTarget = -0.5 * stage.q(layout.footYaw(foot)) / c.footYawTracking.weight;
+      EXPECT_NEAR(footYawTarget, headingTarget, 1e-9)
+          << "node " << k << " foot " << foot << ": the feet are aimed at the heading the same problem is tracking";
+    }
   }
 }
 

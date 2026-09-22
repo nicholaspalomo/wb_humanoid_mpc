@@ -24,6 +24,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ****************************************************************************"""
 
 import unittest
+import math
+
 import numpy as np
 import yaml
 from humanoid_nmpc.remote_control.remote_control.humanoid_finite_state_machine import (
@@ -209,12 +211,24 @@ class TestHumanoidFSM(unittest.TestCase):
         self.assertAlmostEqual(frac_0, 1.0)
         self.assertAlmostEqual(kp_0, fsm.default_kp)
 
-        # Progress at t = 1.0 s (50%)
+        # Halfway through the window the decay is exponential, not linear: with a time constant of a quarter of the
+        # window, t = 1.0 s is two time constants in.
+        expected_half = math.exp(-2.0)
         frac_half, kp_half, kd_half = fsm.get_safety_progress(now=t0 + 1.0)
-        self.assertAlmostEqual(frac_half, 0.5)
-        self.assertAlmostEqual(kp_half, 0.5 * fsm.default_kp)
+        self.assertAlmostEqual(frac_half, expected_half)
+        self.assertAlmostEqual(kp_half, expected_half * fsm.default_kp)
+        self.assertLess(
+            frac_half,
+            0.5,
+            "the decay must be exponential, shedding more than half by the midpoint",
+        )
 
-        # Progress at t = 2.0 s (100% elapsed -> 0% gain)
+        # Monotonically decreasing all the way through the window.
+        samples = [fsm.get_safety_progress(now=t0 + 0.2 * i)[0] for i in range(11)]
+        for earlier, later in zip(samples, samples[1:]):
+            self.assertLessEqual(later, earlier)
+
+        # Progress at t = 2.0 s (the full window elapsed -> 0% gain)
         frac_end, kp_end, kd_end = fsm.get_safety_progress(now=t0 + 2.0)
         self.assertAlmostEqual(frac_end, 0.0)
         self.assertAlmostEqual(kp_end, 0.0)

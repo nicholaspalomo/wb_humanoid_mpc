@@ -135,6 +135,7 @@ OcpQpStage OcpQpStage::Zero(int nx, int nu, bool hasDynamics) {
   stage.S = matrix_t::Zero(nu, nx);
   stage.q = vector_t::Zero(nx);
   stage.r = vector_t::Zero(nu);
+  stage.constant = 0.0;
   stage.C = matrix_t::Zero(0, nx);
   stage.D = matrix_t::Zero(0, nu);
   stage.lg = vector_t::Zero(0);
@@ -152,6 +153,11 @@ scalar_t evaluateOcpQpObjective(const OcpQpProblem& problem, const std::vector<v
   for (int k = 0; k <= N; ++k) {
     const OcpQpStage& s = problem.stages[k];
     const vector_t& xk = x[k];
+    // The stage's variable-independent part is summed with everything else. It used to be left out, which made this
+    // function report the assembled functional minus a per-problem constant: harmless while only solutions of one
+    // assembled problem are compared, wrong as soon as two problems assembled on different node grids are, because
+    // their constants differ. See the comment on OcpQpStage::constant.
+    objective += s.constant;
     objective += 0.5 * xk.dot(s.Q * xk) + s.q.dot(xk);
     if (k < N) {
       const vector_t& uk = u[k];
@@ -364,6 +370,44 @@ class OcpQpHpipmSolver::Impl {
     d_ocp_qp_set_all(A.data(), B.data(), b.data(), Q.data(), S.data(), R.data(), q.data(), r.data(), idxbx.data(), lbx.data(), ubx.data(),
                      idxbu.data(), lbu.data(), ubu.data(), C.data(), D.data(), lg.data(), ug.data(), Zl.data(), Zu.data(), zl.data(),
                      zu.data(), idxs.data(), lls.data(), lus.data(), &qp_);
+
+    // Rewrite the soft-constraint mapping in full, rather than trusting what d_ocp_qp_set_all left behind.
+    //
+    // HPIPM keeps the mapping in qp_.idxs_rev: one entry per constrained row of the stage, in the order (input box,
+    // state box, general rows), holding the index of the slack pair that relaxes that row, or -1 when the row is hard.
+    // That buffer is filled with -1 exactly once, inside d_ocp_qp_create, and d_ocp_qp_set_all then only touches the
+    // rows that happen to be soft in the problem it is handed (it executes `idxs_rev[k][idxs[k][j]] = j` for the ns[k]
+    // soft rows and clears nothing). Every other buffer of the QP - the dynamics, the Hessian, the constraint matrix,
+    // the bounds, the slack weights - is rewritten in its entirety by that same call, which is what makes the
+    // allocation-free reuse in allocate() safe; idxs_rev is the single exception.
+    //
+    // This mattered because allocate() keeps the previously created qp_ whenever the Dimensions compare equal, and
+    // Dimensions records only the counts (N, nx, nu, nbx, nbu, ng, nsbx, nsbu, nsg), never which general rows the
+    // caller declared soft. Previously, a second solve on the same solver instance with the same counts but a
+    // different softGeneralIndices therefore inherited the first solve's entries: a row that the caller had declared
+    // hard stayed mapped onto a slack pair, and shared that slack pair with the row that had just become soft. HPIPM
+    // then relaxed a constraint the caller expected to be enforced, so the wrapper returned either a point violating a
+    // hard row - which evaluateOcpQpMaxHardViolation, skipping exactly the rows listed in softGeneralIndices, reports
+    // as a violation - or a spurious non-SUCCESS status on data that is perfectly feasible. Inside MixedIntegerOcpQp,
+    // which holds one OcpQpHpipmSolver across hundreds of same-dimension relaxations, such a spurious failure silently
+    // prunes a branch-and-bound node and the planner loses the solution without any diagnostic. Nothing in the
+    // documented contract of this wrapper forbids the caller from changing which rows are soft between solves:
+    // OcpQpStage accepts any sorted, in-range subset and checkStage validates exactly that. The formulation happens to
+    // emit all hard rows before all soft ones today, which pins the soft set through (ng, nsg) alone and hides the
+    // problem, but that ordering is an incidental choice of the assembler and must not be load bearing here.
+    //
+    // d_ocp_qp_set_idxs_rev writes all nb + ng entries of the stage, so stale entries are overwritten instead of being
+    // left in place. The buffer is reused across the stages of the solve so that this costs at most one allocation.
+    std::vector<int> idxsRevBuffer;
+    for (int k = 0; k <= N; ++k) {
+      const int numBox = dims.nbu[k] + dims.nbx[k];
+      idxsRevBuffer.assign(static_cast<std::size_t>(numBox + dims.ng[k]), -1);
+      const std::vector<int>& softGeneralIndices = problem.stages[k].softGeneralIndices;
+      for (std::size_t i = 0; i < softGeneralIndices.size(); ++i) {
+        idxsRevBuffer[static_cast<std::size_t>(numBox + softGeneralIndices[i])] = static_cast<int>(i);
+      }
+      d_ocp_qp_set_idxs_rev(k, idxsRevBuffer.data(), &qp_);
+    }
 
     // One-sided general constraints are declared with +-kOcpQpInfiniteBound; mask those bounds out so that HPIPM does not
     // carry a slack and a multiplier for a bound that can never become active.

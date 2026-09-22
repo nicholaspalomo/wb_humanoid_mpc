@@ -34,8 +34,8 @@ void StageAccumulator::addQuadraticResidual(const Coefficients& xCoefficients,
   if (weight <= 0.0) return;
   vector_t lx = vector_t::Zero(stage_.numStates());
   vector_t lu = vector_t::Zero(stage_.numInputs());
-  for (const auto& [index, value] : xCoefficients) lx(index) += value;
-  for (const auto& [index, value] : uCoefficients) lu(index) += value;
+  for (const std::pair<int, scalar_t>& coefficient : xCoefficients) lx(coefficient.first) += coefficient.second;
+  for (const std::pair<int, scalar_t>& coefficient : uCoefficients) lu(coefficient.first) += coefficient.second;
   stage_.Q.noalias() += 2.0 * weight * lx * lx.transpose();
   stage_.q.noalias() += 2.0 * weight * offset * lx;
   if (stage_.numInputs() > 0) {
@@ -43,6 +43,20 @@ void StageAccumulator::addQuadraticResidual(const Coefficients& xCoefficients,
     stage_.S.noalias() += 2.0 * weight * lu * lx.transpose();
     stage_.r.noalias() += 2.0 * weight * offset * lu;
   }
+  // The expansion of w (l_x' x + l_u' u + c)^2 has a third part besides the quadratic and the linear one, the constant
+  // w c^2, and it used to be dropped here. The reason it was dropped is sound as far as the QP itself goes: a constant
+  // is invisible to the solver, it moves neither the minimiser nor the KKT residuals, and it cancels out of every
+  // comparison between two solutions of ONE assembled problem - which covers the branch-and-bound bounds and their
+  // absoluteGap test, EventShiftLocalSearchStage and HeadingRelinearisationStage, where both sides carry the same
+  // constant. What the reasoning misses is that CadenceStretchStage::afterSearch compares objectives across node
+  // grids: it re-assembles the problem at s * dt and scores the result against the incumbent assembled at dt. The
+  // residual offsets of the shipped terms depend on dt - StepLengthCost's nominal displacement is
+  // v_cmd * dt * T_stride / T_swing and TerminalDcmCost's weight carries exp(2 omega dt) - so the dropped constant
+  // grows with the stretch, every stretched candidate's reported objective was depressed by an amount monotone in the
+  // stretch, and the stage accepted stretches whose true cost was higher than the incumbent's, overshooting the
+  // cadence it is supposed to pick. Accumulating the constant here makes the assembled objective the functional this
+  // class documents. It leaves the solutions themselves bit-identical, because the constant never reaches HPIPM.
+  stage_.constant += weight * offset * offset;
 }
 
 }  // namespace ocs2::humanoid

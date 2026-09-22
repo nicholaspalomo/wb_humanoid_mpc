@@ -26,6 +26,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
 #include "humanoid_common_mpc/acom/AcomSirenWeightsAtlas.h"
 #include "humanoid_common_mpc/acom/AcomSirenWeightsG1.h"
+#include "humanoid_common_mpc/acom/AcomSirenWeightsSa01.h"
 
 #include <cstddef>
 #include <stdexcept>
@@ -93,6 +94,8 @@ std::unique_ptr<AngularCenterOfMass> AngularCenterOfMass::createForRobot(const s
     return createFromStaticWeights<AcomSirenWeightsAtlas>();
   } else if (robotName == "g1") {
     return createFromStaticWeights<AcomSirenWeightsG1>();
+  } else if (robotName == "engineai_sa01") {
+    return createFromStaticWeights<AcomSirenWeightsSa01>();
   }
   throw std::runtime_error("AngularCenterOfMass::createForRobot: Unknown robot '" + robotName +
                            "'. Add a new AcomSirenWeights<Robot>.h header and update this dispatch.");

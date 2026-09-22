@@ -47,6 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/constraint/ContactComplementarityConstraint.h"
 #include "humanoid_common_mpc/constraint/ForceWeightedSlipConstraint.h"
 #include "humanoid_common_mpc/constraint/GroundPenetrationConstraint.h"
+#include "humanoid_common_mpc/contact/ContactInputJacobian.h"
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
 #include "humanoid_common_mpc/contact/FootprintCornerHeights.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"

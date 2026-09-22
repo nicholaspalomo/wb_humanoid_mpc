@@ -42,7 +42,7 @@ constexpr scalar_t kOcpQpInfiniteBound = 1.0e6;
  * One node of a discrete-time linear-quadratic optimal control problem with box and general inequality constraints.
  *
  * Dynamics (absent at the terminal node):     x_{k+1} = A x_k + B u_k + b
- * Cost:                                       0.5 x'Qx + 0.5 u'Ru + u'S x + q'x + r'u
+ * Cost:                                       0.5 x'Qx + 0.5 u'Ru + u'S x + q'x + r'u + constant
  * Input box constraints:                      lbu <= u[idxbu] <= ubu
  * State box constraints:                      lbx <= x[idxbx] <= ubx
  * General constraints:                        lg <= C x + D u <= ug
@@ -57,6 +57,16 @@ struct OcpQpStage {
 
   matrix_t Q, R, S;  // S is (nu x nx), i.e. the dfdux block of the OCS2 convention.
   vector_t q, r;
+
+  // The variable-independent part of the stage cost, i.e. the sum of the squared residual offsets the cost terms of
+  // this node contribute (StageAccumulator::addQuadraticResidual). It is deliberately NOT handed to HPIPM, which has
+  // no place for it and whose own objective value this wrapper does not read back: the solver's argmin, its KKT
+  // residuals and every comparison between two solutions of ONE assembled problem are invariant under a common
+  // constant. It exists because evaluateOcpQpObjective is also used to compare solutions of problems assembled on
+  // DIFFERENT node grids - CadenceStretchStage scores a candidate re-assembled at s * dt against an incumbent
+  // assembled at dt - and there the constant differs between the two problems and must be carried, or the comparison
+  // is between two differently shifted functionals.
+  scalar_t constant = 0.0;
 
   std::vector<int> idxbu;
   vector_t lbu, ubu;

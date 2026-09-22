@@ -62,6 +62,7 @@ class PlannedComOverride final : public ExecutionRule {
   void configure(const ContactPlanningConfig& /*config*/) override {}
   bool needsComState() const override { return true; }
   void overrideTarget(const ExecutionContext& ctx, TargetTrajectories& targetTrajectories) const override;
+  bool rewritesTarget() const override { return true; }
 
  private:
   const MpcRobotModelBase<scalar_t>* mpcRobotModel_;

@@ -47,11 +47,23 @@ namespace {
 bool isRevoluteAboutVertical(const pinocchio::Model& model, pinocchio::JointIndex joint) {
   const std::string name = model.joints[joint].shortname();
   if (name == "JointModelRZ" || name == "JointModelRUBZ") return true;
-  if (name == "JointModelRevoluteUnaligned" || name == "JointModelRevoluteUnboundedUnaligned") {
-    // The axis is the last column of the joint's motion subspace for a one-dof joint: read it through the joint data.
+  // An unaligned revolute joint carries its axis on the joint model itself, so the axis has to be read from the
+  // alternative the variant actually holds. JointModelRevoluteUnaligned and JointModelRevoluteUnboundedUnaligned are
+  // two UNRELATED alternatives of pinocchio's JointModelVariant - the unbounded one is not a subclass of the bounded
+  // one, it merely carries a Vector3 axis of its own - so a single boost::get cannot serve both. Asking only for the
+  // bounded alternative, which is what this function did while admitting both shortnames, made the second name dead
+  // code: for a continuous off-axis joint the pointer came back null, the function returned false, the walk up the
+  // kinematic tree ran past the hip yaw all the way to the root, and the leg silently got the symmetric fallback
+  // bounds while summary() reported "no hip yaw joint found" for a joint that was right there.
+  if (name == "JointModelRevoluteUnaligned") {
     const pinocchio::JointModelRevoluteUnaligned* unaligned =
         boost::get<pinocchio::JointModelRevoluteUnaligned>(&model.joints[joint].toVariant());
     if (unaligned != nullptr) return std::abs(unaligned->axis(2)) > 0.9;
+  }
+  if (name == "JointModelRevoluteUnboundedUnaligned") {
+    const pinocchio::JointModelRevoluteUnboundedUnaligned* unbounded =
+        boost::get<pinocchio::JointModelRevoluteUnboundedUnaligned>(&model.joints[joint].toVariant());
+    if (unbounded != nullptr) return std::abs(unbounded->axis(2)) > 0.9;
   }
   return false;
 }
@@ -119,13 +131,26 @@ ContactPlanningModelParameters deriveContactPlanningModelParameters(PinocchioInt
     scalar_t lower = -ContactPlanningConfig::kDefaultFootYawOffset;
     scalar_t upper = ContactPlanningConfig::kDefaultFootYawOffset;
     if (joint > 0) {
-      const int idx = model.joints[joint].idx_q();
-      const scalar_t jointLower = std::max(model.lowerPositionLimit(idx), -M_PI);
-      const scalar_t jointUpper = std::min(model.upperPositionLimit(idx), M_PI);
-      if (jointLower < 0.0 && jointUpper > 0.0) {
-        lower = jointLower;
-        upper = jointUpper;
+      // The position limits are only angles when the joint stores an angle, i.e. when nq == 1. An unbounded
+      // ("continuous" in URDF) revolute joint has nq == 2 and stores (cos q, sin q), and pinocchio's URDF parser fills
+      // both of those entries of lower/upperPositionLimit with +-1.01. Reading them at idx_q as if they were angles -
+      // which is what this did for every joint, including the JointModelRUBZ that the vertical-axis test above has
+      // always accepted - bounded the foot yaw of a joint that has no limit at all to +-1.01 rad, a number that comes
+      // from the unit-circle representation and means nothing here. An unbounded joint turns all the way round, so its
+      // honest range is the full circle, which the heading model clips to [-pi, pi] regardless.
+      if (model.joints[joint].nq() > 1) {
+        lower = -M_PI;
+        upper = M_PI;
         derived.hipYawJoints[foot] = model.names[joint];
+      } else {
+        const int idx = model.joints[joint].idx_q();
+        const scalar_t jointLower = std::max(model.lowerPositionLimit(idx), -M_PI);
+        const scalar_t jointUpper = std::min(model.upperPositionLimit(idx), M_PI);
+        if (jointLower < 0.0 && jointUpper > 0.0) {
+          lower = jointLower;
+          upper = jointUpper;
+          derived.hipYawJoints[foot] = model.names[joint];
+        }
       }
     }
     derived.footYawOffsetLower[foot] = lower;

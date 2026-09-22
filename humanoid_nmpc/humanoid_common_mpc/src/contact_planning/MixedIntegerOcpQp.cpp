@@ -307,9 +307,24 @@ MiqpResult MixedIntegerOcpQp::solve(OcpQpProblem& problem,
         }
         if (runPropagation(complete)) {
           updateIncumbent(complete, relaxation);
-          break;
+          // CLOSING THE SUBTREE HERE IS ONLY SOUND WHEN THIS COMPLETION ATTAINS THE NODE'S OWN LOWER BOUND.
+          //
+          // The node's bound is `relaxation.objective + logicalCost(node.assignment)`, and the contract on
+          // MiqpAssignmentCostFn (MixedIntegerOcpQp.h) is that the cost is EXACT on a complete assignment but only a
+          // LOWER BOUND on a partial one. So a sibling completion of this same node can have a worse QP objective and
+          // a smaller assignment cost, and a strictly smaller total - the relaxation being integral says nothing about
+          // the part of the objective the QP cannot see. Breaking unconditionally discarded it unexplored, and nothing
+          // counted it, so the search still reported `optimal`.
+          //
+          // When no assignment cost is supplied, or the node's assignment was already complete, the two agree exactly
+          // and this test always passes: the fast path is preserved bit for bit.
+          if (relaxation.objective + logicalCost(complete) <= bound + settings_.absoluteGap) {
+            ++result.numPrunedByBound;
+            break;
+          }
+          // Otherwise fall through and branch - the subtree may still hold something better than what we just took.
         }
-        // Inadmissible: branch on the first free variable instead.
+        // Branch on the first free variable instead.
         for (std::size_t i = 0; i < binaries.size(); ++i) {
           if (node.assignment[i] == kMiqpFree) {
             branchIndex = static_cast<int>(i);

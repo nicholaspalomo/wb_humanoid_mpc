@@ -136,7 +136,11 @@ struct SmoothMinimumHeight {
 };
 
 /**
- * A smooth lower bound on a set of corner heights - the gap between the foot and the ground.
+ * A smooth, conservative stand-in for the MINIMUM of a set of corner heights - the gap between the foot and the ground.
+ *
+ * It is an UPPER bound on that minimum, never a lower one: the value lies in [min(h), min(h) + log(N) * s], so it
+ * over-reports the clearance and never claims the foot is closer to the ground than it is. Which direction the error
+ * runs in is the whole design, and is argued under WHY THE 1/N below.
  *
  *   softmin(h) = m - log( (1/N) sum_i exp(-(h_i - m) / s) ) * s,      m = min_i h_i,
  *

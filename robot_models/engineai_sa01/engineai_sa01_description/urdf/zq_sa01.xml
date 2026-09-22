@@ -102,7 +102,7 @@
                    this frame (leg_?4 and leg_?6 are not parent and child, so MuJoCo does not filter them). -->
               <geom class="collision" type="capsule" size="0.035" fromto="0 0 -0.02 0 0 -0.35"/>
               <body name="leg_l5_link" pos="0 7.0122e-05 -0.37">
-                <inertial pos="-2.59e-1 -5e-05 -3.45e-09" mass="0.16135"
+                <inertial pos="-2.5946e-10 -5e-05 -3.4499e-09" mass="0.16135"
                           fullinertia="3.0975e-05 3.1274e-05 3.1681e-05 0 0 0"/>
                 <joint name="leg_l5_joint" pos="0 0 0" axis="0 1 0" range="-1.0 0.6" actuatorfrcrange="-24 24" armature="0.0035"/>
                 <geom class="visual" type="mesh" mesh="left_leg_link_05"/>
@@ -164,7 +164,7 @@
                    this frame (leg_?4 and leg_?6 are not parent and child, so MuJoCo does not filter them). -->
               <geom class="collision" type="capsule" size="0.035" fromto="0 0 -0.02 0 0 -0.35"/>
               <body name="leg_r5_link" pos="0 -7.0122e-05 -0.37">
-                <inertial pos="2.59e-1 5e-05 -3.45e-09" mass="0.16135"
+                <inertial pos="2.5946e-10 5e-05 -3.4499e-09" mass="0.16135"
                           fullinertia="3.0975e-05 3.1274e-05 3.1274e-05 0 0 0"/>
                 <joint name="leg_r5_joint" pos="0 0 0" axis="0 1 0" range="-1.0 0.6" actuatorfrcrange="-24 24" armature="0.0035"/>
                 <geom class="visual" type="mesh" mesh="right_leg_link_05"/>
@@ -217,4 +217,12 @@
     <motor name="leg_r5_joint" joint="leg_r5_joint"/>
     <motor name="leg_r6_joint" joint="leg_r6_joint"/>
   </actuator>
+  <!-- Virtual gantry. A real weld the constraint solver satisfies inside mj_step, so the base is supported
+       WHILE the dynamics are integrated. MujocoSimInterface drives eq_active from the lock state and writes
+       the suspension height into the relpose translation, so the values here are only a starting point.
+       Without this the simulator falls back to overwriting qpos/qvel around mj_step, which leaves the robot in
+       free fall during the step and makes gravity compensation drive the limbs into their joint stops. -->
+  <equality>
+    <weld name="gantry" body1="world" body2="base_link" relpose="0 0 1 1 0 0 0" active="false"/>
+  </equality>
 </mujoco>

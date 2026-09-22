@@ -56,10 +56,21 @@ struct ContactPlannerInput {
   scalar_t committedUntil = 0.0;  // [s] the applied schedule is treated as fixed up to this time
 
   // Heading model (ContactPlanningConfig::useAcomDynamics). `yaw` then equals `heading`.
-  scalar_t heading = 0.0;                                // [rad] whole-body heading at planning time (ACoM yaw, or base yaw)
-  scalar_t headingRate = 0.0;                            // [rad/s] its rate: angular momentum about the vertical / yaw inertia
-  scalar_t headingRateCommand = 0.0;                     // [rad/s] commanded yaw rate
-  scalar_t yawInertia = 0.0;                             // [kg m^2] whole-body inertia about the vertical; <= 0: configured value
+  scalar_t heading = 0.0;             // [rad] whole-body heading at planning time (ACoM yaw, or base yaw)
+  scalar_t headingRate = 0.0;         // [rad/s] its rate: angular momentum about the vertical / yaw inertia
+  scalar_t headingRateCommand = 0.0;  // [rad/s] commanded yaw rate
+  // [kg m^2] the whole-body inertia about the vertical, filled from the robot model at every plan
+  // (ContactPlanningReferenceManager::makePlannerInput reads I_zz out of pinocchio::ccrba, which is positive definite
+  // for any physical model in any configuration). It must be strictly positive whenever the heading model is on:
+  // LipContactPlanner::yawInertia throws on a non-positive value, plan() catches that and degrades to an invalid plan,
+  // and the reference manager then keeps the previous schedule for that frame.
+  //
+  // This comment used to read "<= 0: configured value", promising a fallback that has never existed - there is no yaw
+  // inertia anywhere in ContactPlanningConfig and none in any shipped contact_planning.yaml - and it contradicted the
+  // two neighbouring contracts that state the real one, LipContactPlanner.h ("from the input (the robot model). Throws
+  // if it is not positive") and ContactPlanningModelParameters.h ("taken from the model at every plan and is not part
+  // of this"). A caller who believed it would leave the field at its default and silently get no plan at all.
+  scalar_t yawInertia = 0.0;
   feet_array_t<scalar_t> footYaws = makeFeetArray(0.0);  // [rad] foot yaws at planning time, unwrapped near `heading`
 };
 
@@ -106,9 +117,35 @@ struct ContactPlan {
   std::optional<vector2_t> footholdAtTime(size_t contactIndex, scalar_t time) const;
 
   /**
+   * Planned foot position of the node BEFORE the one nearest `time` (clamped) - the stance a foot leaves when it lifts
+   * off at `time`.
+   *
+   * This exists because "the node before the lift-off" cannot be expressed by nudging the argument of footholdAtTime().
+   * That function rounds to the nearest node, so `liftOffTime - 0.5 * dt` rounds back UP to the lift-off node itself
+   * (`lround(k - 0.5) == k`), and any smaller nudge is a guess about where the lift-off sits between two nodes.
+   *
+   * Reading the lift-off node instead of the one before it is not a harmless rounding difference, because the two
+   * planners disagree about what the lift-off node holds. Under `lip_miqp` the foothold state has not jumped yet, so
+   * node k is still the stance. Under `hlip` - the shipped default - HlipContactPlanner computes the landing spot of a
+   * swing BEFORE stamping `plan.footholds` over every node of that single-support phase, so node k already carries the
+   * LANDING position. Reading it there makes a swing's start equal its target, which collapses the whole swing
+   * reference to a constant with zero commanded velocity.
+   *
+   * Node k-1 is a contact node for the foot under BOTH planners, so this one accessor is correct for both. The nearest
+   * node is resolved with the same rounding rule HlipContactPlanner uses for its phase boundaries, so a lift-off that
+   * does not sit exactly on the node grid still resolves to a node the foot is standing on.
+   */
+  std::optional<vector2_t> footholdBeforeTime(size_t contactIndex, scalar_t time) const;
+
+  /**
    * One line for the log (planner.logPlans): validity, search statistics (objective, relaxations, solve time, whether
    * the node or time limit cut the search), the CoM velocity at the start and end of the horizon, and per foot the
    * phase sequence with its durations and the length of every step (foothold displacement over a swing, planning frame).
+   *
+   * A step is measured from the last node the foot was still standing on to its touch-down node, so it is the same
+   * quantity under both planners even though they disagree about what the lift-off node itself holds (see
+   * footholdBeforeTime above). A swing that is already in flight at the start of the plan has no such node, so it
+   * prints its duration and no displacement rather than a zero that would look like a step in place.
    */
   std::string describe() const;
   bool hasHeading() const { return valid && !heading.empty(); }
@@ -118,6 +155,9 @@ struct ContactPlan {
   std::optional<scalar_t> headingRateAtTime(scalar_t time) const;
   /** Planned foot yaw at the node nearest to `time` (the landing yaw while the foot swings); empty without the heading model. */
   std::optional<scalar_t> footYawAtTime(size_t contactIndex, scalar_t time) const;
+
+  /** Planned foot yaw of the node BEFORE the one nearest `time`; the yaw counterpart of footholdBeforeTime(). */
+  std::optional<scalar_t> footYawBeforeTime(size_t contactIndex, scalar_t time) const;
 
   /**
    * The reduced model's centre of mass at `time`, linearly interpolated between nodes and clamped to the plan.

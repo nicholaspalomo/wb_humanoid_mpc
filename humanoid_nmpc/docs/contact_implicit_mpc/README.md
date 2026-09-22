@@ -65,6 +65,44 @@ is true exactly when `zero_wrench` is listed, and the four terms are built with 
 stronger condition -- it is also correct for a task file that drops `zero_wrench` without listing the three terms
 below, which the loader permits.
 
+### Un-gating a cone that is not there enforces nothing
+
+`f_n >= 0` is the **first** of the three conditions, and the other two do not imply it: `ground_penetration` is a
+statement about height alone, and `f_n h = 0` is satisfied at `h = 0` by **any** `f_n`, a negative one included. So a
+foot resting on the floor could pull on it, without limit, and nothing in the formulation would object.
+
+The bound is the cone's, and the cones stop bounding anything the moment `zero_wrench` goes. `loadMpcFormulationTasks`
+therefore refuses a task file that drops `zero_wrench` and lists neither `contact_wrench_cone` nor
+`friction_force_cone`. Either will do at that level -- the first carries the friction, centre-of-pressure and torsional
+rows together, the second carries `mu Fz - |F_xy| >= 0`, which bounds the normal force below on its own. The rule is
+keyed off `zero_wrench` rather than off the three terms, because a task file that drops the pin without listing them
+has the same hole.
+
+On `useContactBasisVectorInputs: true` that is not enough, and `CentroidalMpcInterface` narrows it to
+`contact_wrench_cone` specifically: that is the branch which builds `BasisScalingNonNegativityConstraint`, and
+`lambda >= 0` is the whole of the cone there. A friction cone bounds the *assembled* wrench and says nothing about the
+individual scalings, so the centre-of-pressure and torsional limits would go unenforced and a negative scaling would
+still be free.
+
+One caveat that is a tuning decision rather than a rule, and is therefore reported rather than patched: un-gated,
+`contacts.basisNonNegativityBarrier.mu` is the **only** thing holding every contact wrench inside its cone, at every
+node. It ships at `0.01`, which was tuned while the term was a redundant regulariser -- the swing foot's scalings were
+pinned by `zero_wrench` and the stance foot's pulled positive by `R`. The same job is done by
+`contactWrenchConeSoftConstraint.mu = 0.2` in the wrench parameterization. Note in particular that a scaling pair
+`(+a, -a)` costs only `mu a^2` and leaves the load indicator `f_n = sum(lambda)` at zero, so **both** contact-implicit
+products stay blind to it. `CentroidalMpcInterface` logs a warning when the un-gated barrier is the softer of the two;
+tune it against a foot in flight before trusting the formulation on hardware.
+
+### The friction cone has to linearise through the parameterization in use
+
+`FrictionForceConeConstraint` wrote its input Jacobian as a fixed `3x3` block at `getContactForceStartIndices()`, which
+assumes the input stores the three force components there. That is true of the wrench-space model and false under
+`BasisInputsModelDecorator`, where the same index begins an eleven-wide block of scalings and the force is
+`B_local lambda`: the block landed on the first three scalings and was wrong in every entry, while `getValue()` stayed
+correct throughout -- which is exactly why nothing caught it. The term now probes the model once at construction
+(`contactForceInputJacobian()` in `contact/ContactInputJacobian.h`, which also backs `normalContactForceRow()`) and
+linearises through the result, so `friction_force_cone` is safe to list in either parameterization.
+
 Un-gating is not quite enough on its own, because an always-active cone is evaluated on a foot at **zero wrench**, and
 two of the three were not satisfied there:
 
@@ -129,9 +167,10 @@ reduced-order planner assumes that is the world vertical, and on a tilted foot i
 | `normal_velocity` (hard) | forced the swing foot's vertical velocity onto the swing trajectory's reference |
 
 `loadMpcFormulationTasks` refuses the half-way combinations: `contact_complementarity` with `zero_wrench`,
-`force_weighted_slip` with either `zero_velocity`, `contact_complementarity` without `ground_penetration` (the
-complementarity product is also satisfied by a *negative* height, so the unilateral condition has to be there), and any
-of the three with the hard `normal_velocity`.
+`force_weighted_slip` with either `zero_velocity`, `contact_complementarity` without `force_weighted_slip` or without
+`ground_penetration` (the complementarity product is also satisfied by a *negative* height, so the unilateral condition
+has to be there), any of the three with the hard `normal_velocity`, and -- see section 2a -- a missing `zero_wrench`
+with neither cone listed.
 
 `normal_velocity` has to go **from `hard_constraints`**, and an earlier version of this document was wrong to leave it
 listed there as a mere shaping term. It is a **hard equality** on the contact frame's vertical velocity for every foot the schedule
@@ -361,11 +400,15 @@ soft_constraints:
   - normal_velocity                   # ...and normal_velocity re-listed HERE, as a cost
   - joint_limits
   - foot_collision
-  - contact_wrench_cone
+  - contact_wrench_cone               # REQUIRED once zero_wrench is gone; see section 2a
   - contact_complementarity
   - force_weighted_slip
   - ground_penetration
 ```
+
+`contact_wrench_cone` is not optional here. With `zero_wrench` gone it is what supplies `f_n >= 0`, and on a robot
+running `useContactBasisVectorInputs: true` it is the only key that will do -- the loader accepts `friction_force_cone`
+in its place, but `CentroidalMpcInterface` does not.
 
 Then validate in MuJoCo before hardware, in this order: stand still (no foot should leave the ground and no force
 should appear in flight), walk on flat ground at a low command, then a push. The symptom to watch for is a foot that

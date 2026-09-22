@@ -32,9 +32,36 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cmath>
 
+#include "absl/log/check.h"
 #include "absl/log/log.h"
 
+#include "humanoid_common_mpc/contact/ContactInputJacobian.h"
+
 namespace ocs2::humanoid {
+
+namespace {
+
+/**
+ * This contact's columns of the force Jacobian, with the contract they rest on verified rather than assumed.
+ *
+ * MpcRobotModelBase declares that a contact's inputs occupy `[getContactWrenchStartIndices, + getContactInputDim)`.
+ * A model whose contact force also depended on inputs outside that block would lose those columns here, so the block
+ * is checked against the full probe once, at construction, where the cost is irrelevant.
+ */
+matrix_t contactBlockOfForceJacobian(const MpcRobotModelBase<scalar_t>& mpcRobotModel, size_t contactPointIndex) {
+  const long start = static_cast<long>(mpcRobotModel.getContactWrenchStartIndices(contactPointIndex));
+  const long width = static_cast<long>(mpcRobotModel.getContactInputDim(contactPointIndex));
+  const matrix_t jacobian = contactForceInputJacobian(mpcRobotModel, contactPointIndex);
+
+  matrix_t outsideTheBlock = jacobian;
+  outsideTheBlock.middleCols(start, width).setZero();
+  CHECK(outsideTheBlock.isZero(1e-12)) << "[FrictionForceConeConstraint] the force of contact " << contactPointIndex
+                                       << " depends on inputs outside its own block [" << start << ", " << start + width
+                                       << "), which the cone's Jacobian would drop";
+  return jacobian.middleCols(start, width);
+}
+
+}  // namespace
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -49,6 +76,9 @@ FrictionForceConeConstraint::FrictionForceConeConstraint(const SwitchedModelRefe
       mpcRobotModelPtr_(&mpcRobotModel),
       config_(scheduleGated ? std::move(config) : withoutAdhesion(std::move(config))),
       contactPointIndex_(contactPointIndex),
+      contactInputStart_(mpcRobotModel.getContactWrenchStartIndices(contactPointIndex)),
+      contactInputDim_(mpcRobotModel.getContactInputDim(contactPointIndex)),
+      contactForceInputJacobian_(contactBlockOfForceJacobian(mpcRobotModel, contactPointIndex)),
       scheduleGated_(scheduleGated),
       coneValueOffset_(scheduleGated ? 0.0 : std::sqrt(config_.regularization)) {}
 
@@ -72,6 +102,9 @@ FrictionForceConeConstraint::FrictionForceConeConstraint(const FrictionForceCone
       mpcRobotModelPtr_(rhs.mpcRobotModelPtr_),
       config_(rhs.config_),
       contactPointIndex_(rhs.contactPointIndex_),
+      contactInputStart_(rhs.contactInputStart_),
+      contactInputDim_(rhs.contactInputDim_),
+      contactForceInputJacobian_(rhs.contactForceInputJacobian_),
       // isActive_ was dropped here, so every per-thread copy the SQP solver makes of the problem silently reverted a
       // deactivated cone to active.
       isActive_(rhs.isActive_),
@@ -104,8 +137,8 @@ vector_t FrictionForceConeConstraint::getValue(scalar_t time,
                                                const vector_t& state,
                                                const vector_t& input,
                                                const PreComputation& preComp) const {
-  const auto forcesInWorldFrame = mpcRobotModelPtr_->getContactForce(input, contactPointIndex_);
-  const vector3_t localForce = t_R_w * forcesInWorldFrame;
+  const vector3_t contactForce = mpcRobotModelPtr_->getContactForce(input, contactPointIndex_);
+  const vector3_t localForce = t_R_w * contactForce;
   return coneConstraint(localForce);
 }
 
@@ -116,12 +149,12 @@ VectorFunctionLinearApproximation FrictionForceConeConstraint::getLinearApproxim
                                                                                       const vector_t& state,
                                                                                       const vector_t& input,
                                                                                       const PreComputation& preComp) const {
-  const vector3_t forcesInWorldFrame = mpcRobotModelPtr_->getContactForce(input, contactPointIndex_);
-  const vector3_t localForce = t_R_w * forcesInWorldFrame;
+  const vector3_t contactForce = mpcRobotModelPtr_->getContactForce(input, contactPointIndex_);
+  const vector3_t localForce = t_R_w * contactForce;
 
-  const auto localForceDerivatives = computeLocalForceDerivatives(forcesInWorldFrame);
-  const auto coneLocalDerivatives = computeConeLocalDerivatives(localForce);
-  const auto coneDerivatives = computeConeConstraintDerivatives(coneLocalDerivatives, localForceDerivatives);
+  const LocalForceDerivatives localForceDerivatives = computeLocalForceDerivatives();
+  const ConeLocalDerivatives coneLocalDerivatives = computeConeLocalDerivatives(localForce);
+  const ConeDerivatives coneDerivatives = computeConeConstraintDerivatives(coneLocalDerivatives, localForceDerivatives);
 
   VectorFunctionLinearApproximation linearApproximation;
   linearApproximation.f = coneConstraint(localForce);
@@ -137,12 +170,12 @@ VectorFunctionQuadraticApproximation FrictionForceConeConstraint::getQuadraticAp
                                                                                             const vector_t& state,
                                                                                             const vector_t& input,
                                                                                             const PreComputation& preComp) const {
-  const vector3_t forcesInWorldFrame = mpcRobotModelPtr_->getContactForce(input, contactPointIndex_);
-  const vector3_t localForce = t_R_w * forcesInWorldFrame;
+  const vector3_t contactForce = mpcRobotModelPtr_->getContactForce(input, contactPointIndex_);
+  const vector3_t localForce = t_R_w * contactForce;
 
-  const auto localForceDerivatives = computeLocalForceDerivatives(forcesInWorldFrame);
-  const auto coneLocalDerivatives = computeConeLocalDerivatives(localForce);
-  const auto coneDerivatives = computeConeConstraintDerivatives(coneLocalDerivatives, localForceDerivatives);
+  const LocalForceDerivatives localForceDerivatives = computeLocalForceDerivatives();
+  const ConeLocalDerivatives coneLocalDerivatives = computeConeLocalDerivatives(localForce);
+  const ConeDerivatives coneDerivatives = computeConeConstraintDerivatives(coneLocalDerivatives, localForceDerivatives);
 
   VectorFunctionQuadraticApproximation quadraticApproximation;
   quadraticApproximation.f = coneConstraint(localForce);
@@ -157,10 +190,12 @@ VectorFunctionQuadraticApproximation FrictionForceConeConstraint::getQuadraticAp
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-FrictionForceConeConstraint::LocalForceDerivatives FrictionForceConeConstraint::computeLocalForceDerivatives(
-    const vector3_t& forcesInWorldFrame) const {
+FrictionForceConeConstraint::LocalForceDerivatives FrictionForceConeConstraint::computeLocalForceDerivatives() const {
   LocalForceDerivatives localForceDerivatives{};
-  localForceDerivatives.dF_du = t_R_w;
+  // The cone is evaluated on `t_R_w * getContactForce(input)`, so its derivative is that same rotation applied to the
+  // model's own force Jacobian - NOT the rotation on its own, which is only the answer when the input happens to
+  // store the force directly.
+  localForceDerivatives.dF_du.noalias() = t_R_w * contactForceInputJacobian_;
   return localForceDerivatives;
 }
 
@@ -169,11 +204,11 @@ FrictionForceConeConstraint::LocalForceDerivatives FrictionForceConeConstraint::
 /******************************************************************************************************/
 FrictionForceConeConstraint::ConeLocalDerivatives FrictionForceConeConstraint::computeConeLocalDerivatives(
     const vector3_t& localForces) const {
-  const auto F_x_square = localForces.x() * localForces.x();
-  const auto F_y_square = localForces.y() * localForces.y();
-  const auto F_tangent_square = F_x_square + F_y_square + config_.regularization;
-  const auto F_tangent_norm = sqrt(F_tangent_square);
-  const auto F_tangent_square_pow32 = F_tangent_norm * F_tangent_square;  // = F_tangent_square ^ (3/2)
+  const scalar_t F_x_square = localForces.x() * localForces.x();
+  const scalar_t F_y_square = localForces.y() * localForces.y();
+  const scalar_t F_tangent_square = F_x_square + F_y_square + config_.regularization;
+  const scalar_t F_tangent_norm = std::sqrt(F_tangent_square);
+  const scalar_t F_tangent_square_pow32 = F_tangent_norm * F_tangent_square;  // = F_tangent_square ^ (3/2)
 
   ConeLocalDerivatives coneDerivatives{};
   coneDerivatives.dCone_dF(0) = -localForces.x() / F_tangent_norm;
@@ -230,7 +265,7 @@ FrictionForceConeConstraint::ConeDerivatives FrictionForceConeConstraint::comput
 /******************************************************************************************************/
 matrix_t FrictionForceConeConstraint::frictionConeInputDerivative(size_t inputDim, const ConeDerivatives& coneDerivatives) const {
   matrix_t dhdu = matrix_t::Zero(1, inputDim);
-  dhdu.block<1, 3>(0, mpcRobotModelPtr_->getContactForceStartIndices(contactPointIndex_)) = coneDerivatives.dCone_du;
+  dhdu.middleCols(static_cast<long>(contactInputStart_), static_cast<long>(contactInputDim_)) = coneDerivatives.dCone_du;
   return dhdu;
 }
 
@@ -239,8 +274,8 @@ matrix_t FrictionForceConeConstraint::frictionConeInputDerivative(size_t inputDi
 /******************************************************************************************************/
 matrix_t FrictionForceConeConstraint::frictionConeSecondDerivativeInput(size_t inputDim, const ConeDerivatives& coneDerivatives) const {
   matrix_t ddhdudu = matrix_t::Zero(inputDim, inputDim);
-  ddhdudu.block<3, 3>(mpcRobotModelPtr_->getContactForceStartIndices(contactPointIndex_),
-                      mpcRobotModelPtr_->getContactForceStartIndices(contactPointIndex_)) = coneDerivatives.d2Cone_du2;
+  ddhdudu.block(static_cast<long>(contactInputStart_), static_cast<long>(contactInputStart_), static_cast<long>(contactInputDim_),
+                static_cast<long>(contactInputDim_)) = coneDerivatives.d2Cone_du2;
   ddhdudu.diagonal().array() -= config_.hessianDiagonalShift;
   return ddhdudu;
 }

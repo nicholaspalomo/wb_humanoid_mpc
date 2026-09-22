@@ -97,6 +97,30 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
   const std::optional<ContactPlan>& getActiveContactPlan() const { return activePlan_; }
   bool hasActivePlan() const { return activePlan_.has_value() && activePlan_->valid; }
 
+  /**
+   * Whether the active plan may still drive the REFERENCES, as opposed to merely existing.
+   *
+   * hasActivePlan() asks only whether a valid plan was ever stored. `activePlan_` is assigned in exactly one place and
+   * is never cleared or expired, and every ContactPlan lookup CLAMPS instead of reporting that the query ran off the
+   * end of the horizon - so a plan whose whole horizon lies in the past goes on returning its last node forever.
+   *
+   * The mode-schedule merge already refuses such a plan (see `planUsable` in modifyReferences, which requires
+   * `committedUntil >= initTime`). The references did not: the centre-of-mass and heading overrides, the dense target
+   * resample, the target contact poses, the swing-foot reference and the planned DCM were all gated on
+   * hasActivePlan() alone. The controller therefore went on being steered by a plan whose decisions had all expired,
+   * with no bound on its age, precisely in the situation where the planner has stopped producing plans - a thread
+   * that died, a solver that started failing - which is when being steered by a stale one is least safe.
+   */
+  bool planReferencesUsableAt(scalar_t time) const { return hasActivePlan() && time < activePlan_->endTime(); }
+
+  /**
+   * The same question at the last solve time, for the const accessors the whole-body MPC calls between solves.
+   *
+   * Callers INSIDE modifyReferences() must use planReferencesUsableAt(initTime) instead: `lastSolveTime_` is not
+   * updated until part-way through that function, so asking here would answer for the previous control cycle.
+   */
+  bool planReferencesUsable() const { return planReferencesUsableAt(lastSolveTime_); }
+
   /** The mode schedule most recently produced by modifyReferences(). */
   const ModeSchedule& getAppliedModeSchedule() const { return appliedSchedule_; }
 
@@ -211,6 +235,8 @@ class ContactPlanningReferenceManager final : public SwitchedModelReferenceManag
   bool rulesNeedPredictedTrajectory() const;
   /** True when a listed rule reads the measured centre of mass of the cycle (which the prediction rules also do). */
   bool rulesNeedComState() const;
+  /** Whether any listed execution rule actually rewrites the target; see ExecutionRule::rewritesTarget(). */
+  bool rulesRewriteTarget() const;
 
   /** Foot positions from the state; latches the lift-off position of every foot while it is in contact. */
   void updateFootBookkeeping(scalar_t initTime, const vector_t& initState);

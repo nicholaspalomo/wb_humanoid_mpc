@@ -26,7 +26,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/constraint/ForceWeightedSlipConstraint.h"
 
 #include "absl/log/check.h"
-#include "humanoid_common_mpc/constraint/ContactComplementarityConstraint.h"
+#include "humanoid_common_mpc/contact/ContactInputJacobian.h"
 
 namespace ocs2::humanoid {
 

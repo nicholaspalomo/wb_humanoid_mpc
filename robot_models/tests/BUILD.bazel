@@ -1,0 +1,17 @@
+# Cross-checks over the shipped robot descriptions.
+
+load("@rules_python//python:defs.bzl", "py_test")
+
+package(default_visibility = ["//visibility:public"])
+
+py_test(
+    name = "test_urdf_mjcf_inertial_consistency",
+    size = "small",
+    srcs = ["test_urdf_mjcf_inertial_consistency.py"],
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_description",
+        "//robot_models/engineai_sa01/engineai_sa01_description",
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_r1/unitree_r1_description",
+    ],
+)
