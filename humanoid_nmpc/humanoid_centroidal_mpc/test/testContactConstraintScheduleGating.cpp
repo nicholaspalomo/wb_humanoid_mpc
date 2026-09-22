@@ -23,7 +23,10 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <pinocchio/fwd.hpp>  // forward declarations must be included first.
+#include <pinocchio/fwd.hpp>
+
+#include <pinocchio/algorithm/center-of-mass.hpp>
+#include <pinocchio/algorithm/rnea.hpp>  // forward declarations must be included first.
 
 #include <gtest/gtest.h>
 
@@ -624,6 +627,53 @@ TEST_F(ContactConstraintScheduleGatingTest, theConeTouchesOnlyItsOwnContactsInpu
   outsideTheBlock.middleCols(start, width).setZero();
   EXPECT_TRUE(outsideTheBlock.isZero(1e-12)) << "the cone of one foot must not put gradient on another input: " << outsideTheBlock;
   EXPECT_GT(dfdu.middleCols(start, width).cwiseAbs().maxCoeff(), 1e-6) << "and it must put some on its own";
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// The property GRAVITY_COMP depends on: a loaded foot changes the joint torque, and by more than g_j(q) is.
+//
+// For a floating base, static equilibrium is g(q) = S^T tau + J_c^T f, so the joint rows are tau = g_j(q) - J_c,j^T f.
+// computeJointTorques supplies both halves; pinocchio's nonLinearEffects at zero velocity supplies only the first.
+// CentroidalMpcMrtJointController::fillGravityCompAction used to command the first alone with kp = 0, and at a bent
+// knee that is not a small error - the contact term is several times g_j(q) and points the other way, so the
+// commanded torque drove the knee into deeper flexion, which lengthens its own moment arm. The robot folded up.
+//
+// The two assertions are the two regimes the mode runs in: feet loaded (standing) and feet clear (on the gantry).
+// The second is what lets one code path serve both, and is why the fix needed no caller to decide which it was in.
+// ---------------------------------------------------------------------------------------------------------------
+
+TEST_F(ContactConstraintScheduleGatingTest, theContactWrenchDominatesTheJointTorqueAtABentKnee) {
+  const PinocchioInterface& pinocchioInterface = model_->pinocchioInterface();
+  const vector_t q = model_->wrenchModel().getGeneralizedCoordinates(model_->nominalState());
+  const size_t jointDim = model_->wrenchModel().getJointDim();
+  const vector_t qd = vector_t::Zero(q.size());
+  const vector_t qdd_j = vector_t::Zero(jointDim);
+
+  // Feet clear of the ground: the result must be exactly the base-held gravity torques, which is the gantry case and
+  // the behaviour GRAVITY_COMP had in every regime.
+  PinocchioInterface workingInterface = pinocchioInterface;
+  const std::array<vector6_t, 2> noContact{vector6_t::Zero(), vector6_t::Zero()};
+  const vector_t unloaded = computeJointTorques<scalar_t>(q, qd, qdd_j, noContact, workingInterface);
+
+  const pinocchio::Model& model = workingInterface.getModel();
+  pinocchio::Data data = workingInterface.getData();
+  pinocchio::nonLinearEffects(model, data, q, qd);
+  const vector_t gravityOnly = data.nle.tail(jointDim);
+  EXPECT_TRUE(unloaded.isApprox(gravityOnly, 1e-9))
+      << "with no foot loaded the contact-aware torque must degrade to g_j(q), or the gantry case regresses";
+
+  // Feet loaded: half the robot's weight up through each foot, as weightCompensatingInput produces in double support.
+  const scalar_t weight = 9.81 * pinocchio::computeTotalMass(model);
+  vector6_t halfWeight = vector6_t::Zero();
+  halfWeight(2) = 0.5 * weight;
+  const std::array<vector6_t, 2> standing{halfWeight, halfWeight};
+  const vector_t loaded = computeJointTorques<scalar_t>(q, qd, qdd_j, standing, workingInterface);
+
+  const scalar_t contactContribution = (loaded - gravityOnly).cwiseAbs().maxCoeff();
+  const scalar_t gravityMagnitude = gravityOnly.cwiseAbs().maxCoeff();
+  EXPECT_GT(contactContribution, gravityMagnitude)
+      << "the contact term is the DOMINANT one when the feet carry the robot: |J_c,j^T f|_max = " << contactContribution
+      << " Nm against |g_j|_max = " << gravityMagnitude << " Nm. A feedforward that omits it is not a small error.";
 }
 
 }  // namespace

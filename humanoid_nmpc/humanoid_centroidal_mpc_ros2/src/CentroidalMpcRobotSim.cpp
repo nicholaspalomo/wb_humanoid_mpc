@@ -166,6 +166,8 @@ int main(int argc, char** argv) {
   double simContactTimelineWindow = 5.0;
   // Viewer visualizations by name (VisualizationRegistry.h); absent: the viewer's default set.
   std::vector<std::string> simVisualizations = robot::mujoco_sim_interface::defaultVisualizationNames();
+  // Which implementation holds the base while the virtual gantry is locked (GantryHold in MujocoSimInterface.h).
+  std::string simGantryHold = "weld_constraint";
   try {
     YAML::Node taskYaml = YAML::LoadFile(taskFile);
     if (taskYaml["contactEstimator"]) contactEstimatorName = taskYaml["contactEstimator"].as<std::string>();
@@ -173,6 +175,7 @@ int main(int argc, char** argv) {
     if (taskYaml["simMaxBaseTiltAngle"]) simMaxBaseTiltAngle = taskYaml["simMaxBaseTiltAngle"].as<double>();
     if (taskYaml["simContactTimelineWindow"]) simContactTimelineWindow = taskYaml["simContactTimelineWindow"].as<double>();
     if (taskYaml["simVisualizations"]) simVisualizations = taskYaml["simVisualizations"].as<std::vector<std::string>>();
+    if (taskYaml["gantryHold"]) simGantryHold = taskYaml["gantryHold"].as<std::string>();
   } catch (const std::exception& e) {
     LOG(WARNING) << "Failed to read the simulator contact settings from " << taskFile << ": " << e.what();
   }
@@ -189,6 +192,7 @@ int main(int argc, char** argv) {
   config.contactForceThreshold = simContactForceThreshold;
   config.contactTimelineWindow = simContactTimelineWindow;
   config.visualizations = simVisualizations;
+  config.gantryHold = simGantryHold;
   // Target contact patches in the viewer ('g' toggles them): the contact rectangle of every foot, drawn at the pose the
   // contact planner wants the foot on the ground. Without a contact planner there is no target and nothing is drawn.
   const auto planningReferenceManager = std::dynamic_pointer_cast<ContactPlanningReferenceManager>(interface.getReferenceManagerPtr());
@@ -255,6 +259,11 @@ int main(int argc, char** argv) {
       mpcJointController.setMpcEntryBlendTime(taskYaml["mpcEntryBlendTime"].as<double>());
       LOG(INFO) << "WB_MPC entry blend time: " << mpcJointController.getMpcEntryBlendTime() << " s (mpcEntryBlendTime).";
     }
+    // SAFETY: time constant of the exponential decay applied to the joint PD gains after the mode is entered.
+    if (taskYaml["safetyDecayTimeConstant"]) {
+      mpcJointController.setSafetyDecayTimeConstant(taskYaml["safetyDecayTimeConstant"].as<double>());
+    }
+    LOG(INFO) << "SAFETY decay time constant: " << mpcJointController.getSafetyDecayTimeConstant() << " s (safetyDecayTimeConstant).";
     // Touch-down shaping of the planned contact wrenches in the inverse dynamics (contact_wrench_gate, default: instant).
     if (taskYaml["contact_wrench_gate"]) {
       ContactWrenchGate::Config gate;

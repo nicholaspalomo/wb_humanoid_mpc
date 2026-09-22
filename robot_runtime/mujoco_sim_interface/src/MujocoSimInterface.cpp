@@ -36,8 +36,27 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <stdexcept>
 
 #include "absl/log/log.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 
 namespace robot::mujoco_sim_interface {
+
+namespace {
+/// Name of the weld equality a scene declares for the virtual gantry.
+constexpr absl::string_view kGantryWeldName = "gantry";
+/// Index of the relpose translation z within an mjEQ_WELD eq_data row, whose layout is
+/// [anchor(3), relpose position(3), relpose quaternion(4), torquescale(1)].
+constexpr int kWeldRelposeZOffset = 5;
+}  // namespace
+
+absl::StatusOr<GantryHold> gantryHoldFromName(absl::string_view name) {
+  if (name == "weld_constraint") return GantryHold::kWeldConstraint;
+  if (name == "kinematic_teleport") return GantryHold::kKinematicTeleport;
+  return absl::InvalidArgumentError(absl::StrCat("Unknown gantryHold '", name,
+                                                 "'. Set gantryHold in the robot task file to one of: weld_constraint, "
+                                                 "kinematic_teleport."));
+}
 
 MjState::MjState(const mjModel* model) : model(model), data(mj_makeData(model)) {}
 
@@ -175,6 +194,29 @@ MujocoSimInterface::MujocoSimInterface(const MujocoSimConfig& config, const std:
     gantryHeight_ = mujocoData_->qpos[2];
   }
   isGantryLocked_ = config_.isGantryLocked;
+
+  const absl::StatusOr<GantryHold> gantryHold = gantryHoldFromName(config_.gantryHold);
+  if (!gantryHold.ok()) {
+    throw std::invalid_argument(std::string(gantryHold.status().message()));
+  }
+  gantryHold_ = *gantryHold;
+  gantryWeldEqId_ = mj_name2id(mujocoModel_, mjOBJ_EQUALITY, std::string(kGantryWeldName).c_str());
+  if (gantryHold_ == GantryHold::kWeldConstraint && gantryWeldEqId_ < 0) {
+    LOG(ERROR) << "gantryHold is 'weld_constraint' but the scene " << config_.scenePath << " declares no equality named '"
+               << kGantryWeldName << "'. Add <equality><weld name=\"" << kGantryWeldName
+               << "\" body1=\"world\" body2=\"<base body>\" relpose=\"0 0 <height> 1 0 0 0\" active=\"false\"/></equality> "
+                  "to the scene. Falling back to 'kinematic_teleport', which leaves the base unsupported inside mj_step "
+                  "and makes gravity compensation drive the limbs into their stops.";
+    gantryHold_ = GantryHold::kKinematicTeleport;
+  }
+  if (gantryHold_ == GantryHold::kWeldConstraint) {
+    // The weld carries the height, so the model's initial relpose is irrelevant; eq_active is driven every step.
+    mujocoModel_->eq_active0[gantryWeldEqId_] = static_cast<mjtByte>(isGantryLocked_.load());
+  }
+  if (config_.verbose) {
+    LOG(INFO) << "Virtual gantry base hold: " << (gantryHold_ == GantryHold::kWeldConstraint ? "weld_constraint" : "kinematic_teleport")
+              << " (gantryHold).";
+  }
 
   // Safe init state for resets
   memcpy(qpos_init_, mujocoData_->qpos, mujocoModel_->nq * sizeof(mjtNum));
@@ -522,22 +564,9 @@ void MujocoSimInterface::simulationStep() {
     }
   }
 
-  // Apply virtual gantry constraint if locked to suspend robot at ground-touch stance height
-  if (config_.enableGantry && isGantryLocked_.load()) {
-    mujocoData_->qpos[0] = 0.0;
-    mujocoData_->qpos[1] = 0.0;
-    mujocoData_->qpos[2] = gantryHeight_.load();
-    mujocoData_->qpos[3] = 1.0;
-    mujocoData_->qpos[4] = 0.0;
-    mujocoData_->qpos[5] = 0.0;
-    mujocoData_->qpos[6] = 0.0;
-
-    mujocoData_->qvel[0] = 0.0;
-    mujocoData_->qvel[1] = 0.0;
-    mujocoData_->qvel[2] = 0.0;
-    mujocoData_->qvel[3] = 0.0;
-    mujocoData_->qvel[4] = 0.0;
-    mujocoData_->qvel[5] = 0.0;
+  // Suspend the robot at the gantry height, by whichever implementation the task file named.
+  if (config_.enableGantry) {
+    applyGantryHold();
   }
 
   mj_step(mujocoModel_, mujocoData_);
@@ -673,6 +702,35 @@ void MujocoSimInterface::setupContactDetection() {
   if (verbose_) {
     LOG(INFO) << "[MujocoSimInterface] ground-truth contact detection: normal force > " << config_.contactForceThreshold << " N.";
   }
+}
+
+void MujocoSimInterface::applyGantryHold() {
+  const bool locked = isGantryLocked_.load();
+
+  if (gantryHold_ == GantryHold::kWeldConstraint) {
+    // A real constraint: mj_step solves it, so the base is supported DURING the integration rather than corrected
+    // afterwards. The height is carried in the weld's relpose, which the operator can move while the sim runs.
+    mujocoData_->eq_active[gantryWeldEqId_] = static_cast<mjtByte>(locked);
+    mujocoModel_->eq_data[mjNEQDATA * gantryWeldEqId_ + kWeldRelposeZOffset] = gantryHeight_.load();
+    return;
+  }
+
+  // Legacy kinematic teleport. Unphysical - see the GantryHold comment - and kept only to reproduce recorded runs.
+  if (!locked) return;
+  mujocoData_->qpos[0] = 0.0;
+  mujocoData_->qpos[1] = 0.0;
+  mujocoData_->qpos[2] = gantryHeight_.load();
+  mujocoData_->qpos[3] = 1.0;
+  mujocoData_->qpos[4] = 0.0;
+  mujocoData_->qpos[5] = 0.0;
+  mujocoData_->qpos[6] = 0.0;
+
+  mujocoData_->qvel[0] = 0.0;
+  mujocoData_->qvel[1] = 0.0;
+  mujocoData_->qvel[2] = 0.0;
+  mujocoData_->qvel[3] = 0.0;
+  mujocoData_->qvel[4] = 0.0;
+  mujocoData_->qvel[5] = 0.0;
 }
 
 void MujocoSimInterface::updateGroundTruthContacts() {

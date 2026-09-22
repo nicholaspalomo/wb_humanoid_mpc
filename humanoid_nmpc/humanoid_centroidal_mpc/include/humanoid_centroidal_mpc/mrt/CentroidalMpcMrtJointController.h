@@ -102,7 +102,16 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   void setControlMode(std::string_view mode) {
     std::string newMode(mode);
     if (newMode != controlMode_) {
-      if ((controlMode_ == "ZERO_TORQUE" || controlMode_ == "JOINT_PD" || controlMode_ == "GRAVITY_COMP") &&
+      if (newMode == "SAFETY") {
+        // Arm the decay. The clock origin and the posture to hold are captured on the first control cycle in the mode,
+        // where the observation time and a RobotState are in hand; this setter runs on the FSM callback thread. A
+        // pending hand-over into WB_MPC is abandoned: SAFETY must not be held off waiting for a solver.
+        safetyDecayStartTime_.store(-1.0);
+        safetyDecayComplete_.store(false);
+        awaitingPostResetPolicy_.store(false);
+        entryBlendStartTime_.store(-1.0);
+      }
+      if ((controlMode_ == "ZERO_TORQUE" || controlMode_ == "JOINT_PD" || controlMode_ == "GRAVITY_COMP" || controlMode_ == "SAFETY") &&
           (newMode == "WB_MPC" || newMode == "MPC_ACTIVE")) {
         requestMpcReset();
         transitionCounter_ = 0;  // Reset for transition diagnostics
@@ -182,6 +191,27 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   /** True while the entry into WB_MPC is being held or blended (for tests and diagnostics). */
   bool isEnteringMpc() const { return awaitingPostResetPolicy_.load() || entryBlendStartTime_.load() >= 0.0; }
 
+  /**
+   * Time constant [s] of the SAFETY torque decay (task.yaml `safetyDecayTimeConstant`).
+   *
+   * In SAFETY the robot holds the posture it had at mode entry with a joint PD whose gains are both multiplied by
+   * alpha(t) = exp(-t / tau), so the commanded torque is alpha * (kp * (q_hold - q) - kd * qd) and decays smoothly to
+   * nothing instead of being cut in one cycle. Once alpha falls below kSafetyDecayCutoff the joints are commanded zero
+   * gain and zero feedforward, i.e. true zero torque; at the default tau that takes about 4 * tau seconds.
+   */
+  void setSafetyDecayTimeConstant(scalar_t seconds) { safetyDecayTimeConstant_ = std::max(kMinSafetyDecayTimeConstant, seconds); }
+  scalar_t getSafetyDecayTimeConstant() const { return safetyDecayTimeConstant_; }
+  /**
+   * The SAFETY decay factor alpha = exp(-elapsed / tau), snapped to 0 once it falls below kSafetyDecayCutoff so the
+   * mode reaches true zero torque in finite time rather than only approaching it. Pure, and static so that the decay
+   * law can be tested without standing up a controller and its solver thread.
+   */
+  static scalar_t safetyDecayFactor(scalar_t elapsedSinceEntry, scalar_t timeConstant);
+  /** alpha for the armed decay at the given observation time; 1 when SAFETY has not been entered. */
+  scalar_t currentSafetyDecayFactor(scalar_t time) const;
+  /** True once the SAFETY decay has reached the cutoff and the joints are commanded zero torque. */
+  bool isSafetyDecayComplete() const { return safetyDecayComplete_.load(); }
+
  private:
   /**
    * Handles the MPC solver thread.
@@ -205,6 +235,8 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   void fillGravityCompAction(const ::robot::model::RobotState& robotState, ::robot::model::RobotJointAction& robotJointAction);
   /** The action held while entering WB_MPC: that of the mode the controller came from. */
   void fillEntryHoldAction(const ::robot::model::RobotState& robotState, ::robot::model::RobotJointAction& robotJointAction);
+
+  void fillSafetyAction(const ::robot::model::RobotState& robotState, ::robot::model::RobotJointAction& robotJointAction);
   /** Blends the MPC action in `robotJointAction` with the held action according to the entry ramp, if one is running. */
   void applyEntryBlend(const ::robot::model::RobotState& robotState, ::robot::model::RobotJointAction& robotJointAction);
 
@@ -263,6 +295,17 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   std::atomic<bool> entryHoldGravityComp_{false};     ///< the held action is GRAVITY_COMP (else JOINT_PD)
   std::atomic<scalar_t> entryBlendStartTime_{-1.0};   ///< observation time the ramp started at, < 0: no ramp running
 
+  // SAFETY damped decay (setSafetyDecayTimeConstant). Armed by the mode switch, captured and read in the control loop.
+  static constexpr scalar_t kMinSafetyDecayTimeConstant{1e-3};  ///< [s] guards against a divide by zero in alpha(t)
+  // LINT.IfChange(safety_decay_cutoff)
+  static constexpr scalar_t kSafetyDecayCutoff{0.02};  ///< alpha below which the command becomes zero torque
+  // LINT.ThenChange(//humanoid_nmpc/remote_control/remote_control/humanoid_finite_state_machine.py:safety_decay_cutoff)
+  scalar_t safetyDecayTimeConstant_{0.5};             ///< [s] time constant of alpha(t) = exp(-t / tau)
+  std::atomic<scalar_t> safetyDecayStartTime_{-1.0};  ///< observation time at entry, < 0: not yet captured
+  std::atomic<bool> safetyDecayComplete_{false};      ///< alpha has reached the cutoff, commanding zero torque
+  vector_t safetyHoldMpcJointPositions_;              ///< posture held by the MPC joints, captured at entry
+  vector_t safetyHoldOtherJointPositions_;            ///< posture held by the non-MPC joints, captured at entry
+
   // ROS topic state for real-time PD gains updates
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr pdGainsSubscription_;
   std::mutex pdGainsPendingMutex_;
@@ -272,6 +315,14 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   /**
    * @brief Compute per-joint gravity compensation torques via Pinocchio.
    * Uses nonLinearEffects with zero velocity for pure gravity torques.
+   */
+  /**
+   * The base-held gravity torques g_j(q): what each joint must apply to hold the chain distal to it, with the base
+   * externally supported and the feet carrying nothing. Correct for a robot hanging on the gantry, which is how
+   * GRAVITY_COMP is operated, and used by the diagnostic logging as the reference against which the full
+   * inverse-dynamics torques are compared.
+   *
+   * NOT what a robot standing on its own feet needs: those joint rows also carry -J_{c,j}^T f, see fillGravityCompAction.
    */
   vector_t computeGravityCompensation(const ::robot::model::RobotState& robotState);
 };

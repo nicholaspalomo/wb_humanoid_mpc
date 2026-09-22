@@ -343,6 +343,15 @@ void CentroidalMpcMrtJointController::computeJointControlAction(scalar_t time,
     return;
   }
 
+  // SAFETY mode: damped joint PD about the posture at mode entry, both gains scaled by alpha(t) = exp(-t / tau) so the
+  // torques ramp out over a few time constants rather than being cut in a single cycle. Deliberately ahead of the
+  // hand-over check below and independent of the model and the solver: SAFETY is what runs when those are the problem.
+  if (controlMode_ == "SAFETY") {
+    fillSafetyAction(robotState, robotJointAction);
+    previousObservationTime_ = currentMpcObservation_.time;
+    return;
+  }
+
   // Hand-over into WB_MPC (mpcEntryBlendTime > 0): the entry requested an MPC reset, but the MRT keeps handing out the
   // policy solved before it (against the previous reference) until the first post-reset solve has been swapped in. Hold
   // the previous mode's action until then, and start the ramp on the first cycle that runs on the new policy.
@@ -603,6 +612,15 @@ void CentroidalMpcMrtJointController::fillJointPdAction(const ::robot::model::Ro
 
 void CentroidalMpcMrtJointController::fillGravityCompAction(const ::robot::model::RobotState& robotState,
                                                             ::robot::model::RobotJointAction& robotJointAction) {
+  // The base-held gravity torques g_j(q). This mode is operated with the robot SUSPENDED FROM THE GANTRY, which holds
+  // the base externally, so g_j(q) is the correct compensation and the feet carry nothing.
+  //
+  // Off the gantry it would not be: for a floating base static equilibrium is g(q) = S^T tau + J_c^T f, so a robot
+  // standing on its own feet needs tau = g_j(q) - J_{c,j}^T f, and the contact term dominates at a bent knee (about
+  // 135 Nm against 7 Nm at the shipped Atlas stance, 23 Nm against 3.4 Nm on the SA01 crouch). With kp = 0 the
+  // feedforward is all that holds the robot, so commanding g_j(q) alone on the ground leaves the ground reaction's
+  // moment unopposed at the knee and the crouch runs away. Do not run this mode with the robot bearing its own weight
+  // without adding that term back - testContactConstraintScheduleGating pins the magnitudes.
   vector_t gravTorques = computeGravityCompensation(robotState);
 
   for (size_t i = 0; i < mpcJointIndices_.size(); i++) {
@@ -622,6 +640,65 @@ void CentroidalMpcMrtJointController::fillGravityCompAction(const ::robot::model
     action.qd_des = 0.0;
     action.kp = otherJointKp_[i] * 0.5;
     action.kd = otherJointKd_[i];
+    action.feed_forward_effort = 0.0;
+  }
+}
+
+scalar_t CentroidalMpcMrtJointController::safetyDecayFactor(scalar_t elapsedSinceEntry, scalar_t timeConstant) {
+  const scalar_t elapsed = std::max(scalar_t(0.0), elapsedSinceEntry);
+  const scalar_t alpha = std::exp(-elapsed / std::max(kMinSafetyDecayTimeConstant, timeConstant));
+  return alpha < kSafetyDecayCutoff ? scalar_t(0.0) : alpha;
+}
+
+scalar_t CentroidalMpcMrtJointController::currentSafetyDecayFactor(scalar_t time) const {
+  const scalar_t startTime = safetyDecayStartTime_.load();
+  if (startTime < 0.0) return 1.0;
+  return safetyDecayFactor(time - startTime, safetyDecayTimeConstant_);
+}
+
+void CentroidalMpcMrtJointController::fillSafetyAction(const ::robot::model::RobotState& robotState,
+                                                       ::robot::model::RobotJointAction& robotJointAction) {
+  // Capture the clock origin and the posture to hold on the first cycle in the mode. setControlMode() only arms the
+  // decay, because it runs on the FSM callback thread where neither the observation time nor a RobotState is in hand.
+  //
+  // The posture held is the MEASURED one at entry, not the nominal: SAFETY is entered when something has already gone
+  // wrong, and commanding a return to the nominal stance at full gain would be a lunge, not a safe stop.
+  if (safetyDecayStartTime_.load() < 0.0) {
+    safetyHoldMpcJointPositions_.resize(mpcJointIndices_.size());
+    for (size_t i = 0; i < mpcJointIndices_.size(); i++) {
+      safetyHoldMpcJointPositions_[i] = robotState.getJointPosition(mpcJointIndices_[i]);
+    }
+    safetyHoldOtherJointPositions_.resize(otherJointIndices_.size());
+    for (size_t i = 0; i < otherJointIndices_.size(); i++) {
+      safetyHoldOtherJointPositions_[i] = robotState.getJointPosition(otherJointIndices_[i]);
+    }
+    safetyDecayStartTime_.store(currentMpcObservation_.time);
+    LOG(WARNING) << "SAFETY mode entered: holding the measured posture and decaying the joint PD gains to zero with a "
+                 << safetyDecayTimeConstant_ << " s time constant (safetyDecayTimeConstant).";
+  }
+
+  const scalar_t alpha = currentSafetyDecayFactor(currentMpcObservation_.time);
+  if (alpha == 0.0 && !safetyDecayComplete_.exchange(true)) {
+    LOG(WARNING) << "SAFETY decay complete: commanding zero torque on all joints.";
+  }
+
+  // alpha * (kp * (q_hold - q) - kd * qd), assembled through the gains so that RobotJointAction's own
+  // getTotalFeedbackTorque() produces it. No feedforward: nothing here depends on the model or the policy.
+  for (size_t i = 0; i < mpcJointIndices_.size(); i++) {
+    robot::model::JointAction& action = robotJointAction.at(mpcJointIndices_[i]).value();
+    action.q_des = safetyHoldMpcJointPositions_[i];
+    action.qd_des = 0.0;
+    action.kp = alpha * mpcJointKp_[i];
+    action.kd = alpha * mpcJointKd_[i];
+    action.feed_forward_effort = 0.0;
+  }
+
+  for (size_t i = 0; i < otherJointIndices_.size(); i++) {
+    robot::model::JointAction& action = robotJointAction.at(otherJointIndices_[i]).value();
+    action.q_des = safetyHoldOtherJointPositions_[i];
+    action.qd_des = 0.0;
+    action.kp = alpha * otherJointKp_[i];
+    action.kd = alpha * otherJointKd_[i];
     action.feed_forward_effort = 0.0;
   }
 }

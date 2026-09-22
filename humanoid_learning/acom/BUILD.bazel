@@ -31,10 +31,16 @@ py_library(
 py_binary(
     name = "train_main",
     srcs = ["train_main.py"],
+    # One description target per robot in train_main.py's _ROBOT_CONFIGS. A robot registered there without its
+    # description listed here trains fine from a source checkout and fails under `bazel run` with a missing XML,
+    # because the runfiles tree is the only place the training binary can see the model from.
+    # LINT.IfChange(acom_train_data)
     data = [
         "//robot_models/drc_atlas/drc_atlas_description",
+        "//robot_models/engineai_sa01/engineai_sa01_description",
         "//robot_models/unitree_g1/g1_description",
     ],
+    # LINT.ThenChange(//humanoid_learning/acom/train_main.py:robot_paths)
     deps = [
         ":acom_lib",
         requirement("jax"),

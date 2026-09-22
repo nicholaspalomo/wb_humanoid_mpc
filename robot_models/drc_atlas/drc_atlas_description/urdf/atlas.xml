@@ -345,4 +345,12 @@
     <motor name="r_leg_aky_motor" joint="r_leg_aky"/>
     <motor name="r_leg_akx_motor" joint="r_leg_akx"/>
   </actuator>
+  <!-- Virtual gantry. A real weld the constraint solver satisfies inside mj_step, so the base is supported
+       WHILE the dynamics are integrated. MujocoSimInterface drives eq_active from the lock state and writes
+       the suspension height into the relpose translation, so the values here are only a starting point.
+       Without this the simulator falls back to overwriting qpos/qvel around mj_step, which leaves the robot in
+       free fall during the step and makes gravity compensation drive the limbs into their joint stops. -->
+  <equality>
+    <weld name="gantry" body1="world" body2="pelvis" relpose="0 0 1 1 0 0 0" active="false"/>
+  </equality>
 </mujoco>

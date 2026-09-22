@@ -142,6 +142,8 @@ int main(int argc, char** argv) {
   double simContactTimelineWindow = 5.0;
   // Viewer visualizations by name (VisualizationRegistry.h); absent: the viewer's default set.
   std::vector<std::string> simVisualizations = robot::mujoco_sim_interface::defaultVisualizationNames();
+  // Which implementation holds the base while the virtual gantry is locked (GantryHold in MujocoSimInterface.h).
+  std::string simGantryHold = "weld_constraint";
   try {
     YAML::Node taskYaml = YAML::LoadFile(taskFile);
     if (taskYaml["contactEstimator"]) contactEstimatorName = taskYaml["contactEstimator"].as<std::string>();
@@ -149,6 +151,7 @@ int main(int argc, char** argv) {
     if (taskYaml["simMaxBaseTiltAngle"]) simMaxBaseTiltAngle = taskYaml["simMaxBaseTiltAngle"].as<double>();
     if (taskYaml["simContactTimelineWindow"]) simContactTimelineWindow = taskYaml["simContactTimelineWindow"].as<double>();
     if (taskYaml["simVisualizations"]) simVisualizations = taskYaml["simVisualizations"].as<std::vector<std::string>>();
+    if (taskYaml["gantryHold"]) simGantryHold = taskYaml["gantryHold"].as<std::string>();
   } catch (const std::exception& e) {
     LOG(WARNING) << "Failed to read the simulator contact settings from " << taskFile << ": " << e.what();
   }
@@ -165,6 +168,7 @@ int main(int argc, char** argv) {
   config.contactForceThreshold = simContactForceThreshold;
   config.contactTimelineWindow = simContactTimelineWindow;
   config.visualizations = simVisualizations;
+  config.gantryHold = simGantryHold;
 
   robot::mujoco_sim_interface::MujocoSimInterface robotInterface(config, urdfFile);
 
