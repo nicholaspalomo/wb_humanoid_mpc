@@ -48,6 +48,27 @@ gantryHold: weld_constraint
 # LINT.ThenChange(//robot_runtime/mujoco_sim_interface/include/mujoco_sim_interface/MujocoSimInterface.h:gantry_hold_names)
 # LINT.IfChange(contact_estimator)
 contactEstimator: cheater_sim
+
+# The ball the GUI's Dodgeball tab throws, by name (robot_runtime/mujoco_sim_interface/.../Projectile.h). MuJoCo
+# compiles its model once at load and bodies cannot be added afterwards, so naming one here appends a free-floating
+# sphere to the scene BEFORE it is compiled; it is parked below the floor, collides with nothing and is held by
+# gravity compensation until a throw arms it, and is parked again once it has come to rest.
+#
+#   dodgeball   a regulation 0.216 m sphere of 0.45 kg with a restitution of 0.80 - a rubber-skinned ball that comes
+#               back at four fifths of the speed it arrived at. MuJoCo has no restitution parameter; it is converted
+#               to the contact damping ratio solref needs by the logarithmic decrement (0.80 gives 0.0708).
+#
+# Remove the key, or set it empty, to compile the scene exactly as it is on disk. The Throw button then still works:
+# with no ball to fly, the simulator applies the momentum the ball WOULD have delivered as a one-step force on the
+# base, which is the same disturbance with nothing to look at.
+#
+# Simulation only. It changes nothing about the MPC, and the ball cannot touch the robot until it is thrown - a
+# contact with it is also excluded from the ground-truth contact mask, so a ball resting against a swing foot is
+# never reported to the controller as that foot being planted.
+# LINT.IfChange(sim_projectile)
+simProjectile: dodgeball
+# LINT.ThenChange(//robot_runtime/mujoco_sim_interface/src/Projectile.cpp:projectile_names)
+
 # LINT.ThenChange(//robot_runtime/robot_model/src/ContactEstimatorRegistry.cpp:contact_estimator_names, //robot_runtime/mujoco_sim_interface/src/CheaterSimContactEstimator.cpp:cheater_sim_contact_estimator_name)
 # Viewer visualizations (each listed one starts on; the key in brackets toggles it, 'p' prints the cheatsheet). Every
 # marker is a class in robot_runtime/mujoco_sim_interface/.../visualization; the names are those of VisualizationRegistry.
@@ -247,19 +268,19 @@ locomotion_heuristics:
 
   # The offsets within a list are SUMMED, so the order here is documentary only - unlike the contact planner's
   # `costs` list, where order is the floating-point accumulation order.
-  base_pose:
-    - orientation_compensation   # H_Theta(pdot): roll from lateral speed, pitch from forward speed
-    - periodic_orientation       # H_Theta(Phi):  roll/pitch limit cycle in the gait phase
-    - height_compensation        # H_z(v):        base height against speed
-  foothold:
-    - hip_centered_stepping      # H_r(Theta):        foot under its own hip - READ ITS BLOCK BELOW FIRST
-    - capture_point              # H_r(pdot, Phi):    step into the velocity ERROR
-    - translational_stepping     # H_r(pdot):         step in the direction of travel
-    - in_place_turning           # H_r(psidot):       step along the turn arc
-    - high_speed_turning         # H_r(pdot x omega): step outward along the turn radius
-  wrench:
-    - impulse_scaling            # H_f(Phi):            stance force scaled by 1 / duty factor
-    - centripetal_acceleration   # H_f(Theta x pdot):   the horizontal force of a turn - SEE ITS BLOCK BELOW
+  base_pose: []
+    # - orientation_compensation   # H_Theta(pdot): roll from lateral speed, pitch from forward speed
+    # - periodic_orientation       # H_Theta(Phi):  roll/pitch limit cycle in the gait phase
+    # - height_compensation        # H_z(v):        base height against speed
+  foothold: []
+    # - hip_centered_stepping      # H_r(Theta):        foot under its own hip - READ ITS BLOCK BELOW FIRST
+    # - capture_point              # H_r(pdot, Phi):    step into the velocity ERROR
+    # - translational_stepping     # H_r(pdot):         step in the direction of travel
+    # - in_place_turning           # H_r(psidot):       step along the turn arc
+    # - high_speed_turning         # H_r(pdot x omega): step outward along the turn radius
+  wrench: []
+    # - impulse_scaling            # H_f(Phi):            stance force scaled by 1 / duty factor
+    # - centripetal_acceleration   # H_f(Theta x pdot):   the horizontal force of a turn - SEE ITS BLOCK BELOW
 
   # ---- one parameter block per heuristic, keyed by the heuristic's own registry name ----
 

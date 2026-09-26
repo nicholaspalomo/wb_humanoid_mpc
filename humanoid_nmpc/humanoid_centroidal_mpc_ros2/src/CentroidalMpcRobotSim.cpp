@@ -171,6 +171,11 @@ int main(int argc, char** argv) {
   std::vector<std::string> simVisualizations = robot::mujoco_sim_interface::defaultVisualizationNames();
   // Which implementation holds the base while the virtual gantry is locked (GantryHold in MujocoSimInterface.h).
   std::string simGantryHold = "weld_constraint";
+  // Which ball the Dodgeball tab of the GUI throws, by name (mujoco_sim_interface/Projectile.h). Empty compiles the
+  // scene exactly as it is on disk and the throw falls back to simulating the ball's impulse on the base.
+  // Empty by default, so a robot whose task file says nothing gets its scene compiled exactly as it is on disk
+  // rather than silently acquiring a body; every shipped task file opts in explicitly.
+  std::string simProjectile;
   try {
     YAML::Node taskYaml = YAML::LoadFile(taskFile);
     if (taskYaml["contactEstimator"]) contactEstimatorName = taskYaml["contactEstimator"].as<std::string>();
@@ -179,6 +184,7 @@ int main(int argc, char** argv) {
     if (taskYaml["simContactTimelineWindow"]) simContactTimelineWindow = taskYaml["simContactTimelineWindow"].as<double>();
     if (taskYaml["simVisualizations"]) simVisualizations = taskYaml["simVisualizations"].as<std::vector<std::string>>();
     if (taskYaml["gantryHold"]) simGantryHold = taskYaml["gantryHold"].as<std::string>();
+    if (taskYaml["simProjectile"]) simProjectile = taskYaml["simProjectile"].as<std::string>();
   } catch (const std::exception& e) {
     LOG(WARNING) << "Failed to read the simulator contact settings from " << taskFile << ": " << e.what();
   }
@@ -196,6 +202,7 @@ int main(int argc, char** argv) {
   config.contactTimelineWindow = simContactTimelineWindow;
   config.visualizations = simVisualizations;
   config.gantryHold = simGantryHold;
+  config.projectile = simProjectile;
   // Target contact patches in the viewer ('g' toggles them): the contact rectangle of every foot, drawn at the pose the
   // contact planner wants the foot on the ground. Without a contact planner there is no target and nothing is drawn.
   const auto planningReferenceManager = std::dynamic_pointer_cast<ContactPlanningReferenceManager>(interface.getReferenceManagerPtr());

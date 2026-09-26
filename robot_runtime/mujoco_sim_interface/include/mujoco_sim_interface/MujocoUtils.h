@@ -133,7 +133,17 @@ std::vector<int> resolveContactBodies(const mjModel* model,
  * body that does not share the contact body's root). Requires the constraint forces of the current state, i.e. call
  * after mj_step() or mj_forward(). Contacts beyond the 32nd are ignored.
  */
-uint32_t groundTruthContactMask(const mjModel* model, const mjData* data, const std::vector<int>& contactBodyIds, double forceThreshold);
+/**
+ * Bit per contact point, set where that point is carrying more than `forceThreshold` of normal force against
+ * something that is not the robot.
+ *
+ * `ignoreBodyId` is left out of that "something": a body listed there is neither the robot nor the ground, so a
+ * contact with it sets no bit. It exists for the thrown projectile. Without it a ball resting against a SWING foot
+ * would be reported to the controller as that foot being planted - the mask feeds the RobotState's contact flags and
+ * the cheater_sim estimator - which is a far worse disturbance than the ball itself, and an invisible one.
+ */
+uint32_t groundTruthContactMask(
+    const mjModel* model, const mjData* data, const std::vector<int>& contactBodyIds, double forceThreshold, int ignoreBodyId = -1);
 
 /** Whole-body centroidal quantities of the floating-base robot of the scene, for the viewer's markers. */
 struct RobotCentroidalState {

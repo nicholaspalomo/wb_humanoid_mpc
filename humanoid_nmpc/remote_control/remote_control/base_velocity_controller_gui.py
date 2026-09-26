@@ -49,6 +49,7 @@ from remote_control.tk_app import (
     JointTargetsTab,
     MpcParamsTab,
     CommandLimitsTab,
+    DodgeballTab,
 )
 
 
@@ -63,6 +64,7 @@ class App(tk.Tk):
         param_publisher=None,
         pd_gains_publisher=None,
         joint_targets_publisher=None,
+        dodgeball_publisher=None,
     ):
         super().__init__()
         self.title("Robot Base Controller & Tuning")
@@ -75,6 +77,7 @@ class App(tk.Tk):
         self.fsm_mode_var = tk.StringVar(value="ZERO_TORQUE")
         self.param_publisher = param_publisher
         self.pd_gains_publisher = pd_gains_publisher
+        self.dodgeball_publisher = dodgeball_publisher
         self.joint_targets_publisher = joint_targets_publisher
 
         # Position window on the left side of the screen on top of the RVIZ window
@@ -220,6 +223,15 @@ class App(tk.Tk):
             tab_limits, reference_file=self.reference_file
         )
         self.command_limits_tab.pack(fill="both", expand=True)
+
+        # Tab 6: Dodgeball. A disturbance generator for push-recovery testing: the throw is computed here and applied
+        # by the MuJoCo simulator, so the tab does nothing on hardware or against the dummy sim.
+        tab_dodgeball = ttk.Frame(self.notebook)
+        self.notebook.add(tab_dodgeball, text="🏐 Dodgeball")
+        self.dodgeball_tab = DodgeballTab(
+            tab_dodgeball, throw_publisher=self.dodgeball_publisher
+        )
+        self.dodgeball_tab.pack(fill="both", expand=True)
 
         # Build Tab 1: Base Controller contents
         self.auto_center_var = tk.BooleanVar(value=False)
@@ -738,6 +750,16 @@ class RosJoystickApp(Node):
             String, "/joint_pd_target_positions", param_qos
         )
 
+        # Dodgeball throws (button -> ROS topic -> the MuJoCo simulator). RELIABLE, unlike the tuning topics above:
+        # a throw is a one-shot event rather than a stream of slider values, so a dropped message is a button press
+        # that did nothing rather than a value that is corrected 100 ms later.
+        # LINT.IfChange(dodgeball_topic_name)
+        throw_qos = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, depth=10)
+        self.dodgeball_publisher = self.create_publisher(
+            String, "/humanoid/dodgeball_throw", throw_qos
+        )
+        # LINT.ThenChange(//humanoid_nmpc/remote_control/remote_control/tk_app/dodgeball_tab.py:dodgeball_topic_name)
+
         enable_online_tuning = True
         enable_telemetry = True
         if task_file and os.path.exists(task_file):
@@ -772,6 +794,7 @@ class RosJoystickApp(Node):
             param_publisher=self.param_publisher,
             pd_gains_publisher=self.pd_gains_publisher,
             joint_targets_publisher=self.joint_targets_publisher,
+            dodgeball_publisher=self.dodgeball_publisher,
         )
         self.app.set_default_pelvis_height(default_height)
         self.app._fsm_command_callback = self._send_fsm_command

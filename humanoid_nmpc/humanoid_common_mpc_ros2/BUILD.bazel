@@ -52,6 +52,7 @@ cc_library(
         "@boost",
         "@pinocchio",
         "@ros2_rclcpp",
+        "@yaml_cpp",
         "@ros2_ament_index_cpp",
         "@ros2_tf2_ros",
         "@ros2_tf2_eigen",

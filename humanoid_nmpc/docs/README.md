@@ -30,6 +30,12 @@ already exist:
   the existing quadratic costs already regularize against — the base's roll and pitch reference in particular is a
   hard zero today. Every list ships empty, so the layer is an exact no-op until a robot is opted in.
 
+And one covers a simulation tool rather than the controller:
+
+* [dodgeball](dodgeball/README.md) — throwing a physical ball at the robot in simulation: the GUI tab that
+  aims it, the ball MuJoCo compiles into the scene, and how restitution is expressed in a simulator that has
+  no restitution parameter. A directed, repeatable push test, selected with `simProjectile` in `task.yaml`.
+
 ---
 
 ## 1. DCM terminal cost (`useDcmTerminalCost`)

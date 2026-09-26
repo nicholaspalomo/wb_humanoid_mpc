@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <absl/log/log.h>
 #include <ocs2_robotic_tools/common/RotationTransforms.h>
+#include <yaml-cpp/yaml.h>
 
 namespace ocs2::humanoid {
 
@@ -69,6 +70,11 @@ SimFsmBridge::SimFsmBridge(const robot::model::RobotDescription& robotDescriptio
   fsmCommandSub_ = nodeHandle_->create_subscription<std_msgs::msg::String>(
       "/humanoid/fsm_command", cmdQos, [this](const std_msgs::msg::String::ConstSharedPtr& msg) { fsmCommandCallback(msg); });
 
+  // Dodgeball throws from the GUI. RELIABLE like the FSM command and for the same reason: a throw is one event, so
+  // a dropped message is a button press that did nothing rather than a value the next message corrects.
+  dodgeballSub_ = nodeHandle_->create_subscription<std_msgs::msg::String>(
+      "/humanoid/dodgeball_throw", cmdQos, [this](const std_msgs::msg::String::ConstSharedPtr& msg) { dodgeballCallback(msg); });
+
   // Subscribe to walking velocity command for gantry height control
   rclcpp::QoS velQos(1);
   velQos.best_effort();
@@ -88,6 +94,53 @@ void SimFsmBridge::fsmCommandCallback(const std_msgs::msg::String::ConstSharedPt
     std::lock_guard<std::mutex> lock(commandMutex_);
     pendingCommand_ = msg->data;
   }
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+void SimFsmBridge::dodgeballCallback(const std_msgs::msg::String::ConstSharedPtr& msg) {
+  if (!msg) return;
+
+  // The geometry was computed by the GUI (remote_control/tk_app/dodgeball.py) and is not recomputed here: this reads
+  // the spawn offset, the launch velocity and the flight time it already worked out, in the robot's yaw frame. The
+  // operator's four slider values travel in the same payload but are documentation - nothing below reads them.
+  robot::mujoco_sim_interface::MujocoSimInterface::DodgeballThrow command;
+  try {
+    const YAML::Node root = YAML::Load(msg->data);
+    const YAML::Node ball = root["dodgeball"];
+    if (!ball) {
+      LOG(WARNING) << "Dodgeball throw ignored: the payload has no 'dodgeball' block.";
+      return;
+    }
+    const YAML::Node offset = ball["spawnOffset"];
+    const YAML::Node velocity = ball["launchVelocity"];
+    if (!offset || offset.size() != 3 || !velocity || velocity.size() != 3) {
+      LOG(WARNING) << "Dodgeball throw ignored: spawnOffset and launchVelocity must both be three numbers.";
+      return;
+    }
+    for (size_t axis = 0; axis < 3; ++axis) {
+      command.spawnOffset[axis] = offset[axis].as<double>();
+      command.launchVelocity[axis] = velocity[axis].as<double>();
+    }
+    command.flightTime = ball["flightTime"] ? ball["flightTime"].as<double>() : 0.0;
+    // The GUI always sends a mass; this fallback is only for a payload published by hand. It has to match the
+    // registry's nominal mass, or a hand-thrown ball would weigh something the operator never asked for.
+    // LINT.IfChange(dodgeball_fallback_mass)
+    command.mass = ball["mass"] ? ball["mass"].as<double>() : 0.45;
+    // LINT.ThenChange(//robot_runtime/mujoco_sim_interface/src/Projectile.cpp:dodgeball_properties)
+  } catch (const std::exception& error) {
+    LOG(WARNING) << "Dodgeball throw ignored: the payload could not be read as YAML: " << error.what();
+    return;
+  }
+
+  if (!(command.mass > 0.0) || command.flightTime < 0.0) {
+    LOG(WARNING) << "Dodgeball throw ignored: a ball needs a positive mass and a non-negative flight time.";
+    return;
+  }
+
+  std::lock_guard<std::mutex> lock(dodgeballMutex_);
+  pendingDodgeball_ = command;
 }
 
 /******************************************************************************************************/
@@ -139,6 +192,19 @@ bool SimFsmBridge::recoverFromFall(const robot::model::RobotState& robotState,
 
 /******************************************************************************************************/
 bool SimFsmBridge::processCommands(std::string& currentModeName, robot::mujoco_sim_interface::MujocoSimInterface& robotInterface) {
+  // Handed over first and unconditionally: a throw is independent of the FSM, and the early return below fires on
+  // every cycle in which no mode change is pending - which is almost all of them.
+  {
+    std::optional<robot::mujoco_sim_interface::MujocoSimInterface::DodgeballThrow> throwOpt;
+    {
+      std::lock_guard<std::mutex> lock(dodgeballMutex_);
+      throwOpt.swap(pendingDodgeball_);
+    }
+    if (throwOpt.has_value()) {
+      robotInterface.throwDodgeball(*throwOpt);
+    }
+  }
+
   std::optional<std::string> cmdOpt;
   {
     std::lock_guard<std::mutex> lock(commandMutex_);

@@ -154,10 +154,18 @@ class SimFsmBridge {
   scalar_t maxBaseTiltAngle_{0.0};
 
   void fsmCommandCallback(const std_msgs::msg::String::ConstSharedPtr& msg);
+  /// Parses one YAML throw from the GUI and stages it. A malformed payload is reported and dropped: it is an
+  /// operator action, not a control input, so refusing it is better than guessing at it.
+  void dodgeballCallback(const std_msgs::msg::String::ConstSharedPtr& msg);
   void walkingVelocityCallback(const humanoid_mpc_msgs::msg::WalkingVelocityCommand::ConstSharedPtr& msg);
 
   rclcpp::Node::SharedPtr nodeHandle_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr fsmCommandSub_;
+  /// Dodgeball throws from the GUI's Dodgeball tab. A YAML payload, staged here and drained by processCommands()
+  /// onto the simulation interface - see MujocoSimInterface::throwDodgeball.
+  // LINT.IfChange(dodgeball_topic_name)
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr dodgeballSub_;
+  // LINT.ThenChange(//humanoid_nmpc/remote_control/remote_control/tk_app/dodgeball_tab.py:dodgeball_topic_name)
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr fsmStatePub_;
   rclcpp::Subscription<humanoid_mpc_msgs::msg::WalkingVelocityCommand>::SharedPtr walkingVelSub_;
 
@@ -167,6 +175,10 @@ class SimFsmBridge {
   JointTargetSubscriber jointTargetSubscriber_;
   std::mutex commandMutex_;
   std::optional<std::string> pendingCommand_;
+  /// Staged separately from pendingCommand_ so that throwing a ball cannot swallow a pending mode change, or the
+  /// other way round: both arrive on the operator's thread and only one of each is kept.
+  std::mutex dodgeballMutex_;
+  std::optional<robot::mujoco_sim_interface::MujocoSimInterface::DodgeballThrow> pendingDodgeball_;
   std::atomic<double> desiredGantryHeight_{0.0};      ///< Desired gantry height from walking velocity command slider.
   std::atomic<bool> hasReceivedGantryHeight_{false};  ///< True once a walking velocity message has set the height.
 };

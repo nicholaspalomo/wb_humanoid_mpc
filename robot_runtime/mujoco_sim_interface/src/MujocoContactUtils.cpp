@@ -119,7 +119,8 @@ std::vector<int> resolveContactBodies(const mjModel* model,
   return bodyIds;
 }
 
-uint32_t groundTruthContactMask(const mjModel* model, const mjData* data, const std::vector<int>& contactBodyIds, double forceThreshold) {
+uint32_t groundTruthContactMask(
+    const mjModel* model, const mjData* data, const std::vector<int>& contactBodyIds, double forceThreshold, int ignoreBodyId) {
   uint32_t mask = 0;
   const size_t numContacts = std::min<size_t>(contactBodyIds.size(), 32);
   for (int c = 0; c < data->ncon; ++c) {
@@ -131,6 +132,8 @@ uint32_t groundTruthContactMask(const mjModel* model, const mjData* data, const 
     if (force[0] < forceThreshold) continue;
     const int body1 = model->geom_bodyid[contact.geom[0]];
     const int body2 = model->geom_bodyid[contact.geom[1]];
+    // Neither the robot nor the ground: a thrown ball touching a foot says nothing about whether that foot is down.
+    if (ignoreBodyId >= 0 && (body1 == ignoreBodyId || body2 == ignoreBodyId)) continue;
     for (size_t i = 0; i < numContacts; ++i) {
       const int contactBody = contactBodyIds[i];
       if (contactBody < 0) continue;

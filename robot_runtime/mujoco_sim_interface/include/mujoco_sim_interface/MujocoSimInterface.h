@@ -41,8 +41,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <chrono>
 #include <ctime>
 #include <mutex>
+#include <optional>
+
 #include <thread>
 #include <vector>
+#include "mujoco_sim_interface/Projectile.h"
 
 #include <Eigen/Dense>
 
@@ -97,6 +100,9 @@ struct MujocoSimConfig {
   double renderFrequencyHz{60.0};
   bool headless{false};
   bool verbose{false};
+  /// Name of the projectile compiled into the scene, from the robot task file's `simProjectile`. Empty compiles the
+  /// scene exactly as it is on disk, with no ball in it. See Projectile.h for the names.
+  std::string projectile{};
   bool enableGantry{true};
   bool isGantryLocked{true};
   double gantryHeight{0.0};
@@ -190,6 +196,48 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   /// Snapshot of the target patches for the render thread.
   void copyTargetContactPatches(std::vector<TargetContactPatch>& out) const;
 
+  /**
+   * One dodgeball, as the operator's GUI describes it: a spawn point and a launch velocity in the robot's own YAW
+   * FRAME, the flight time to the base, and the ball's mass.
+   *
+   * The geometry is computed in the GUI and NOT recomputed here - see
+   * humanoid_nmpc/remote_control/remote_control/tk_app/dodgeball.py, which owns the angle conventions and the
+   * gravity compensation and is unit-tested. This struct is the wire format between the two.
+   */
+  struct DodgeballThrow {
+    double spawnOffset[3]{0.0, 0.0, 0.0};     // [m] from the base, in the base's yaw frame
+    double launchVelocity[3]{0.0, 0.0, 0.0};  // [m/s] in the base's yaw frame
+    double flightTime{0.0};                   // [s] until it reaches the base
+    double mass{0.45};                        // [kg]
+  };
+
+  /**
+   * Throws a dodgeball at the robot's base. Callable from any thread; takes effect on the simulation thread.
+   *
+   * TWO PATHS, decided by whether `simProjectile` named a ball for this scene.
+   *
+   * WITH A BALL, which is the shipped configuration: the ball is a real free-floating body, appended to the scene
+   * before MuJoCo compiled it. This places it at the spawn point with the launch velocity, retunes its mass to the
+   * one the operator asked for, and lets MuJoCo do the rest - the flight, the impact, the bounce and the rolling
+   * away are physics rather than a model of physics. The three things that made a body in these scenes awkward are
+   * each handled rather than avoided: its dofs are skipped by the joint-damping loops, its contacts are excluded
+   * from `groundTruthContactMask` so a ball against a swing foot is never reported to the controller as that foot
+   * being planted, and it is appended LAST so it cannot displace the robot as the first free-joint body.
+   *
+   * WITHOUT ONE: the flight is ballistic and known in closed form, so the impulse the ball would have delivered is
+   * scheduled for `flightTime` from now and applied to the base as a one-step external force. That is exact for the
+   * quantity that matters - a ball of mass m arriving at speed v transfers m*v of momentum - and it is drawn by the
+   * existing `external_forces` visualization, because it goes through mjData::xfrc_applied. What it cannot give is
+   * a ball to look at, or a second bounce.
+   *
+   * `mass` is clamped to [kMinProjectileMass, kMaxProjectileMass] and only costs anything when it has changed since
+   * the last throw; see setProjectileMass for what retuning it entails.
+   */
+  void throwDodgeball(const DodgeballThrow& throwCommand);
+
+  /// True while a throw is in flight or waiting to be picked up by the simulation thread, for the tests and the GUI.
+  bool hasDodgeballInFlight() const;
+
   void setTargetVelocities(double vx, double vy, double yawRate) {
     targetVelocityX_.store(vx, std::memory_order_relaxed);
     targetVelocityY_.store(vy, std::memory_order_relaxed);
@@ -208,6 +256,23 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
    * Called once per step immediately before mj_step; a no-op when the gantry is disabled.
    */
   void applyGantryHold();
+  /// Simulation thread only: picks up a staged throw, schedules its impulse, and applies or clears it. See
+  /// throwDodgeball() for why the ball is not a body in the model.
+  void applyDodgeball();
+  /// True when a projectile was compiled into this scene, i.e. `simProjectile` named one.
+  bool hasProjectile() const;
+  /// True when `dof` is one of the projectile's six free dofs, which the joint-damping loops must leave alone.
+  bool isProjectileDof(int dof) const;
+  /// Arms the ball (it collides, gravity acts on it) or parks it (neither).
+  void setProjectileArmed(bool armed);
+  /// True once the ball has been slow for long enough to be considered finished with.
+  bool projectileAtRest();
+  /// Returns the ball to its parking spot below the floor and stops it.
+  void parkProjectile();
+  /// Body id of the robot's floating base, i.e. the first body carrying a free joint; -1 if the model has none.
+  int robotRootBodyId() const;
+  /// [rad] Heading of that base, from its free joint's quaternion at qpos[3..6].
+  double baseYaw() const;
 
   void setupJointIndexMaps();
 
@@ -296,6 +361,34 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   ContactTimeline contactTimeline_;
   mutable std::mutex targetPatchMutex_;
   std::vector<TargetContactPatch> targetContactPatches_;  // written by the control thread, drawn by the renderer
+  /// Staged by throwDodgeball() from any thread, taken by the simulation thread on its next step. Separate from the
+  /// FSM command's own staging so that a throw and a mode change cannot overwrite one another.
+  mutable std::mutex dodgeballMutex_;
+  std::optional<DodgeballThrow> pendingDodgeball_;
+  /// Resolved into the world frame and scheduled once the simulation thread has seen it. Only that thread touches
+  /// these, so they need no lock.
+  double scheduledImpulseWorld_[3]{0.0, 0.0, 0.0};  // [N s]
+  double scheduledImpactTime_{-1.0};                // [s] of simulation time; negative means nothing is in flight
+  /// Set for exactly the step on which the impulse is applied, so the next step can clear xfrc_applied again.
+  bool dodgeballImpulseApplied_{false};
+  /// The projectile compiled into the scene, and its addresses in the model. All -1 when `simProjectile` named
+  /// none, in which case a throw falls back to a scheduled impulse on the base and there is nothing to look at.
+  Projectile projectile_;
+  int dodgeballBodyId_{-1};
+  int dodgeballJointId_{-1};
+  int dodgeballQposAdr_{-1};
+  int dodgeballDofAdr_{-1};
+  bool projectileArmed_{false};
+  int projectileRestSteps_{0};
+  /// [kg] The mass currently applied to the ball in the model, so a throw only pays for retuning it when the
+  /// operator has actually moved the mass slider. Starts at the registry's nominal mass, which is what the compiled
+  /// model carries and what the GUI's slider defaults to.
+  double appliedProjectileMass_{0.0};
+  /// [m/s] and [steps] deciding when a thrown ball has finished and may be parked again.
+  static constexpr double kProjectileRestSpeed = 0.15;
+  static constexpr int kProjectileRestSteps = 500;
+  /// The name the injected body carries in the compiled model.
+  static constexpr const char* kProjectileBodyName = "sim_projectile";
   size_t contactTimelineSampleInterval_{1};
   size_t contactTimelineSampleCounter_{0};
 };
