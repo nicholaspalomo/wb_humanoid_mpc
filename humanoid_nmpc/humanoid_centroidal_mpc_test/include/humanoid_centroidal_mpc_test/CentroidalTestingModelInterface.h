@@ -28,6 +28,14 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#pragma once
+
+#include <cstdlib>
+#include <filesystem>
+#include <memory>
+#include <string>
+#include <vector>
+
 #include <ocs2_centroidal_model/AccessHelperFunctions.h>
 #include <ocs2_centroidal_model/CentroidalModelInfo.h>
 #include <ocs2_centroidal_model/CentroidalModelPinocchioMapping.h>
@@ -40,8 +48,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ament_index_cpp/get_package_share_directory.hpp>
 
 namespace ocs2::humanoid {
+
+/**
+ * The centroidal MPC model of a shipped robot - task file, URDF, reference file, Pinocchio interface and MPC robot
+ * models - for the tests of this package. The Unitree G1 unless another robot is asked for.
+ *
+ * The files are read from the test's runfiles, which are symlinks into the checkout and therefore current; the ament
+ * index, which the dev container populates from a COPY of the source tree that can be stale, is only the fallback.
+ */
 struct CentroidalTestingModelInterface {
  public:
+  enum class Robot { kUnitreeG1, kDrcAtlas };
+
   std::string taskFile;
   std::string urdfFile;
   std::string referenceFile;
@@ -51,19 +69,27 @@ struct CentroidalTestingModelInterface {
   std::unique_ptr<CentroidalMpcRobotModel<scalar_t>> mpcRobotModelPtr_;
   std::unique_ptr<CentroidalMpcRobotModel<ad_scalar_t>> mpcRobotModelADPtr_;
 
-  CentroidalTestingModelInterface() {
-    taskFile = ament_index_cpp::get_package_share_directory("g1_centroidal_mpc") + "/config/mpc/task.yaml";
+  explicit CentroidalTestingModelInterface(Robot robot = Robot::kUnitreeG1) {
+    // LINT.IfChange(testing_model_files)
+    if (robot == Robot::kDrcAtlas) {
+      taskFile = locate("drc_atlas_centroidal_mpc", "robot_models/drc_atlas/drc_atlas_centroidal_mpc", "config/mpc/task.yaml");
+      urdfFile = locate("drc_atlas_description", "robot_models/drc_atlas/drc_atlas_description", "urdf/atlas.urdf");
+      referenceFile =
+          locate("drc_atlas_centroidal_mpc", "robot_models/drc_atlas/drc_atlas_centroidal_mpc", "config/command/reference.yaml");
+    } else {
+      taskFile = locate("g1_centroidal_mpc", "robot_models/unitree_g1/g1_centroidal_mpc", "config/mpc/task.yaml");
+      urdfFile = locate("g1_description", "robot_models/unitree_g1/g1_description", "urdf/g1_29dof.urdf");
+      referenceFile = locate("g1_centroidal_mpc", "robot_models/unitree_g1/g1_centroidal_mpc", "config/command/reference.yaml");
+    }
+    // LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc_test/BUILD.bazel:test_data)
 
-    urdfFile = ament_index_cpp::get_package_share_directory("g1_description") + "/urdf/g1_29dof.urdf";
+    modelSettingsPtr = std::make_unique<ModelSettings>(taskFile, urdfFile, "centroidal_testing_interfce", /*verbose=*/false);
 
-    referenceFile = ament_index_cpp::get_package_share_directory("g1_centroidal_mpc") + "/config/command/reference.yaml";
-
-    modelSettingsPtr.reset(new ModelSettings(taskFile, urdfFile, "centroidal_testing_interfce", false));
-
-    pinocchioInterfacePtr.reset(new PinocchioInterface(createCustomPinocchioInterface(taskFile, urdfFile, *modelSettingsPtr)));
-    mpcRobotModelPtr_.reset(new CentroidalMpcRobotModel<scalar_t>(*modelSettingsPtr, *pinocchioInterfacePtr, getCentroidalModelInfo()));
-    mpcRobotModelADPtr_.reset(new CentroidalMpcRobotModel<ad_scalar_t>(*modelSettingsPtr, (*pinocchioInterfacePtr).toCppAd(),
-                                                                       getCentroidalModelInfo().toCppAd()));
+    pinocchioInterfacePtr = std::make_unique<PinocchioInterface>(createCustomPinocchioInterface(taskFile, urdfFile, *modelSettingsPtr));
+    mpcRobotModelPtr_ =
+        std::make_unique<CentroidalMpcRobotModel<scalar_t>>(*modelSettingsPtr, *pinocchioInterfacePtr, getCentroidalModelInfo());
+    mpcRobotModelADPtr_ = std::make_unique<CentroidalMpcRobotModel<ad_scalar_t>>(*modelSettingsPtr, (*pinocchioInterfacePtr).toCppAd(),
+                                                                                 getCentroidalModelInfo().toCppAd());
   }
 
   PinocchioInterface& getPinocchioInterface() const { return *pinocchioInterfacePtr; }
@@ -79,5 +105,19 @@ struct CentroidalTestingModelInterface {
         centroidal_model::loadDefaultJointState(pinocchioInterfacePtr->getModel().nq - 6, referenceFile),
         modelSettingsPtr->contactNames3DoF, modelSettingsPtr->contactNames6DoF);
   }
+
+ private:
+  /** `packageDirectory`/`relativePath` in the runfiles, else `relativePath` in the ament share directory of `package`. */
+  static std::string locate(const std::string& package, const std::string& packageDirectory, const std::string& relativePath) {
+    std::vector<std::filesystem::path> roots;
+    if (const char* srcDir = std::getenv("TEST_SRCDIR")) roots.emplace_back(std::filesystem::path(srcDir) / "_main");
+    roots.emplace_back(std::filesystem::current_path());
+    for (const std::filesystem::path& root : roots) {
+      const std::filesystem::path candidate = root / packageDirectory / relativePath;
+      if (std::filesystem::exists(candidate)) return candidate.string();
+    }
+    return (std::filesystem::path(ament_index_cpp::get_package_share_directory(package)) / relativePath).string();
+  }
 };
+
 }  // namespace ocs2::humanoid

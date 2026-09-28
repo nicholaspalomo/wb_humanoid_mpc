@@ -32,13 +32,12 @@ unset _SAVED_OPTS
 # Create ament_index-compatible directory structure pointing to source tree
 # ==============================================================================
 BAZEL_INSTALL="${TMPDIR:-/tmp}/.bazel_ros_install"
-if [ -e "${SCRIPT_DIR}/.bazel/bin" ]; then
-    BAZEL_BIN="${SCRIPT_DIR}/.bazel/bin"
-elif [ -e "${SCRIPT_DIR}/bazel-bin" ]; then
-    BAZEL_BIN="${SCRIPT_DIR}/bazel-bin"
-else
-    BAZEL_BIN="${SCRIPT_DIR}/.bazel/bin"
-fi
+# Where Bazel puts its convenience symlinks. Fixed, whether or not a build has made them yet: see "The environment must
+# not depend on the build" below.
+# LINT.IfChange(symlink_prefix)
+_BAZEL_SYMLINKS="${SCRIPT_DIR}/.bazel"
+# LINT.ThenChange(//.bazelrc:symlink_prefix)
+BAZEL_BIN="${_BAZEL_SYMLINKS}/bin"
 
 # True for the directory entries _setup_package copies: everything but the Bazel files and the source tree.
 _is_share_asset() {
@@ -86,7 +85,11 @@ _setup_package() {
 
     local lock_fd=""
     if command -v flock >/dev/null 2>&1; then
-        exec {lock_fd}>"${BAZEL_INSTALL}/.${pkg_name}.lock" 2>/dev/null || lock_fd=""
+        # The braces confine `2>/dev/null` to opening the lock. `exec` with redirections and no command applies ALL of
+        # them to the shell for good, so the bare `exec {lock_fd}>file 2>/dev/null` this used to be also sent the
+        # stderr of every shell that sourced this file to /dev/null - in a fresh container, where every package is
+        # copied, that hid every error of the `make build-all` / `make test-all` that CI runs.
+        { exec {lock_fd}>"${BAZEL_INSTALL}/.${pkg_name}.lock"; } 2>/dev/null || lock_fd=""
         if [ -n "${lock_fd}" ]; then
             flock -x "${lock_fd}"
             # Another shell may have installed the same assets while this one waited for the lock.
@@ -256,40 +259,56 @@ done
 
 export AMENT_PREFIX_PATH="${_BAZEL_PREFIXES}:${AMENT_PREFIX_PATH}"
 
-# Add Bazel-generated Python message bindings and shared libraries (humanoid_mpc_msgs, ocs2_ros2_msgs)
-_OUTPUT_BASE=""
-if [ -e "${SCRIPT_DIR}/.bazel/output_base" ]; then
-    _OUTPUT_BASE=$(readlink -f "${SCRIPT_DIR}/.bazel/output_base" 2>/dev/null)
-elif [ -e "${SCRIPT_DIR}/bazel-out" ]; then
-    _OUTPUT_BASE=$(readlink -f "${SCRIPT_DIR}/bazel-out/../../" 2>/dev/null)
-fi
-if [ -z "$_OUTPUT_BASE" ] || [ ! -d "$_OUTPUT_BASE" ]; then
-    if [ -d "${HOME}/.cache/bazel" ]; then
-        _OUTPUT_BASE=$(find "${HOME}/.cache/bazel" -maxdepth 3 -type d -name "external" 2>/dev/null | head -n 1 | sed 's|/external$||')
-    fi
-fi
+# ==============================================================================
+# The environment must not depend on the build
+# ==============================================================================
+# .bazelrc passes PATH, LD_LIBRARY_PATH, PYTHONPATH and AMENT_PREFIX_PATH to every build action (--action_env), and
+# LD_LIBRARY_PATH and AMENT_PREFIX_PATH to every test (--test_env), so their values are part of every cache key. They
+# used to gain .bazel/bin and the message packages' directories only once a build had created them. A fresh checkout was
+# then set up one way for `bazel build` and another way for the `bazel test` after it, so CI's test step rebuilt the
+# whole workspace a second time. A shell set up before the message repositories existed - a first build, or one after
+# Bazel had re-run those repository rules - ran the ROS tests without the typesupport libraries that rosidl loads at run
+# time ("Could not load library libocs2_ros2_msgs__rosidl_typesupport_fastrtps_cpp.so"). So every directory below is
+# added whether it exists yet or not; every lookup skips a missing one.
+#
+# The output base is computed as Bazel computes its default, <cache>/bazel/_bazel_<user>/<md5 of the workspace path>.
+# Two other ways are both wrong. `bazel info output_base` is one: this file is sourced through BASH_ENV by every shell,
+# including the ones Bazel itself starts. The .bazel/out symlink is the other. The checkout is shared by the host, the
+# dev container and `make ci-local`'s container, each with an output base of its own, and whichever built last owns the
+# symlink. A --output_base or --output_user_root startup option in user.bazelrc is not followed.
+_WORKSPACE_HASH="$(printf %s "$(cd "${SCRIPT_DIR}" && pwd -P)" | md5sum | cut -d ' ' -f 1)"
+_OUTPUT_BASE="${XDG_CACHE_HOME:-${HOME}/.cache}/bazel/_bazel_${USER:-$(id -un)}/${_WORKSPACE_HASH}"
+unset _WORKSPACE_HASH
 
-if [ -n "$_OUTPUT_BASE" ] && [ -d "$_OUTPUT_BASE" ]; then
-    for pypath in "${_OUTPUT_BASE}"/external/*msgs_repo/install/*/lib/python3.*/site-packages; do
-        [ -d "$pypath" ] && export PYTHONPATH="${pypath}:${PYTHONPATH}"
-    done
-    for libpath in "${_OUTPUT_BASE}"/external/*msgs_repo/install/*/lib; do
-        [ -d "$libpath" ] && export LD_LIBRARY_PATH="${libpath}:${LD_LIBRARY_PATH}"
-    done
-    for amentpath in "${_OUTPUT_BASE}"/external/*msgs_repo/install/*; do
-        [ -d "$amentpath/share" ] && export AMENT_PREFIX_PATH="${amentpath}:${AMENT_PREFIX_PATH}"
-    done
-fi
-unset _OUTPUT_BASE
+# The message bindings are built for ROS's own Python.
+_ROS_PYTHON=""
+for _ros_python_dir in /opt/ros/"${ROS_DISTRO:-}"/lib/python3.*; do
+    if [ -d "${_ros_python_dir}" ]; then
+        _ROS_PYTHON="$(basename "${_ros_python_dir}")"
+    fi
+done
+unset _ros_python_dir
+
+# Bazel-generated message packages: their shared libraries, Python bindings and ament prefixes.
+# LINT.IfChange(bazel_msgs_repositories)
+_BAZEL_MSGS_PACKAGES="humanoid_mpc_msgs ocs2_ros2_msgs"
+# LINT.ThenChange(//bazel/system_libs.bzl:system_repositories)
+for _msgs_package in ${_BAZEL_MSGS_PACKAGES}; do
+    _msgs_prefix="${_OUTPUT_BASE}/external/+system_libs+${_msgs_package}_repo/install/${_msgs_package}"
+    export LD_LIBRARY_PATH="${_msgs_prefix}/lib:${LD_LIBRARY_PATH:-}"
+    export AMENT_PREFIX_PATH="${_msgs_prefix}:${AMENT_PREFIX_PATH:-}"
+    if [ -n "${_ROS_PYTHON}" ]; then
+        export PYTHONPATH="${_msgs_prefix}/lib/${_ROS_PYTHON}/site-packages:${PYTHONPATH:-}"
+    fi
+done
+unset _OUTPUT_BASE _ROS_PYTHON _BAZEL_MSGS_PACKAGES _msgs_package _msgs_prefix
 
 # Add Python packages to PYTHONPATH (for launch file imports and RL modules)
 # Ensure active workspace source directories take precedence at the front of PYTHONPATH
 export PYTHONPATH="${SCRIPT_DIR}/humanoid_learning:${SCRIPT_DIR}/humanoid_nmpc/humanoid_common_mpc_ros2:${SCRIPT_DIR}/humanoid_nmpc/humanoid_common_mpc_pyutils:${SCRIPT_DIR}/humanoid_nmpc/remote_control:${PYTHONPATH}"
 
-# Add Bazel-built binaries to PATH
-if [ -d "${BAZEL_BIN}" ]; then
-    export PATH="${BAZEL_BIN}:${PATH}"
-fi
+# Add Bazel-built binaries to PATH, whether or not a build has made them yet (see above)
+export PATH="${BAZEL_BIN}:${PATH}"
 
 # LD_LIBRARY_PATH for ROS2 system libs
 if [ -n "${ROS_DISTRO:-}" ]; then
@@ -337,7 +356,7 @@ _dedupe_path_var PYTHONPATH
 _dedupe_path_var AMENT_PREFIX_PATH
 _dedupe_path_var CMAKE_PREFIX_PATH
 
-unset _BAZEL_PREFIXES
+unset _BAZEL_PREFIXES _BAZEL_SYMLINKS
 unset -f _dedupe_path_var
 unset -f _is_share_asset
 unset -f _package_stamp

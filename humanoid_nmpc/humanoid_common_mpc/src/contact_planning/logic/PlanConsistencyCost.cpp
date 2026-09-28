@@ -26,19 +26,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/logic/PlanConsistencyCost.h"
 
 #include <algorithm>
-#include <sstream>
-#include <stdexcept>
+
+#include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
 
 std::string PlanConsistencyCost::describe() const {
-  std::ostringstream out;
-  out << cost_ << " per decided node whose contact differs from the previous plan";
-  return out.str();
+  return absl::StrCat(cost_, " per decided node whose contact differs from the previous plan");
 }
 
 void PlanConsistencyCost::configure(const ContactPlanningConfig& config) {
-  if (config.planConsistency.cost < 0.0) throw std::invalid_argument("[plan_consistency] cost must be non-negative");
   cost_ = config.planConsistency.cost;
 }
 

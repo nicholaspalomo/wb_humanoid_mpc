@@ -77,16 +77,16 @@ class RobotStateContactEstimatorTest : public ::testing::Test {
 
 TEST_F(RobotStateContactEstimatorTest, reportsTheFlagsOfTheRobotState) {
   RobotDescription description(urdfPath_.string());
-  RobotState state(description, 2);
+  RobotState state(description, /*contactSize=*/2);
   RobotStateContactEstimator estimator;
   EXPECT_EQ(estimator.getName(), "RobotStateContactEstimator");
 
   // A fresh state assumes every contact point is touching.
   EXPECT_EQ(estimator.estimateContactFlags(state), (std::vector<bool>{true, true}));
 
-  state.setContactFlag(0, false);
+  state.setContactFlag(/*index=*/0, /*contactFlag=*/false);
   EXPECT_EQ(estimator.estimateContactFlags(state), (std::vector<bool>{false, true}));
-  state.setContactFlag(1, false);
+  state.setContactFlag(/*index=*/1, /*contactFlag=*/false);
   EXPECT_EQ(estimator.estimateContactFlags(state), (std::vector<bool>{false, false}));
 
   // The base-class interface is what controllers hold.

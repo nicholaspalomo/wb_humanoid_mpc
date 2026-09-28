@@ -38,4 +38,14 @@ if [ -n "$STAGED_FILES" ]; then
     fi
 fi
 
+# Literal arguments must say what they are: `f(file, /*contactIndex=*/0)`, not `f(file, 0)` (Google C++ style). Checked
+# on the STAGED version of the C++ files this commit touches, after formatting has been staged above, so the commit is
+# judged as it will be recorded and a file it does not change can never block it.
+echo "🔍 Pre-Commit Hook: Checking argument comments on literal arguments in the staged C++ files..."
+if ! python3 tools/hooks/argument_comments.py --git-staged; then
+    echo "❌ Commit blocked: give each literal argument above an argument comment, /*parameter_name=*/, with the name"
+    echo "   from the callee's declaration (or // NOLINT(argument-comment) where it is self-evident), then stage and commit."
+    exit 1
+fi
+
 echo "✅ Pre-commit checks completed successfully."

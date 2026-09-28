@@ -65,6 +65,15 @@ class GaitSchedule {
 
   void updateModeSchedule(const ModeSchedule& modeSchedule);
 
+  /**
+   * Puts the schedule and the template back to the ones this schedule was constructed with, i.e. the reference file's
+   * initialModeSchedule and defaultModeSequenceTemplate, both STANCE on every shipped robot. Every gait inserted since
+   * is forgotten, including its events in the future: after a reset of the controller, or a clock that ran backwards,
+   * those would hold the robot in whatever the old schedule said until the clock caught up with them. The next
+   * getModeSchedule() then answers exactly as it would on a freshly constructed schedule.
+   */
+  void reset();
+
  private:
   /**
    * Extends the switch information from lowerBoundTime to upperBoundTime based on the template mode sequence.
@@ -75,6 +84,10 @@ class GaitSchedule {
   void tileModeSequenceTemplate(scalar_t startTime, scalar_t finalTime);
 
  private:
+  // What the schedule was constructed with, for reset().
+  const ModeSchedule initModeSchedule_;
+  const ModeSequenceTemplate initModeSequenceTemplate_;
+
   ModeSchedule modeSchedule_;
   ModeSequenceTemplate modeSequenceTemplate_;
   scalar_t phaseTransitionStanceTime_;

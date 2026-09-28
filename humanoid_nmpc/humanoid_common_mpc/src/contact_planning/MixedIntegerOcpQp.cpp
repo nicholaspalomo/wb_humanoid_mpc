@@ -28,7 +28,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <iostream>
+#include <functional>
 #include <limits>
 #include <optional>
 #include <queue>
@@ -36,6 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 
 #include "absl/log/log.h"
+#include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
 
@@ -67,13 +68,13 @@ std::vector<MixedIntegerOcpQp::BinaryLocation> MixedIntegerOcpQp::locateBinaries
   locations.reserve(binaries.size());
   for (const MiqpBinaryVariable& binary : binaries) {
     if (binary.stage < 0 || binary.stage >= problem.numStages()) {
-      throw std::invalid_argument("[MixedIntegerOcpQp] binary variable stage out of range: " + std::to_string(binary.stage));
+      throw std::invalid_argument(absl::StrCat("[MixedIntegerOcpQp] binary variable stage out of range: ", binary.stage));
     }
     const OcpQpStage& stage = problem.stages[binary.stage];
-    const auto it = std::find(stage.idxbu.begin(), stage.idxbu.end(), binary.inputIndex);
+    const std::vector<int>::const_iterator it = std::find(stage.idxbu.begin(), stage.idxbu.end(), binary.inputIndex);
     if (it == stage.idxbu.end()) {
-      throw std::invalid_argument("[MixedIntegerOcpQp] binary input " + std::to_string(binary.inputIndex) + " of stage " +
-                                  std::to_string(binary.stage) + " has no box constraint");
+      throw std::invalid_argument(
+          absl::StrCat("[MixedIntegerOcpQp] binary input ", binary.inputIndex, " of stage ", binary.stage, " has no box constraint"));
     }
     locations.push_back({binary.stage, static_cast<int>(it - stage.idxbu.begin())});
   }
@@ -147,7 +148,7 @@ MiqpResult MixedIntegerOcpQp::solve(OcpQpProblem& problem,
                                     const MiqpPropagateFn& propagate,
                                     const MiqpAssignment* warmStart,
                                     const MiqpAssignmentCostFn& assignmentCost) {
-  const auto startTime = Clock::now();
+  const Clock::time_point startTime = Clock::now();
   MiqpResult result;
   result.incumbentObjective = std::numeric_limits<scalar_t>::infinity();
 
@@ -156,10 +157,14 @@ MiqpResult MixedIntegerOcpQp::solve(OcpQpProblem& problem,
   }
   const std::vector<BinaryLocation> locations = locateBinaries(problem, binaries);
 
-  const auto runPropagation = [&](MiqpAssignment& assignment) -> bool { return !propagate || propagate(assignment); };
-  const auto logicalCost = [&](const MiqpAssignment& assignment) -> scalar_t { return assignmentCost ? assignmentCost(assignment) : 0.0; };
+  const std::function<bool(MiqpAssignment&)> runPropagation = [&](MiqpAssignment& assignment) {
+    return !propagate || propagate(assignment);
+  };
+  const std::function<scalar_t(const MiqpAssignment&)> logicalCost = [&](const MiqpAssignment& assignment) {
+    return assignmentCost ? assignmentCost(assignment) : 0.0;
+  };
 
-  const auto limitsHit = [&]() {
+  const std::function<bool()> limitsHit = [&]() {
     if (result.numNodes >= settings_.maxNodes) {
       result.nodeLimitHit = true;
       return true;
@@ -172,7 +177,8 @@ MiqpResult MixedIntegerOcpQp::solve(OcpQpProblem& problem,
   };
 
   // Solves the relaxation of an assignment. Returns false if the QP failed (treated as infeasible).
-  const auto solveRelaxation = [&](const MiqpAssignment& assignment, OcpQpSolution& solution) -> bool {
+  const std::function<bool(const MiqpAssignment&, OcpQpSolution&)> solveRelaxation = [&](const MiqpAssignment& assignment,
+                                                                                         OcpQpSolution& solution) {
     applyAssignment(problem, locations, assignment);
     solution = qpSolver_.solve(problem);
     ++result.numNodes;
@@ -192,7 +198,8 @@ MiqpResult MixedIntegerOcpQp::solve(OcpQpProblem& problem,
     return true;
   };
 
-  const auto updateIncumbent = [&](const MiqpAssignment& assignment, const OcpQpSolution& solution) {
+  const std::function<void(const MiqpAssignment&, const OcpQpSolution&)> updateIncumbent = [&](const MiqpAssignment& assignment,
+                                                                                               const OcpQpSolution& solution) {
     const scalar_t objective = solution.objective + logicalCost(assignment);
     if (objective < result.incumbentObjective) {
       result.hasIncumbent = true;
@@ -207,7 +214,7 @@ MiqpResult MixedIntegerOcpQp::solve(OcpQpProblem& problem,
 
   // Diving heuristic: fix every free binary that is integral in the relaxation, round the first fractional one, propagate,
   // re-solve, and repeat until the assignment is complete. Only used to find incumbents, never to prune.
-  const auto dive = [&](MiqpAssignment assignment, OcpQpSolution relaxation) {
+  const std::function<void(MiqpAssignment, OcpQpSolution)> dive = [&](MiqpAssignment assignment, OcpQpSolution relaxation) {
     for (int iteration = 0; iteration < settings_.maxDiveIterations && !limitsHit(); ++iteration) {
       bool rounded = false;
       for (std::size_t i = 0; i < binaries.size(); ++i) {
@@ -259,8 +266,10 @@ MiqpResult MixedIntegerOcpQp::solve(OcpQpProblem& problem,
 
   // Best-first search over the open nodes (lowest parent bound first) with depth-first diving: after branching, the
   // preferred child is processed immediately, the other one is queued.
-  const auto worseBound = [](const Node& a, const Node& b) { return a.parentBound > b.parentBound; };
-  std::priority_queue<Node, std::vector<Node>, decltype(worseBound)> open(worseBound);
+  const std::function<bool(const Node&, const Node&)> worseBound = [](const Node& a, const Node& b) {
+    return a.parentBound > b.parentBound;
+  };
+  std::priority_queue<Node, std::vector<Node>, std::function<bool(const Node&, const Node&)>> open(worseBound);
   open.push({root, -std::numeric_limits<scalar_t>::infinity()});
   bool isRoot = true;
 

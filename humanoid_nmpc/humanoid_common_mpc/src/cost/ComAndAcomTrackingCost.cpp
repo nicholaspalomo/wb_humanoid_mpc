@@ -5,10 +5,21 @@
 #include <ocs2_centroidal_model/AccessHelperFunctions.h>
 #include <ocs2_robotic_tools/common/RotationTransforms.h>
 #include <pinocchio/algorithm/center-of-mass.hpp>
+#include <pinocchio/multibody/data.hpp>
+#include <pinocchio/multibody/model.hpp>
 
 #include <cstddef>
 #include <stdexcept>
+#include <string>
 #include <utility>
+#include <vector>
+
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+
+#include "humanoid_common_mpc/common/StatusMacros.h"
 
 namespace ocs2::humanoid {
 
@@ -24,24 +35,89 @@ constexpr std::size_t kBasePositionStateIndex = kGeneralizedCoordinatesStartInde
 constexpr std::size_t kBaseOrientationStateIndex = kGeneralizedCoordinatesStartIndex + 3;
 constexpr std::size_t kJointStateIndex = kGeneralizedCoordinatesStartIndex + 6;
 
+/// Generalized coordinates of the floating base: 3 translations and 3 ZYX Euler angles.
+constexpr int kGeneralizedBaseDim = 6;
+
+/// The base pose in the state: p_base followed by the ZYX Euler angles, which this cost replaces.
+constexpr Eigen::Index kBasePoseStateIndex = kBasePositionStateIndex;
+constexpr Eigen::Index kBasePoseDim = kGeneralizedBaseDim;
+
+/**
+ * Loads the aCOM network for `robotName` and checks it against the model the cost evaluates: the network's joints,
+ * name by name, against the model's actuated joints, which also pins the count to info.actuatedDofNum.
+ */
+absl::StatusOr<std::unique_ptr<AngularCenterOfMass>> createCheckedAcom(const PinocchioInterface& pinocchioInterface,
+                                                                       const CentroidalModelInfo& info,
+                                                                       absl::string_view robotName) {
+  ASSIGN_OR_RETURN(const std::vector<std::string> modelJointNames, ComAndAcomTrackingCost::actuatedJointNames(pinocchioInterface, info));
+  return AngularCenterOfMass::Create(robotName, modelJointNames);
+}
+
 }  // namespace
+
+absl::StatusOr<std::vector<std::string>> ComAndAcomTrackingCost::actuatedJointNames(const PinocchioInterface& pinocchioInterface,
+                                                                                    const CentroidalModelInfo& info) {
+  const pinocchio::Model& model = pinocchioInterface.getModel();
+  if (model.nq != kGeneralizedBaseDim + static_cast<int>(info.actuatedDofNum)) {
+    return absl::InvalidArgumentError(absl::StrCat("[ComAndAcomTrackingCost] CentroidalModelInfo.actuatedDofNum (", info.actuatedDofNum,
+                                                   ") does not describe the Pinocchio model, which has ", model.nq - kGeneralizedBaseDim,
+                                                   " joint coordinates after its floating base."));
+  }
+  // model.names starts with the universe and the floating-base joint; the actuated joints are the rest, in the order
+  // the state stores them. Counting from the end keeps this independent of how many joints the base is built from.
+  const std::size_t numActuated = static_cast<std::size_t>(info.actuatedDofNum);
+  if (model.names.size() < numActuated) {
+    return absl::InvalidArgumentError(absl::StrCat("[ComAndAcomTrackingCost] the Pinocchio model names ", model.names.size(),
+                                                   " joints, fewer than actuatedDofNum (", numActuated, ")."));
+  }
+  return std::vector<std::string>(model.names.end() - static_cast<std::ptrdiff_t>(numActuated), model.names.end());
+}
+
+absl::Status ComAndAcomTrackingCost::validateWeights(const matrix_t& Q_com, const matrix_t& Q_acom) {
+  if (Q_com.rows() != 3 || Q_com.cols() != 3) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("[ComAndAcomTrackingCost] Q_com in task.yaml must be 3x3, got ", Q_com.rows(), "x", Q_com.cols(), "."));
+  }
+  if (Q_acom.rows() != 3 || Q_acom.cols() != 3) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("[ComAndAcomTrackingCost] Q_acom in task.yaml must be 3x3, got ", Q_acom.rows(), "x", Q_acom.cols(), "."));
+  }
+  return absl::OkStatus();
+}
+
+absl::StatusOr<std::unique_ptr<ComAndAcomTrackingCost>> ComAndAcomTrackingCost::Create(
+    matrix_t Q_com, matrix_t Q_acom, PinocchioInterface pinocchioInterface, CentroidalModelInfo info, absl::string_view robotName) {
+  RETURN_IF_ERROR(validateWeights(Q_com, Q_acom));
+  ASSIGN_OR_RETURN(std::unique_ptr<AngularCenterOfMass> acom, createCheckedAcom(pinocchioInterface, info, robotName));
+  // The constructor is private, so std::make_unique cannot reach it.
+  return std::unique_ptr<ComAndAcomTrackingCost>(
+      new ComAndAcomTrackingCost(std::move(Q_com), std::move(Q_acom), std::move(pinocchioInterface), std::move(info), std::move(acom)));
+}
 
 ComAndAcomTrackingCost::ComAndAcomTrackingCost(
     matrix_t Q_com, matrix_t Q_acom, PinocchioInterface pinocchioInterface, CentroidalModelInfo info, const std::string& robotName)
+    : Q_com_(std::move(Q_com)), Q_acom_(std::move(Q_acom)), pinocchioInterface_(std::move(pinocchioInterface)), info_(std::move(info)) {
+  const absl::Status weights = validateWeights(Q_com_, Q_acom_);
+  if (!weights.ok()) {
+    throw std::runtime_error(std::string(weights.message()));
+  }
+  absl::StatusOr<std::unique_ptr<AngularCenterOfMass>> acom = createCheckedAcom(pinocchioInterface_, info_, robotName);
+  if (!acom.ok()) {
+    throw std::runtime_error(std::string(acom.status().message()));
+  }
+  acom_ = *std::move(acom);
+}
+
+ComAndAcomTrackingCost::ComAndAcomTrackingCost(matrix_t Q_com,
+                                               matrix_t Q_acom,
+                                               PinocchioInterface pinocchioInterface,
+                                               CentroidalModelInfo info,
+                                               std::unique_ptr<AngularCenterOfMass> acom)
     : Q_com_(std::move(Q_com)),
       Q_acom_(std::move(Q_acom)),
       pinocchioInterface_(std::move(pinocchioInterface)),
       info_(std::move(info)),
-      robotName_(robotName),
-      acom_(AngularCenterOfMass::createForRobot(robotName)) {
-  // Runtime dimension check: the SIREN network must have been trained with the
-  // same number of joints as the centroidal model expects.
-  if (acom_->getInputDim() != static_cast<std::size_t>(info_.actuatedDofNum)) {
-    throw std::runtime_error("[ComAndAcomTrackingCost] ACoM SIREN input_dim (" + std::to_string(acom_->getInputDim()) +
-                             ") != actuatedDofNum (" + std::to_string(info_.actuatedDofNum) + "). Regenerate AcomSirenWeights" + robotName +
-                             ".h with matching robot model.");
-  }
-}
+      acom_(std::move(acom)) {}
 
 ComAndAcomTrackingCost::ComAndAcomTrackingCost(const ComAndAcomTrackingCost& rhs)
     : StateCost(rhs),
@@ -49,8 +125,8 @@ ComAndAcomTrackingCost::ComAndAcomTrackingCost(const ComAndAcomTrackingCost& rhs
       Q_acom_(rhs.Q_acom_),
       pinocchioInterface_(rhs.pinocchioInterface_),
       info_(rhs.info_),
-      robotName_(rhs.robotName_),
-      acom_(AngularCenterOfMass::createForRobot(rhs.robotName_)) {}
+      // A deep copy of the already-checked evaluator: the clone runs the same network without re-resolving it.
+      acom_(std::make_unique<AngularCenterOfMass>(*rhs.acom_)) {}
 
 ComAndAcomTrackingCost* ComAndAcomTrackingCost::clone() const {
   return new ComAndAcomTrackingCost(*this);
@@ -83,8 +159,8 @@ scalar_t ComAndAcomTrackingCost::getValue(scalar_t time,
   const vector_t q = centroidal_model::getGeneralizedCoordinates(state, info_);
   const vector_t qRef = centroidal_model::getGeneralizedCoordinates(stateRef, info_);
 
-  auto& pinocchioData = pinocchioInterface_.getData();
-  const auto& pinocchioModel = pinocchioInterface_.getModel();
+  pinocchio::Data& pinocchioData = pinocchioInterface_.getData();
+  const pinocchio::Model& pinocchioModel = pinocchioInterface_.getModel();
 
   // centerOfMass returns a reference into pinocchioData, so p_com must be copied
   // out before the reference configuration overwrites it.
@@ -106,8 +182,8 @@ ScalarFunctionQuadraticApproximation ComAndAcomTrackingCost::getQuadraticApproxi
   const vector_t q = centroidal_model::getGeneralizedCoordinates(state, info_);
   const vector_t qRef = centroidal_model::getGeneralizedCoordinates(stateRef, info_);
 
-  auto& pinocchioData = pinocchioInterface_.getData();
-  const auto& pinocchioModel = pinocchioInterface_.getModel();
+  pinocchio::Data& pinocchioData = pinocchioInterface_.getData();
+  const pinocchio::Model& pinocchioModel = pinocchioInterface_.getModel();
 
   // ---- CoM position and Jacobian ----
   // p_com and J_com_v are deep copies, because the reference CoM evaluation below
@@ -130,8 +206,8 @@ ScalarFunctionQuadraticApproximation ComAndAcomTrackingCost::getQuadraticApproxi
   // In particular v[3:6] is the Euler angle rate, NOT the angular velocity omega.
   // Pinocchio's CoM Jacobian is therefore already dp_com/dq, and no Euler-rate to
   // angular-velocity mapping may be chained onto its base orientation columns.
-  // A finite-difference regression test in testComAndAcomTrackingCost.cpp pins
-  // this convention.
+  // testComAndAcomTrackingCost.cpp pins this convention by comparing dfdx with
+  // central differences of getValue at a tilted base.
   //
   // Build dp_com/dx by hand, since CentroidalModelPinocchioMapping does not
   // expose a configuration Jacobian for the centroidal formulation.
@@ -157,12 +233,14 @@ ScalarFunctionQuadraticApproximation ComAndAcomTrackingCost::getQuadraticApproxi
   return approx;
 }
 
+void ComAndAcomTrackingCost::zeroBasePoseWeights(matrix_t& Q) {
+  Q.block(kBasePoseStateIndex, kBasePoseStateIndex, kBasePoseDim, kBasePoseDim).setZero();
+}
+
 void ComAndAcomTrackingCost::setWeights(matrix_t Q_com, matrix_t Q_acom) {
-  if (Q_com.rows() != 3 || Q_com.cols() != 3) {
-    throw std::invalid_argument("[ComAndAcomTrackingCost::setWeights] Q_com must be 3x3.");
-  }
-  if (Q_acom.rows() != 3 || Q_acom.cols() != 3) {
-    throw std::invalid_argument("[ComAndAcomTrackingCost::setWeights] Q_acom must be 3x3.");
+  const absl::Status status = validateWeights(Q_com, Q_acom);
+  if (!status.ok()) {
+    throw std::invalid_argument(std::string(status.message()));
   }
   Q_com_ = std::move(Q_com);
   Q_acom_ = std::move(Q_acom);

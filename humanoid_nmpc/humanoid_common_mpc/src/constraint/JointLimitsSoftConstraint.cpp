@@ -75,8 +75,8 @@ scalar_t JointLimitsSoftConstraint::getValue(const vector_t& jointPositions) con
   const vector_t upperBoundPositionOffset = positionLimits_.second - jointPositions;
   const vector_t lowerBoundPositionOffset = jointPositions - positionLimits_.first;
 
-  return upperBoundPositionOffset.unaryExpr([&](scalar_t hi) { return jointPositionPenaltyPtr_->getValue(0.0, hi); }).sum() +
-         lowerBoundPositionOffset.unaryExpr([&](scalar_t hi) { return jointPositionPenaltyPtr_->getValue(0.0, hi); }).sum() + offset_;
+  return upperBoundPositionOffset.unaryExpr([&](scalar_t hi) { return jointPositionPenaltyPtr_->getValue(/*t=*/0.0, hi); }).sum() +
+         lowerBoundPositionOffset.unaryExpr([&](scalar_t hi) { return jointPositionPenaltyPtr_->getValue(/*t=*/0.0, hi); }).sum() + offset_;
 }
 
 ScalarFunctionQuadraticApproximation JointLimitsSoftConstraint::getQuadraticApproximation(const vector_t& jointPositions) const {
@@ -88,18 +88,19 @@ ScalarFunctionQuadraticApproximation JointLimitsSoftConstraint::getQuadraticAppr
   const size_t jointStartIndex = mpcRobotModelPtr_->getJointStartindex();
 
   ScalarFunctionQuadraticApproximation cost;
-  cost.f = upperBoundPositionOffset.unaryExpr([&](scalar_t hi) { return jointPositionPenaltyPtr_->getValue(0.0, hi); }).sum() +
-           lowerBoundPositionOffset.unaryExpr([&](scalar_t hi) { return jointPositionPenaltyPtr_->getValue(0.0, hi); }).sum() + offset_;
+  cost.f = upperBoundPositionOffset.unaryExpr([&](scalar_t hi) { return jointPositionPenaltyPtr_->getValue(/*t=*/0.0, hi); }).sum() +
+           lowerBoundPositionOffset.unaryExpr([&](scalar_t hi) { return jointPositionPenaltyPtr_->getValue(/*t=*/0.0, hi); }).sum() +
+           offset_;
 
   cost.dfdx = vector_t::Zero(stateDim);
   cost.dfdx.segment(jointStartIndex, jointDim) = lowerBoundPositionOffset.unaryExpr([&](scalar_t hi) {
-    return jointPositionPenaltyPtr_->getDerivative(0.0, hi);
-  }) - upperBoundPositionOffset.unaryExpr([&](scalar_t hi) { return jointPositionPenaltyPtr_->getDerivative(0.0, hi); });
+    return jointPositionPenaltyPtr_->getDerivative(/*t=*/0.0, hi);
+  }) - upperBoundPositionOffset.unaryExpr([&](scalar_t hi) { return jointPositionPenaltyPtr_->getDerivative(/*t=*/0.0, hi); });
 
   cost.dfdxx = matrix_t::Zero(stateDim, stateDim);
   cost.dfdxx.block(jointStartIndex, jointStartIndex, jointDim, jointDim).diagonal() = lowerBoundPositionOffset.unaryExpr([&](scalar_t hi) {
-    return jointPositionPenaltyPtr_->getSecondDerivative(0.0, hi);
-  }) + upperBoundPositionOffset.unaryExpr([&](scalar_t hi) { return jointPositionPenaltyPtr_->getSecondDerivative(0.0, hi); });
+    return jointPositionPenaltyPtr_->getSecondDerivative(/*t=*/0.0, hi);
+  }) + upperBoundPositionOffset.unaryExpr([&](scalar_t hi) { return jointPositionPenaltyPtr_->getSecondDerivative(/*t=*/0.0, hi); });
 
   return cost;
 }

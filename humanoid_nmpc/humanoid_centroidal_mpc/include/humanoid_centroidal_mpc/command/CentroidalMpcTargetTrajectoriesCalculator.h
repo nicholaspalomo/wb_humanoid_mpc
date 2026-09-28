@@ -54,6 +54,9 @@ class CentroidalMpcTargetTrajectoriesCalculator : public TargetTrajectoriesCalcu
 
   CentroidalMpcTargetTrajectoriesCalculator(const CentroidalMpcTargetTrajectoriesCalculator& rhs) = delete;
 
+  /** The base class's filter, and here the joint-state filter and its clock: see TargetTrajectoriesCalculatorBase::reset(). */
+  void reset() override;
+
   /**
    * Converts command line to TargetTrajectories.
    * @param [in] commadLineTarget : [deltaX, deltaY, deltaZ, deltaYaw] defined in pelvis frame

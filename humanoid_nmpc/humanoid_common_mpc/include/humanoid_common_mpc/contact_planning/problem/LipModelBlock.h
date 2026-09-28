@@ -44,7 +44,7 @@ class LipModelBlock : public ContactPlanningTerm {
  public:
   /** Declares the block's states and inputs, in order (the layout is the concatenation over the blocks). */
   virtual void declareVariables(LayoutBuilder& layout) const = 0;
-  /** Writes the block's rows of A, B (and b) of a running node. The stage arrives zero-initialised. */
+  /** Writes the block's rows of A, B (and b) of a running node. The stage arrives zero-initialized. */
   virtual void addDynamics(const ContactPlanningContext& ctx, int node, OcpQpStage& stage) const = 0;
   /** Adds the block's input box constraints of a running node, in order. */
   virtual void addInputBounds(const ContactPlanningContext& /*ctx*/, int /*node*/, InputBoundsBuilder& /*bounds*/) const {}

@@ -3,3 +3,34 @@
 # ==============================================================================
 
 package(default_visibility = ["//visibility:public"])
+
+# The ACoM training notebook behind `make train-acom-jupyter`; //humanoid_learning/acom/tests:test_acom runs it.
+exports_files(["notebooks/train_acom_siren.ipynb"])
+
+# The files //tools/resource_limits:test_resource_limits pins: RAM-bounded Bazel parallelism, the container's memory cap,
+# and the local CI emulator that has to match the CI workflow and its runner.
+exports_files([
+    ".bazelrc",
+    ".devcontainer/devcontainer.json",
+    ".github/workflows/build_test.yml",
+    "docker-compose.yaml",
+    "tools/ci_local.sh",
+])
+
+# The environment script every shell, CI build and launch sources; //tools/setup_env:test_setup_env pins it.
+exports_files(["setup_env.sh"])
+
+# The dev image and the system packages CI and the image install; //tools/hooks:test_include_style checks that neither
+# brings a system Abseil, and //tools/hooks:test_ci_formatter_versions that CI's format check uses the image's formatters.
+exports_files([
+    ".github/workflows/format_test.yml",
+    "dependencies.txt",
+    "docker/Dockerfile",
+])
+
+# The Bazelisk wrapper that serializes the builds of every container on this machine, and the container shell setup that
+# must never call Bazel from a script; //tools/resource_limits:test_bazel_machine_lock tests both.
+exports_files([
+    ".devcontainer/shell_init.sh",
+    "tools/bazel",
+])

@@ -64,7 +64,7 @@ void ExternalForceVisualization::addSceneGeoms(const VisualizationFrame& frame) 
 
     const mjtNum from[3] = {xpos[0], xpos[1], xpos[2]};
     const mjtNum to[3] = {xpos[0] + scale * (fx / magnitude), xpos[1] + scale * (fy / magnitude), xpos[2] + scale * (fz / magnitude)};
-    mjv_connector(arrow, mjGEOM_ARROW, 0.005, from, to);
+    mjv_connector(arrow, mjGEOM_ARROW, /*width=*/0.005, from, to);
 
     arrow->rgba[0] = 0.5f;
     arrow->rgba[1] = 1.0f;

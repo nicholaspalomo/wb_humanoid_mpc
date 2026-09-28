@@ -26,8 +26,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/constraint/NoFlightConstraint.h"
 
 #include <cmath>
-#include <sstream>
-#include <stdexcept>
 
 namespace ocs2::humanoid {
 
@@ -38,7 +36,7 @@ std::string NoFlightConstraint::describe() const {
 }
 
 void NoFlightConstraint::addRows(const ContactPlanningContext& /*ctx*/, int /*node*/, RowBuilder& rows) const {
-  rows.addHard({}, {{idx_.contact[0], 1.0}, {idx_.contact[1], 1.0}}, 1.0, 2.0);
+  rows.addHard({}, {{idx_.contact[0], 1.0}, {idx_.contact[1], 1.0}}, /*lower=*/1.0, /*upper=*/2.0);
 }
 
 }  // namespace ocs2::humanoid

@@ -37,12 +37,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdlib>
 #include <cstring>
 
+#include <array>
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <ctime>
 #include <mutex>
+#include <optional>
+
 #include <thread>
 #include <vector>
+#include "mujoco_sim_interface/Projectile.h"
 
 #include <Eigen/Dense>
 
@@ -71,7 +76,7 @@ namespace robot::mujoco_sim_interface {
  * mj_step, so the base is genuinely supported while the dynamics are integrated. A limb then needs exactly its own
  * gravity torque to hover, which is what GRAVITY_COMP commands.
  *
- * kKinematicTeleport is the legacy behaviour and is unphysical: it overwrites qpos and qvel immediately BEFORE mj_step
+ * kKinematicTeleport is the legacy behavior and is unphysical: it overwrites qpos and qvel immediately BEFORE mj_step
  * and so leaves the base unsupported during the step itself. The whole robot is then in free fall while integrating,
  * and a free-falling chain in uniform gravity needs ZERO relative joint torque to keep its shape - so the commanded
  * g_j(q) is entirely surplus torque in the lifting direction. Measured on the shipped scenes, that drives the limbs
@@ -97,6 +102,9 @@ struct MujocoSimConfig {
   double renderFrequencyHz{60.0};
   bool headless{false};
   bool verbose{false};
+  /// Name of the projectile compiled into the scene, from the robot task file's `simProjectile`. Empty compiles the
+  /// scene exactly as it is on disk, with no ball in it. See Projectile.h for the names.
+  std::string projectile{};
   bool enableGantry{true};
   bool isGantryLocked{true};
   double gantryHeight{0.0};
@@ -139,11 +147,48 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
 
   void simulationStep();
 
-  // Todo Manu also reset environment
+  /**
+   * Puts the robot back in its initial state, on the simulation thread's data. The simulation clock is NOT rewound:
+   * every controller reading this simulator keys its plans on that clock, and a clock that jumps backwards leaves them
+   * timestamped in the future (it is what MuJoCo's own automatic reset did, see mjDSBL_AUTORESET in simulationStep()).
+   * Cancels any dodgeball in play and counts the reset in resetEpoch().
+   */
   void reset();
 
+  /**
+   * How many times the simulator has put the robot back in its initial state: reset(), the automatic reset when the
+   * base drops below the floor limit, and the recovery from a numerically unstable step. A change is a discontinuity of
+   * the plant that no controller can observe from the state alone, so a control loop compares this against the value it
+   * saw in its PREVIOUS cycle and resets its controller when it moves (SimFallRecovery in humanoid_common_mpc_ros2).
+   * Both automatic resets also lock the gantry, but they do it on the simulation thread at any moment of the control
+   * cycle, and when the gantry was locked already they change nothing else a loop could see: watching the lock alone
+   * misses them, and only this count reports every one.
+   */
+  uint64_t resetEpoch() const { return resetEpoch_.load(); }
+
+  /**
+   * Overwrites the floating base's pose (position, then the w-x-y-z quaternion) and velocity (linear, then angular).
+   * For tests and tools that step the simulation themselves: it writes mjData without synchronization, so it must not
+   * be called while the thread startSim() started is running.
+   */
+  void setBaseStateForTesting(const std::array<double, 7>& basePose, const std::array<double, 6>& baseVelocity);
+
   // Virtual Gantry Controls
-  void lockGantry() { isGantryLocked_ = true; }
+  /**
+   * Catches the robot on the gantry, WHERE IT IS: with the `weld_constraint` hold the weld holds the base at its
+   * horizontal position and heading at the moment of the catch, at the gantry height, rather than at the scene's
+   * anchor. A weld to a fixed anchor pulled a robot caught a long walk from the origin across the world, fast enough to
+   * make the step numerically unstable. (The legacy `kinematic_teleport` hold still teleports to the origin; it is kept
+   * only to reproduce recorded runs.)
+   * Locking it also cancels any dodgeball still in play - the ball is parked and a
+   * scheduled impulse is dropped - because this is how both the fall catch and the operator's LOCK_GANTRY hold the
+   * robot, and a throw that lands on a robot that has just been caught is a disturbance nobody aimed at it. Only the
+   * unlocked-to-locked transition cancels, so repeated calls cannot eat throws aimed at a robot already on the gantry.
+   * Callable from any thread; the cancellation is carried out on the simulation thread.
+   */
+  void lockGantry() {
+    if (!isGantryLocked_.exchange(true)) cancelDodgeballRequested_.store(true);
+  }
   void unlockGantry() { isGantryLocked_ = false; }
   double stepGantry(double delta) {
     gantryHeight_ = gantryHeight_.load() + delta;
@@ -165,6 +210,9 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   void readLatestMjState(MjState& state) const;
 
   const mjModel* getModel() const { return mujocoModel_; }
+  /// Body id of the thrown ball, or -1 when `simProjectile` compiled none into this scene. For the viewer markers, which
+  /// must not mistake a ball touching the robot for the ground.
+  int projectileBodyId() const { return dodgeballBodyId_; }
 
   const MujocoSimConfig& getConfig() const { return config_; }
 
@@ -190,6 +238,45 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   /// Snapshot of the target patches for the render thread.
   void copyTargetContactPatches(std::vector<TargetContactPatch>& out) const;
 
+  /**
+   * One dodgeball, as the operator's GUI describes it: a spawn point and a launch velocity in the robot's own YAW
+   * FRAME, the flight time to the base, and the ball's mass.
+   *
+   * The geometry is computed in the GUI and NOT recomputed here - see
+   * humanoid_nmpc/remote_control/remote_control/tk_app/dodgeball.py, which owns the angle conventions and the
+   * gravity compensation and is unit-tested. This struct is the wire format between the two.
+   */
+  struct DodgeballThrow {
+    double spawnOffset[3]{0.0, 0.0, 0.0};     // [m] from the base, in the base's yaw frame
+    double launchVelocity[3]{0.0, 0.0, 0.0};  // [m/s] in the base's yaw frame
+    double flightTime{0.0};                   // [s] until it reaches the base
+    double mass{0.0};                         // [kg] always sent by the GUI; clamped to kMin/kMaxProjectileMass on use
+  };
+
+  /**
+   * Throws a dodgeball at the robot's base. Callable from any thread; takes effect on the simulation thread.
+   *
+   * TWO PATHS, decided by whether `simProjectile` named a ball for this scene.
+   *
+   * WITH A BALL, which is the shipped configuration: the ball is a real free-floating body, appended to the scene
+   * before MuJoCo compiled it. This retunes its mass to the one the operator asked for, places it at the spawn point
+   * with the launch velocity - slid along its own path if that point is inside the robot or the floor, see
+   * clearProjectileLaunch - and lets MuJoCo do the rest: the flight, the impact, the bounce and the roll to rest are
+   * physics rather than a model of physics. What made a body in these scenes awkward is handled rather than avoided:
+   * its dofs are skipped by every joint-damping write (setRobotJointDamping), its contacts are excluded from
+   * `groundTruthContactMask` and from the ZMP marker so a ball against a swing foot is never mistaken for the ground,
+   * and it is appended LAST so it cannot displace the robot as the first free-joint body.
+   *
+   * WITHOUT ONE: the flight is ballistic and known in closed form, so the momentum the ball carries on arrival,
+   * m (v_launch - g t z), is scheduled for `flightTime` from now and applied to the base as a one-step external force.
+   * It is a LOWER bound on the push rather than an equivalent of it: a ball that bounces off hands over up to (1 + e)
+   * times its momentum. The force lasts one physics step, so the viewer, which samples the state about every thirty
+   * steps, will usually not draw it.
+   *
+   * `mass` is clamped with clampProjectileMass on both paths, because a topic can be published by hand.
+   */
+  void throwDodgeball(const DodgeballThrow& throwCommand);
+
   void setTargetVelocities(double vx, double vy, double yawRate) {
     targetVelocityX_.store(vx, std::memory_order_relaxed);
     targetVelocityY_.store(vy, std::memory_order_relaxed);
@@ -208,6 +295,22 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
    * Called once per step immediately before mj_step; a no-op when the gantry is disabled.
    */
   void applyGantryHold();
+  /// Simulation thread only: carries out a requested cancellation, picks up a staged throw and launches the ball (or
+  /// schedules the fallback impulse), parks a ball that has finished, and applies or clears the impulse. See
+  /// throwDodgeball() for the two paths.
+  void applyDodgeball();
+  /// Simulation thread only: parks the ball and drops any staged throw and scheduled impulse. See lockGantry().
+  void cancelDodgeball();
+  /// True when a projectile was compiled into this scene, i.e. `simProjectile` named one.
+  bool hasProjectile() const;
+  /// Arms the ball (it collides, gravity acts on it) or parks it (neither).
+  void setProjectileArmed(bool armed);
+  /// Returns the ball to kProjectileParkPosition, disarmed and at rest.
+  void parkProjectile();
+  /// Body id of the robot's floating base, i.e. the first body carrying a free joint; -1 if the model has none.
+  int robotRootBodyId() const;
+  /// [rad] Heading of that base, from its free joint's quaternion at qpos[3..6].
+  double baseYaw() const;
 
   void setupJointIndexMaps();
 
@@ -272,6 +375,17 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   GantryHold gantryHold_{GantryHold::kWeldConstraint};
   /// Index of the scene's "gantry" weld equality, or -1 when the scene declares none.
   int gantryWeldEqId_{-1};
+  /// Simulation thread only: whether the weld has been anchored at the base's pose for the current lock. Cleared on
+  /// every unlock and every reset, so the next lock anchors at wherever the robot is then.
+  bool gantryWeldAnchored_{false};
+  /// See resetEpoch().
+  std::atomic<uint64_t> resetEpoch_{0};
+  /// Simulation thread only: MuJoCo's count of each state warning after the previous step, to tell a new one apart.
+  int lastBadStateWarnings_{0};
+  /// Puts the robot back in its initial state and catches it on the gantry; `reason` is logged. Simulation thread only.
+  void resetAndCatch(absl::string_view reason);
+  /// True when the step just taken produced a state MuJoCo flagged as bad, or one that is not finite.
+  bool stepWentUnstable();
   std::atomic<bool> zeroTorqueMode_{true};  // Start in zero-torque mode by default
   std::vector<mjtNum> originalDofDamping_;  // Saved dof_damping values for restore on enableTorques
 
@@ -296,6 +410,30 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   ContactTimeline contactTimeline_;
   mutable std::mutex targetPatchMutex_;
   std::vector<TargetContactPatch> targetContactPatches_;  // written by the control thread, drawn by the renderer
+  /// Staged by throwDodgeball() from any thread, taken by the simulation thread on its next step. Separate from the
+  /// FSM command's own staging so that a throw and a mode change cannot overwrite one another.
+  mutable std::mutex dodgeballMutex_;
+  std::optional<DodgeballThrow> pendingDodgeball_;
+  /// Resolved into the world frame and scheduled once the simulation thread has seen it. Only that thread touches
+  /// these, so they need no lock.
+  double scheduledImpulseWorld_[3]{0.0, 0.0, 0.0};  // [N s]
+  double scheduledImpactTime_{-1.0};                // [s] of simulation time; negative means nothing is in flight
+  /// Set for exactly the step on which the impulse is applied, so the next step can clear xfrc_applied again.
+  bool dodgeballImpulseApplied_{false};
+  /// The projectile compiled into the scene, and its addresses in the model. All -1 when `simProjectile` named
+  /// none, in which case a throw falls back to a scheduled impulse on the base and there is nothing to look at.
+  Projectile projectile_;
+  int dodgeballBodyId_{-1};
+  int dodgeballJointId_{-1};
+  int dodgeballQposAdr_{-1};
+  int dodgeballDofAdr_{-1};
+  bool projectileArmed_{false};
+  /// Decides when an armed ball has finished and may be parked again.
+  ProjectileRestMonitor projectileRestMonitor_;
+  /// Set by lockGantry() on any thread, carried out by applyDodgeball() on the simulation thread.
+  std::atomic<bool> cancelDodgeballRequested_{false};
+  /// The name the injected body carries in the compiled model.
+  static constexpr const char* kProjectileBodyName = "sim_projectile";
   size_t contactTimelineSampleInterval_{1};
   size_t contactTimelineSampleCounter_{0};
 };

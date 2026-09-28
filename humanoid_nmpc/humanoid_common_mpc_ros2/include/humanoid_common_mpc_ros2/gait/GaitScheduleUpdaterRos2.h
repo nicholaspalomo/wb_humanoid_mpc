@@ -30,26 +30,30 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <memory>
 #include <mutex>
 
 #include <rclcpp/rclcpp.hpp>
 
 #include <ocs2_ros2_msgs/msg/mode_schedule.hpp>
 
+#include "absl/strings/string_view.h"
+
 #include "humanoid_common_mpc/gait/GaitScheduleUpdater.h"
 
 namespace ocs2::humanoid {
 
+/**
+ * GaitScheduleUpdater fed by the topic `<robotName>_mpc_mode_schedule`: each message is a mode sequence template, inserted
+ * before the next solve. The subscription callback runs on the executor's thread; it stores the template under a mutex
+ * and sets the base class's atomic flag, which preSolverRun() consumes and reset() clears on the solver thread, so a
+ * gait received before a reset is dropped with it.
+ */
 class GaitScheduleUpdaterRos2 : public GaitScheduleUpdater {
  public:
-  GaitScheduleUpdaterRos2(rclcpp::Node::SharedPtr& nodeHandle, std::shared_ptr<GaitSchedule> gaitSchedulePtr, const std::string& robotName);
+  GaitScheduleUpdaterRos2(rclcpp::Node::SharedPtr& nodeHandle, std::shared_ptr<GaitSchedule> gaitSchedulePtr, absl::string_view robotName);
 
-  void preSolverRun(scalar_t initTime,
-                    scalar_t finalTime,
-                    const vector_t& currentState,
-                    const ReferenceManagerInterface& referenceManager) override;
-
-  virtual ModeSequenceTemplate getReceivedGait() override;
+  ModeSequenceTemplate getReceivedGait() override;
 
  private:
   void mpcModeSequenceCallback(const ocs2_ros2_msgs::msg::ModeSchedule::SharedPtr msg);
@@ -57,7 +61,6 @@ class GaitScheduleUpdaterRos2 : public GaitScheduleUpdater {
   rclcpp::Subscription<ocs2_ros2_msgs::msg::ModeSchedule>::SharedPtr mpcModeSequenceSubscriber_;
 
   std::mutex receivedGaitMutex_;
-  std::atomic_bool gaitUpdatedAtomic_;
 };
 
 }  // namespace ocs2::humanoid

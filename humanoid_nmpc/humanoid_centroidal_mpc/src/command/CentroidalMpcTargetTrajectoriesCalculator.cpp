@@ -58,6 +58,16 @@ CentroidalMpcTargetTrajectoriesCalculator::CentroidalMpcTargetTrajectoriesCalcul
 /******************************************************************************************************/
 /******************************************************************************************************/
 
+void CentroidalMpcTargetTrajectoriesCalculator::reset() {
+  TargetTrajectoriesCalculatorBase::reset();
+  filteredJointState_.resize(0);
+  lastTime_ = 0.0;
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
 TargetTrajectories CentroidalMpcTargetTrajectoriesCalculator::commandedPositionToTargetTrajectories(const vector4_t& commadLinePoseTarget,
                                                                                                     scalar_t initTime,
                                                                                                     const vector_t& initState) {
@@ -96,7 +106,7 @@ TargetTrajectories CentroidalMpcTargetTrajectoriesCalculator::commandedVelocityT
 
   vector_t currentPoseTarget = getCurrentBasePoseTarget(initState);
 
-  vector4_t commVelTargetGlobal = filterAndTransformVelCommandToLocal(commandedVelocities, currentPoseTarget(3), 0.8);
+  vector4_t commVelTargetGlobal = filterAndTransformVelCommandToLocal(commandedVelocities, currentPoseTarget(3), /*filterAlpha=*/0.8);
 
   /////////////////////////
   // Intermediate Target //
@@ -120,8 +130,8 @@ TargetTrajectories CentroidalMpcTargetTrajectoriesCalculator::commandedVelocityT
   // Atlas made the yaw momentum target 8x too small (and dimensionally a rate per kilogram); the MPC then barely turned
   // however hard it was asked.
   const matrix3_t lockedInertia = [&]() {
-    const auto& model = pinocchioInterface_.getModel();
-    auto& data = pinocchioInterface_.getData();
+    const PinocchioInterface::Model& model = pinocchioInterface_.getModel();
+    PinocchioInterface::Data& data = pinocchioInterface_.getData();
     pinocchio::ccrba(model, data, mpcRobotModelPtr_->getGeneralizedCoordinates(initState), vector_t::Zero(model.nv));
     return matrix3_t(data.Ig.inertia().matrix());
   }();
@@ -137,7 +147,8 @@ TargetTrajectories CentroidalMpcTargetTrajectoriesCalculator::commandedVelocityT
   averageVel(1) = (baseVel[1] + commVelTargetGlobal[1]) / 2;
   averageVel(2) = (baseVel[5] + commVelTargetGlobal[3]) / 2;
 
-  scalar_t targetHeight = (commVelTargetGlobal[2] > 0.1) ? commVelTargetGlobal[2] : scalar_t(defaultBaseHeight_);
+  // The commanded pelvis height (or defaultBaseHeight) above the ground the reference manager stands the robot on.
+  const scalar_t targetHeight = commandedBaseHeight(commVelTargetGlobal[2]);
   currentPoseTarget[2] = targetHeight;
   scalar_t intermediateTargetTime = 0.7 * mpcHorizon_;
   vector6_t intermediateTargetPose = integrateTargetBasePose(currentPoseTarget, averageVel, targetHeight, intermediateTargetTime);
@@ -159,9 +170,13 @@ TargetTrajectories CentroidalMpcTargetTrajectoriesCalculator::commandedVelocityT
   // Extract current joint state from the provided initial state observation
   vector_t currentJointState = initState.tail(targetJointState_.size());
 
-  // Initialize filter if empty or time jumps (e.g., reset/restart)
-  if (filteredJointState_.size() != targetJointState_.size() || initTime < lastTime_ || (initTime - lastTime_) > 0.1) {
+  // Initialize filter if empty, if time jumps (e.g., reset/restart), or if it holds anything that is not a number. The
+  // filter then starts from the current joints at this time: decaying it over the time since lastTime_ would put it at
+  // (or near) the nominal joints at once, after a reset the more so the later the reset comes.
+  if (filteredJointState_.size() != targetJointState_.size() || initTime < lastTime_ || (initTime - lastTime_) > 0.1 ||
+      !filteredJointState_.allFinite()) {
     filteredJointState_ = currentJointState;
+    lastTime_ = initTime;
   }
 
   // Exponentially decay the filtered state toward the nominal targetJointState_

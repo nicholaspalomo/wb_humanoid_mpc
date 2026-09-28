@@ -8,7 +8,11 @@ on:
 
 jobs:
   format-check:
-    runs-on: ubuntu-latest
+    # The formatters the dev container and its pre-commit hook run, not whatever is newest: a newer clang-format or
+    # black formats differently, and CI would then reject code the hook had just formatted. Ubuntu 24.04 is what
+    # provides clang-format 18 (ubuntu-latest moves to a newer Ubuntu), and black is the version Ubuntu 24.04 packages.
+    # LINT.IfChange(formatter_versions)
+    runs-on: ubuntu-24.04
 
     steps:
     - name: Checkout code
@@ -17,17 +21,19 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.x'
+        python-version: '3.12'
 
     - name: Install Python formatters
       run: |
         python -m pip install --upgrade pip
-        pip install black
+        pip install black==24.2.0
 
     - name: Install clang-format
       run: |
         sudo apt-get update
-        sudo apt-get install -y clang-format
+        sudo apt-get install -y clang-format-18
+        sudo ln -sf /usr/bin/clang-format-18 /usr/local/bin/clang-format
+    # LINT.ThenChange(//docker/Dockerfile:clang_format_version, //dependencies.txt:system_dependencies)
 
     - name: Check clang-format version
       run: clang-format --version
@@ -57,6 +63,13 @@ jobs:
           echo "changes=false" >> $GITHUB_OUTPUT
           echo "✅ No formatting changes needed"
         fi
+
+    # The repository's linter: IFTTT directives, whitespace, clang-format, black and the Google-style argument comments
+    # on literal arguments (tools/hooks/argument_comments.py). Run after `make format`, so a failure here is a rule the
+    # formatter cannot fix.
+    - name: Run linter
+      id: lint
+      run: python3 tools/hooks/lint_code.py
 
     - name: Display formatting instructions
       if: steps.format-check.outputs.changes == 'true'

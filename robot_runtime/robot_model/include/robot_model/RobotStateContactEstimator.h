@@ -36,7 +36,7 @@ namespace robot::model {
 /**
  * Contact estimator that reports the contact flags carried by the RobotState, i.e. whatever the hardware or simulator
  * interface wrote there (see RobotState::setContactFlag). It is the default estimator of the MRT joint controllers, and
- * reproduces their historical behaviour: a simulator that does not report ground-truth contacts fills every flag with
+ * reproduces their historical behavior: a simulator that does not report ground-truth contacts fills every flag with
  * true, so every planned contact wrench reaches the inverse dynamics.
  */
 class RobotStateContactEstimator final : public ContactEstimator {

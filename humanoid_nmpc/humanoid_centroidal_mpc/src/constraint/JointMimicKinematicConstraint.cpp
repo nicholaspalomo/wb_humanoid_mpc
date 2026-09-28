@@ -89,14 +89,14 @@ VectorFunctionLinearApproximation JointMimicKinematicConstraint::getLinearApprox
 
   linearApproximation.f = getValue(time, state, input, preComp);
 
-  linearApproximation.dfdx(0, mpcRobotModelPtr_->getJointStartindex() + config_.parentJointIndex) =
+  linearApproximation.dfdx(/*row=*/0, mpcRobotModelPtr_->getJointStartindex() + config_.parentJointIndex) =
       config_.positionGain * config_.multiplier;
-  linearApproximation.dfdx(0, mpcRobotModelPtr_->getJointStartindex() + config_.childJointIndex) = -config_.positionGain;
+  linearApproximation.dfdx(/*row=*/0, mpcRobotModelPtr_->getJointStartindex() + config_.childJointIndex) = -config_.positionGain;
 
   // Joint velocities live at getJointVelocitiesStartindex() in the input vector (this differs from the joint
   // position start index in the state vector when basis-vector contact inputs are used).
-  linearApproximation.dfdu(0, mpcRobotModelPtr_->getJointVelocitiesStartindex() + config_.parentJointIndex) = config_.multiplier;
-  linearApproximation.dfdu(0, mpcRobotModelPtr_->getJointVelocitiesStartindex() + config_.childJointIndex) = -1;
+  linearApproximation.dfdu(/*row=*/0, mpcRobotModelPtr_->getJointVelocitiesStartindex() + config_.parentJointIndex) = config_.multiplier;
+  linearApproximation.dfdu(/*row=*/0, mpcRobotModelPtr_->getJointVelocitiesStartindex() + config_.childJointIndex) = -1;
 
   return linearApproximation;
 }

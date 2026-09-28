@@ -57,7 +57,7 @@ int main(int argc, char* argv[]) {
   rclcpp::init(argc, argv);
   auto nodeHandle = std::make_shared<rclcpp::Node>(robotName + "_mpc_mode_schedule");
 
-  GaitKeyboardPublisher gaitCommand(nodeHandle, gaitCommandFile, robotName, true);
+  GaitKeyboardPublisher gaitCommand(nodeHandle, gaitCommandFile, robotName, /*verbose=*/true);
 
   while (rclcpp::ok()) {
     gaitCommand.getKeyboardCommand();

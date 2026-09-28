@@ -47,9 +47,16 @@ class MRTPolicySubscriber : public MRT_BASE {
    */
   ~MRTPolicySubscriber() override;
 
-  void resetMpcNode(const TargetTrajectories& initTargetTrajectories) override {};
+  /**
+   * Deliberately empty. This class only LISTENS to the policies an MPC node publishes (its one user is the visualizer,
+   * HumanoidVisualizerRos2Interface); it owns no MPC and sends nothing to one, so there is nothing here to reset. An
+   * MRT that drives an MPC resets it through that MPC's own interface: MPC_MRT_Interface::resetMpcNode() in the same
+   * process, or MRT_ROS_Interface::resetMpcNode() over the /mpc_reset service to MPC_ROS_Interface.
+   */
+  void resetMpcNode(const TargetTrajectories& /*initTargetTrajectories*/) override {}
 
-  void setCurrentObservation(const SystemObservation& currentObservation) override {};
+  /** Deliberately empty as well: a listener has no observation to send. */
+  void setCurrentObservation(const SystemObservation& /*currentObservation*/) override {}
 
   /**
    * Shut down the ROS nodes.

@@ -29,7 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-/** `regularization`: diagonal regularisation of Q (every node) and R (running nodes), so that the QPs stay strictly convex. */
+/** `regularization`: diagonal regularization of Q (every node) and R (running nodes), so that the QPs stay strictly convex. */
 class RegularizationCost final : public LipCost {
  public:
   std::string describe() const override;

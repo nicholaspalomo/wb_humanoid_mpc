@@ -30,14 +30,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 
+#include <boost/optional.hpp>
 #include <boost/property_tree/info_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 
+#include <exception>
+#include <iterator>
 #include <stdexcept>
 
 #include <ocs2_core/misc/LoadData.h>
 #include <cassert>
-#include <stdexcept>
 
 #ifndef CHECK
 #define CHECK(cond)                                     \
@@ -51,6 +53,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 
 #include "absl/log/log.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
 
@@ -83,7 +88,7 @@ static std::vector<std::string> initializeJointNames(const std::vector<std::stri
   } else {
     throw std::invalid_argument("Number of joints must be greater than zero");
   }
-  for (const auto& joint : fullJointNames) {
+  for (const std::string& joint : fullJointNames) {
     if (std::find(fixedJointNames.begin(), fixedJointNames.end(), joint) == fixedJointNames.end()) {
       // If the joint is not found in fixedJointNames, add it to mpcModelJointNames
       if (verbose) LOG(INFO) << joint;
@@ -112,7 +117,53 @@ std::vector<std::string> concatenateStringVectors(const std::vector<std::string>
   return temp_vec;
 }
 
+// The keys of the task file's `contact_implicit` block. Renaming one here renames it for the loader below, for
+// validateContactImplicitConfig() and for the parameter updater at once; the task files have to follow, and
+// checkContactImplicitBlockKeys() refuses a file that still carries the old name.
+// LINT.IfChange(contact_implicit_yaml_path)
+constexpr ModelSettings::ContactImplicitKey kContactImplicitKeys[] = {
+    {"complementarityWeight", &ModelSettings::ContactImplicitConfig::complementarityWeight, /*isWeight=*/true},
+    {"slipWeight", &ModelSettings::ContactImplicitConfig::slipWeight, /*isWeight=*/true},
+    {"penetrationWeight", &ModelSettings::ContactImplicitConfig::penetrationWeight, /*isWeight=*/true},
+    {"heightReference", &ModelSettings::ContactImplicitConfig::heightReference, /*isWeight=*/false},
+    {"velocityReference", &ModelSettings::ContactImplicitConfig::velocityReference, /*isWeight=*/false},
+    {"angularVelocityReference", &ModelSettings::ContactImplicitConfig::angularVelocityReference, /*isWeight=*/false},
+    {"gapSmoothing", &ModelSettings::ContactImplicitConfig::gapSmoothing, /*isWeight=*/false},
+};
+// clang-format off
+// LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:contact_implicit_config, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:contact_implicit_config, //humanoid_nmpc/humanoid_centroidal_mpc/src/mrt/MpcParameterUpdaterModule.cpp:contact_implicit_updater_keys)
+// clang-format on
+
+// ContactImplicitConfig holds nothing but these scalars, so a field added to it without a key here - which would be
+// loaded by nothing, validated by nothing and hot-reloaded by nothing - changes its size and fails to compile.
+static_assert(sizeof(ModelSettings::ContactImplicitConfig) == std::size(kContactImplicitKeys) * sizeof(scalar_t),
+              "every field of ModelSettings::ContactImplicitConfig needs a key in kContactImplicitKeys");
+
 }  // namespace
+
+absl::Span<const ModelSettings::ContactImplicitKey> ModelSettings::contactImplicitKeys() {
+  return kContactImplicitKeys;
+}
+
+absl::StatusOr<bool> ModelSettings::loadInterfaceVerbose(absl::string_view configFile) {
+  const std::string file(configFile);
+  boost::property_tree::ptree pt;
+  try {
+    loadData::readPropertyTree(file, pt);
+  } catch (const std::exception& error) {
+    return absl::NotFoundError(absl::StrCat("[ModelSettings] cannot read ", kInterfaceVerboseKey, " from ", file, ": ", error.what()));
+  }
+  const boost::optional<boost::property_tree::ptree&> child = pt.get_child_optional(std::string(kInterfaceVerboseKey));
+  if (!child) {
+    return false;
+  }
+  const boost::optional<bool> verbose = child->get_value_optional<bool>();
+  if (!verbose) {
+    return absl::InvalidArgumentError(absl::StrCat("[ModelSettings] ", kInterfaceVerboseKey, " in ", file, " is '", child->data(),
+                                                   "', which is not a bool: write true or false."));
+  }
+  return *verbose;
+}
 
 ModelSettings::ModelSettings(const std::string& configFile, const std::string& urdfFile, const std::string& mpcName, bool verbose) {
   boost::property_tree::ptree pt;
@@ -132,27 +183,17 @@ ModelSettings::ModelSettings(const std::string& configFile, const std::string& u
   loadData::loadPtreeValue(pt, this->recompileLibrariesCppAd, prefix + "recompileLibrariesCppAd", verbose);
   loadData::loadPtreeValue(pt, this->phaseTransitionStanceTime, prefix + "phaseTransitionStanceTime", verbose);
 
-  try {
-    loadData::loadPtreeValue(pt, this->useComAndAcomTracking, "useComAndAcomTracking", verbose);
-  } catch (...) {
-    this->useComAndAcomTracking = false;
-  }
-  try {
-    loadData::loadPtreeValue(pt, this->useContactPlanning, "useContactPlanning", verbose);
-  } catch (...) {
-    this->useContactPlanning = false;
-  }
-  try {
-    loadData::loadPtreeValue(pt, this->useDcmTerminalCost, "useDcmTerminalCost", verbose);
-  } catch (...) {
-    this->useDcmTerminalCost = false;
-  }
-
   loadData::loadPtreeValue(pt, this->j_l_shoulder_y_name, prefix + "armJointNames.left_shoulder_y", verbose);
   loadData::loadPtreeValue(pt, this->j_r_shoulder_y_name, prefix + "armJointNames.right_shoulder_y", verbose);
   loadData::loadPtreeValue(pt, this->j_l_elbow_y_name, prefix + "armJointNames.left_elbow_y", verbose);
   loadData::loadPtreeValue(pt, this->j_r_elbow_y_name, prefix + "armJointNames.right_elbow_y", verbose);
-  modelFolderCppAd = "cppad_code_gen/cppad_" + mpcName + robotName;
+  modelFolderCppAd = absl::StrCat("cppad_code_gen/cppad_", mpcName, robotName);
+  // The folder is derived, and the task files used to carry a model_settings.modelFolderCppAd that nothing read. Say so
+  // rather than ignore it, so that nobody edits it expecting the libraries to move.
+  if (pt.get_child_optional(absl::StrCat(prefix, "modelFolderCppAd"))) {
+    LOG(WARNING) << "[ModelSettings] " << prefix << "modelFolderCppAd is not read: the CppAD libraries are built under " << modelFolderCppAd
+                 << " (the centroidal MPC adds a sub-folder per contact input parameterization). Delete the key from " << configFile << ".";
+  }
 
   loadData::loadStdVector(configFile, prefix + "fixedJointNames", fixedJointNames, verbose);
   loadData::loadStdVector(configFile, prefix + "contactNames6DoF", contactNames6DoF, verbose);
@@ -242,19 +283,10 @@ ModelSettings::ModelSettings(const std::string& configFile, const std::string& u
   // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:terrain_height_config, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:terrain_height_config)
   // clang-format on
 
-  // LINT.IfChange(contact_implicit_yaml_path)
-  const std::string contactImplicitPrefix = "contact_implicit.";
-  // clang-format off
-  // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:contact_implicit_config, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:contact_implicit_config)
-  // clang-format on
-  loadData::loadPtreeValue(pt, this->contactImplicitConfig.complementarityWeight, contactImplicitPrefix + "complementarityWeight", verbose);
-  loadData::loadPtreeValue(pt, this->contactImplicitConfig.slipWeight, contactImplicitPrefix + "slipWeight", verbose);
-  loadData::loadPtreeValue(pt, this->contactImplicitConfig.penetrationWeight, contactImplicitPrefix + "penetrationWeight", verbose);
-  loadData::loadPtreeValue(pt, this->contactImplicitConfig.heightReference, contactImplicitPrefix + "heightReference", verbose);
-  loadData::loadPtreeValue(pt, this->contactImplicitConfig.velocityReference, contactImplicitPrefix + "velocityReference", verbose);
-  loadData::loadPtreeValue(pt, this->contactImplicitConfig.angularVelocityReference, contactImplicitPrefix + "angularVelocityReference",
-                           verbose);
-  loadData::loadPtreeValue(pt, this->contactImplicitConfig.gapSmoothing, contactImplicitPrefix + "gapSmoothing", verbose);
+  // The contact_implicit block, key by key from the one list every reader of it shares.
+  for (const ContactImplicitKey& key : contactImplicitKeys()) {
+    loadData::loadPtreeValue(pt, this->contactImplicitConfig.*key.field, absl::StrCat(kContactImplicitBlock, ".", key.name), verbose);
+  }
 
   // LINT.IfChange(nominal_foothold_yaml_path)
   const std::string nominalFootholdPrefix = "nominal_foothold.";

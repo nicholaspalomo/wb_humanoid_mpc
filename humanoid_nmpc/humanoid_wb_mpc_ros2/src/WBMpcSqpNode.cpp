@@ -77,12 +77,16 @@ int main(int argc, char** argv) {
   // Launch MPC ROS node
   rclcpp::Node::SharedPtr nodeHandle = std::make_shared<rclcpp::Node>(robotName + "_wb_mpc");
 
-  auto qos = rclcpp::QoS(1);
+  rclcpp::QoS qos(1);
   qos.best_effort();
 
   // Reference and motion management for Procedural MPC
   WBMpcTargetTrajectoriesCalculator mpcTargetTrajectoriesCalculator(referenceFile, interface.getMpcRobotModel(),
                                                                     interface.mpcSettings().timeHorizon_);
+  // The commanded base height stands on the ground the reference manager applied in this solve, so it follows a hot
+  // reload of terrainHeight (TargetTrajectoriesCalculatorBase::setTerrainHeightSource).
+  mpcTargetTrajectoriesCalculator.setTerrainHeightSource(
+      [referenceManager = interface.getSwitchedModelReferenceManagerPtr()]() { return referenceManager->getAppliedTerrainHeight(); });
   ProceduralMpcMotionManager::VelocityTargetToTargetTrajectories targetTrajectoriesFunc =
       [&mpcTargetTrajectoriesCalculator](const vector4_t& velocityTarget, scalar_t initTime, scalar_t finalTime,
                                          const vector_t& initState) mutable {
@@ -92,6 +96,9 @@ int main(int argc, char** argv) {
       gaitFile, referenceFile, interface.getSwitchedModelReferenceManagerPtr(), interface.getMpcRobotModel(), targetTrajectoriesFunc);
 
   ros2ProceduralMpcMotionManager->subscribe(nodeHandle, qos);
+  // A reset of the MPC (MPC_BASE::reset(): the /mpc_reset service) resets the command path with it: the motion manager
+  // itself, and through this hook the target calculator behind targetTrajectoriesFunc, whose filters are its state.
+  ros2ProceduralMpcMotionManager->setResetHook([&mpcTargetTrajectoriesCalculator]() { mpcTargetTrajectoriesCalculator.reset(); });
 
   mpc.getSolverPtr()->setReferenceManager(interface.getReferenceManagerPtr());
   mpc.getSolverPtr()->addSynchronizedModule(ros2ProceduralMpcMotionManager);

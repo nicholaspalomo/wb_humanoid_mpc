@@ -74,7 +74,7 @@ class VelocityCommandKeyboardPublisher final {
 
   /** Re-reads the command limits from the reference file, so that they match the limits the MPC is currently using.
    *
-   * The published command is normalised by these limits and the MPC multiplies by its own copy, which
+   * The published command is normalized by these limits and the MPC multiplies by its own copy, which
    * MpcParameterUpdaterModule reloads whenever reference.yaml changes. A stale copy here would therefore not merely
    * clip differently - it would scale the command by one limit and unscale it by another, and the robot would walk at
    * a speed nobody asked for. Re-reading costs one small file parse per keypress.

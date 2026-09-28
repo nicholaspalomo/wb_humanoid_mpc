@@ -44,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <pinocchio/multibody/model.hpp>
 
 #include "absl/log/log.h"
+#include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
 
@@ -61,9 +62,17 @@ JointTorqueCostCppAd::JointTorqueCostCppAd(const vector_t& weights,
       pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
       mpcRobotModelPtr_(mpcRobotModel.clone()) {
   assert(weights.size() == mpcRobotModel.getJointDim());
-  initialize(mpcRobotModel.getStateDim(), mpcRobotModel.getInputDim(), mpcRobotModel.getJointDim(), costName,
+  initialize(mpcRobotModel.getStateDim(), mpcRobotModel.getInputDim(), mpcRobotModel.getJointDim(), libraryName(costName),
              modelSettings.modelFolderCppAd, modelSettings.recompileLibrariesCppAd);
   LOG(INFO) << "Initialized JointTorqueCostCppAd with weights: " << weights.transpose();
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+std::string JointTorqueCostCppAd::libraryName(absl::string_view costName) {
+  return absl::StrCat(costName, "_fullMassMatrix");
 }
 
 /******************************************************************************************************/

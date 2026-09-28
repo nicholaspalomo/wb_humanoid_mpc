@@ -69,7 +69,7 @@ def robot_configs():
     return sorted(found)
 
 
-def normalised(keys) -> Set[str]:
+def normalized(keys) -> Set[str]:
     """Slider keys without the quoting the YAML writer needs, so they compare against the parsed key paths."""
     return {key.replace('"', "") for key in keys}
 
@@ -106,7 +106,7 @@ class TestGuiParameterCoverage(unittest.TestCase):
                     for category in tab.categories:
                         tab.active_category.set(category)
                         tab._render_active_category()
-                        rendered |= normalised(tab.slider_rows)
+                        rendered |= normalized(tab.slider_rows)
                 finally:
                     root.destroy()
 
@@ -131,7 +131,7 @@ class TestGuiParameterCoverage(unittest.TestCase):
                 root.withdraw()
                 try:
                     tab = CommandLimitsTab(root, reference_file=reference_file)
-                    rendered = normalised(tab.slider_rows)
+                    rendered = normalized(tab.slider_rows)
                 finally:
                     root.destroy()
                 missing = sorted(expected - rendered)

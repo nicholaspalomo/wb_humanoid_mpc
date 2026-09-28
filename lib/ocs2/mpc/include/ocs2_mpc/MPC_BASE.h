@@ -54,10 +54,22 @@ class MPC_BASE {
   virtual ~MPC_BASE() = default;
 
   /**
-   * Resets the class to its state after construction.
-   * @note reset() must not be called while the solver is running.
+   * Resets the class to its state after construction, together with everything the next solve would otherwise inherit
+   * from the previous ones: the solver's reference manager and synchronized modules
+   * (SolverBase::resetReferenceManagerAndModules()) and then the solver itself. After it, the next run() behaves as the
+   * first run() of a freshly constructed MPC with the same configuration.
+   * @note reset() must not be called while the solver is running: call it from the thread that calls run().
    */
   virtual void reset();
+
+  /**
+   * Resets the solver alone - its warm start, and the first-run flag of this class - and leaves the reference manager
+   * and the synchronized modules as they are: the gait or contact schedule in execution, the command state. For a
+   * solution that went wrong in the middle of a motion that should go on (a diverged or failed solve), where reset()
+   * would restart the schedule under a robot in mid-stride. What reset() did before it reset the references as well.
+   * @note Same threading rule as reset().
+   */
+  void resetSolver();
 
   /**
    * The main routine of MPC which runs MPC for the given state and time.

@@ -25,7 +25,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/execution/PlannedHeadingOverride.h"
 
+#include <optional>
+
 #include <ocs2_robotic_tools/common/RotationTransforms.h>
+
+#include "humanoid_common_mpc/contact_planning/execution/PlanCoverage.h"
 
 namespace ocs2::humanoid {
 
@@ -39,15 +43,18 @@ void PlannedHeadingOverride::overrideTarget(const ExecutionContext& ctx, TargetT
   const AngularCenterOfMass* acom = (acom_ != nullptr) ? acom_->get() : nullptr;
   const size_t n = targetTrajectories.timeTrajectory.size();
   for (size_t i = 0; i < n; ++i) {
+    const scalar_t time = targetTrajectories.timeTrajectory[i];
+    // The heading lookup clamps to the last node, so a knot past the plan's end would get the plan's final heading
+    // rather than keep the operator's yaw; see PlannedComOverride, which has the same guard for the same reason.
+    if (!planCoversTime(plan, time)) continue;
+    const std::optional<scalar_t> heading = plan.headingAtTime(time);
+    if (!heading.has_value()) continue;
     vector_t& stateRef = targetTrajectories.stateTrajectory[i];
     vector3_t euler = mpcRobotModel_->getBaseOrientationEulerZYX(stateRef);
-    const std::optional<scalar_t> heading = plan.headingAtTime(targetTrajectories.timeTrajectory[i]);
-    if (heading.has_value()) {
-      scalar_t offset = 0.0;
-      if (acom != nullptr) offset = acomXyzToZyx(acom->computeJointOrientationOffset(mpcRobotModel_->getJointAngles(stateRef)))(0);
-      euler(0) = moduloAngleWithReference(*heading - offset, euler(0));
-      mpcRobotModel_->setBaseOrientationEulerZYX(stateRef, euler);
-    }
+    scalar_t offset = 0.0;
+    if (acom != nullptr) offset = acomXyzToZyx(acom->computeJointOrientationOffset(mpcRobotModel_->getJointAngles(stateRef)))(0);
+    euler(0) = moduloAngleWithReference(*heading - offset, euler(0));
+    mpcRobotModel_->setBaseOrientationEulerZYX(stateRef, euler);
   }
 }
 

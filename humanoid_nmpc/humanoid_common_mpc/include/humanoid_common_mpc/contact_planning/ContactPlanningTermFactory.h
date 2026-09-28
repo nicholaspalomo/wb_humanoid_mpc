@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <string>
 
+#include "absl/status/statusor.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 #include "humanoid_common_mpc/contact_planning/execution/ExecutionRule.h"
 #include "humanoid_common_mpc/contact_planning/problem/ContactPlanningProblem.h"
@@ -39,7 +40,7 @@ namespace ocs2::humanoid {
 
 /**
  * Creates the planner's terms by name and assembles the problem and the pipelines from the term lists of the
- * configuration, the analogue of HumanoidCostConstraintFactory. Every `make*` throws std::invalid_argument for an
+ * configuration, the analog of HumanoidCostConstraintFactory. Every `make*` throws std::invalid_argument for an
  * unknown name (the message lists the supported ones).
  */
 class ContactPlanningTermFactory {
@@ -60,13 +61,22 @@ class ContactPlanningTermFactory {
 
   /**
    * The problem of the configuration's formulation: the listed terms in list order, finalized (layout composed, terms
-   * bound and configured). Throws std::invalid_argument on a formulation the problem cannot be assembled from.
+   * bound and configured). A formulation the problem cannot be assembled from is returned as the InvalidArgument of
+   * ContactPlanningFormulation::validateStatus(), which names the list and the term.
+   *
+   * The builders configure the terms with the configuration's parameter values as they are: the values are checked by
+   * ContactPlanningConfig::validateStatus(), which the caller runs first, and a term's configure() only reads them.
    */
-  static ContactPlanningProblem buildProblem(const ContactPlanningConfig& config);
-  /** The listed search stages, configured, in list order. */
-  static TermCollection<SearchStage> buildSearchStages(const ContactPlanningConfig& config);
-  /** The listed execution rules, configured, in list order. */
-  static TermCollection<ExecutionRule> buildExecutionRules(const ContactPlanningConfig& config, const ExtraRuleMaker& extra = nullptr);
+  static absl::StatusOr<ContactPlanningProblem> buildProblemStatus(const ContactPlanningConfig& config);
+  /** The listed search stages, configured, in list order; an unknown or repeated name, or a missing block, as a Status. */
+  static absl::StatusOr<TermCollection<SearchStage>> buildSearchStagesStatus(const ContactPlanningConfig& config);
+  /**
+   * The listed execution rules, configured, in list order. Besides what the formulation's validation rejects, a rule
+   * that only the reference manager can build (it needs the robot model) and `extra` does not build is an InvalidArgument
+   * naming the rule.
+   */
+  static absl::StatusOr<TermCollection<ExecutionRule>> buildExecutionRulesStatus(const ContactPlanningConfig& config,
+                                                                                 const ExtraRuleMaker& extra = nullptr);
 };
 
 }  // namespace ocs2::humanoid

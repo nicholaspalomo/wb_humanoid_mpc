@@ -27,7 +27,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
-#include <sstream>
 
 namespace ocs2::humanoid {
 
@@ -36,12 +35,11 @@ std::string YawTorqueRegularizationCost::describe() const {
 }
 
 void YawTorqueRegularizationCost::configure(const ContactPlanningConfig& config) {
-  checkWeight("yaw_torque_regularization", config.yawTorqueRegularization.weight);
   weight_ = config.yawTorqueRegularization.weight;
 }
 
 void YawTorqueRegularizationCost::addToStage(const ContactPlanningContext& /*ctx*/, int /*node*/, StageAccumulator& stage) const {
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) stage.addQuadraticResidual({}, {{idx_.yawTorque[foot], 1.0}}, 0.0, weight_);
+  for (size_t foot = 0; foot < N_CONTACTS; ++foot) stage.addQuadraticResidual({}, {{idx_.yawTorque[foot], 1.0}}, /*offset=*/0.0, weight_);
 }
 
 }  // namespace ocs2::humanoid

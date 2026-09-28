@@ -72,7 +72,6 @@ from typing import Dict, List
 
 import yaml
 
-
 # ═══════════════════════════════════════════════════════════════════════
 # Import the real _update_single_key under test
 # ═══════════════════════════════════════════════════════════════════════
@@ -192,8 +191,21 @@ class TestLiveUpdateCoverage(unittest.TestCase):
             )
 
     def test_boolean_roundtrip(self):
-        self.assertEqual(self._roundtrip("useContactPlanning", False), False)
-        self.assertEqual(self._roundtrip("useContactPlanning", True), True)
+        # A hot-reloadable bool of the shipped file. It used to be useContactPlanning, which is no longer a key of any
+        # task file: where the contact schedule comes from is the name contactScheduleSource, read at start-up only.
+        key = "task_space_foot_cost_weights.activeInStance"
+        self.assertIsInstance(_get_nested(self.original_data, key.split(".")), bool)
+        self.assertEqual(self._roundtrip(key, False), False)
+        self.assertEqual(self._roundtrip(key, True), True)
+
+    def test_contact_schedule_source_name_roundtrip(self):
+        """The contact schedule source is a name, which the writer puts back verbatim; the retired boolean is gone."""
+        self.assertNotIn("useContactPlanning", self.original_data)
+        self.assertEqual(self.original_data["contactScheduleSource"], "gait_schedule")
+        self.assertEqual(
+            self._roundtrip("contactScheduleSource", "contact_planner"),
+            "contact_planner",
+        )
 
     # ══════════════════════════════════════════════════════════════
     #  1. Q matrix: scaling + 36 diagonal entries

@@ -116,10 +116,11 @@ TEST(TargetContactPose, InvalidPlanGivesNoTargets) {
   ContactPlan plan = makePlan(true);
   plan.valid = false;
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-    const auto poses = computeTargetContactPoses(plan, singleSwingSchedule(foot, 1.0, 1.4), makeInputs(1.2));
+    const feet_array_t<TargetContactPose> poses =
+        computeTargetContactPoses(plan, singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4), makeInputs(1.2));
     for (const TargetContactPose& pose : poses) EXPECT_FALSE(pose.valid);
   }
-  const auto poses = computeTargetContactPoses(ContactPlan{}, ModeSchedule(), makeInputs(0.0));
+  const feet_array_t<TargetContactPose> poses = computeTargetContactPoses(ContactPlan{}, ModeSchedule(), makeInputs(0.0));
   for (const TargetContactPose& pose : poses) EXPECT_FALSE(pose.valid);
 }
 
@@ -128,7 +129,8 @@ TEST(TargetContactPose, SwingInFlightTargetsThePlannedLandingWithTheStepAdjustme
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
     TargetContactPoseInputs inputs = makeInputs(1.2);
     inputs.dcmStepAdjustment[foot] = vector2_t(0.02, -0.01);
-    const auto poses = computeTargetContactPoses(plan, singleSwingSchedule(foot, 1.0, 1.4), inputs);
+    const feet_array_t<TargetContactPose> poses =
+        computeTargetContactPoses(plan, singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4), inputs);
 
     const TargetContactPose& pose = poses[foot];
     EXPECT_TRUE(pose.valid);
@@ -139,7 +141,7 @@ TEST(TargetContactPose, SwingInFlightTargetsThePlannedLandingWithTheStepAdjustme
     EXPECT_NEAR(pose.position(1), 0.1 - 0.2 * static_cast<scalar_t>(foot) - 0.01, kTol);
     EXPECT_NEAR(pose.height, inputs.terrainHeight, kTol) << "a landing target sits on the ground";
     EXPECT_TRUE(pose.yawPlanned);
-    EXPECT_NEAR(pose.yaw, plannedYaw(14, foot), kTol);
+    EXPECT_NEAR(pose.yaw, plannedYaw(/*node=*/14, foot), kTol);
 
     for (size_t other = 0; other < N_CONTACTS; ++other) {
       if (other != foot) expectStancePlacement(poses[other], other, inputs);
@@ -150,7 +152,7 @@ TEST(TargetContactPose, SwingInFlightTargetsThePlannedLandingWithTheStepAdjustme
 TEST(TargetContactPose, StanceFootWithAnUpcomingSwingTargetsItsNextLanding) {
   const ContactPlan plan = makePlan(true);
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-    const ModeSchedule schedule = singleSwingSchedule(foot, 1.0, 1.4);
+    const ModeSchedule schedule = singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4);
     const TargetContactPoseInputs inputs = makeInputs(0.5);
     const TargetContactPose& pose = computeTargetContactPoses(plan, schedule, inputs)[foot];
     EXPECT_TRUE(pose.valid);
@@ -160,7 +162,7 @@ TEST(TargetContactPose, StanceFootWithAnUpcomingSwingTargetsItsNextLanding) {
     EXPECT_NEAR(pose.position(1), 0.1 - 0.2 * static_cast<scalar_t>(foot), kTol);
     EXPECT_NEAR(pose.height, inputs.terrainHeight, kTol);
     EXPECT_TRUE(pose.yawPlanned);
-    EXPECT_NEAR(pose.yaw, plannedYaw(14, foot), kTol);
+    EXPECT_NEAR(pose.yaw, plannedYaw(/*node=*/14, foot), kTol);
 
     // At the lift-off instant the event has passed: the same landing, now as the swing in flight.
     const TargetContactPose& atLiftOff = computeTargetContactPoses(plan, schedule, makeInputs(1.0))[foot];
@@ -178,7 +180,8 @@ TEST(TargetContactPose, WithoutTheHeadingModelTheYawIsTheMeasuredFootYaw) {
   ASSERT_FALSE(plan.hasHeading());
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
     const TargetContactPoseInputs inputs = makeInputs(1.2);
-    const TargetContactPose& pose = computeTargetContactPoses(plan, singleSwingSchedule(foot, 1.0, 1.4), inputs)[foot];
+    const TargetContactPose& pose =
+        computeTargetContactPoses(plan, singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4), inputs)[foot];
     EXPECT_EQ(pose.kind, TargetContactPose::Kind::SWING_IN_FLIGHT);
     EXPECT_NEAR(pose.position(0), 1.4, kTol);
     EXPECT_FALSE(pose.yawPlanned);
@@ -203,7 +206,7 @@ TEST(TargetContactPose, TwoStepSequenceGivesEachFootItsOwnLanding) {
   // foot 0 swings [1.0, 1.4], double support, foot 1 swings [1.5, 1.9].
   const ModeSchedule schedule({1.0, 1.4, 1.5, 1.9},
                               {kAllInContact, modeWithSwinging({0}), kAllInContact, modeWithSwinging({1}), kAllInContact});
-  const auto poses = computeTargetContactPoses(plan, schedule, makeInputs(1.2));
+  const feet_array_t<TargetContactPose> poses = computeTargetContactPoses(plan, schedule, makeInputs(1.2));
   EXPECT_EQ(poses[0].kind, TargetContactPose::Kind::SWING_IN_FLIGHT);
   EXPECT_NEAR(poses[0].touchDownTime, 1.4, kTol);
   EXPECT_NEAR(poses[0].position(0), 1.4, kTol);

@@ -5,9 +5,10 @@ Used in git pre-commit hooks when ifttt-lint Rust binary is not installed locall
 Matches directives appearing alone on comment lines (shell, C++, Markdown, YAML, etc.).
 """
 
-import sys
 import os
 import re
+import subprocess
+import sys
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
@@ -31,6 +32,31 @@ def parse_targets(target_str):
         else:
             targets.append(item)
     return targets
+
+
+_LABEL_CACHE = {}
+
+
+def labels_in(rel_path):
+    """The IfChange labels a file declares, outside Markdown code blocks, so a ThenChange can be checked against them."""
+    if rel_path in _LABEL_CACHE:
+        return _LABEL_CACHE[rel_path]
+    labels = set()
+    full_path = os.path.join(REPO_ROOT, rel_path)
+    if os.path.isfile(full_path):
+        in_code_block = False
+        with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                if rel_path.endswith(".md") and line.strip().startswith("```"):
+                    in_code_block = not in_code_block
+                    continue
+                if in_code_block:
+                    continue
+                match = IF_CHANGE_RE.search(line)
+                if match and match.group(1):
+                    labels.add(match.group(1))
+    _LABEL_CACHE[rel_path] = labels
+    return labels
 
 
 def check_file(rel_path):
@@ -65,6 +91,15 @@ def check_file(rel_path):
                         f"{rel_path}:{idx}: duplicate LINT.IfChange label '{label}'"
                     )
                 seen_labels.add(label)
+            # ifttt-lint, which the pre-commit hook runs, does not support nesting: it reports the outer block as
+            # unmatched. Rejecting it here too keeps this fallback from passing what the real hook fails.
+            if if_stack:
+                open_idx, open_label = if_stack[-1]
+                open_str = f"({open_label})" if open_label else ""
+                errors.append(
+                    f"{rel_path}:{idx}: LINT.IfChange inside the LINT.IfChange{open_str} opened at line "
+                    f"{open_idx}; blocks cannot be nested - close the outer one first"
+                )
             if_stack.append((idx, label))
 
         if then_match:
@@ -88,6 +123,13 @@ def check_file(rel_path):
                         errors.append(
                             f"{rel_path}:{idx}: target file not found '//{t_file}'"
                         )
+                        continue
+                # The label has to exist in the target too, or the directive guards nothing: a label renamed or
+                # moved on one side silently leaves the other side pointing at nowhere.
+                if t_label and t_label not in labels_in(t_file or rel_path):
+                    errors.append(
+                        f"{rel_path}:{idx}: target label not found '//{t_file}:{t_label}'"
+                    )
 
     for unclosed_idx, unclosed_label in if_stack:
         lbl_str = f"({unclosed_label})" if unclosed_label else ""
@@ -101,7 +143,22 @@ def check_file(rel_path):
 def main():
     files = sys.argv[1:]
     if not files:
-        # Scan all tracked files in repo
+        # What git would ship - tracked files and untracked ones that are not ignored - which is what the pre-commit
+        # hook sees. Walking the tree instead would lint editor backups and build output the hook never checks.
+        try:
+            listed = subprocess.run(
+                ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+                cwd=REPO_ROOT,
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.splitlines()
+            files = [
+                rel for rel in listed if os.path.isfile(os.path.join(REPO_ROOT, rel))
+            ]
+        except (OSError, subprocess.CalledProcessError):
+            files = []
+    if not files:
         for root, dirs, fnames in os.walk(REPO_ROOT):
             if ".git" in root or "bazel-" in root or "tools/ifttt-lint" in root:
                 continue

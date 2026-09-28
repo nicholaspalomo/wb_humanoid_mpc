@@ -39,8 +39,11 @@ namespace ocs2::humanoid {
  * Pre-computation of the contact logic layer, built once per plan from the input and the grid: the node clocks of the
  * phases (with the conservative rounding of a phase that started off-grid), the duration limits in nodes, the committed
  * prefix, and the previous plan for the assignment costs. The rules and the assignment costs read from it; the helpers
- * on a live assignment (stateBefore, contactAge) read the assignment as it is at the time of the call, which is what the
- * coupling between the rules relies on (an overdue foot yields to what the other rules have already fixed in this pass).
+ * on a live assignment (stateBefore, contactAge, latestTouchDownNode) read the assignment as it is at the time of the
+ * call, which is what the coupling between the rules relies on (an overdue foot yields to what the other rules, and
+ * the same rule earlier in the same pass, have already fixed). There is deliberately no per-pass snapshot of the
+ * prefix: a snapshot taken before a pass misses what the pass itself fixes, which is exactly how the maximum-contact
+ * rule once forced a lift-off inside a double-support hold it could not see.
  *
  * The binaries are laid out node-major: index N_CONTACTS * node + foot (contactBinaryIndex).
  */
@@ -85,6 +88,14 @@ struct ContactLogicState {
   int stateBefore(const MiqpAssignment& a, size_t foot, int node) const;
   /** Elapsed contact nodes (rounded up) of a foot along the fixed prefix at `node`; -1 while the prefix is not fixed. */
   int contactAge(const MiqpAssignment& a, size_t foot, int node) const;
+  /**
+   * The latest touch-down of either foot at a node <= `node` (switchNode units), read from the live assignment along each
+   * foot's fixed prefix, or initialTouchDownNode when there is none. A foot's walk stops at its first free binary, and a
+   * free binary can only ADD a touch-down, so on a partial assignment this is a lower bound of what every completion
+   * gives. It is exact once both feet are fixed through node - 1 and every foot that is in the air before `node` is
+   * fixed at `node` as well.
+   */
+  scalar_t latestTouchDownNode(const MiqpAssignment& a, int node) const;
 };
 
 }  // namespace ocs2::humanoid

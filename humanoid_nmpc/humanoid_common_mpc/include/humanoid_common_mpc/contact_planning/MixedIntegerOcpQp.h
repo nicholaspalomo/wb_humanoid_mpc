@@ -50,6 +50,11 @@ constexpr std::int8_t kMiqpFree = -1;
  * returns false when the partial assignment is provably infeasible. The branch-and-bound calls it on every node before the
  * relaxation, and on every complete assignment before it is accepted as an incumbent, so rules that are not part of the QP
  * (pure logic on the binaries) are enforced exactly through this hook.
+ *
+ * The search is only exact if the hook is sound on partial assignments: "implied" means that every complete assignment
+ * that extends the partial one and satisfies the rules takes that value, and "provably infeasible" that no such
+ * completion exists. A hook that fixes a preferred value instead, or rejects a node that still has a feasible
+ * completion, drops that subtree without a trace, and the result is still reported `optimal`.
  */
 using MiqpPropagateFn = std::function<bool(MiqpAssignment& assignment)>;
 

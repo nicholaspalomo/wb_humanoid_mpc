@@ -60,7 +60,8 @@ class WBMpcInterface final : public RobotInterface {
    * @param [in] taskFile: The absolute path to the configuration file for the MPC.
    * @param [in] urdfFile: The absolute path to the URDF file for the robot.
    * @param [in] referenceFile: The absolute path to the reference configuration file.
-   * @return absl::StatusOr<WBMpcInterface> The constructed interface, or error status.
+   * @return absl::StatusOr<WBMpcInterface> The constructed interface, or error status: NotFound naming the path when
+   *         one of the three files does not exist, checked before anything reads them.
    */
   static absl::StatusOr<std::unique_ptr<WBMpcInterface>> Create(const std::string& taskFile,
                                                                 const std::string& urdfFile,
@@ -93,9 +94,20 @@ class WBMpcInterface final : public RobotInterface {
 
  private:
   /**
-   * Private constructor — use Create() to construct.
+   * Private constructor — use Create() to construct. It loads the model and solver settings only; Create() then builds
+   * the robot models (setupModels) and sets up the optimal control problem.
+   *
+   * @param verbose The task file's interface.verbose (ModelSettings::loadInterfaceVerbose), which Create() reads first:
+   *                it decides the logging of the model settings, which are loaded before anything else.
    */
-  WBMpcInterface(const std::string& taskFile, const std::string& urdfFile, const std::string& referenceFile, bool setupOCP = false);
+  WBMpcInterface(const std::string& taskFile, const std::string& urdfFile, const std::string& referenceFile, bool verbose);
+
+  /**
+   * Builds the Pinocchio model (loadCustomPinocchioInterface, which checks its actuated joints against model_settings in
+   * order), the MPC robot models, the gait-schedule reference manager and the initial state. A model that does not match
+   * its settings is an InvalidArgument naming the first joint that differs, returned rather than thrown.
+   */
+  absl::Status setupModels();
 
   absl::Status setupOptimalControlProblem();
 

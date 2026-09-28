@@ -45,9 +45,9 @@ void StageAccumulator::addQuadraticResidual(const Coefficients& xCoefficients,
   }
   // The expansion of w (l_x' x + l_u' u + c)^2 has a third part besides the quadratic and the linear one, the constant
   // w c^2, and it used to be dropped here. The reason it was dropped is sound as far as the QP itself goes: a constant
-  // is invisible to the solver, it moves neither the minimiser nor the KKT residuals, and it cancels out of every
+  // is invisible to the solver, it moves neither the minimizer nor the KKT residuals, and it cancels out of every
   // comparison between two solutions of ONE assembled problem - which covers the branch-and-bound bounds and their
-  // absoluteGap test, EventShiftLocalSearchStage and HeadingRelinearisationStage, where both sides carry the same
+  // absoluteGap test, EventShiftLocalSearchStage and HeadingRelinearizationStage, where both sides carry the same
   // constant. What the reasoning misses is that CadenceStretchStage::afterSearch compares objectives across node
   // grids: it re-assembles the problem at s * dt and scores the result against the incumbent assembled at dt. The
   // residual offsets of the shipped terms depend on dt - StepLengthCost's nominal displacement is

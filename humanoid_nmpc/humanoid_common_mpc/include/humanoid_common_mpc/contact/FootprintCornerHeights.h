@@ -45,11 +45,11 @@ namespace ocs2::humanoid {
  *
  *   - GroundPenetrationConstraint needs every point to stay above the ground, so it reads all of them;
  *   - ContactComplementarityConstraint needs THE GAP - how far the foot is from touching - which is the height of the
- *     LOWEST point, not the height of the sole's centre.
+ *     LOWEST point, not the height of the sole's center.
  *
  * They used to disagree. Penetration was evaluated at the footprint corners while complementarity used the contact
- * frame, so a foot pitched onto its heel had a positive centre height and the complementarity term treated it as
- * airborne, penalising the contact force it was physically carrying. Since this formulation deliberately leaves the
+ * frame, so a foot pitched onto its heel had a positive center height and the complementarity term treated it as
+ * airborne, penalizing the contact force it was physically carrying. Since this formulation deliberately leaves the
  * foot's rocking rates free (ForceWeightedSlipConstraint constrains only the two tangential velocities and the spin
  * about the normal), pitched contact is the expected case rather than an exceptional one.
  *
@@ -70,8 +70,11 @@ class FootprintCornerHeights {
    * @param mpcRobotModelAD     used only to extract the generalized coordinates from the state.
    * @param frameNames          the points of this foot, e.g. the corner frames createPinocchioModel() adds for each
    *                            point of the contact polygon. Must be non-empty.
-   * @param modelName           name of the generated library. It is the cache key, so it must change whenever the
-   *                            geometry does; see the note on staleness in the class documentation of the callers.
+   * @param modelName           prefix of the generated library's name. The name is the cache key, and the corner
+   *                            placements are baked into the tape, so the constructor appends a fingerprint of the
+   *                            geometry the heights depend on (each frame's placement and the joint chain above it):
+   *                            editing the footprint, or the contact frame it hangs off, selects a new library even
+   *                            with recompileLibrariesCppAd: false, instead of loading one of the old corners.
    * @param modelSettings       supplies the model folder and whether to regenerate.
    */
   FootprintCornerHeights(const PinocchioInterface& pinocchioInterface,
@@ -90,6 +93,9 @@ class FootprintCornerHeights {
   size_t numCorners() const { return frameNames_.size(); }
 
   const std::vector<std::string>& frameNames() const { return frameNames_; }
+
+  /** The name of the generated library: the prefix given to the constructor and the geometry's fingerprint. */
+  const std::string& modelName() const { return modelName_; }
 
   /** World-frame z of every point, in the order the frame names were given. */
   vector_t getHeights(const vector_t& state) const;
@@ -148,16 +154,16 @@ struct SmoothMinimumHeight {
  *
  * WHY NOT THE PLAIN MINIMUM. The exact min is what the physics wants, but it is non-smooth exactly where the foot is
  * flat, which is where a walking robot spends most of its stance. The complementarity residual is handed to a
- * quadratic penalty and then to an SQP solver that linearises it; at a flat foot the true min's gradient jumps between
- * the four corners', so the linearisation would flip between corners from iteration to iteration.
+ * quadratic penalty and then to an SQP solver that linearizes it; at a flat foot the true min's gradient jumps between
+ * the four corners', so the linearization would flip between corners from iteration to iteration.
  *
  * WHY THE 1/N. Without it this is the standard log-sum-exp softmin, which at a flat foot returns m - log(N) * s: it
  * UNDER-reports the gap by 1.39 mm at the shipped smoothing, and does so worst precisely in the flat-footed stance
  * that is the common case. Under-reporting is the dangerous direction here, because the complementarity penalty is
- * two-sided: a residual of f_n * (h - g) with g < 0 is minimised by pushing the foot UP until the reported gap reaches
+ * two-sided: a residual of f_n * (h - g) with g < 0 is minimized by pushing the foot UP until the reported gap reaches
  * zero, so the robot would hover 1.39 mm above the ground under full load and never close the contact - and nothing
  * opposes it, since the penetration hinge is identically zero above the ground and the swing-foot z cost is switched
- * off in stance. Normalising by N makes the bound exact in value and in gradient at a flat foot, and makes it
+ * off in stance. Normalizing by N makes the bound exact in value and in gradient at a flat foot, and makes it
  * one-sided in the SAFE direction everywhere: the result never falls below the true minimum, and over-reporting the
  * gap merely asks the solver to take a little load off a foot that is up on an edge.
  *
@@ -167,8 +173,11 @@ struct SmoothMinimumHeight {
  *   k = 2, an EDGE down, the ordinary heel strike or toe-off of a sole      s * log 2 = 0.693 mm
  *   k = 1, a single corner, which needs pitch AND roll at once              s * log N = 1.386 mm, the bound
  *
- * Against the shipped penetration hinge those settle at about 0.094 mm and 0.187 mm of equilibrium penetration under
- * full body weight, which is below the compliance of any real sole.
+ * Against the shipped penetration hinge those settle at about 0.050 mm and 0.187 mm of equilibrium penetration under
+ * full body weight, which is below the compliance of any real sole. The equilibrium balances the complementarity
+ * curvature C = complementarityWeight / heightReference^2 = 7812 at full body weight against the hinge of EVERY corner
+ * that is down, so the bias is attenuated by C / (C + k * penetrationWeight): 13.8x for an edge, whose two corners
+ * both resist, and 7.4x for a single corner.
  *
  * @param heights  [m] the corner heights; must be non-empty.
  * @param smoothing [m] the length scale s over which the minimum is blended; must be positive. The bound's worst-case

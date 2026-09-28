@@ -42,6 +42,7 @@ from humanoid_mpc_msgs.msg import WalkingVelocityCommand
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
 from std_msgs.msg import String
 from remote_control import XBoxControllerInterface
+from remote_control import fsm_state
 from remote_control.tk_app import (
     JoystickGui,
     LEDIndicatorGui,
@@ -49,6 +50,7 @@ from remote_control.tk_app import (
     JointTargetsTab,
     MpcParamsTab,
     CommandLimitsTab,
+    DodgeballTab,
 )
 
 
@@ -63,6 +65,7 @@ class App(tk.Tk):
         param_publisher=None,
         pd_gains_publisher=None,
         joint_targets_publisher=None,
+        dodgeball_publisher=None,
     ):
         super().__init__()
         self.title("Robot Base Controller & Tuning")
@@ -73,8 +76,11 @@ class App(tk.Tk):
         self.enable_telemetry = enable_telemetry
         self._fsm_command_callback = None
         self.fsm_mode_var = tk.StringVar(value="ZERO_TORQUE")
+        # The last /humanoid/fsm_state message, which update_fsm_state() compares the next one with.
+        self._last_fsm_state = None
         self.param_publisher = param_publisher
         self.pd_gains_publisher = pd_gains_publisher
+        self.dodgeball_publisher = dodgeball_publisher
         self.joint_targets_publisher = joint_targets_publisher
 
         # Position window on the left side of the screen on top of the RVIZ window
@@ -212,14 +218,24 @@ class App(tk.Tk):
         )
         self.joint_targets_tab.pack(fill="both", expand=True)
 
-        # Tab 5: Command Limits (reference.yaml). Read by the controller at start-up rather than through the
-        # parameter topic, so this tab saves the file and the change applies at the next launch.
+        # Tab 5: Command Limits (reference.yaml). Not carried on the parameter topic: this tab saves the file, and the
+        # parameter updater of either MPC node (makeCentroidalMpcParameterUpdater) watches it and reloads the command
+        # limits of the running controller about a second later.
         tab_limits = ttk.Frame(self.notebook)
         self.notebook.add(tab_limits, text="🎚️ Command Limits")
         self.command_limits_tab = CommandLimitsTab(
             tab_limits, reference_file=self.reference_file
         )
         self.command_limits_tab.pack(fill="both", expand=True)
+
+        # Tab 6: Dodgeball. A disturbance generator for push-recovery testing: the throw is computed here and applied
+        # by the MuJoCo simulator, so the tab does nothing on hardware or against the dummy sim.
+        tab_dodgeball = ttk.Frame(self.notebook)
+        self.notebook.add(tab_dodgeball, text="🏐 Dodgeball")
+        self.dodgeball_tab = DodgeballTab(
+            tab_dodgeball, throw_publisher=self.dodgeball_publisher
+        )
+        self.dodgeball_tab.pack(fill="both", expand=True)
 
         # Build Tab 1: Base Controller contents
         self.auto_center_var = tk.BooleanVar(value=False)
@@ -489,37 +505,32 @@ class App(tk.Tk):
         step_slider(0)
 
     def update_fsm_state(self, state_str: str):
-        """Update GUI from ROS 2 state message: 'MODE,GANTRY_STATE'."""
-        try:
-            parts = [p.strip() for p in state_str.split(",")]
-            if len(parts) >= 1:
-                fsm_state = parts[0]
-                valid_modes = (
-                    "ZERO_TORQUE",
-                    "JOINT_PD",
-                    "GRAVITY_COMP",
-                    "WB_MPC",
-                    "SAFETY",
-                )
-                if fsm_state in valid_modes and self.fsm_mode_var.get() != fsm_state:
-                    self.fsm_mode_var.set(fsm_state)
-                    # Notify Joint Targets tab of mode change
-                    if hasattr(self, "joint_targets_tab"):
-                        self.joint_targets_tab.on_mode_changed()
-            if len(parts) >= 2:
-                gantry_state = parts[1]
-                target_gantry = gantry_state == "GANTRY_LOCKED"
-                if self.gantry_var.get() != target_gantry:
-                    self.gantry_var.set(target_gantry)
-                    if target_gantry:
-                        # The gantry locked without this checkbox asking for it, which is what the simulator's fall
-                        # recovery does when the base tips past simMaxBaseTiltAngle. Re-centre the sticks for the same
-                        # reason _on_gantry_toggle does: a stick left forward would keep commanding a walk into a robot
-                        # that is now hanging from the harness, and the operator never let go of it.
-                        self.joystick_left.set_position()
-                        self.joystick_right.set_position()
-        except Exception:
-            pass
+        """Follows one `/humanoid/fsm_state` message: 'MODE,GANTRY_STATE,CONTROLLER_RESETS' (fsm_state.py).
+
+        The mode selector and the gantry checkbox mirror the message. The joysticks are re-centered whenever
+        fsm_state.should_recenter says so: on a transition into a passive mode, on a new gantry lock and on a controller
+        reset - the simulator's fall recovery catching the robot, or the simulator putting it back in its initial state
+        even while the gantry was already locked. A stick left forward would otherwise keep commanding a walk the
+        operator never meant to give, and re-entering WB_MPC would execute it.
+        """
+        state = fsm_state.parse_fsm_state(state_str)
+        if state is None:
+            return
+        previous = self._last_fsm_state
+        self._last_fsm_state = state
+        if self.fsm_mode_var.get() != state.mode:
+            self.fsm_mode_var.set(state.mode)
+            # Notify Joint Targets tab of mode change
+            if hasattr(self, "joint_targets_tab"):
+                self.joint_targets_tab.on_mode_changed()
+        if (
+            state.gantry_locked is not None
+            and self.gantry_var.get() != state.gantry_locked
+        ):
+            self.gantry_var.set(state.gantry_locked)
+        if fsm_state.should_recenter(previous, state):
+            self.joystick_left.set_position()
+            self.joystick_right.set_position()
 
     def set_joystick_connected(self, is_connected):
         if (
@@ -738,6 +749,15 @@ class RosJoystickApp(Node):
             String, "/joint_pd_target_positions", param_qos
         )
 
+        # Dodgeball throws (button -> ROS topic -> the MuJoCo simulator). RELIABLE, unlike the tuning topics above:
+        # a throw is a one-shot event rather than a stream of slider values, so a dropped message is a button press
+        # that did nothing rather than a value that is corrected 100 ms later.
+        # The topic is DodgeballTab.TOPIC_NAME, which is tied to the simulator's subscription.
+        throw_qos = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, depth=10)
+        self.dodgeball_publisher = self.create_publisher(
+            String, DodgeballTab.TOPIC_NAME, throw_qos
+        )
+
         enable_online_tuning = True
         enable_telemetry = True
         if task_file and os.path.exists(task_file):
@@ -772,6 +792,7 @@ class RosJoystickApp(Node):
             param_publisher=self.param_publisher,
             pd_gains_publisher=self.pd_gains_publisher,
             joint_targets_publisher=self.joint_targets_publisher,
+            dodgeball_publisher=self.dodgeball_publisher,
         )
         self.app.set_default_pelvis_height(default_height)
         self.app._fsm_command_callback = self._send_fsm_command

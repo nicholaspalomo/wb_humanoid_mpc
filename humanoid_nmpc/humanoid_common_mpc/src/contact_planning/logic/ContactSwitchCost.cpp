@@ -25,19 +25,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/logic/ContactSwitchCost.h"
 
-#include <sstream>
-#include <stdexcept>
+#include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
 
 std::string ContactSwitchCost::describe() const {
-  std::ostringstream out;
-  out << cost_ << " per lift-off / touch-down event";
-  return out.str();
+  return absl::StrCat(cost_, " per lift-off / touch-down event");
 }
 
 void ContactSwitchCost::configure(const ContactPlanningConfig& config) {
-  if (config.contactSwitch.cost < 0.0) throw std::invalid_argument("[contact_switch] cost must be non-negative");
   cost_ = config.contactSwitch.cost;
 }
 

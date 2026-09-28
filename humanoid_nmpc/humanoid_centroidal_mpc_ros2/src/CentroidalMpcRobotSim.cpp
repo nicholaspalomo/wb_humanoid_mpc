@@ -40,15 +40,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_robotic_tools/common/RotationTransforms.h>
 #include "absl/log/check.h"
 
-#include <absl/log/log.h>
 #include <humanoid_centroidal_mpc/command/CentroidalMpcTargetTrajectoriesCalculator.h>
 #include <humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h>
+#include <humanoid_centroidal_mpc/mrt/CentroidalMpcParameterUpdater.h>
 #include <humanoid_centroidal_mpc/mrt/MpcParameterUpdaterModule.h>
 #include <humanoid_common_mpc/common/ThreadAffinity.h>
 #include <humanoid_common_mpc/contact/ContactRectangle.h>
 #include <humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h>
 #include "absl/log/globals.h"
 #include "absl/log/initialize.h"
+#include "absl/log/log.h"
+#include "humanoid_common_mpc_ros2/fsm/SimFallRecovery.h"
 #include "humanoid_common_mpc_ros2/fsm/SimFsmBridge.h"
 #include "humanoid_common_mpc_ros2/ros_comm/Ros2ProceduralMpcMotionManager.h"
 #include "humanoid_common_mpc_ros2/telemetry/PinocchioTelemetryPublisher.h"
@@ -105,7 +107,7 @@ int main(int argc, char** argv) {
   // Launch MPC ROS node
   rclcpp::Node::SharedPtr nodeHandle = std::make_shared<rclcpp::Node>(robotName + "_centroidal_mpc");
 
-  auto qos = rclcpp::QoS(1);
+  rclcpp::QoS qos(1);
   qos.best_effort();
 
   // Everything that produces or consumes OCP input vectors (reference inputs, policy visualization, telemetry) must use
@@ -119,6 +121,10 @@ int main(int argc, char** argv) {
   CentroidalMpcTargetTrajectoriesCalculator mpcTargetTrajectoriesCalculator(
       referenceFile, effectiveMpcRobotModel, interface.getPinocchioInterface(), interface.getCentroidalModelInfo(),
       interface.mpcSettings().timeHorizon_);
+  // The commanded base height stands on the ground the reference manager applied in this solve, so it follows a hot
+  // reload of terrainHeight (TargetTrajectoriesCalculatorBase::setTerrainHeightSource).
+  mpcTargetTrajectoriesCalculator.setTerrainHeightSource(
+      [referenceManager = interface.getSwitchedModelReferenceManagerPtr()]() { return referenceManager->getAppliedTerrainHeight(); });
   ProceduralMpcMotionManager::VelocityTargetToTargetTrajectories targetTrajectoriesFunc =
       [&mpcTargetTrajectoriesCalculator](const vector4_t& velocityTarget, scalar_t initTime, scalar_t finalTime,
                                          const vector_t& initState) mutable {
@@ -128,22 +134,28 @@ int main(int argc, char** argv) {
       gaitFile, referenceFile, interface.getSwitchedModelReferenceManagerPtr(), effectiveMpcRobotModel, targetTrajectoriesFunc);
 
   ros2ProceduralMpcMotionManager->subscribe(nodeHandle, qos);
+  // A reset of the MPC resets the command path with it: the motion manager itself, and through this hook the target
+  // calculator behind targetTrajectoriesFunc, whose filters are its state.
+  ros2ProceduralMpcMotionManager->setResetHook([&mpcTargetTrajectoriesCalculator]() { mpcTargetTrajectoriesCalculator.reset(); });
 
   mpc.getSolverPtr()->setReferenceManager(interface.getReferenceManagerPtr());
   mpc.getSolverPtr()->addSynchronizedModule(ros2ProceduralMpcMotionManager);
-  // Online contact planning (useContactPlanning: true in task.yaml): the planner module feeds mode schedules and footholds
+  // Online contact planning (contactScheduleSource: contact_planner in task.yaml): the planner module feeds mode schedules and footholds
   // to the reference manager and, like the other synchronized modules, has to run before every solve.
-  if (auto contactPlannerModule = interface.getContactPlannerModulePtr()) {
+  if (const std::shared_ptr<ContactPlannerModule> contactPlannerModule = interface.getContactPlannerModulePtr()) {
     mpc.getSolverPtr()->addSynchronizedModule(contactPlannerModule);
   }
 
-  // Register real-time MPC parameter hot-reloading. The updater is sized to the OCP input and, in basis-vector mode,
-  // transforms the wrench-space R of task.yaml exactly as the OCP factory did.
-  auto mpcParameterUpdater = std::make_shared<MpcParameterUpdaterModule>(
-      &mpc, taskFile, urdfFile, referenceFile, interface.getMpcRobotModel().getStateDim(), effectiveMpcRobotModel.getInputDim(),
-      interface.modelSettings().contactNames, dynamic_cast<const SwitchedModelReferenceManager*>(interface.getReferenceManagerPtr().get()),
-      interface.getBasisInputsCostTransformConfig());
-  mpcParameterUpdater->setContactPlannerModule(interface.getContactPlannerModulePtr());
+  // Register real-time MPC parameter hot-reloading, wired by the one function both MPC nodes use: the updater is sized
+  // to the OCP input, reaches the reference manager, the contact planner and the locomotion-heuristic layer, and
+  // reloads the consumers of reference.yaml built above (both outlive the updater: they live in this scope, as it does)
+  // so that the Command Limits tab of the remote control changes them on the running controller.
+  absl::StatusOr<std::shared_ptr<MpcParameterUpdaterModule>> updaterResult = makeCentroidalMpcParameterUpdater(
+      &mpc, interface, taskFile, urdfFile, referenceFile,
+      {[&mpcTargetTrajectoriesCalculator](const std::string& file) { mpcTargetTrajectoriesCalculator.reloadCommandLimits(file); },
+       [ros2ProceduralMpcMotionManager](const std::string& file) { ros2ProceduralMpcMotionManager->reloadCommandLimits(file); }});
+  CHECK(updaterResult.ok()) << "Failed to create the MPC parameter updater: " << updaterResult.status();
+  const std::shared_ptr<MpcParameterUpdaterModule> mpcParameterUpdater = *std::move(updaterResult);
   mpcParameterUpdater->subscribe(nodeHandle);
   mpc.getSolverPtr()->addSynchronizedModule(mpcParameterUpdater);
 
@@ -161,26 +173,36 @@ int main(int argc, char** argv) {
   // ContactEstimatorRegistry: MPC observation mode and the contact wrenches the inverse dynamics projects).
   std::string contactEstimatorName = robot::mujoco_sim_interface::kCheaterSimContactEstimatorName;
   double simContactForceThreshold = 5.0;
-  // [rad] tilt of the base past which the robot is caught on the gantry; 0 leaves a fallen robot where it lands.
-  double simMaxBaseTiltAngle = 0.0;
+  // The fall recovery (SimFallRecovery): the tilt past which the robot is caught on the gantry [rad] (0 leaves a fallen
+  // robot where it lands), and how far the gantry lifts a caught robot to let it settle [m] (0: no settle sequence).
+  SimFallRecovery::Config fallRecoveryConfig;
   double simContactTimelineWindow = 5.0;
   // Viewer visualizations by name (VisualizationRegistry.h); absent: the viewer's default set.
   std::vector<std::string> simVisualizations = robot::mujoco_sim_interface::defaultVisualizationNames();
   // Which implementation holds the base while the virtual gantry is locked (GantryHold in MujocoSimInterface.h).
   std::string simGantryHold = "weld_constraint";
+  // Which ball the Dodgeball tab of the GUI throws, by name (mujoco_sim_interface/Projectile.h). Empty compiles the
+  // scene exactly as it is on disk and the throw falls back to simulating the ball's impulse on the base.
+  // Empty by default, so a robot whose task file says nothing gets its scene compiled exactly as it is on disk
+  // rather than silently acquiring a body; every shipped task file opts in explicitly.
+  std::string simProjectile;
   try {
     YAML::Node taskYaml = YAML::LoadFile(taskFile);
     if (taskYaml["contactEstimator"]) contactEstimatorName = taskYaml["contactEstimator"].as<std::string>();
     if (taskYaml["simContactForceThreshold"]) simContactForceThreshold = taskYaml["simContactForceThreshold"].as<double>();
-    if (taskYaml["simMaxBaseTiltAngle"]) simMaxBaseTiltAngle = taskYaml["simMaxBaseTiltAngle"].as<double>();
+    // LINT.IfChange(sim_fall_recovery_keys)
+    if (taskYaml["simMaxBaseTiltAngle"]) fallRecoveryConfig.maxBaseTiltAngle = taskYaml["simMaxBaseTiltAngle"].as<double>();
+    if (taskYaml["simGantryCatchLift"]) fallRecoveryConfig.catchLift = taskYaml["simGantryCatchLift"].as<double>();
+    // clang-format off
+    // LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc_ros2/src/WBMpcRobotSim.cpp:sim_fall_recovery_keys, //robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:sim_fall_recovery, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:sim_fall_recovery, //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.yaml:sim_fall_recovery, //robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.yaml:sim_fall_recovery, //humanoid_nmpc/docs/mpc_reset/README.md:sim_fall_recovery_keys)
+    // clang-format on
     if (taskYaml["simContactTimelineWindow"]) simContactTimelineWindow = taskYaml["simContactTimelineWindow"].as<double>();
     if (taskYaml["simVisualizations"]) simVisualizations = taskYaml["simVisualizations"].as<std::vector<std::string>>();
     if (taskYaml["gantryHold"]) simGantryHold = taskYaml["gantryHold"].as<std::string>();
+    if (taskYaml["simProjectile"]) simProjectile = taskYaml["simProjectile"].as<std::string>();
   } catch (const std::exception& e) {
     LOG(WARNING) << "Failed to read the simulator contact settings from " << taskFile << ": " << e.what();
   }
-
-  fsmBridge.setMaxBaseTiltAngle(simMaxBaseTiltAngle);
 
   robot::mujoco_sim_interface::MujocoSimConfig config;
 
@@ -193,15 +215,17 @@ int main(int argc, char** argv) {
   config.contactTimelineWindow = simContactTimelineWindow;
   config.visualizations = simVisualizations;
   config.gantryHold = simGantryHold;
+  config.projectile = simProjectile;
   // Target contact patches in the viewer ('g' toggles them): the contact rectangle of every foot, drawn at the pose the
   // contact planner wants the foot on the ground. Without a contact planner there is no target and nothing is drawn.
-  const auto planningReferenceManager = std::dynamic_pointer_cast<ContactPlanningReferenceManager>(interface.getReferenceManagerPtr());
+  const std::shared_ptr<ContactPlanningReferenceManager> planningReferenceManager =
+      std::dynamic_pointer_cast<ContactPlanningReferenceManager>(interface.getReferenceManagerPtr());
   if (planningReferenceManager) {
     for (size_t contact = 0; contact < N_CONTACTS; ++contact) {
       robot::mujoco_sim_interface::ContactPatchCorners corners;
       try {
         const ContactRectangle rectangle =
-            ContactRectangle::loadContactRectangle(taskFile, interface.modelSettings(), static_cast<int>(contact), false);
+            ContactRectangle::loadContactRectangle(taskFile, interface.modelSettings(), static_cast<int>(contact), /*verbose=*/false);
         const PolygonBounds& bounds = rectangle.getBounds();
         if (bounds.x_max > bounds.x_min && bounds.y_max > bounds.y_min) {
           for (size_t corner = 0; corner < rectangle.getNumberOfContactPoints(); ++corner) {
@@ -218,8 +242,12 @@ int main(int argc, char** argv) {
   }
 
   robot::mujoco_sim_interface::MujocoSimInterface robotInterface(config, urdfFile);
+  // Whether a caught robot is at rest is judged on the joints of the MPC model: the ones JOINT_PD brings to the nominal
+  // posture and the MPC starts from.
+  SimFallRecovery fallRecovery(fallRecoveryConfig, robotInterface,
+                               robotDescription.getJointIndices(interface.modelSettings().mpcModelJointNames));
 
-  if (auto plannerModule = interface.getContactPlannerModulePtr();
+  if (const std::shared_ptr<ContactPlannerModule> plannerModule = interface.getContactPlannerModulePtr();
       plannerModule && plannerModule->getConfig().formulation.hasExecutionRule(term::kPhaseResetting) &&
       robot::model::ContactEstimatorRegistry::canonicalName(contactEstimatorName) ==
           robot::model::ContactEstimatorRegistry::kAlwaysInContact) {
@@ -332,7 +360,7 @@ int main(int argc, char** argv) {
 
   // Start sim loop in zero-torque mode: the robot spawns passively held by the gantry.
   // The MPC solver continues to receive state feedback and refine its policy.
-  const auto coreAlloc = ocs2::humanoid::getDefaultCoreAllocation();
+  const ocs2::humanoid::SystemCoreAllocation coreAlloc = ocs2::humanoid::getDefaultCoreAllocation();
   robotInterface.startSim();
   ocs2::humanoid::setThreadCpuAffinity(coreAlloc.simCores, robotInterface.getSimulationThread().native_handle(), "MuJoCo Simulation");
   ocs2::humanoid::setThreadCpuAffinity(coreAlloc.mrtCores, pthread_self(), "MRT Joint Control Loop");
@@ -345,7 +373,8 @@ int main(int argc, char** argv) {
   size_t mrtSlowCount = 0;
   size_t telemetryCounter = 0;
   while (true) {
-    auto targetTimeForNextIteration = std::chrono::steady_clock::now() + std::chrono::microseconds(mrtDeltaTMicroSeconds_);
+    const std::chrono::steady_clock::time_point targetTimeForNextIteration =
+        std::chrono::steady_clock::now() + std::chrono::microseconds(mrtDeltaTMicroSeconds_);
 
     // Always publish state to MPC so the solver's plan stays current.
     // In zero-torque mode, we still compute the control action but don't apply it,
@@ -356,10 +385,11 @@ int main(int argc, char** argv) {
     mpcJointController.setControlMode(currentModeName);
     fsmBridge.applyJointTargetUpdates();
     mpcJointController.setNominalJointPositions(fsmBridge.getNominalJointPositions());
-    mpcJointController.computeJointControlAction(0.0, robotInterface.getRobotState(), robotInterface.getRobotJointAction());
+    mpcJointController.computeJointControlAction(/*time=*/0.0, robotInterface.getRobotState(), robotInterface.getRobotJointAction());
 
     // Contact timeline in the MuJoCo viewer: the contact state the executed policy plans for now, against the physics.
-    if (const auto planned = mpcJointController.getPlannedContactFlags(mpcJointController.getCurrentObservation().time)) {
+    if (const std::optional<contact_flag_t> planned =
+            mpcJointController.getPlannedContactFlags(mpcJointController.getCurrentObservation().time)) {
       robotInterface.setTargetContactFlags(std::vector<bool>(planned->begin(), planned->end()));
     } else {
       robotInterface.setTargetContactFlags({});
@@ -396,9 +426,6 @@ int main(int argc, char** argv) {
 
     WalkingVelocityCommand targetCmd = ros2ProceduralMpcMotionManager->getScaledWalkingVelocityCommand();
     robotInterface.setTargetVelocities(targetCmd.linear_velocity_x, targetCmd.linear_velocity_y, targetCmd.angular_velocity_z);
-
-    // Apply mode-specific overrides for modes other than JOINT_PD (which is handled by the controller)
-    fsmBridge.applyModeAction(currentModeName, robotDescription, robotInterface.getRobotJointAction());
 
     if (!robotInterface.isZeroTorqueMode()) {
       robotInterface.applyJointAction();
@@ -442,32 +469,34 @@ int main(int argc, char** argv) {
       }
     }
 
-    bool gantryBefore = robotInterface.isGantryLocked();
-    // A robot that has tipped past the configured tilt is caught on the gantry. Placed before processCommands() so the
-    // lock is part of the same unlocked-to-locked transition the block below already reacts to.
-    fsmBridge.recoverFromFall(robotInterface.getRobotState(), robotInterface, currentModeName);
+    // The operator's commands first, then the fall recovery, which compares the gantry and the simulator's reset epoch
+    // with the previous cycle: a catch, a reset the simulator made on its own thread and a LOCK_GANTRY are each one
+    // discontinuity, after which the controller starts again from where the robot is (and holds it until then), in
+    // JOINT_PD. While a caught robot settles on the gantry the recovery keeps it in JOINT_PD whatever was commanded.
     fsmBridge.processCommands(currentModeName, robotInterface);
-    bool gantryAfter = robotInterface.isGantryLocked();
-
-    // Reset MPC and switch to JOINT_PD when gantry is locked
-    if (gantryBefore != gantryAfter) {
+    const SimFallRecovery::Cycle recovery =
+        fallRecovery.update(robotInterface.getRobotState(), fsmBridge.getNominalJointPositions(), robotInterface, currentModeName);
+    if (recovery.gantryUnlocked) {
+      // Releasing the base invalidates the warm start; the policy in use carries the robot until the new one is in use.
       mpcJointController.requestMpcReset();
-      if (gantryAfter) {
-        // Gantry locked: switch to safe PD mode (MPC is overconstrained on the gantry)
-        currentModeName = "JOINT_PD";
-        fsmBridge.publishFsmState(currentModeName, gantryAfter);
-        LOG(INFO) << "Gantry locked — switching to JOINT_PD mode and resetting MPC.";
-      } else {
-        LOG(INFO) << "Gantry unlocked — resetting MPC.";
-      }
+      LOG(INFO) << "Gantry unlocked — resetting MPC.";
+    }
+    if (recovery.discontinuity) {
+      mpcJointController.requestMpcResetAndHold();
+      // The remote control follows this state and re-centers its joysticks on every controller reset it counts, also
+      // on one that changes neither the mode nor the gantry (a simulator reset while locked in JOINT_PD).
+      fsmBridge.publishControllerReset(currentModeName, robotInterface.isGantryLocked());
+    } else if (recovery.modeChanged) {
+      // The remote control follows this state, and re-centers its joysticks on a transition into a passive mode.
+      fsmBridge.publishFsmState(currentModeName, robotInterface.isGantryLocked());
     }
 
-    auto currentTime = std::chrono::steady_clock::now();
+    const std::chrono::steady_clock::time_point currentTime = std::chrono::steady_clock::now();
     if (currentTime > targetTimeForNextIteration) {
       // Only warn in MPC-active mode and for significant delays (>1ms).
       // Sub-millisecond overruns are normal OS scheduling jitter.
       if (!robotInterface.isZeroTorqueMode()) {
-        auto delay = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - targetTimeForNextIteration).count();
+        const int64_t delay = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - targetTimeForNextIteration).count();
         if (delay > 1000 && (++mrtSlowCount % 20 == 0)) {
           LOG(WARNING) << "MRT loop running slow by " << delay << " microseconds.";
         }

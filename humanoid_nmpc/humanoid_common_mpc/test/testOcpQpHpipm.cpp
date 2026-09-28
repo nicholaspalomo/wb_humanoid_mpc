@@ -168,7 +168,7 @@ TEST(OcpQpHpipmTest, UnconstrainedMatchesDenseKkt) {
 
 /**
  * The state-input cross term S (nu x nx, cost u'Sx) is what the contact planner's terminal capturability and ZMP
- * regularisation residuals produce; a wrong transpose or a dropped block would go unnoticed by every S = 0 problem.
+ * regularization residuals produce; a wrong transpose or a dropped block would go unnoticed by every S = 0 problem.
  */
 TEST(OcpQpHpipmTest, StateInputCrossTermMatchesDenseKkt) {
   OcpQpProblem problem = makeDoubleIntegratorProblem(1.0, -0.5);
@@ -298,7 +298,7 @@ TEST(OcpQpHpipmTest, RepeatedSolvesWithChangedBoundsReuseMemory) {
  * Which general rows are soft must be decided by the problem handed to solve(), never by the problem handed to the
  * previous solve() on the same solver instance.
  *
- * HPIPM keeps the row-to-slack mapping in qp.idxs_rev, which is initialised to "all rows hard" only when the QP is
+ * HPIPM keeps the row-to-slack mapping in qp.idxs_rev, which is initialized to "all rows hard" only when the QP is
  * created and which d_ocp_qp_set_all then updates sparsely, writing the soft rows of the current problem and clearing
  * nothing. The solver reuses its HPIPM allocation whenever the problem dimensions are unchanged, and the dimensions
  * are pure counts: they cannot distinguish {row 0 soft} from {row 1 soft}. Before the fix the second solve below
@@ -348,7 +348,7 @@ TEST(OcpQpHpipmTest, SoftRowSelectionIsNotInheritedFromThePreviousSolve) {
  * Companion coverage for the other branch of the allocation logic: consecutive solves whose dimensions differ, so
  * that the solver has to throw away its HPIPM objects and create new ones, in both directions (small after large and
  * large after small, the former being the case in which the memory blocks are larger than the problem needs). This
- * path was correct before the idxs_rev fix as well - creation reinitialises the whole QP - but nothing exercised it,
+ * path was correct before the idxs_rev fix as well - creation reinitializes the whole QP - but nothing exercised it,
  * so a future change to allocate() could have broken it unnoticed.
  */
 TEST(OcpQpHpipmTest, ConsecutiveSolvesWithDifferentDimensionsReallocate) {

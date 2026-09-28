@@ -27,7 +27,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
-#include <sstream>
 
 namespace ocs2::humanoid {
 
@@ -36,7 +35,6 @@ std::string PreviousFootholdConsistencyCost::describe() const {
 }
 
 void PreviousFootholdConsistencyCost::configure(const ContactPlanningConfig& config) {
-  checkWeight("previous_foothold_consistency", config.previousFootholdConsistency.weight);
   weight_ = config.previousFootholdConsistency.weight;
 }
 

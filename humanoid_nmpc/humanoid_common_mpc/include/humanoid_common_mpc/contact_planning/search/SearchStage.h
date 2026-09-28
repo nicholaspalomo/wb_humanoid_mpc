@@ -69,7 +69,7 @@ struct SearchRun {
   const MiqpPropagateFn* propagate = nullptr;
   const MiqpAssignmentCostFn* assignmentCost = nullptr;
   MixedIntegerOcpQp* miqp = nullptr;
-  OcpQpProblem* problem = nullptr;  // the problem the incumbent was found on; a stage that re-linearises replaces it
+  OcpQpProblem* problem = nullptr;  // the problem the incumbent was found on; a stage that re-linearizes replaces it
   MiqpResult* result = nullptr;
   SearchStatistics* statistics = nullptr;
   std::function<OcpQpProblem(const HeadingNominal&)> assembleWithNominal;  // re-builds the problem around a nominal
@@ -87,7 +87,7 @@ struct SearchRun {
 
 /**
  * A stage of the search around the branch-and-bound: something that provides an incumbent before it (a warm start, the
- * diving heuristic inside the solver) or refines the incumbent after it (local search, re-linearisation).
+ * diving heuristic inside the solver) or refines the incumbent after it (local search, re-linearization).
  */
 class SearchStage : public ContactPlanningTerm {
  public:

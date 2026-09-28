@@ -1,12 +1,12 @@
 #!/bin/bash
 # ==============================================================================
-# launch_jupyter.sh — Starts the interactive Jupyter Notebook dashboard for
-# Whole-Body Humanoid MPC & aCOM.
+# launch_jupyter.sh — Starts Jupyter for the ACoM SIREN training notebook
+# (notebooks/train_acom_siren.ipynb).
 #
 # Usage:
-#   make jupyter
+#   make train-acom-jupyter
 #   # or
-#   tools/launch_jupyter.sh [--port PORT]
+#   tools/launch_jupyter.sh [PORT]    # PORT defaults to 8888
 # ==============================================================================
 
 set -e
@@ -33,7 +33,7 @@ fi
 PORT="${1:-8888}"
 
 echo "=================================================================="
-echo "🚀 Starting Humanoid MPC & aCOM Interactive Jupyter Dashboard"
+echo "Starting Jupyter for the ACoM SIREN training notebook"
 echo "=================================================================="
 
 export PATH="${HOME}/.local/bin:${PATH}"
@@ -59,7 +59,7 @@ mkdir -p "${NOTEBOOK_DIR}"
 
 echo "📁 Notebook directory: ${NOTEBOOK_DIR}"
 echo "🌐 Listening on: http://0.0.0.0:${PORT}"
-echo "🕹️ Open 'humanoid_control_dashboard.ipynb' once Jupyter is running."
+echo "Open 'notebooks/train_acom_siren.ipynb' (ACoM SIREN training) once Jupyter is running."
 echo "=================================================================="
 
 # Launch Jupyter Notebook server

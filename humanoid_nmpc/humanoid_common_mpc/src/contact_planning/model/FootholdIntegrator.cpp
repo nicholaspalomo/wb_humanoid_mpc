@@ -25,9 +25,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/model/FootholdIntegrator.h"
 
-#include <sstream>
 #include <stdexcept>
 
+#include "absl/strings/str_cat.h"
 #include "humanoid_common_mpc/contact_planning/logic/ContactLogicState.h"
 #include "humanoid_common_mpc/contact_planning/model/LipBlockIndices.h"
 
@@ -36,13 +36,10 @@ namespace ocs2::humanoid {
 static_assert(N_CONTACTS == 2, "the foothold block lays out two feet (LipStateIndex / LipInputIndex)");
 
 std::string FootholdIntegrator::describe() const {
-  std::ostringstream out;
-  out << "p_{i,k+1} = p_{i,k} + dp_{i,k}, |dp| <= bigM = " << bigM_ << " m, contact binaries c_i in {0, 1}";
-  return out.str();
+  return absl::StrCat("p_{i,k+1} = p_{i,k} + dp_{i,k}, |dp| <= bigM = ", bigM_, " m, contact binaries c_i in {0, 1}");
 }
 
 void FootholdIntegrator::configure(const ContactPlanningConfig& config) {
-  if (config.shared.bigM <= 0.0) throw std::invalid_argument("[foothold_integrator] bigM must be positive");
   bigM_ = config.shared.bigM;
 }
 
@@ -79,7 +76,7 @@ void FootholdIntegrator::addInputBounds(const ContactPlanningContext& ctx, int /
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
     for (int axis = 0; axis < 2; ++axis) bounds.add(idx_.footDelta[foot][axis], -M, M);
   }
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) bounds.add(idx_.contact[foot], 0.0, 1.0);
+  for (size_t foot = 0; foot < N_CONTACTS; ++foot) bounds.add(idx_.contact[foot], /*lower=*/0.0, /*upper=*/1.0);
 }
 
 void FootholdIntegrator::setInitialState(const ContactPlanningContext& ctx, vector_t& x0) const {

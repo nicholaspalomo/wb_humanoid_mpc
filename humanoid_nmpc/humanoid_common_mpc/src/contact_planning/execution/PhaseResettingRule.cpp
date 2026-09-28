@@ -27,8 +27,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
-#include <sstream>
-#include <stdexcept>
+
+#include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
 
@@ -38,27 +38,15 @@ constexpr scalar_t kMinTimeShift = 1e-6;        // [s] smaller event shifts are 
 }  // namespace
 
 std::string PhaseResettingRule::describe() const {
-  std::ostringstream out;
-  out << "early touch-down after " << params_.earlyTouchdownMinSwingRatio << " of the swing, debounced "
-      << params_.earlyTouchdownMinContactDuration << " s and at least " << params_.earlyTouchdownMinAdvance
-      << " s ahead of schedule, ends the swing in place; late touch-down extends the swing in steps of "
-      << params_.lateTouchdownExtensionStep << " s up to " << params_.maxLateTouchdownExtension << " s, descending at "
-      << params_.lateTouchdownSearchVelocity << " m/s";
-  return out.str();
+  return absl::StrCat("early touch-down after ", params_.earlyTouchdownMinSwingRatio, " of the swing, debounced ",
+                      params_.earlyTouchdownMinContactDuration, " s and at least ", params_.earlyTouchdownMinAdvance,
+                      " s ahead of schedule, ends the swing in place; late touch-down extends the swing in steps of ",
+                      params_.lateTouchdownExtensionStep, " s up to ", params_.maxLateTouchdownExtension, " s, descending at ",
+                      params_.lateTouchdownSearchVelocity, " m/s");
 }
 
 void PhaseResettingRule::configure(const ContactPlanningConfig& config) {
-  const PhaseResettingParameters& p = config.phaseResetting;
-  if (p.earlyTouchdownMinSwingRatio < 0.0 || p.earlyTouchdownMinSwingRatio > 1.0) {
-    throw std::invalid_argument("[phase_resetting] earlyTouchdownMinSwingRatio must be in [0, 1]");
-  }
-  if (p.earlyTouchdownMinContactDuration < 0.0)
-    throw std::invalid_argument("[phase_resetting] earlyTouchdownMinContactDuration must be >= 0");
-  if (p.earlyTouchdownMinAdvance < 0.0) throw std::invalid_argument("[phase_resetting] earlyTouchdownMinAdvance must be >= 0");
-  if (p.maxLateTouchdownExtension < 0.0) throw std::invalid_argument("[phase_resetting] maxLateTouchdownExtension must be >= 0");
-  if (p.lateTouchdownExtensionStep <= 0.0) throw std::invalid_argument("[phase_resetting] lateTouchdownExtensionStep must be positive");
-  if (p.lateTouchdownSearchVelocity < 0.0) throw std::invalid_argument("[phase_resetting] lateTouchdownSearchVelocity must be >= 0");
-  params_ = p;
+  params_ = config.phaseResetting;
 }
 
 bool PhaseResettingRule::adaptSwingingFoot(const ExecutionContext& ctx,
@@ -133,7 +121,7 @@ std::optional<GroundSearchRequest> PhaseResettingRule::groundSearch(const Execut
   // is the planned swing's, continued past the planned touch-down as a straight descent at the search velocity, so that
   // the foot keeps moving down instead of hovering, and the reference never rises when the swing is extended again.
   if (!latch.active || latch.lateExtension <= 0.0) return std::nullopt;
-  const auto range = swingPhaseIndexRange(schedule, foot, ctx.time);
+  const std::optional<std::pair<size_t, size_t>> range = swingPhaseIndexRange(schedule, foot, ctx.time);
   if (!range.has_value() || range->first == 0) return std::nullopt;
   if (std::abs(schedule.eventTimes[range->first - 1] - latch.liftOffTime) > kSameSwingTolerance) return std::nullopt;
   return GroundSearchRequest{latch.liftOffTime, latch.plannedTouchDownTime(), params_.lateTouchdownSearchVelocity};

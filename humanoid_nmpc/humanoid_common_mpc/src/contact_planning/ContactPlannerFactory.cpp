@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
+#include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/contact_planning/LipContactPlanner.h"
 #include "humanoid_common_mpc/contact_planning/hlip/HlipContactPlanner.h"
 
@@ -58,7 +59,9 @@ absl::Status unknownPlanner(absl::string_view name) {
 const std::vector<std::string>& knownPlannerNames() {
   // LINT.IfChange(known_planner_names)
   static const std::vector<std::string> names{planner::kHlip, planner::kLipMiqp};
-  // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/contact_planning.yaml:contact_planning_config)
+  // clang-format off
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/contact_planning/ContactPlannerFactory.h:planner_names, //robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/contact_planning.yaml:contact_planning_config, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/contact_planning.yaml:contact_planning_config)
+  // clang-format on
   return names;
 }
 
@@ -72,16 +75,27 @@ std::string canonicalPlannerName(absl::string_view name) {
 
 absl::StatusOr<std::unique_ptr<ContactPlannerInterface>> makeContactPlanner(const ContactPlanningConfig& config) {
   const std::string name = canonicalPlannerName(config.planner.type);
-  if (name == planner::kHlip) return std::make_unique<HlipContactPlanner>(config);
-  if (name == planner::kLipMiqp) return std::make_unique<LipContactPlanner>(config);
-  return unknownPlanner(config.planner.type);
+  if (name.empty()) return unknownPlanner(config.planner.type);
+  // An invalid configuration is returned as the Status of ContactPlanningConfig::validateStatus(), which names the key.
+  // This used to construct both planners directly: LipContactPlanner's constructor validates by throwing, so the
+  // rejection escaped this StatusOr function as an exception, and HlipContactPlanner does not validate at all and was
+  // built from the invalid configuration silently - the same bad key threw for one planner and passed for the other.
+  if (name == planner::kLipMiqp) {
+    ASSIGN_OR_RETURN(std::unique_ptr<LipContactPlanner> lip, LipContactPlanner::Create(config));
+    return std::unique_ptr<ContactPlannerInterface>(std::move(lip));
+  }
+  RETURN_IF_ERROR(config.validateStatus());
+  return std::make_unique<HlipContactPlanner>(config);
 }
 
 absl::StatusOr<std::string> contactPlannerSummary(const ContactPlanningConfig& config) {
   const std::string name = canonicalPlannerName(config.planner.type);
+  if (name.empty()) return unknownPlanner(config.planner.type);
+  // As in makeContactPlanner: the H-LIP summary is computed from the configuration as it is, so it is validated first
+  // (the mixed-integer summary assembles a planner through LipContactPlanner::Create(), which validates it too).
+  RETURN_IF_ERROR(config.validateStatus());
   if (name == planner::kHlip) return HlipContactPlanner::formulationSummary(config);
-  if (name == planner::kLipMiqp) return LipContactPlanner::formulationSummary(config);
-  return unknownPlanner(config.planner.type);
+  return LipContactPlanner::formulationSummary(config);
 }
 
 }  // namespace ocs2::humanoid

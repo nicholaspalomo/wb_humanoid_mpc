@@ -134,6 +134,18 @@ class SolverBase {
   }
 
   /**
+   * Resets the ReferenceManager and then every synchronized module, in the order they run before a solve
+   * (ReferenceManagerInterface::reset(), SolverSynchronizedModule::reset()). The solver's own reset() does not touch
+   * them: MPC_BASE::reset() calls both. Must not be called while the solver is running.
+   */
+  void resetReferenceManagerAndModules() {
+    referenceManagerPtr_->reset();
+    for (const std::shared_ptr<SolverSynchronizedModule>& module : synchronizedModules_) {
+      module->reset();
+    }
+  }
+
+  /**
    * Adds an observer to probe the dual solution or optimized metrics.
    * @note: Observers will slow down the MPC. Only employ them during debugging and remove them for deployment.
    */

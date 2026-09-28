@@ -27,9 +27,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cstdlib>
+#include <functional>
 #include <limits>
 #include <stdexcept>
 #include <string>
+
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 
 extern "C" {
 #include <hpipm_common.h>
@@ -78,12 +82,14 @@ struct Dimensions {
   }
 };
 
+[[noreturn]] void failStage(int k, absl::string_view what) {
+  throw std::invalid_argument(absl::StrCat("[OcpQpHpipmSolver] stage ", k, ": ", what));
+}
+
 void checkStage(const OcpQpStage& stage, int k, int N) {
   const int nx = stage.numStates();
   const int nu = stage.numInputs();
-  const auto fail = [&](const std::string& what) {
-    throw std::invalid_argument("[OcpQpHpipmSolver] stage " + std::to_string(k) + ": " + what);
-  };
+  const std::function<void(absl::string_view)> fail = [k](absl::string_view what) { failStage(k, what); };
   if (k == N && nu != 0) fail("terminal node must not have inputs");
   if (stage.Q.rows() != nx || stage.Q.cols() != nx) fail("Q must be nx x nx");
   if (stage.R.rows() != nu || stage.R.cols() != nu) fail("R must be nu x nu");
@@ -263,7 +269,7 @@ class OcpQpHpipmSolver::Impl {
     for (int k = 0; k <= N; ++k) {
       checkStage(problem.stages[k], k, N);
       if (k < N && problem.stages[k].A.rows() != problem.stages[k + 1].numStates()) {
-        throw std::invalid_argument("[OcpQpHpipmSolver] dynamics of stage " + std::to_string(k) + " do not match the next state size");
+        throw std::invalid_argument(absl::StrCat("[OcpQpHpipmSolver] dynamics of stage ", k, " do not match the next state size"));
       }
     }
     if (problem.x0.size() != problem.stages[0].numStates()) {
@@ -279,7 +285,7 @@ class OcpQpHpipmSolver::Impl {
 
     Dimensions dims;
     dims.N = N;
-    const auto resizeAll = [&](std::vector<int>& v) { v.assign(N + 1, 0); };
+    const std::function<void(std::vector<int>&)> resizeAll = [N](std::vector<int>& v) { v.assign(N + 1, 0); };
     resizeAll(dims.nx);
     resizeAll(dims.nu);
     resizeAll(dims.nbx);

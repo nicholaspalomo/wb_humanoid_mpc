@@ -95,7 +95,7 @@ class DrcAtlasContactTestModel {
   const CentroidalMpcRobotModel<scalar_t>& wrenchModel() const { return *wrenchModel_; }
 
   /**
-   * The basis-vector model the shipped Atlas runs (`useContactBasisVectorInputs: true`): its input vector stores
+   * The basis-vector model the shipped Atlas runs (`contactInputParameterization: basis_vectors`): its input vector stores
    * non-negative scalings of a LOCAL contact-frame wrench-cone basis, so getContactWrench() returns a local-frame
    * wrench where the wrench model returns a world-frame one. That difference is the whole of audit finding A3.
    */

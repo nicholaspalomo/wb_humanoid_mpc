@@ -29,8 +29,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_ros2/ros_comm/JointTargetSubscriber.h"
 
-#include <absl/log/log.h>
 #include <yaml-cpp/yaml.h>
+#include "absl/log/log.h"
 
 namespace ocs2::humanoid {
 
@@ -39,7 +39,7 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 
 void JointTargetSubscriber::subscribe(rclcpp::Node::SharedPtr node) {
-  auto qos = rclcpp::QoS(1).best_effort();
+  rclcpp::QoS qos = rclcpp::QoS(1).best_effort();
   subscription_ = node->create_subscription<std_msgs::msg::String>(kTopicName, qos, [this](const std_msgs::msg::String::SharedPtr msg) {
     std::lock_guard<std::mutex> lock(pendingMutex_);
     pendingYamlContent_ = msg->data;
@@ -80,9 +80,9 @@ bool JointTargetSubscriber::applyPendingUpdates(std::vector<scalar_t>& nominalPo
     }
 
     // Build a name→index lookup from the provided joint name/index vectors
-    for (const auto& kv : root) {
-      const std::string jointName = kv.first.as<std::string>();
-      const scalar_t targetPos = kv.second.as<scalar_t>();
+    for (YAML::const_iterator entry = root.begin(); entry != root.end(); ++entry) {
+      const std::string jointName = entry->first.as<std::string>();
+      const scalar_t targetPos = entry->second.as<scalar_t>();
 
       // Search for matching joint name and update corresponding index
       for (size_t i = 0; i < jointNames.size(); ++i) {

@@ -25,22 +25,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <string>
+
+#include "absl/strings/string_view.h"
 #include "humanoid_common_mpc/contact_planning/problem/LipCost.h"
 #include "humanoid_common_mpc/contact_planning/problem/LipIndices.h"
 
 namespace ocs2::humanoid {
 
-/** Base of the costs with one weight: the bound LIP indices, the weight and its check. */
+/** Base of the costs with one weight: the bound LIP indices and the weight. */
 class LipWeightedCost : public LipCost {
  public:
   void bind(const Layout& layout) override { idx_.bind(layout); }
   scalar_t weight() const { return weight_; }
 
  protected:
-  /** Throws std::invalid_argument for a negative weight. */
-  static void checkWeight(const char* term, scalar_t weight);
   /** "<math>, w = <weight>" for describe(). */
-  std::string weightLine(const std::string& math) const;
+  std::string weightLine(absl::string_view math) const;
   LipIndices idx_;
   scalar_t weight_ = 0.0;
 };

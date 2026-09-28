@@ -42,13 +42,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/string.hpp>
 
+#include "absl/status/statusor.h"
+
 #include <ocs2_mpc/MPC_BASE.h>
+#include <ocs2_oc/oc_problem/OptimalControlProblem.h>
 #include <ocs2_oc/synchronized_module/SolverSynchronizedModule.h>
 
 #include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/contact/ContactWrenchGate.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerModule.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicLayer.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
 namespace ocs2::humanoid {
@@ -67,27 +71,42 @@ namespace ocs2::humanoid {
 class MpcParameterUpdaterModule : public SolverSynchronizedModule {
  public:
   /**
+   * Builds the updater, or returns the InvalidArgument that says which argument is inconsistent.
+   *
    * @param mpcPtr             MPC whose SqpSolver OCPs are updated in place (may be nullptr; updates are then skipped).
    * @param taskFile           task.yaml watched for changes; also the base name of the temp file used for topic updates.
    * @param stateDim           Dimension of the OCP state.
    * @param inputDim           Dimension of the OCP input, i.e. the input layout the solver actually optimizes over. With
    *                           basis-vector contact inputs this is the basis-space dimension, not the wrench-space one.
    * @param contactNames       Contact names used to look up per-foot costs and constraints.
-   * @param referenceManager   Optional reference manager whose swing trajectory planner is re-configured.
+   * @param referenceManager   Optional reference manager whose swing trajectory planner is re-configured and which owns
+   *                           the ground: a reloaded `terrainHeight` is handed to it (setTerrainHeight), and the
+   *                           contact-implicit terms follow the ground it applied (getAppliedTerrainHeight) from the
+   *                           next solve on, so that they never disagree with the swing trajectories or the landing
+   *                           targets about where it is. Without one, the terms take a reloaded height at once.
    * @param basisCostTransform When set, the OCP uses basis-vector contact inputs. The R matrix in task.yaml is indexed in
    *                           wrench space (forces/moments), so it is loaded with wrenchInputDim rows/cols and transformed
-   *                           into basis space with exactly the same transform the OCP factory used. inputDim must equal
-   *                           basisCostTransform->basisInputDim(); otherwise std::invalid_argument is thrown.
+   *                           into basis space with exactly the transform the OCP factory used
+   *                           (CentroidalMpcInterface::getBasisInputsCostTransformConfig). The regularization weight and
+   *                           its shape (contacts.basisScalingRegularization, contacts.basisRegularization) are reloaded
+   *                           with R; a reload that would make the λ block indefinite, names an unknown shape or
+   *                           carries a weight that is not a number is refused by key and the running R kept.
+   * @return InvalidArgument when basisCostTransform is set and inputDim is not its basisInputDim(), its map does not
+   *         have wrenchInputDim rows, its numBasisInputs exceeds inputDim, or it fails
+   *         validateBasisInputsCostTransformConfig(). The setGains() the updater writes R with performs no size check, so
+   *         a wrench-versus-basis dimension mix-up is refused here, at construction, rather than corrupting the input
+   *         cost online.
    */
-  MpcParameterUpdaterModule(MPC_BASE* mpcPtr,
-                            const std::string& taskFile,
-                            const std::string& urdfFile,
-                            const std::string& referenceFile,
-                            size_t stateDim,
-                            size_t inputDim,
-                            const std::vector<std::string>& contactNames,
-                            const SwitchedModelReferenceManager* referenceManager = nullptr,
-                            std::optional<BasisInputsCostTransformConfig> basisCostTransform = std::nullopt);
+  static absl::StatusOr<std::unique_ptr<MpcParameterUpdaterModule>> Create(
+      MPC_BASE* mpcPtr,
+      const std::string& taskFile,
+      const std::string& urdfFile,
+      const std::string& referenceFile,
+      size_t stateDim,
+      size_t inputDim,
+      const std::vector<std::string>& contactNames,
+      SwitchedModelReferenceManager* referenceManager = nullptr,
+      std::optional<BasisInputsCostTransformConfig> basisCostTransform = std::nullopt);
 
   ~MpcParameterUpdaterModule() override = default;
 
@@ -105,6 +124,14 @@ class MpcParameterUpdaterModule : public SolverSynchronizedModule {
   void setContactPlannerModule(std::shared_ptr<ContactPlannerModule> contactPlannerModule) {
     contactPlannerModulePtr_ = std::move(contactPlannerModule);
   }
+
+  /**
+   * Registers the locomotion-heuristic layer so that its COEFFICIENTS follow edits to the task file, exactly as the
+   * cost weights beside them do - all of them or, if any is rejected, none. Which heuristics are listed is structural
+   * and is not reloaded; the layer says so once per distinct edit to a list on disk. Without this registration the
+   * block is launch-time only.
+   */
+  void setLocomotionHeuristicLayer(std::shared_ptr<LocomotionHeuristicLayer> layer) { locomotionHeuristicLayerPtr_ = std::move(layer); }
 
   /**
    * Registers something whose parameters come from reference.yaml, to be reloaded when that file changes on disk.
@@ -145,6 +172,17 @@ class MpcParameterUpdaterModule : public SolverSynchronizedModule {
   void postSolverRun(const PrimalSolution& primalSolution) override {}
 
  private:
+  /** Use Create(), which checks the arguments this only stores. */
+  MpcParameterUpdaterModule(MPC_BASE* mpcPtr,
+                            const std::string& taskFile,
+                            const std::string& urdfFile,
+                            const std::string& referenceFile,
+                            size_t stateDim,
+                            size_t inputDim,
+                            const std::vector<std::string>& contactNames,
+                            SwitchedModelReferenceManager* referenceManager,
+                            std::optional<BasisInputsCostTransformConfig> basisCostTransform);
+
   /**
    * Re-parses a YAML file and applies all parameter updates in-place to every
    * thread-local OCP in the SqpSolver.
@@ -154,6 +192,17 @@ class MpcParameterUpdaterModule : public SolverSynchronizedModule {
 
   /** Applies the `contact_planning` block of a YAML file to the contact planner, if both exist. */
   void applyContactPlanningUpdates(const std::string& yamlFile);
+
+  /**
+   * Moves the contact-implicit complementarity and ground-penetration terms of every worker's problem onto the ground the
+   * reference manager built this solve's references on, when it has moved. Called first thing in every preSolverRun(),
+   * which runs right after the reference manager's own, so a reloaded `terrainHeight` reaches the terms in the very solve
+   * whose swing trajectories and landing targets were built on it.
+   */
+  void followAppliedTerrainHeight();
+
+  /** Sets the terrain height of the complementarity and ground-penetration terms of every foot in every problem. */
+  void setContactImplicitTermsTerrainHeight(std::vector<OptimalControlProblem>& ocpDefinitions, scalar_t terrainHeight);
 
   /**
    * Records the controller-side settings of a YAML file for the simulator node: the `contactEstimator` key
@@ -174,11 +223,15 @@ class MpcParameterUpdaterModule : public SolverSynchronizedModule {
   const size_t stateDim_;
   const size_t inputDim_;
   const std::vector<std::string> contactNames_;
-  const SwitchedModelReferenceManager* referenceManagerPtr_;
-  /// Set only when the OCP uses basis-vector contact inputs; maps the wrench-space R of task.yaml into basis space.
+  SwitchedModelReferenceManager* referenceManagerPtr_;
+  /// [m] The ground the contact-implicit terms were last set to; empty until the first preSolverRun().
+  std::optional<scalar_t> contactImplicitTermsTerrainHeight_;
+  /// Set only when the OCP uses basis-vector contact inputs; maps the wrench-space R of task.yaml into basis space. Its
+  /// regularization follows the last reload that was applied.
   std::optional<BasisInputsCostTransformConfig> basisCostTransform_;
   /// Optional contact planner whose configuration is hot-reloaded from the `contact_planning` section.
   std::shared_ptr<ContactPlannerModule> contactPlannerModulePtr_;
+  std::shared_ptr<LocomotionHeuristicLayer> locomotionHeuristicLayerPtr_;
 
   // File-watching state
   std::filesystem::file_time_type taskFileLastWriteTime_;

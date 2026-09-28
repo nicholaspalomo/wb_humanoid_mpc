@@ -45,7 +45,14 @@ class ReferenceManager : public ReferenceManagerInterface {
 
   ~ReferenceManager() override = default;
 
-  void preSolverRun(scalar_t initTime, scalar_t finalTime, const vector_t& initState,  size_t initMode) override;
+  void preSolverRun(scalar_t initTime, scalar_t finalTime, const vector_t& initState, size_t initMode) override;
+
+  /**
+   * Puts the active ModeSchedule and TargetTrajectories back to the ones this manager was constructed with and drops
+   * any value still waiting in either buffer, i.e. anything set before the reset. A value set after it is applied at
+   * the next preSolverRun() as usual.
+   */
+  void reset() override;
 
   const ModeSchedule& getModeSchedule() const override { return modeSchedule_.get(); }
   void setModeSchedule(const ModeSchedule& modeSchedule) override { modeSchedule_.setBuffer(modeSchedule); }
@@ -71,10 +78,18 @@ class ReferenceManager : public ReferenceManagerInterface {
    * @param [in, out] modeSchedule : The updated ModeSchedule. If setModeSchedule() has been called before, modeSchedule is
    * already updated by the set value.
    */
-  virtual void modifyReferences(scalar_t initTime, scalar_t finalTime, const vector_t& initState, size_t initMode, TargetTrajectories& targetTrajectories,
+  virtual void modifyReferences(scalar_t initTime,
+                                scalar_t finalTime,
+                                const vector_t& initState,
+                                size_t initMode,
+                                TargetTrajectories& targetTrajectories,
                                 ModeSchedule& modeSchedule) {}
 
  private:
+  // What the manager was constructed with, for reset().
+  const TargetTrajectories initialTargetTrajectories_;
+  const ModeSchedule initialModeSchedule_;
+
   BufferedValue<ModeSchedule> modeSchedule_;
   BufferedValue<TargetTrajectories> targetTrajectories_;
 };

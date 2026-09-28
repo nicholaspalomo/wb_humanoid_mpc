@@ -369,6 +369,81 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
         finally:
             root.destroy()
 
+    def test_a_dragged_slider_is_keyed_by_its_path_not_its_label(self):
+        """SliderRow reports its display label (`key [comment]` plus annotations) to on_change. The tab used to store
+        the value under that label, and the YAML writer then split the label on '.' as if it were a key path, so every
+        drag added an update that edited nothing or the wrong line. The value is keyed by the row's dotted path.
+        """
+        import tkinter as tk
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            tab = self._create_tab(root, "Q")
+            labeled = [
+                (key, row) for key, row in tab.slider_rows.items() if row.name != key
+            ]
+            self.assertTrue(
+                labeled,
+                "every Q slider is labeled by its key; the test needs one that is not",
+            )
+            key, row = labeled[0]
+            dragged = row.get_value() * 1.5 + 1.25
+            # The path a drag takes: the scale's own callback, which reports the row's label.
+            row._on_scale_change(str(dragged))
+            if tab._debounce_publish_id is not None:
+                tab.after_cancel(tab._debounce_publish_id)
+                tab._debounce_publish_id = None
+
+            self.assertAlmostEqual(tab._live_values.get(key), dragged)
+            self.assertNotIn(row.name, tab._live_values)
+            known = {tab._slider_key(tunable) for tunable in tab._tunables} | {
+                tab.CONTACT_ESTIMATOR_KEY
+            }
+            self.assertEqual(
+                set(tab._live_values) - known,
+                set(),
+                "live values under something other than a tunable's key path",
+            )
+
+            # The published YAML carries the value at the key's own path.
+            tmp_parse = os.path.join(self.tmpdir, "dragged.yaml")
+            with open(tmp_parse, "w") as f:
+                f.write(tab._build_yaml_with_slider_values())
+            node = load_yaml_safe(tmp_parse)
+            for part in key.split("."):
+                node = node[part.strip('"')]
+            self.assertAlmostEqual(float(node), dragged, places=6)
+        finally:
+            root.destroy()
+
+    def test_syncing_q_final_from_q_adds_no_live_value(self):
+        """The Q -> Q_final sync used to publish through the slider callback with a made-up name, 'sync', which then
+        traveled with every later publish and save as an update of a key that does not exist.
+        """
+        import tkinter as tk
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            tab = self._create_tab(root, "Q_final")
+            self.assertTrue(
+                any(key.startswith('Q_final."(') for key in tab.slider_rows),
+                "the Q_final block renders no diagonal slider",
+            )
+            tab._sync_q_final_from_q()
+            # Positive control: the sync did schedule a publish.
+            self.assertIsNotNone(tab._debounce_publish_id)
+            tab.after_cancel(tab._debounce_publish_id)
+            tab._debounce_publish_id = None
+            self.assertNotIn("sync", tab._live_values)
+            known = {tab._slider_key(tunable) for tunable in tab._tunables} | {
+                tab.CONTACT_ESTIMATOR_KEY
+            }
+            self.assertEqual(set(tab._live_values) - known, set())
+        finally:
+            root.destroy()
+
     def test_build_yaml_preserves_original_structure(self):
         """The YAML string should preserve comments and structure from original file."""
         import tkinter as tk

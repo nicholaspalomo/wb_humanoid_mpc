@@ -35,7 +35,7 @@ int main(int argc, char* argv[]) {
     throw std::runtime_error("Failed to get package share directory: g1_description. Error: " + std::string(e.what()));
   }
 
-  robot::model::RobotState initState(robot::model::RobotDescription(urdfFile), 2);
+  robot::model::RobotState initState(robot::model::RobotDescription(urdfFile), /*contactSize=*/2);
   initState.setConfigurationToZero();
   initState.setRootPositionInWorldFrame(robot::vector3_t(0.0, 0.0, 0.85));
 
@@ -51,8 +51,8 @@ int main(int argc, char* argv[]) {
   // Simulated controller loop;
   while (true) {
     robotInterface.updateInterfaceStateFromRobot();
-    auto actions = robotInterface.getRobotJointAction();
-    for (auto action : actions) {
+    robot::model::RobotJointAction actions = robotInterface.getRobotJointAction();
+    for (robot::model::JointAction action : actions) {
       action.kp = 200;
       action.kd = 2.0;
     }

@@ -97,26 +97,26 @@ void benchmarkInverseDynamics(PinocchioInterfaceTpl<scalar_t>& pinocchioInterfac
   double rneaAvg = 0.0;
 
   for (int i = 0; i < NUM_ITERATIONS; i = i + 10) {
-    auto start = std::chrono::high_resolution_clock::now();
+    std::chrono::high_resolution_clock::time_point start = std::chrono::high_resolution_clock::now();
     for (int j = 0; j < 10; j++) {
-      auto result =
+      vector_t result =
           computeJointTorques(q_states[i + j], qd_states[i + j], qdd_joints_states[i + j], footWrenches_states[i + j], pinocchioInterface);
     }
 
-    auto end = std::chrono::high_resolution_clock::now();
-    auto customDuration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+    std::chrono::high_resolution_clock::time_point end = std::chrono::high_resolution_clock::now();
+    const std::chrono::microseconds customDuration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
     customAvg += static_cast<double>(customDuration.count());
 
     // Benchmark RNEA inverse dynamics
     start = std::chrono::high_resolution_clock::now();
 
     for (int j = 0; j < 10; j++) {
-      auto result = computeJointTorquesRNEA(q_states[i + j], qd_states[i + j], qdd_joints_states[i + j], footWrenches_states[i + j],
-                                            pinocchioInterface);
+      vector_t result = computeJointTorquesRNEA(q_states[i + j], qd_states[i + j], qdd_joints_states[i + j], footWrenches_states[i + j],
+                                                pinocchioInterface);
     }
 
     end = std::chrono::high_resolution_clock::now();
-    auto rneaDuration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+    const std::chrono::microseconds rneaDuration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
     rneaAvg += static_cast<double>(rneaDuration.count());
   }
 
@@ -188,9 +188,11 @@ void compareInverseDynamics(PinocchioInterfaceTpl<scalar_t>& pinocchioInterface)
   }
 
   for (int i = 0; i < NUM_ITERATIONS; i++) {
-    auto resultCustom = computeJointTorques(q_states[i], qd_states[i], qdd_joints_states[i], footWrenches_states[i], pinocchioInterface);
+    const vector_t resultCustom =
+        computeJointTorques(q_states[i], qd_states[i], qdd_joints_states[i], footWrenches_states[i], pinocchioInterface);
 
-    auto resultRNEA = computeJointTorquesRNEA(q_states[i], qd_states[i], qdd_joints_states[i], footWrenches_states[i], pinocchioInterface);
+    const vector_t resultRNEA =
+        computeJointTorquesRNEA(q_states[i], qd_states[i], qdd_joints_states[i], footWrenches_states[i], pinocchioInterface);
 
     LOG(INFO) << "Result custom:" << resultCustom.transpose();
     LOG(INFO) << "Result rnea  :" << resultRNEA.transpose();
@@ -261,8 +263,9 @@ void printFrameRotation(PinocchioInterface pin_interface, Eigen::VectorXd q, std
   pinocchio::FrameIndex frameID = pin_interface.getModel().getFrameId(frameName);
   // Print out the placement of each joint of the kinematic tree
   matrix3_t R_w_l = data.oMf[frameID].rotation();
-  auto q_w_l = matrixToQuaternion(R_w_l);
-  auto translation = data.oMf[frameID].toHomogeneousMatrix_impl();  // translation from local into world frame
+  const Eigen::Quaternion<scalar_t> q_w_l = matrixToQuaternion(R_w_l);
+  const Eigen::Matrix<scalar_t, 4, 4> translation =
+      data.oMf[frameID].toHomogeneousMatrix_impl();  // translation from local into world frame
   LOG(INFO) << "Orientation of frame: R local to world " << frameName << ": ";
   LOG(INFO) << q_w_l;
   LOG(INFO) << R_w_l;
@@ -360,7 +363,7 @@ int main(int argc, char** argv) {
 
   /// Test custom model with mass scaling
 
-  pin_interface = createCustomPinocchioInterface(taskFile, urdfFile, modelSettings, true, 44.44);
+  pin_interface = createCustomPinocchioInterface(taskFile, urdfFile, modelSettings, /*scaleTotalMass=*/true, /*totalMass=*/44.44);
 
   benchmarkInverseDynamics(pin_interface);
 

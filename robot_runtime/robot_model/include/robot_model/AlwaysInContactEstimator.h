@@ -34,7 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::model {
 
 /**
- * Contact estimator that reports every contact point as touching. It is the historical behaviour of the simulator and
+ * Contact estimator that reports every contact point as touching. It is the historical behavior of the simulator and
  * a stand-in on hardware that has no contact estimation yet: the controller then treats its own schedule as the
  * measured contact state, since every planned contact wrench passes the inverse dynamics gate.
  */

@@ -34,13 +34,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_core/Types.h>
 
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
 
 namespace ocs2::humanoid {
 
 /**
- * Configuration of the mixed-integer contact planner: the `contact_planning` block of `contact_planning.yaml`.
+ * Configuration of the contact planner that `planner.type` selects (ContactPlannerFactory: `hlip`, the closed-form
+ * H-LIP planner, or `lip_miqp`, the mixed-integer program): the `contact_planning` block of `contact_planning.yaml`.
  *
  * The block mirrors the structure of the planner. `planner` holds what is a property of the planner itself (grid,
  * commit window, solver budget, threading), `shared` the parameters read by more than one term, `formulation` the term
@@ -66,18 +70,30 @@ struct GaitLimits {
   scalar_t minDoubleSupportDuration = 0.1;  // after a touch-down the other foot stays down at least this long (0 disables)
 };
 
-/** Properties of the planner, not of a term. */
+/**
+ * Properties of the planner, not of a term.
+ *
+ * The defaults of this header are ONE coherent configuration, and it is the mixed-integer planner's: a coarse grid
+ * (dt 0.1 x 12 nodes), a worker thread at 10 Hz, the point-mass formulation without execution rules. They are what a
+ * robot gets when its file omits keys, or when it has no contact_planning block at all, and
+ * ContactPlanningConfig::warnings() is empty for them (a test holds that). The type used to default to `hlip` while
+ * every other default stayed the mixed-integer one, which put together exactly the configurations the H-LIP README
+ * documents as falling: no planned_com_override, a 100 ms stale plan from the worker thread, and a 0.35 s single
+ * support whose first step out of a standstill does not fit the step-width clip. A robot that wants `hlip` says so in
+ * its file together with the settings that planner needs, as both shipped contact_planning.yaml files do.
+ */
 struct PlannerSettings {
   // Implementation that plans the contacts, resolved by ContactPlannerFactory. `hlip` is the closed-form
   // reduced-order stepper of arXiv:2502.15630 (humanoid_nmpc/docs/hlip_contact_planner/README.md); `lip_miqp` is the
   // mixed-integer program of LipContactPlanner. Only the blocks the selected planner reads are used: `hlip` ignores
-  // the term lists of `formulation` and every per-term block, and `lip_miqp` ignores the `hlip` block.
-  std::string type = "hlip";
+  // the term lists of `formulation` (except whether `dynamics` lists the heading block, and `execution`, which the
+  // reference manager reads under either planner) and every per-term block, and `lip_miqp` ignores the `hlip` block.
+  std::string type = "lip_miqp";
   scalar_t dt = 0.1;           // [s] planner node duration
   int numNodes = 12;           // planning horizon = numNodes * dt, should cover the MPC horizon
   scalar_t commitTime = 0.25;  // [s] contacts within this window keep the applied schedule (must cover planner latency)
   // [s] cap on how far past `commitTime` the commit boundary may be extended to reach a swing's touch-down.
-  // <= 0: no cap (the historical behaviour). The extension walks the phases that overlap the window, and a swing whose
+  // <= 0: no cap (the historical behavior). The extension walks the phases that overlap the window, and a swing whose
   // touch-down lies beyond it pushes the boundary out to that touch-down; the walk then covers the phases overlapping
   // the extended boundary as well. In a gait that exchanges support in one instant every swing starts exactly where
   // the previous one ends, so nothing stops that walk: the boundary runs to the end of the stepping region, the plan
@@ -99,12 +115,19 @@ struct PlannerSettings {
 
 /** Parameters read by more than one term. */
 struct SharedParameters {
-  scalar_t gravity = 9.81;    // [m/s^2]
-  scalar_t comHeight = 0.85;  // [m] LIP height, omega = sqrt(g / comHeight); 0 = from the model
+  scalar_t gravity = 9.81;  // [m/s^2]
+  // [m] LIP height, omega = sqrt(g / comHeight). 0 = from the model: its center of mass above its feet at the task file's
+  // initialState (computeComHeightAboveFeet, which the DCM terminal cost's comHeight of 0 resolves to as well), filled
+  // in by ContactPlanningModelParameters::applyTo before validation, at start-up and on every hot reload. It is also
+  // the library default, so a robot file that omits the key plans on its own model's pendulum - the one its DCM
+  // terminal cost derives - rather than on a fixed height that belongs to no robot (it was 0.85 m, the height the
+  // Atlas was once hand-set to). Both shipped files write 0 explicitly. A configuration with no model to derive it from
+  // - a planner unit test - must set a positive height itself: validateStatus() refuses 0.
+  scalar_t comHeight = 0.0;
   // [m] big-M of the ZMP / foothold disjunctions. Two bounds, not one: it must EXCEED foot_separation.maxStepLength,
   // which the foothold displacement bound needs, and it must be at least foot_separation.maxStepWidth, because that is
   // what it takes for a single-support ZMP box to actually switch off in double support (the lateral axis is the one
-  // that binds there; see the derivation next to the check in ContactPlanningConfig::validate()).
+  // that binds there; see the derivation next to the check in ContactPlanningConfig::validateStatus()).
   scalar_t bigM = 1.0;
   SlackPenalty slackPenalty;  // default of every soft constraint without a penalty of its own
   GaitLimits gaitLimits;
@@ -117,16 +140,20 @@ struct SharedParameters {
  * the largest value that component is expected to take, and the blend weight is alpha = tanh(sharpness (phi -
  * threshold)) / 2 + 1/2. The planner stands while alpha is below a half and steps above it, and scales the commanded
  * velocity it plans for by alpha, so that the step length grows out of standing instead of jumping to its full value
- * at the first non-zero command.
+ * at the first non-zero command. HlipContactPlanner feeds the blend the measured center-of-mass velocity with its
+ * lateral component taken relative to the sway of stepping in place (HlipContactPlanner::blendVelocity), so the
+ * zero-command orbit's own lateral velocity (0.132 m/s at the Atlas cadence on its 1.0805 m pendulum) does not count as
+ * motion.
  *
- * The paper's phi also contains the commanded centre of mass height divided by a minimum height. That term is an
+ * The paper's phi also contains the commanded center of mass height divided by a minimum height. That term is an
  * absolute height, not a deviation, so it alone exceeds one for any upright robot and would saturate alpha at one; it
  * is left out here. Every remaining threshold is a command range, not a tuning weight.
  *
- * Dropping that term also moves where phi sits, so `sharpness` and `threshold` are not the paper's 5.0 and 0.5. The
- * defaults below put the half point at about a tenth of the maximum command (0.1 m/s forward) and saturate by a fifth
- * of it, which is what "walk when asked to walk, stand when asked to stand" means for a humanoid: at a tenth of full
- * stick the robot is being asked to move, not to hold station.
+ * Dropping that term also moves where phi sits, so `sharpness` and `threshold` are not the paper's 5.0 and 0.5. With
+ * the defaults below the half point sits at sqrt(threshold), 14 % of a component's range (0.099 m/s of the 0.7 m/s
+ * forward range); alpha is about 0.83 at a fifth of the range and passes 0.99 only near 28 % (testHlipStandingBlend pins
+ * these numbers). That is what "walk when asked to walk, stand when asked to stand" means for a humanoid: at a tenth of
+ * full stick the robot is being asked to move, not to hold station.
  */
 struct HlipBlendParameters {
   scalar_t sharpness = 40.0;             // rho_1
@@ -135,9 +162,8 @@ struct HlipBlendParameters {
   // [m/s]. This is a command range, but it is not free of the step geometry: the planner plans the period-two orbit at
   // +-hlip.stepWidth + v_y (sspDuration + dspDuration), so at the largest lateral command the narrow side of the orbit
   // must still clear hlip.minStepWidth and the wide side must still fit hlip.maxStepWidth
-  // (ContactPlanningConfig::warnings() checks both and says which key to move). The previous default of 0.3 missed the
-  // narrow relation by 5 mm against the step width and swing duration below, so the defaults themselves asked for a
-  // step the defaults then clipped.
+  // (ContactPlanningConfig::warnings() checks both and says which key to move). Against the defaults below, a 0.30 s
+  // step, 0.25 m/s leaves 0.175 m on the narrow side and asks 0.325 m on the wide one, both inside the clips.
   scalar_t maxCommandedVelocityY = 0.25;
   scalar_t maxCommandedYawRate = 0.61;  // [rad/s] (35 deg/s)
   scalar_t maxComVelocityX = 0.5;       // [m/s]
@@ -152,10 +178,21 @@ struct HlipBlendParameters {
  * gain to tune (HlipModel). The only quantities below that are neither a cadence nor a command range are the step
  * bounds, which exist so that a foothold the deadbeat law asks for outside the leg's reach is clipped instead of
  * handed to the whole-body MPC.
+ *
+ * The cadence defaults are the one validated in simulation on the DRC Atlas, not the paper's. The figures below are
+ * for a 0.85 m pendulum (shared.comHeight 0.85), the one the Atlas was hand-set to when that cadence fell (on its
+ * model's 1.0805 m pendulum, which both shipped files now resolve, each demand is smaller: 0.45, 0.47 and 0.39 m, and
+ * 0.35 s / 0.05 s recovers instead of locking). The previous 0.35 s with an instantaneous exchange
+ * (dspDuration 0) asked 0.49 m of the first step out of a standstill against the 0.45 m maxStepWidth below, so that
+ * step was clipped; the reduced model still recovers from that particular cut, but the same 0.35 s with the 0.05 s
+ * double support the whole-body MPC needs asks 0.52 m and locks into README section 3b's "cadence that fell". A zero
+ * double support with an uncapped planner.maxCommitExtension is also the chain that stalls the commit boundary. At
+ * 0.25 / 0.05 the first step needs 0.42 m and fits. ContactPlanningConfig::warnings() reports a first step that does
+ * not fit and the uncapped instantaneous exchange for any configuration that reintroduces them.
  */
 struct HlipParameters {
-  scalar_t sspDuration = 0.35;   // [s] single support duration
-  scalar_t dspDuration = 0.0;    // [s] double support duration; 0 exchanges support in one instant, as in the paper
+  scalar_t sspDuration = 0.25;   // [s] single support duration
+  scalar_t dspDuration = 0.05;   // [s] double support duration; the paper's 0 exchanges support in one instant
   scalar_t stepWidth = 0.25;     // [m] lateral distance between the feet of the nominal period-two orbit
   scalar_t maxStepLength = 0.5;  // [m] clip on the planned step along the heading
   scalar_t maxStepWidth = 0.45;  // [m] clip on the lateral distance between the feet
@@ -206,8 +243,8 @@ struct StepLengthParameters {
 struct TerminalDcmParameters {
   scalar_t weight = 200.0;  // ||DCM_N - zmp_{N-1}||^2, terminal capturability
   // false: the DCM is drawn onto the last ZMP, i.e. the plan comes to rest at the end of the horizon, which shortens
-  // the steps in the horizon at speed. true: the DCM is drawn to zmp + v_cmd / omega, the offset of a CoM over the foot
-  // that keeps moving at the commanded velocity, so the plan is asked to keep walking, not to stop.
+  // the steps in the horizon at speed. true: the terminal DCM xi_N is drawn to zmp_{N-1} + v_cmd / omega, the offset of
+  // a CoM over the foot that keeps moving at the commanded velocity, so the plan is asked to keep walking, not to stop.
   bool trackCommandedVelocity = false;
 };
 struct ZmpSupportRegionParameters {
@@ -263,7 +300,7 @@ struct EventShiftLocalSearchParameters {
   scalar_t maxTime = 0.05;  // [s] time budget of the local search
 };
 /**
- * `cadence_stretch`: the cadence the planner can express is quantised by the node grid, because a phase lasts a whole
+ * `cadence_stretch`: the cadence the planner can express is quantized by the node grid, because a phase lasts a whole
  * number of nodes. minSwingNodes() = ceil(minSwingDuration / dt) and maxSwingNodes() = floor(maxSwingDuration / dt), so
  * at dt 0.1 with swing limits [0.4, 0.5] the swing is 4 or 5 nodes and nothing between - a 25% jump in the step the
  * commanded speed needs. This stage recovers the interval without leaving the grid: under a FIXED contact pattern the
@@ -273,14 +310,17 @@ struct EventShiftLocalSearchParameters {
  * ContactPlan carries its own dt, so a stretched plan needs no new representation.
  *
  * The stretch is bounded below by 1: s < 1 shrinks the committed window below commitTime and the horizon below
- * mpc.timeHorizon, which makes the merge pad the tail with STANCE and throws away the last steps' anticipation.
+ * mpc.timeHorizon, which makes the merge pad the tail with STANCE and throws away the last steps' anticipation. And
+ * above by the commit window, since the boundary itself is not stretched.
  */
 struct CadenceStretchParameters {
-  int samples = 0;             // stretch candidates evaluated after the branch-and-bound (0 disables the stage)
-  scalar_t maxStretch = 1.25;  // upper bound on s; the admissible range is also clipped by the gait limits
+  int samples = 0;  // stretch candidates evaluated after the branch-and-bound (0 disables the stage)
+  // Upper bound on s; the admissible range is also clipped by the gait limits and by the commit window
+  // (CadenceStretchStage::commitWindowStretch: the last committed node must stay the one live at the commit boundary).
+  scalar_t maxStretch = 1.25;
 };
-struct HeadingRelinearisationParameters {
-  int passes = 1;  // re-linearisations of the heading frame at the incumbent (0 disables)
+struct HeadingRelinearizationParameters {
+  int passes = 1;  // re-linearizations of the heading frame at the incumbent (0 disables)
 };
 struct PhaseResettingParameters {
   scalar_t earlyTouchdownMinSwingRatio = 0.25;       // contact during this initial fraction of the nominal swing is ignored (scuffing)
@@ -291,7 +331,7 @@ struct PhaseResettingParameters {
   // foot's lift-off, so the truncation opens a double support exactly as long as the foot was early. Landing within a
   // few milliseconds of the plan is the common case, not the exception, so this also bounds the shortest double
   // support the rule can create. Keep it above earlyTouchdownMinContactDuration, or the debounce alone already pushes
-  // every truncation into that window. 0 restores the unguarded behaviour.
+  // every truncation into that window. 0 restores the unguarded behavior.
   scalar_t earlyTouchdownMinAdvance = 0.04;
   scalar_t maxLateTouchdownExtension = 0.15;    // [s] total extension budget of a swing past its planned touch-down
   scalar_t lateTouchdownExtensionStep = 0.05;   // [s] the touch-down is pushed this far ahead of the current time per cycle
@@ -337,7 +377,7 @@ struct ContactPlanningConfig {
   DivingParameters diving;
   EventShiftLocalSearchParameters eventShiftLocalSearch;
   CadenceStretchParameters cadenceStretch;
-  HeadingRelinearisationParameters headingRelinearisation;
+  HeadingRelinearizationParameters headingRelinearization;
   PhaseResettingParameters phaseResetting;
   EnergyCadenceModulationParameters energyCadenceModulation;
   DcmStepAdjustmentParameters dcmStepAdjustment;
@@ -385,18 +425,46 @@ struct ContactPlanningConfig {
   }
   int commitNodes() const { return std::max(0, static_cast<int>(std::ceil(planner.commitTime / planner.dt - 1e-9))); }
 
-  /** Throws std::invalid_argument if the configuration is inconsistent (every block, and the formulation). */
-  void validate() const;
+  /**
+   * OK, or InvalidArgument for the first inconsistent key (every block, and the formulation). Each message names the
+   * key to change with its path inside the `contact_planning` block (`foothold_regularization.weight`,
+   * `planner.maxSolveTime`, `hlip.minStepWidth`, ...) and the value it read. On success the warnings() are logged with
+   * LOG(WARNING).
+   */
+  absl::Status validateStatus() const;
 
   /**
-   * Combinations that are legal but self-inconsistent, one message per finding, empty when there is nothing to say.
+   * Combinations that are legal but documented to fall or to block, one message per finding naming the keys to move,
+   * empty when there is nothing to say. Per planner:
+   *  - hlip: planned_com_override missing from `execution` (the robot sidesteps and falls, H-LIP README 3c); a first
+   *    step out of a standstill that does not fit hlip.maxStepWidth (README 3b); a background thread (a stale feedback
+   *    law, README 6); a sustained sidestep that is clipped on every step; an instantaneous exchange of support with
+   *    an uncapped commit extension (the planner stalls, PlannerSettings::maxCommitExtension).
+   *  - lip_miqp: a synchronous planner (the branch-and-bound blocks every MPC solve); a commit window shorter than the
+   *    solve budget (plans arrive stale and are dropped); a zero minimum double support with an uncapped commit
+   *    extension (the same stall).
    *
-   * These cost performance rather than correctness - a warning, not an error, because rejecting them would stop a
-   * shipped robot's file from loading over a few millimetres of step width, and because some of them (the threading of
-   * the H-LIP planner) are the operator's call. validate() is what emits them, with LOG(WARNING); they are returned
-   * rather than only logged so that a test can assert on them.
+   * These are warnings, not errors, because the integration tests run some of them on purpose (a synchronous
+   * lip_miqp) and because a shipped robot's file must not stop loading over a few millimeters of step width.
+   * validateStatus() is what emits them; they are returned rather than only logged so that a test can assert on them.
    */
   std::vector<std::string> warnings() const;
+
+  /**
+   * The shortest swing the configured planner emits [s]: hlip.sspDuration under `hlip`, whose every swing lasts exactly
+   * that, and shared.gait_limits.minSwingDuration rounded up to whole nodes under `lip_miqp`.
+   */
+  scalar_t shortestPlannedSwingDuration() const;
+
+  /**
+   * A warning when task.yaml swing_trajectory_config.swingTimeScale exceeds shortestPlannedSwingDuration(), empty
+   * otherwise. SwingTrajectoryPlanner scales every swing shorter than swingTimeScale down in height and velocity by
+   * duration / swingTimeScale, so such a configuration lands every step short and low without any other sign. The
+   * two keys live in different files and a GUI reload can move either one, so, in addition to the LINT pair between
+   * the files, the reference manager checks this at run time, where it knows both: at construction, on every reload
+   * of this configuration, and at the first solver run after the swing trajectory planner's swingTimeScale changed.
+   */
+  std::optional<std::string> swingTimeScaleWarning(scalar_t swingTimeScale) const;
 };
 
 /** Name of the planner's own configuration file, expected in the directory of the robot's task file. */
@@ -405,8 +473,9 @@ inline constexpr const char* kContactPlanningConfigFileName = "contact_planning.
 /**
  * The file the contact planning configuration is read from for a given task file: `contact_planning.yaml` in the task
  * file's directory when it exists, otherwise the task file itself (a `contact_planning` block inside it, the layout from
- * before the planner had its own file). The `useContactPlanning` switch stays in the task file with the other model
- * settings; everything the planner is tuned with lives in its own file.
+ * before the planner had its own file). The switch that selects the planner at all, `contactScheduleSource:
+ * contact_planner`, stays in the task file with the other formulation choices; which planner runs (`planner.type`) and
+ * everything it is tuned with live in its own file.
  */
 std::string resolveContactPlanningConfigFile(const std::string& taskFile);
 
@@ -418,12 +487,15 @@ std::string resolveContactPlanningConfigFile(const std::string& taskFile);
  * with keys of the flat layout of the previous planner (every key directly under `contact_planning`, `useAcomDynamics`,
  * `enablePhaseResetting`, ... as booleans) is rejected with a message that says how to migrate it.
  *
- * With `validate` false the values that may be 0 for "derive from the model" are accepted as they are; call validate()
- * after ContactPlanningModelParameters::applyTo().
+ * With `validate` false the values that may be 0 for "derive from the model" are accepted as they are; call
+ * validateStatus() after ContactPlanningModelParameters::applyTo().
+ *
+ * Every failure is an InvalidArgument whose message names the file and the key: an unreadable file, a value of the
+ * wrong type, a flat-layout key (listed by name), and every rejection of validateStatus().
  */
-ContactPlanningConfig loadContactPlanningConfig(const std::string& yamlFile,
-                                                const std::string& prefix = "contact_planning.",
-                                                bool verbose = false,
-                                                bool validate = true);
+absl::StatusOr<ContactPlanningConfig> loadContactPlanningConfigStatus(absl::string_view yamlFile,
+                                                                      absl::string_view prefix = "contact_planning.",
+                                                                      bool verbose = false,
+                                                                      bool validate = true);
 
 }  // namespace ocs2::humanoid

@@ -44,7 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * The contact planner's optimal control problem as a set of named terms, the analogue of ocs2::OptimalControlProblem.
+ * The contact planner's optimal control problem as a set of named terms, the analog of ocs2::OptimalControlProblem.
  *
  * The collections are filled by ContactPlanningTermFactory::buildProblem() from the term lists of the configuration
  * (or by hand, in the same order the factory would use). finalize() then composes the variable layout from the model
@@ -80,8 +80,9 @@ class ContactPlanningProblem {
   std::vector<MiqpBinaryVariable> binaryVariables(int numNodes) const;
 
   /**
-   * Forward logical propagation: runs the listed rules in order to a fixpoint (at most 4 N passes, the shared prefix
-   * scan recomputed before every pass). Returns false when the assignment is provably infeasible.
+   * Forward logical propagation: runs the listed rules in order to a fixpoint (at most 4 N passes, every rule reading
+   * the live assignment). Returns false when the assignment is provably infeasible; fixes only what every completion
+   * that satisfies the rules agrees on (ContactLogicRule).
    */
   bool propagate(const ContactLogicState& state, MiqpAssignment& assignment) const;
 

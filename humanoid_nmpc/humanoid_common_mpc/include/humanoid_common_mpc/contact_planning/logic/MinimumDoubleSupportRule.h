@@ -38,7 +38,7 @@ class MinimumDoubleSupportRule final : public ContactLogicRule {
  public:
   std::string describe() const override;
   void configure(const ContactPlanningConfig& config) override;
-  bool propagate(const ContactLogicState& state, const ContactLogicScan& scan, MiqpAssignment& a, bool& changed) const override;
+  bool propagate(const ContactLogicState& state, MiqpAssignment& a, bool& changed) const override;
 
  private:
   scalar_t minDoubleSupportDuration_ = 0.0;

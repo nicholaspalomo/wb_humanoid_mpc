@@ -27,14 +27,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc/cost/DcmTerminalCost.h"
 
-#include <optional>
-
 #include <algorithm>
 #include <cmath>
-#include <iostream>
 #include <limits>
-#include <stdexcept>
+#include <optional>
+#include <string>
+#include <vector>
 
+#include <boost/optional.hpp>
 #include <boost/property_tree/ptree.hpp>
 
 #include <ocs2_core/misc/LoadData.h>
@@ -44,7 +44,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <humanoid_common_mpc/gait/MotionPhaseDefinition.h>
 #include <humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h>
 
+#include "absl/log/check.h"
 #include "absl/log/log.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "humanoid_common_mpc/common/StatusMacros.h"
 
 namespace ocs2::humanoid {
 
@@ -52,40 +56,89 @@ namespace {
 // supportWeights(2), omega, velocityCommand(2), offsetFactor, sqrtWeights(2), plannedDcmWeight, plannedDcm(2).
 constexpr size_t kNumParameters = 11;
 constexpr size_t kResidualDim = 2;
+
+absl::Status keyMustBe(absl::string_view key, scalar_t value, absl::string_view requirement) {
+  return absl::InvalidArgumentError(
+      absl::StrCat("[DcmTerminalCost] ", DcmTerminalCost::kConfigPrefix, key, " (", value, ") must be ", requirement, "."));
+}
+
+/** Reads the optional scalar `key` of `pt` into `value`; a value that is not a number is an InvalidArgument naming it. */
+absl::Status loadOptionalScalar(const boost::property_tree::ptree& pt, const std::string& key, scalar_t& value, bool verbose) {
+  const boost::optional<const boost::property_tree::ptree&> child = pt.get_child_optional(key);
+  if (!child) return absl::OkStatus();
+  const boost::optional<scalar_t> parsed = child->get_value_optional<scalar_t>();
+  if (!parsed) {
+    return absl::InvalidArgumentError(absl::StrCat("[DcmTerminalCost] ", key, " is '", child->data(), "', which is not a number."));
+  }
+  value = *parsed;
+  if (verbose) LOG(INFO) << " #### " << key << " = " << value;
+  return absl::OkStatus();
+}
 }  // namespace
 
 scalar_t DcmTerminalCost::Config::omega() const {
   return std::sqrt(gravity / comHeight);
 }
 
-void DcmTerminalCost::Config::validate() const {
-  if (comHeight <= 0.0 || gravity <= 0.0) {
-    throw std::invalid_argument("[DcmTerminalCost] comHeight and gravity must be positive");
+absl::Status DcmTerminalCost::Config::validate() const {
+  if (!std::isfinite(comHeight) || comHeight < 0.0) {
+    return keyMustBe("comHeight", comHeight, "positive, or 0 for the model's center of mass above its feet at initialState");
   }
-  if (weights.minCoeff() < 0.0) {
-    throw std::invalid_argument("[DcmTerminalCost] weights must be non-negative");
+  if (!std::isfinite(gravity) || gravity <= 0.0) return keyMustBe("gravity", gravity, "positive");
+  if (!std::isfinite(weights(0)) || weights(0) < 0.0) return keyMustBe("weight_x", weights(0), "non-negative");
+  if (!std::isfinite(weights(1)) || weights(1) < 0.0) return keyMustBe("weight_y", weights(1), "non-negative");
+  if (!std::isfinite(velocityOffsetFactor)) return keyMustBe("velocityOffsetFactor", velocityOffsetFactor, "finite");
+  if (!std::isfinite(supportBlendTime) || supportBlendTime < 0.0) return keyMustBe("supportBlendTime", supportBlendTime, "non-negative");
+  return absl::OkStatus();
+}
+
+absl::StatusOr<DcmTerminalCost::Config> DcmTerminalCost::resolveConfig(Config config, scalar_t modelComHeight) {
+  RETURN_IF_ERROR(config.validate());
+  if (config.comHeight == 0.0) {
+    if (!std::isfinite(modelComHeight) || modelComHeight <= 0.0) {
+      return absl::InvalidArgumentError(
+          absl::StrCat("[DcmTerminalCost] ", kConfigPrefix,
+                       "comHeight is 0, i.e. the model's center of mass above its feet at initialState, but that is ", modelComHeight,
+                       " m. Give ", kConfigPrefix, "comHeight a positive value, or correct initialState."));
+    }
+    config.comHeight = modelComHeight;
   }
-  if (supportBlendTime < 0.0) {
-    throw std::invalid_argument("[DcmTerminalCost] supportBlendTime must be non-negative");
-  }
+  return config;
+}
+
+absl::StatusOr<std::unique_ptr<DcmTerminalCost>> DcmTerminalCost::Create(const SwitchedModelReferenceManager& referenceManager,
+                                                                         const Config& config,
+                                                                         scalar_t modelComHeight,
+                                                                         const PinocchioInterface& pinocchioInterface,
+                                                                         const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
+                                                                         const std::string& costName,
+                                                                         const ModelSettings& modelSettings) {
+  ASSIGN_OR_RETURN(Config resolved, resolveConfig(config, modelComHeight));
+  return std::unique_ptr<DcmTerminalCost>(new DcmTerminalCost(referenceManager, std::move(resolved), modelComHeight, pinocchioInterface,
+                                                              mpcRobotModelAD, costName, modelSettings));
 }
 
 DcmTerminalCost::DcmTerminalCost(const SwitchedModelReferenceManager& referenceManager,
                                  Config config,
+                                 scalar_t modelComHeight,
                                  const PinocchioInterface& pinocchioInterface,
                                  const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
-                                 std::string costName,
+                                 const std::string& costName,
                                  const ModelSettings& modelSettings)
     : referenceManagerPtr_(&referenceManager),
       config_(std::move(config)),
+      modelComHeight_(modelComHeight),
       pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
       mpcRobotModelAdPtr_(mpcRobotModelAD.clone()) {
-  config_.validate();
-  auto residualAd = [this](const ad_vector_t& x, const ad_vector_t& p, ad_vector_t& y) { y = this->residual(x, p); };
+  // The documented guard behind Create(), which has already resolved and validated the configuration.
+  CHECK(config_.validate().ok() && config_.comHeight > 0.0) << "[DcmTerminalCost] build it with DcmTerminalCost::Create()";
+  const CppAdInterface::ad_parameterized_function_t residualAd = [this](const ad_vector_t& x, const ad_vector_t& p, ad_vector_t& y) {
+    y = this->residual(x, p);
+  };
   // The generated library is keyed to the parameter count. A cached model from an earlier signature has the right
   // file name but the wrong parameter dimension, and with recompileLibrariesCppAd false it would be loaded and then
   // fed the new parameter vector; the suffix makes a stale library simply not exist, so it is regenerated instead.
-  const std::string modelName = costName + "_p" + std::to_string(kNumParameters);
+  const std::string modelName = absl::StrCat(costName, "_p", kNumParameters);
   adInterfacePtr_.reset(
       new CppAdInterface(residualAd, mpcRobotModelAD.getStateDim(), kNumParameters, modelName, modelSettings.modelFolderCppAd));
   if (modelSettings.recompileLibrariesCppAd) {
@@ -93,22 +146,24 @@ DcmTerminalCost::DcmTerminalCost(const SwitchedModelReferenceManager& referenceM
   } else {
     adInterfacePtr_->loadModelsIfAvailable(CppAdInterface::ApproximationOrder::First, modelSettings.verboseCppAd);
   }
-  LOG(INFO) << "Initialized DcmTerminalCost with weights " << config_.weights.transpose() << ", comHeight " << config_.comHeight
-            << ", velocityOffsetFactor " << config_.velocityOffsetFactor;
+  LOG(INFO) << "Initialized DcmTerminalCost with weights " << config_.weights.transpose() << ", comHeight " << config_.comHeight << " m"
+            << (config_.comHeight == modelComHeight_ ? " (the model's)" : " (explicit)") << ", omega " << config_.omega()
+            << " rad/s, velocityOffsetFactor " << config_.velocityOffsetFactor;
 }
 
 DcmTerminalCost::DcmTerminalCost(const DcmTerminalCost& other)
     : StateCost(other),
       referenceManagerPtr_(other.referenceManagerPtr_),
       config_(other.config_),
+      modelComHeight_(other.modelComHeight_),
       isActive_(other.isActive_),
       pinocchioInterfaceCppAd_(other.pinocchioInterfaceCppAd_),
       mpcRobotModelAdPtr_(other.mpcRobotModelAdPtr_->clone()),
       adInterfacePtr_(new CppAdInterface(*other.adInterfacePtr_)) {}
 
-void DcmTerminalCost::setConfig(const Config& config) {
-  config.validate();
-  config_ = config;
+absl::Status DcmTerminalCost::setConfig(const Config& config) {
+  ASSIGN_OR_RETURN(config_, resolveConfig(config, modelComHeight_));
+  return absl::OkStatus();
 }
 
 ad_vector_t DcmTerminalCost::residual(const ad_vector_t& state, const ad_vector_t& parameters) {
@@ -119,10 +174,10 @@ ad_vector_t DcmTerminalCost::residual(const ad_vector_t& state, const ad_vector_
   const ad_scalar_t offsetFactor = parameters(5);
   const ad_vector2_t sqrtWeights = parameters.segment<2>(6);
 
-  const auto& model = pinocchioInterfaceCppAd_.getModel();
-  auto& data = pinocchioInterfaceCppAd_.getData();
+  const PinocchioInterfaceCppAd::Model& model = pinocchioInterfaceCppAd_.getModel();
+  PinocchioInterfaceCppAd::Data& data = pinocchioInterfaceCppAd_.getData();
   const ad_vector_t q = mpcRobotModelAdPtr_->getGeneralizedCoordinates(state);
-  pinocchio::centerOfMass(model, data, q, false);
+  pinocchio::centerOfMass(model, data, q, /*computeSubtreeComs=*/false);
   pinocchio::updateFramePlacements(model, data);
   const ad_vector2_t com = data.com[0].head<2>();
   const ad_vector2_t comVelocity = mpcRobotModelAdPtr_->getBaseComLinearVelocity(state).head<2>();
@@ -130,9 +185,9 @@ ad_vector_t DcmTerminalCost::residual(const ad_vector_t& state, const ad_vector_
   const ad_vector2_t support =
       (weightLeft * contactPositions[0].head<2>() + weightRight * contactPositions[1].head<2>()) / (weightLeft + weightRight);
 
-  // Where the horizon should end. Without a reduced-order plan that is the centre of the terminal support plus the
+  // Where the horizon should end. Without a reduced-order plan that is the center of the terminal support plus the
   // commanded drift: "come to rest over the feet". With one it is the plan's own DCM, which lies beyond the stance
-  // foot towards the next foothold - referencing the support centre instead pulls the centre of mass back over the
+  // foot towards the next foothold - referencing the support center instead pulls the center of mass back over the
   // foot, and the planner then reads a state with no lateral velocity and narrows its next step until the robot falls
   // (humanoid_nmpc/docs/hlip_contact_planner/README.md). Blended rather than branched, so the expression stays
   // differentiable and one compiled model serves both.
@@ -151,19 +206,18 @@ vector2_t DcmTerminalCost::computeSupportWeights(scalar_t time) const {
   const contact_flag_t contacts = referenceManagerPtr_->getContactFlags(time);
   vector2_t weights(contacts[0] ? 1.0 : 0.0, contacts[1] ? 1.0 : 0.0);
   const ModeSchedule& schedule = referenceManagerPtr_->getModeSchedule();
-  const auto& eventTimes = schedule.eventTimes;
-  const auto& modeSequence = schedule.modeSequence;
+  const std::vector<scalar_t>& eventTimes = schedule.eventTimes;
+  const std::vector<size_t>& modeSequence = schedule.modeSequence;
   if (config_.supportBlendTime > 0.0 && !modeSequence.empty()) {
     for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
       if (!contacts[foot]) continue;
       // Contact phase [start, end] of this foot around `time`.
       size_t index = static_cast<size_t>(std::upper_bound(eventTimes.begin(), eventTimes.end(), time) - eventTimes.begin());
       if (index >= modeSequence.size()) index = modeSequence.size() - 1;
-      const auto inContact = [&](size_t i) { return modeNumber2StanceLeg(modeSequence[i])[foot]; };
       size_t first = index;
-      while (first > 0 && inContact(first - 1)) --first;
+      while (first > 0 && modeNumber2StanceLeg(modeSequence[first - 1])[foot]) --first;
       size_t last = index;
-      while (last + 1 < modeSequence.size() && inContact(last + 1)) ++last;
+      while (last + 1 < modeSequence.size() && modeNumber2StanceLeg(modeSequence[last + 1])[foot]) ++last;
       const scalar_t start = (first == 0) ? -std::numeric_limits<scalar_t>::infinity() : eventTimes[first - 1];
       const scalar_t end = (last + 1 >= modeSequence.size()) ? std::numeric_limits<scalar_t>::infinity() : eventTimes[last];
       const scalar_t ramp = std::min((time - start) / config_.supportBlendTime, (end - time) / config_.supportBlendTime);
@@ -171,7 +225,7 @@ vector2_t DcmTerminalCost::computeSupportWeights(scalar_t time) const {
     }
   }
   if (weights.sum() < 1e-6) {
-    weights.setOnes();  // flight, or both feet at a transition: fall back to the centre of both feet
+    weights.setOnes();  // flight, or both feet at a transition: fall back to the center of both feet
   }
   return weights;
 }
@@ -189,16 +243,20 @@ vector_t DcmTerminalCost::getParameters(scalar_t time, const TargetTrajectories&
       velocityCommand = desiredState.head<2>();
     }
   }
+  // Under a plan the reference is the plan's DCM, which is only the plan's DCM on the plan's own pendulum; the robot's
+  // DCM is then taken on that pendulum too, so the residual compares two points of one pendulum rather than mixing the
+  // plan's center of mass with this cost's omega. Both are the model's height as shipped, but either key can be
+  // overridden on its own.
+  const std::optional<SwitchedModelReferenceManager::PlannedDcm> planned = referenceManagerPtr_->getPlannedDcm(time);
   vector_t parameters(kNumParameters);
   parameters(0) = supportWeights(0);
   parameters(1) = supportWeights(1);
-  parameters(2) = config_.omega();
+  parameters(2) = planned.has_value() ? planned->omega : config_.omega();
   parameters.segment<2>(3) = velocityCommand;
   parameters(5) = config_.velocityOffsetFactor;
   parameters.segment<2>(6) = config_.weights.cwiseSqrt();
-  const std::optional<vector2_t> plannedDcm = referenceManagerPtr_->getPlannedDcm(time, config_.omega());
-  parameters(8) = plannedDcm.has_value() ? 1.0 : 0.0;
-  parameters.segment<2>(9) = plannedDcm.value_or(vector2_t::Zero());
+  parameters(8) = planned.has_value() ? 1.0 : 0.0;
+  parameters.segment<2>(9) = planned.has_value() ? planned->dcm : vector2_t::Zero();
   return parameters;
 }
 
@@ -225,28 +283,31 @@ ScalarFunctionQuadraticApproximation DcmTerminalCost::getQuadraticApproximation(
   return adInterfacePtr_->getGaussNewtonApproximation(state, parameters);
 }
 
-DcmTerminalCost::Config DcmTerminalCost::loadConfig(const std::string& taskFile, const std::string& prefix, bool verbose) {
+absl::StatusOr<DcmTerminalCost::Config> DcmTerminalCost::loadConfig(const std::string& taskFile, const std::string& prefix, bool verbose) {
   boost::property_tree::ptree pt;
-  loadData::readPropertyTree(taskFile, pt);
+  try {
+    loadData::readPropertyTree(taskFile, pt);
+  } catch (const std::exception& error) {
+    return absl::InvalidArgumentError(absl::StrCat("[DcmTerminalCost] cannot read ", taskFile, ": ", error.what()));
+  }
   Config config;
   if (verbose) {
-    LOG(INFO) << "\n #### DCM Terminal Cost Config:";
-    LOG(INFO) << "\n #### =============================================================================\n";
+    LOG(INFO) << "\n #### DCM Terminal Cost Config:\n #### =============================================================================";
   }
   // LINT.IfChange(dcm_terminal_cost_keys)
-  loadData::loadPtreeValue(pt, config.comHeight, prefix + "comHeight", verbose);
-  loadData::loadPtreeValue(pt, config.gravity, prefix + "gravity", verbose);
-  loadData::loadPtreeValue(pt, config.weights(0), prefix + "weight_x", verbose);
-  loadData::loadPtreeValue(pt, config.weights(1), prefix + "weight_y", verbose);
-  loadData::loadPtreeValue(pt, config.velocityOffsetFactor, prefix + "velocityOffsetFactor", verbose);
-  loadData::loadPtreeValue(pt, config.supportBlendTime, prefix + "supportBlendTime", verbose);
+  RETURN_IF_ERROR(loadOptionalScalar(pt, absl::StrCat(prefix, "comHeight"), config.comHeight, verbose));
+  RETURN_IF_ERROR(loadOptionalScalar(pt, absl::StrCat(prefix, "gravity"), config.gravity, verbose));
+  RETURN_IF_ERROR(loadOptionalScalar(pt, absl::StrCat(prefix, "weight_x"), config.weights(0), verbose));
+  RETURN_IF_ERROR(loadOptionalScalar(pt, absl::StrCat(prefix, "weight_y"), config.weights(1), verbose));
+  RETURN_IF_ERROR(loadOptionalScalar(pt, absl::StrCat(prefix, "velocityOffsetFactor"), config.velocityOffsetFactor, verbose));
+  RETURN_IF_ERROR(loadOptionalScalar(pt, absl::StrCat(prefix, "supportBlendTime"), config.supportBlendTime, verbose));
   // clang-format off
   // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:dcm_terminal_cost_config, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:dcm_terminal_cost_config)
   // clang-format on
   if (verbose) {
     LOG(INFO) << " #### =============================================================================";
   }
-  config.validate();
+  RETURN_IF_ERROR(config.validate());
   return config;
 }
 

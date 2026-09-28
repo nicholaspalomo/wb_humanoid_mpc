@@ -26,25 +26,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/constraint/ReachabilityConstraint.h"
 
 #include <cmath>
-#include <sstream>
-#include <stdexcept>
+
+#include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
 
 std::string ReachabilityConstraint::describe() const {
-  std::ostringstream out;
-  out << "|e_x . (p_i - c)| <= " << params_.reachX << " m, " << params_.reachYInner
-      << " <= side_i e_y . (p_i - c) <= " << params_.reachYOuter << " m at every node (first-order in the heading), " << penaltyText();
-  return out.str();
+  return absl::StrCat("|e_x . (p_i - c)| <= ", params_.reachX, " m, ", params_.reachYInner,
+                      " <= side_i e_y . (p_i - c) <= ", params_.reachYOuter, " m at every node (first-order in the heading), ",
+                      penaltyText());
 }
 
 void ReachabilityConstraint::configure(const ContactPlanningConfig& config) {
-  if (config.reachability.reachX <= 0.0) throw std::invalid_argument("[reachability] reachX must be positive");
-  if (config.reachability.reachYOuter <= config.reachability.reachYInner) {
-    throw std::invalid_argument("[reachability] reachYOuter must exceed reachYInner");
-  }
   params_ = config.reachability;
-  configurePenalty(config, config.reachability.slack, "reachability");
+  configurePenalty(config, config.reachability.slack);
 }
 
 void ReachabilityConstraint::addRows(const ContactPlanningContext& ctx, int node, RowBuilder& rows) const {
@@ -70,7 +65,9 @@ void ReachabilityConstraint::addRows(const ContactPlanningContext& ctx, int node
       const vector2_t dNominal =
           ctx.hasHeading() ? vector2_t(ctx.nominal->feet[static_cast<size_t>(node)][foot] - ctx.nominal->com[static_cast<size_t>(node)])
                            : vector2_t(vector2_t::Zero());
-      const auto [g, offset] = ctx.frameTerm(node, axis, dNominal);
+      const std::pair<scalar_t, scalar_t> frameTerm = ctx.frameTerm(node, axis, dNominal);
+      const scalar_t g = frameTerm.first;
+      const scalar_t offset = frameTerm.second;
       if (ctx.hasHeading()) xc.push_back({idx_.heading, g});
       rows.addSoft(xc, {}, lower - offset, upper - offset, penalty_);
     }

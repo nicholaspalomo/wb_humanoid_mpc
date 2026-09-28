@@ -27,7 +27,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
-#include <sstream>
 
 namespace ocs2::humanoid {
 
@@ -36,7 +35,6 @@ std::string HeadingRateTrackingCost::describe() const {
 }
 
 void HeadingRateTrackingCost::configure(const ContactPlanningConfig& config) {
-  checkWeight("heading_rate_tracking", config.headingRateTracking.weight);
   weight_ = config.headingRateTracking.weight;
 }
 

@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <rclcpp/rclcpp.hpp>
 
+#include <functional>
 #include <mutex>
 
 #include "humanoid_common_mpc_ros2/ros_comm/Ros2ProceduralMpcMotionManager.h"
@@ -54,9 +55,10 @@ void Ros2ProceduralMpcMotionManager::subscribe(rclcpp::Node::SharedPtr nodeHandl
   // ModeSchedule
 
   // TargetTrajectories
-  auto walkingVelocityCallback = [this](const humanoid_mpc_msgs::msg::WalkingVelocityCommand::SharedPtr msg) {
-    this->setAndScaleVelocityCommand(getWalkingVelocityCommandFromMsg(*msg));
-  };
+  const std::function<void(const humanoid_mpc_msgs::msg::WalkingVelocityCommand::SharedPtr)> walkingVelocityCallback =
+      [this](const humanoid_mpc_msgs::msg::WalkingVelocityCommand::SharedPtr msg) {
+        this->setAndScaleVelocityCommand(getWalkingVelocityCommandFromMsg(*msg));
+      };
   velCommandSubscriber_ = nodeHandle->create_subscription<humanoid_mpc_msgs::msg::WalkingVelocityCommand>(
       "humanoid/walking_velocity_command", qos, walkingVelocityCallback);
 }

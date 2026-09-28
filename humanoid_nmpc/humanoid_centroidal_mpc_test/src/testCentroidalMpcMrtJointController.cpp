@@ -33,9 +33,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <limits>
 #include <thread>
 #include <tuple>
+#include <utility>
+
+#include "absl/status/statusor.h"
 
 #include <humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h>
 #include <ocs2_mpc/MPC_BASE.h>
@@ -113,13 +117,13 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testPdGainsHotReloading) {
 
   // Create controller
   CentroidalMpcMrtJointController controller(robotDesc, testingModelInterface.getModelSettings(), testingModelInterface.getMpcRobotModel(),
-                                             mockMpc, testingModelInterface.getPinocchioInterface(), 400.0, nullptr,
-                                             tempPdGainsFile_.string());
+                                             mockMpc, testingModelInterface.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0,
+                                             /*rVizVisualizerPtr=*/nullptr, tempPdGainsFile_.string());
 
   controller.setControlMode("JOINT_PD");
 
   // Trigger first compute loop
-  EXPECT_NO_THROW({ controller.computeJointControlAction(0.01, robotState, jointAction); });
+  EXPECT_NO_THROW({ controller.computeJointControlAction(/*time=*/0.01, robotState, jointAction); });
 
   // Modify file
   std::this_thread::sleep_for(std::chrono::milliseconds(100));  // Ensure timestamp difference
@@ -131,7 +135,7 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testPdGainsHotReloading) {
   ofs.close();
 
   // Trigger again
-  EXPECT_NO_THROW({ controller.computeJointControlAction(0.02, robotState, jointAction); });
+  EXPECT_NO_THROW({ controller.computeJointControlAction(/*time=*/0.02, robotState, jointAction); });
 }
 
 // SAFETY must be a damped joint PD about the posture held at mode entry whose torques decay smoothly to zero. Before
@@ -144,18 +148,18 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testSafetyModeDecaysADampedPdToZeroT
 
   const scalar_t timeConstant = 0.5;
   CentroidalMpcMrtJointController controller(robotDesc, testingModelInterface.getModelSettings(), testingModelInterface.getMpcRobotModel(),
-                                             mockMpc, testingModelInterface.getPinocchioInterface(), 400.0, nullptr,
-                                             tempPdGainsFile_.string());
+                                             mockMpc, testingModelInterface.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0,
+                                             /*rVizVisualizerPtr=*/nullptr, tempPdGainsFile_.string());
   controller.setSafetyDecayTimeConstant(timeConstant);
 
   // The gains SAFETY decays from are the ones JOINT_PD commands, so take that mode's action as the reference.
   controller.setControlMode("JOINT_PD");
   robot::model::RobotJointAction reference(robotDesc);
   robotState.setTime(0.0);
-  controller.computeJointControlAction(0.0, robotState, reference);
+  controller.computeJointControlAction(/*time=*/0.0, robotState, reference);
 
   // Move the joints off the nominal posture so that "holds the posture at entry" is distinguishable from "returns to
-  // the nominal posture", which is the behaviour that would make a safety stop a lunge.
+  // the nominal posture", which is the behavior that would make a safety stop a lunge.
   for (size_t index = 0; index < robotDesc.getNumJoints(); ++index) {
     robotState.setJointPosition(index, robotState.getJointPosition(index) + 0.3);
   }
@@ -163,7 +167,7 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testSafetyModeDecaysADampedPdToZeroT
   controller.setControlMode("SAFETY");
   robot::model::RobotJointAction atEntry(robotDesc);
   robotState.setTime(1.0);
-  controller.computeJointControlAction(1.0, robotState, atEntry);
+  controller.computeJointControlAction(/*time=*/1.0, robotState, atEntry);
 
   size_t checkedJoints = 0;
   for (size_t index = 0; index < robotDesc.getNumJoints(); ++index) {
@@ -208,57 +212,50 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testSafetyModeDecaysADampedPdToZeroT
     EXPECT_DOUBLE_EQ(action.kp, 0.0);
     EXPECT_DOUBLE_EQ(action.kd, 0.0);
     EXPECT_DOUBLE_EQ(action.feed_forward_effort, 0.0);
-    EXPECT_DOUBLE_EQ(action.getTotalFeedbackTorque(robotState.getJointPosition(index), 5.0), 0.0);
+    EXPECT_DOUBLE_EQ(action.getTotalFeedbackTorque(robotState.getJointPosition(index), /*qd=*/5.0), 0.0);
   }
 }
 
-// Entering WB_MPC from JOINT_PD requests an MPC reset, but the MRT keeps handing out the policy solved before the reset
-// (resetMpcNode does not clear its buffers) until the first post-reset solve is swapped in. With an entry blend time the
-// controller keeps the JOINT_PD action until then; without one it switches at once, as it always did.
-TEST_F(CentroidalMpcMrtJointControllerTest, testEntryBlendHoldsThePreviousModeUntilAPostResetPolicyIsActive) {
+// Entering WB_MPC from JOINT_PD resets the MPC, and no policy solved before that reset may reach the robot: the controller
+// keeps the JOINT_PD action, field by field, until a policy solved after it is in use - whatever the entry blend time,
+// which only shapes the ramp that follows. It used to switch at once when the blend time was 0, executing the policy
+// solved before the entry (or, before the first policy, a weight-compensating stand-in), for as long as the solver took.
+TEST_F(CentroidalMpcMrtJointControllerTest, testEntryHoldsThePreviousModeUntilAPostResetPolicyIsActive) {
   MockMpc mockMpc;
   ::robot::model::RobotDescription robotDesc(testingModelInterface.urdfFile);
   robot::model::RobotState robotState(robotDesc);
 
-  const auto run = [&](scalar_t blendTime) {
+  using EntryResult = std::tuple<bool, robot::model::RobotJointAction, robot::model::RobotJointAction>;
+  const std::function<EntryResult(scalar_t)> run = [&](scalar_t blendTime) {
     CentroidalMpcMrtJointController controller(robotDesc, testingModelInterface.getModelSettings(),
                                                testingModelInterface.getMpcRobotModel(), mockMpc,
-                                               testingModelInterface.getPinocchioInterface(), 400.0, nullptr, tempPdGainsFile_.string());
+                                               testingModelInterface.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0,
+                                               /*rVizVisualizerPtr=*/nullptr, tempPdGainsFile_.string());
     controller.setMpcEntryBlendTime(blendTime);
     controller.setControlMode("JOINT_PD");
     robot::model::RobotJointAction held(robotDesc);
-    controller.computeJointControlAction(0.01, robotState, held);
+    controller.computeJointControlAction(/*time=*/0.01, robotState, held);
     controller.setControlMode("WB_MPC");  // requests a reset; the mock never solves, so no post-reset policy ever arrives
     robot::model::RobotJointAction entered(robotDesc);
-    controller.computeJointControlAction(0.02, robotState, entered);
-    controller.computeJointControlAction(0.03, robotState, entered);
-    return std::make_tuple(controller.isEnteringMpc(), held, entered);
+    controller.computeJointControlAction(/*time=*/0.02, robotState, entered);
+    controller.computeJointControlAction(/*time=*/0.03, robotState, entered);
+    return EntryResult(controller.isEnteringMpc(), held, entered);
   };
 
-  const auto maxFeedforwardDifference = [&](const robot::model::RobotJointAction& a, const robot::model::RobotJointAction& b) {
-    scalar_t maxDifference = 0.0;
+  for (const scalar_t blendTime : {0.0, 0.3}) {
+    const EntryResult result = run(blendTime);
+    const bool entering = std::get<0>(result);
+    const robot::model::RobotJointAction& held = std::get<1>(result);
+    const robot::model::RobotJointAction& entered = std::get<2>(result);
+    EXPECT_TRUE(entering) << "blend time " << blendTime;
     for (size_t index = 0; index < robotDesc.getNumJoints(); ++index) {
-      if (!a.at(index).has_value() || !b.at(index).has_value()) continue;
-      maxDifference = std::max(maxDifference, std::abs(a.at(index)->feed_forward_effort - b.at(index)->feed_forward_effort));
+      if (!held.at(index).has_value()) continue;
+      EXPECT_DOUBLE_EQ(entered.at(index)->q_des, held.at(index)->q_des) << "joint " << index << ", blend time " << blendTime;
+      EXPECT_DOUBLE_EQ(entered.at(index)->kp, held.at(index)->kp) << "joint " << index << ", blend time " << blendTime;
+      EXPECT_DOUBLE_EQ(entered.at(index)->kd, held.at(index)->kd) << "joint " << index << ", blend time " << blendTime;
+      EXPECT_DOUBLE_EQ(entered.at(index)->feed_forward_effort, held.at(index)->feed_forward_effort)
+          << "joint " << index << ", blend time " << blendTime;
     }
-    return maxDifference;
-  };
-
-  // Immediate switch (default): the weight-compensating branch runs, whose contact-force feedforward differs from the
-  // gravity term of JOINT_PD on the leg joints.
-  const auto [enteringWithoutBlend, heldWithoutBlend, enteredWithoutBlend] = run(0.0);
-  EXPECT_FALSE(enteringWithoutBlend);
-  EXPECT_GT(maxFeedforwardDifference(heldWithoutBlend, enteredWithoutBlend), 1e-3);
-
-  // With a blend time the JOINT_PD action is held, field by field, while no post-reset policy is active.
-  const auto [enteringWithBlend, heldWithBlend, enteredWithBlend] = run(0.3);
-  EXPECT_TRUE(enteringWithBlend);
-  EXPECT_NEAR(maxFeedforwardDifference(heldWithBlend, enteredWithBlend), 0.0, 1e-12);
-  for (size_t index = 0; index < robotDesc.getNumJoints(); ++index) {
-    if (!heldWithBlend.at(index).has_value()) continue;
-    EXPECT_DOUBLE_EQ(enteredWithBlend.at(index)->q_des, heldWithBlend.at(index)->q_des) << "joint " << index;
-    EXPECT_DOUBLE_EQ(enteredWithBlend.at(index)->kp, heldWithBlend.at(index)->kp) << "joint " << index;
-    EXPECT_DOUBLE_EQ(enteredWithBlend.at(index)->kd, heldWithBlend.at(index)->kd) << "joint " << index;
   }
 }
 
@@ -281,11 +278,13 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testBasisVectorInputsUseWorldFrameWr
   // Basis decorator built the same way CentroidalMpcInterface builds it in basis mode.
   const ContactWrenchConeConstraint::Config coneConfig(4, 0.7, 0.05, 5.0, 0.0);
   const PolygonBounds footBounds(-0.1, 0.1, -0.05, 0.05);
-  const std::array<ContactWrenchConeBasisMatrix, N_CONTACTS> basisMatrices = {
-      ContactWrenchConeBasisMatrix(
-          coneConfig, ContactRectangle(footBounds, ContactCenterPoint("foot_l_contact", "left_ankle_roll_joint", vector3_t::Zero()))),
-      ContactWrenchConeBasisMatrix(
-          coneConfig, ContactRectangle(footBounds, ContactCenterPoint("foot_r_contact", "right_ankle_roll_joint", vector3_t::Zero())))};
+  absl::StatusOr<ContactWrenchConeBasisMatrix> leftBasis = ContactWrenchConeBasisMatrix::Create(
+      coneConfig, ContactRectangle(footBounds, ContactCenterPoint("foot_l_contact", "left_ankle_roll_joint", vector3_t::Zero())));
+  ASSERT_TRUE(leftBasis.ok()) << leftBasis.status();
+  absl::StatusOr<ContactWrenchConeBasisMatrix> rightBasis = ContactWrenchConeBasisMatrix::Create(
+      coneConfig, ContactRectangle(footBounds, ContactCenterPoint("foot_r_contact", "right_ankle_roll_joint", vector3_t::Zero())));
+  ASSERT_TRUE(rightBasis.ok()) << rightBasis.status();
+  const std::array<ContactWrenchConeBasisMatrix, N_CONTACTS> basisMatrices = {*std::move(leftBasis), *std::move(rightBasis)};
   BasisInputsModelDecorator<scalar_t> basisModel(
       std::unique_ptr<MpcRobotModelBase<scalar_t>>(testingModelInterface.getMpcRobotModel().clone()), basisMatrices,
       testingModelInterface.getPinocchioInterface());
@@ -299,12 +298,12 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testBasisVectorInputsUseWorldFrameWr
   }
 
   CentroidalMpcMrtJointController controller(robotDesc, testingModelInterface.getModelSettings(), testingModelInterface.getMpcRobotModel(),
-                                             mockMpc, testingModelInterface.getPinocchioInterface(), 400.0, nullptr, gainsFile.string(),
-                                             &basisModel);
+                                             mockMpc, testingModelInterface.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0,
+                                             /*rVizVisualizerPtr=*/nullptr, gainsFile.string(), &basisModel);
 
   // The default mode is WB_MPC and the mock MPC never publishes a policy, so the controller takes the weight-compensating
   // feed-forward branch.
-  ASSERT_NO_THROW(controller.computeJointControlAction(0.01, robotState, jointAction));
+  ASSERT_NO_THROW(controller.computeJointControlAction(/*time=*/0.01, robotState, jointAction));
   std::filesystem::remove(gainsFile);
 
   // (a) The observation input follows the basis layout: a zero contact block with the joint velocities at the tail.
@@ -317,22 +316,23 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testBasisVectorInputsUseWorldFrameWr
   // same inverse dynamics the controller uses.
   PinocchioInterface pinocchioInterface = testingModelInterface.getPinocchioInterface();
   const vector_t weightInput = weightCompensatingInput(pinocchioInterface, {true, true}, basisModel, observation.state);
-  const std::array<vector6_t, 2> worldWrenches{basisModel.getContactWrenchInWorldFrame(observation.state, weightInput, 0),
-                                               basisModel.getContactWrenchInWorldFrame(observation.state, weightInput, 1)};
-  const std::array<vector6_t, 2> localWrenches{basisModel.getContactWrench(weightInput, 0), basisModel.getContactWrench(weightInput, 1)};
+  const std::array<vector6_t, 2> worldWrenches{basisModel.getContactWrenchInWorldFrame(observation.state, weightInput, /*contactIndex=*/0),
+                                               basisModel.getContactWrenchInWorldFrame(observation.state, weightInput, /*contactIndex=*/1)};
+  const std::array<vector6_t, 2> localWrenches{basisModel.getContactWrench(weightInput, /*contactIndex=*/0),
+                                               basisModel.getContactWrench(weightInput, /*contactIndex=*/1)};
 
   const vector_t q = basisModel.getGeneralizedCoordinates(observation.state);
   const vector_t qd = basisModel.getGeneralizedVelocities(observation.state, observation.input);
   const vector_t qddZero = vector_t::Zero(basisModel.getJointDim());
-  const vector_t expectedTorques = computeJointTorques<scalar_t>(q, qd, qddZero, worldWrenches, pinocchioInterface);
-  const vector_t localFrameTorques = computeJointTorques<scalar_t>(q, qd, qddZero, localWrenches, pinocchioInterface);
+  const vector_t expectedTorques = computeBaseHeldJointTorques<scalar_t>(q, qd, qddZero, worldWrenches, pinocchioInterface);
+  const vector_t localFrameTorques = computeBaseHeldJointTorques<scalar_t>(q, qd, qddZero, localWrenches, pinocchioInterface);
 
   // Sanity: with pitched feet the local- and world-frame wrenches (and hence torques) differ, so the check discriminates.
   ASSERT_GT((worldWrenches[0] - localWrenches[0]).norm(), 1.0);
   ASSERT_GT((expectedTorques - localFrameTorques).norm(), 1.0);
 
-  const auto& mpcJointNames = testingModelInterface.getModelSettings().mpcModelJointNames;
-  const auto mpcJointIndices = robotDesc.getJointIndices(mpcJointNames);
+  const std::vector<std::string>& mpcJointNames = testingModelInterface.getModelSettings().mpcModelJointNames;
+  const std::vector<robot::joint_index_t> mpcJointIndices = robotDesc.getJointIndices(mpcJointNames);
   ASSERT_EQ(static_cast<Eigen::Index>(mpcJointIndices.size()), expectedTorques.size());
   for (size_t i = 0; i < mpcJointIndices.size(); ++i) {
     const scalar_t feedforward = jointAction.at(mpcJointIndices[i]).value().feed_forward_effort;
@@ -343,21 +343,21 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testBasisVectorInputsUseWorldFrameWr
 
 // The measured contact state of the controller comes from its contact estimator: the observation mode handed to the
 // MPC follows the estimator, not the contact flags of the RobotState. Without an estimator the RobotState flags are used
-// (RobotStateContactEstimator), which is the historical behaviour.
+// (RobotStateContactEstimator), which is the historical behavior.
 TEST_F(CentroidalMpcMrtJointControllerTest, testObservationModeFollowsTheContactEstimator) {
   MockMpc mockMpc;
   ::robot::model::RobotDescription robotDesc(testingModelInterface.urdfFile);
   robot::model::RobotState robotState(robotDesc);
   robot::model::RobotJointAction jointAction(robotDesc);
   CentroidalMpcMrtJointController controller(robotDesc, testingModelInterface.getModelSettings(), testingModelInterface.getMpcRobotModel(),
-                                             mockMpc, testingModelInterface.getPinocchioInterface(), 400.0, nullptr,
-                                             tempPdGainsFile_.string());
+                                             mockMpc, testingModelInterface.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0,
+                                             /*rVizVisualizerPtr=*/nullptr, tempPdGainsFile_.string());
   controller.setControlMode("JOINT_PD");
 
   // Default: the RobotState flags.
   EXPECT_EQ(controller.getContactEstimator().getName(), "RobotStateContactEstimator");
-  robotState.setContactFlag(1, false);
-  controller.computeJointControlAction(0.01, robotState, jointAction);
+  robotState.setContactFlag(/*index=*/1, /*contactFlag=*/false);
+  controller.computeJointControlAction(/*time=*/0.01, robotState, jointAction);
   EXPECT_EQ(controller.getCurrentObservation().mode, stanceLeg2ModeNumber({true, false}));
   EXPECT_EQ(controller.getMeasuredContactFlags(), (contact_flag_t{true, false}));
 
@@ -365,23 +365,23 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testObservationModeFollowsTheContact
   auto estimator = std::make_shared<FixedContactEstimator>(std::vector<bool>{false, true});
   controller.setContactEstimator(estimator);
   EXPECT_EQ(controller.getContactEstimator().getName(), "FixedContactEstimator");
-  controller.computeJointControlAction(0.02, robotState, jointAction);
+  controller.computeJointControlAction(/*time=*/0.02, robotState, jointAction);
   EXPECT_EQ(estimator->calls, 1u);
   EXPECT_EQ(controller.getCurrentObservation().mode, stanceLeg2ModeNumber({false, true}));
   EXPECT_EQ(controller.getMeasuredContactFlags(), (contact_flag_t{false, true}));
   estimator->set({true, true});
-  controller.computeJointControlAction(0.03, robotState, jointAction);
+  controller.computeJointControlAction(/*time=*/0.03, robotState, jointAction);
   EXPECT_EQ(estimator->calls, 2u);
   EXPECT_EQ(controller.getCurrentObservation().mode, stanceLeg2ModeNumber({true, true}));
 
   // An estimator that reports the wrong number of contact points is a configuration error, not a silent mode.
   estimator->set({true});
-  EXPECT_THROW(controller.computeJointControlAction(0.04, robotState, jointAction), std::runtime_error);
+  EXPECT_THROW(controller.computeJointControlAction(/*time=*/0.04, robotState, jointAction), std::runtime_error);
 
   // A null pointer restores the default.
   controller.setContactEstimator(nullptr);
   EXPECT_EQ(controller.getContactEstimator().getName(), "RobotStateContactEstimator");
-  controller.computeJointControlAction(0.05, robotState, jointAction);
+  controller.computeJointControlAction(/*time=*/0.05, robotState, jointAction);
   EXPECT_EQ(controller.getCurrentObservation().mode, stanceLeg2ModeNumber({true, false}));
 }
 
@@ -401,15 +401,16 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testFeedforwardWrenchesFollowTheMeas
     ofs << "default_gains:\n  kp: 100.0\n  kd: 10.0\n  torque_limit: 1000000.0\n";
   }
   CentroidalMpcMrtJointController controller(robotDesc, testingModelInterface.getModelSettings(), testingModelInterface.getMpcRobotModel(),
-                                             mockMpc, testingModelInterface.getPinocchioInterface(), 400.0, nullptr, gainsFile.string());
+                                             mockMpc, testingModelInterface.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0,
+                                             /*rVizVisualizerPtr=*/nullptr, gainsFile.string());
   std::filesystem::remove(gainsFile);
   auto estimator = std::make_shared<FixedContactEstimator>(std::vector<bool>{true, true});
   controller.setContactEstimator(estimator);
 
-  const auto feedforward = [&](const std::vector<bool>& measured) {
+  const std::function<robot::model::RobotJointAction(const std::vector<bool>&)> feedforward = [&](const std::vector<bool>& measured) {
     estimator->set(measured);
     robot::model::RobotJointAction action(robotDesc);
-    controller.computeJointControlAction(0.01, robotState, action);  // WB_MPC mode, no policy: weight-compensating branch
+    controller.computeJointControlAction(/*time=*/0.01, robotState, action);  // WB_MPC mode, no policy: weight-compensating branch
     return action;
   };
   const robot::model::RobotJointAction bothFeet = feedforward({true, true});
@@ -421,12 +422,18 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testFeedforwardWrenchesFollowTheMeas
   PinocchioInterface pinocchioInterface = testingModelInterface.getPinocchioInterface();
   const SystemObservation& observation = controller.getCurrentObservation();
   const vector_t weightInput = weightCompensatingInput(pinocchioInterface, {true, false}, model, observation.state);
-  const std::array<vector6_t, 2> wrenches{model.getContactWrenchInWorldFrame(observation.state, weightInput, 0),
-                                          model.getContactWrenchInWorldFrame(observation.state, weightInput, 1)};
+  const std::array<vector6_t, 2> wrenches{model.getContactWrenchInWorldFrame(observation.state, weightInput, /*contactIndex=*/0),
+                                          model.getContactWrenchInWorldFrame(observation.state, weightInput, /*contactIndex=*/1)};
   ASSERT_TRUE(wrenches[1].isZero());
-  const vector_t expected = computeJointTorques<scalar_t>(model.getGeneralizedCoordinates(observation.state),
-                                                          model.getGeneralizedVelocities(observation.state, observation.input),
-                                                          vector_t::Zero(model.getJointDim()), wrenches, pinocchioInterface);
+  const vector_t expected = computeBaseHeldJointTorques<scalar_t>(model.getGeneralizedCoordinates(observation.state),
+                                                                  model.getGeneralizedVelocities(observation.state, observation.input),
+                                                                  vector_t::Zero(model.getJointDim()), wrenches, pinocchioInterface);
+  // Positive control: the floating-base inverse dynamics of the same single-support wrench accelerates the free base and
+  // differs, so the comparison below tells the base-held (gantry) feedforward from it.
+  const vector_t floatingBase = computeJointTorques<scalar_t>(model.getGeneralizedCoordinates(observation.state),
+                                                              model.getGeneralizedVelocities(observation.state, observation.input),
+                                                              vector_t::Zero(model.getJointDim()), wrenches, pinocchioInterface);
+  ASSERT_GT((floatingBase - expected).cwiseAbs().maxCoeff(), 1.0);
 
   const std::vector<size_t> mpcJointIndices = robotDesc.getJointIndices(testingModelInterface.getModelSettings().mpcModelJointNames);
   scalar_t maxDifferenceBetweenContactStates = 0.0;

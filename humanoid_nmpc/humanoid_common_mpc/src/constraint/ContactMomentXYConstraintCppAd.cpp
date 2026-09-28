@@ -58,8 +58,8 @@ ContactMomentXYConstraintCppAd::ContactMomentXYConstraintCppAd(const SwitchedMod
       contactPointIndex_(contactPointIndex),
       pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
       scheduleGated_(scheduleGated) {
-  initialize(mpcRobotModelPtr_->getStateDim(), mpcRobotModelPtr_->getInputDim(), 0, costName, modelSettings.modelFolderCppAd,
-             modelSettings.recompileLibrariesCppAd, modelSettings.verboseCppAd);
+  initialize(mpcRobotModelPtr_->getStateDim(), mpcRobotModelPtr_->getInputDim(), /*parameterDim=*/0, costName,
+             modelSettings.modelFolderCppAd, modelSettings.recompileLibrariesCppAd, modelSettings.verboseCppAd);
 }
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -83,7 +83,7 @@ ContactMomentXYConstraintCppAd::ContactMomentXYConstraintCppAd(const ContactMome
 bool ContactMomentXYConstraintCppAd::isActive(scalar_t time) const {
   if (!isActive_) return false;
   // Under the contact-implicit formulation the mode schedule no longer decides which foot carries load, so it cannot
-  // be allowed to decide whose centre of pressure is bounded either; see contactConstraintsAreScheduleGated().
+  // be allowed to decide whose center of pressure is bounded either; see contactConstraintsAreScheduleGated().
   if (!scheduleGated_) return true;
   return referenceManagerPtr_->getContactFlags(time)[contactPointIndex_];
 }
@@ -96,8 +96,8 @@ ad_vector_t ContactMomentXYConstraintCppAd::constraintFunction(ad_scalar_t time,
                                                                const ad_vector_t& state,
                                                                const ad_vector_t& input,
                                                                const ad_vector_t& parameters) const {
-  const auto& model = pinocchioInterfaceCppAd_.getModel();
-  auto data = pinocchioInterfaceCppAd_.getData();  // make copy of model since method is const
+  const pinocchio::ModelTpl<ad_scalar_t>& model = pinocchioInterfaceCppAd_.getModel();
+  pinocchio::DataTpl<ad_scalar_t> data = pinocchioInterfaceCppAd_.getData();  // make copy of model since method is const
   updateFramePlacements(mpcRobotModelPtr_->getGeneralizedCoordinates(state), model, data);
   pinocchio::FrameIndex frameID = getContactFrameIndex(pinocchioInterfaceCppAd_, *mpcRobotModelPtr_, contactPointIndex_);
 

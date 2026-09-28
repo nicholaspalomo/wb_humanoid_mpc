@@ -33,6 +33,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // Pinocchio forward declarations must be included first
 #include <pinocchio/fwd.hpp>
 
+#include "absl/status/status.h"
+
 #include "humanoid_common_mpc/common/ModelSettings.h"
 
 #include <ocs2_pinocchio_interface/urdf.h>
@@ -41,19 +43,28 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 ///
-/// \brief Checks that the joint names in the pinocchio interface are in the same order as defined in ModelSettings.cpp
+/// \brief Checks that the actuated joints of the Pinocchio model are ModelSettings::mpcModelJointNames, in that order.
 ///
-/// \param[in] pinocchioInterface: A pinocchio Interface
+/// Every MPC quantity indexed by joint - the state, the joint limits, the joint weights - takes the model's joint order
+/// to be ModelSettings'. This check used to be an assert(), which the optimized build compiles out, so it never ran.
+///
+/// \param[in] pinocchioInterface: The Pinocchio interface of the MPC model.
+/// \param[in] modelSettings: The model settings whose mpcModelJointNames the model must match.
+/// \return InvalidArgument naming the first MPC joint that differs (or that has no counterpart), and the
+///         model_settings.fixedJointNames it is derived with; OkStatus otherwise.
 ///
 
-void checkPinocchioJointNaming(const PinocchioInterface& pinocchioInterface, const ModelSettings& modelSettings, bool verbose = false);
+[[nodiscard]] absl::Status checkPinocchioJointNaming(const PinocchioInterface& pinocchioInterface,
+                                                     const ModelSettings& modelSettings,
+                                                     bool verbose = false);
 
 ///
-/// \brief Creates a standard pinocchio model from the urdf
+/// \brief Reads the position limits of the MPC joints from the Pinocchio model.
 ///
-/// \param[in] urdfFilePath: The absolute path to the URDF file for the robot.
+/// \param[in] pinocchioInterface: The Pinocchio interface of the MPC model. Its joints must match ModelSettings
+///                                (checkPinocchioJointNaming); this is CHECKed, because the limits are read by position.
 ///
-/// \param[out] jointLimits A std pair of joint limits consisting of {lower_bounds, upper_bounds}
+/// \return A std pair of joint limits consisting of {lower_bounds, upper_bounds}
 
 std::pair<vector_t, vector_t> readPinocchioJointLimits(const PinocchioInterface& pinocchioInterface,
                                                        const ModelSettings& modelSettings,

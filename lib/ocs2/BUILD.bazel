@@ -376,6 +376,36 @@ cc_library(
 # Tests
 # ==============================================================================
 
+# A solver that plans what a test scripts: for tests of the code around the solver (the MPC-MRT hand-over, the resets,
+# the controllers built on MPC_MRT_Interface).
+cc_library(
+    name = "ocs2_mpc_test_support",
+    testonly = True,
+    hdrs = ["mpc/test/include/ocs2_mpc_test/ScriptedMpc.h"],
+    copts = _OCS2_COPTS,
+    includes = ["mpc/test/include"],
+    deps = [
+        ":ocs2_core",
+        ":ocs2_mpc",
+        ":ocs2_oc",
+        "@eigen",
+    ],
+)
+
+cc_test(
+    name = "test_mpc_reset",
+    size = "small",
+    srcs = ["mpc/test/testMpcReset.cpp"],
+    copts = _OCS2_COPTS,
+    deps = [
+        ":ocs2_mpc",
+        ":ocs2_mpc_test_support",
+        ":ocs2_oc",
+        "@abseil-cpp//absl/status",
+        "@googletest//:gtest_main",
+    ],
+)
+
 cc_test(
     name = "test_load_data_yaml",
     size = "small",

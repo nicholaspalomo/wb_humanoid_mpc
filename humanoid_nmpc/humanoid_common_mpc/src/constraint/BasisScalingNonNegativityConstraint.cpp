@@ -48,7 +48,7 @@ std::unique_ptr<PenaltyBase> makeLambdaPenalty(const PieceWisePolynomialBarrierP
   if (scheduleGated) {
     return std::unique_ptr<PenaltyBase>(new PieceWisePolynomialBarrierPenalty(barrierSettings));
   }
-  return std::unique_ptr<PenaltyBase>(new SquaredHingePenalty(SquaredHingePenalty::Config(barrierSettings.mu, 0.0)));
+  return std::unique_ptr<PenaltyBase>(new SquaredHingePenalty(SquaredHingePenalty::Config(barrierSettings.mu, /*deltaParam=*/0.0)));
 }
 }  // namespace
 
@@ -103,7 +103,7 @@ scalar_t BasisScalingNonNegativityConstraint::getValue(scalar_t time,
                                                        const PreComputation& preComp) const {
   // h_i = λ_i − 0 = λ_i.  Penalty grows as λ_i → 0⁺.
   const vector_t lambda = input.segment(lambdaStartIdx_, numBasis_);
-  return lambda.unaryExpr([&](scalar_t h) { return penaltyPtr_->getValue(0.0, h); }).sum();
+  return lambda.unaryExpr([&](scalar_t h) { return penaltyPtr_->getValue(/*t=*/0.0, h); }).sum();
 }
 
 /******************************************************************************************************/
@@ -124,20 +124,20 @@ ScalarFunctionQuadraticApproximation BasisScalingNonNegativityConstraint::getQua
   ScalarFunctionQuadraticApproximation cost;
 
   // Value
-  cost.f = lambda.unaryExpr([&](scalar_t h) { return penaltyPtr_->getValue(0.0, h); }).sum();
+  cost.f = lambda.unaryExpr([&](scalar_t h) { return penaltyPtr_->getValue(/*t=*/0.0, h); }).sum();
 
   // Gradients
   cost.dfdx = vector_t::Zero(stateDim);
   cost.dfdu = vector_t::Zero(inputDim);
   // d/d(λ_i) of penalty(λ_i) = penalty'(λ_i)
-  cost.dfdu.segment(lambdaStartIdx_, numBasis_) = lambda.unaryExpr([&](scalar_t h) { return penaltyPtr_->getDerivative(0.0, h); });
+  cost.dfdu.segment(lambdaStartIdx_, numBasis_) = lambda.unaryExpr([&](scalar_t h) { return penaltyPtr_->getDerivative(/*t=*/0.0, h); });
 
   // Hessians (diagonal — each λ_i is independent)
   cost.dfdxx = matrix_t::Zero(stateDim, stateDim);
   cost.dfdux = matrix_t::Zero(inputDim, stateDim);
   cost.dfduu = matrix_t::Zero(inputDim, inputDim);
   cost.dfduu.diagonal().segment(lambdaStartIdx_, numBasis_) =
-      lambda.unaryExpr([&](scalar_t h) { return penaltyPtr_->getSecondDerivative(0.0, h); });
+      lambda.unaryExpr([&](scalar_t h) { return penaltyPtr_->getSecondDerivative(/*t=*/0.0, h); });
 
   return cost;
 }

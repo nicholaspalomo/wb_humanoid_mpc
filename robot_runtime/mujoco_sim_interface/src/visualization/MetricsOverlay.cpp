@@ -52,7 +52,7 @@ void MetricsOverlay::renderOverlay(const VisualizationFrame& frame) {
   metrics << "Drift[ms]: " << std::fixed << std::setprecision(3) << state.metrics.driftTick * 1e3 << "\n";
   metrics << "Cummulative Drift[ms]: " << std::fixed << std::setprecision(3) << state.metrics.driftCumulative * 1e3;
 
-  mjr_overlay(mjFONT_NORMAL, mjGRID_TOPLEFT, frame.viewport, metrics.str().c_str(), nullptr, frame.context);
+  mjr_overlay(mjFONT_NORMAL, mjGRID_TOPLEFT, frame.viewport, metrics.str().c_str(), /*overlay2=*/nullptr, frame.context);
 }
 
 }  // namespace robot::mujoco_sim_interface

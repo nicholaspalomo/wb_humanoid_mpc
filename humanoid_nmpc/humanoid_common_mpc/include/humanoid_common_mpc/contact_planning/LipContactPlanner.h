@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/status/statusor.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerInterface.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
@@ -54,7 +55,7 @@ namespace ocs2::humanoid {
  * term lists of the configuration (`contact_planning.yaml`): model blocks that compose the variable layout, costs,
  * soft and hard constraints, logic rules and assignment costs, each a named term with its own parameter block. Around
  * it, the listed search stages provide the warm start and the diving heuristic before the branch-and-bound and the
- * event-shift local search and the heading re-linearisation after it. This class owns the assembled problem and the
+ * event-shift local search and the heading re-linearization after it. This class owns the assembled problem and the
  * stages, keeps the previous plan (the warm start and the consistency terms read it), builds the per-plan context and
  * runs the search. getFormulationSummary() prints what was assembled.
  *
@@ -75,22 +76,30 @@ class LipContactPlanner final : public ContactPlannerInterface {
   using Layout = ocs2::humanoid::Layout;
   using HeadingNominal = ocs2::humanoid::HeadingNominal;
 
-  /** The variable layout of a configuration's formulation. */
-  static Layout makeLayout(const ContactPlanningConfig& config);
+  /** The variable layout of a configuration's formulation, or the InvalidArgument of a formulation that cannot be assembled. */
+  static absl::StatusOr<Layout> makeLayout(const ContactPlanningConfig& config);
   const Layout& getLayout() const { return problem_.layout(); }
 
-  explicit LipContactPlanner(ContactPlanningConfig config);
+  /**
+   * Builds a planner, or returns the rejection of ContactPlanningConfig::validateStatus() - an InvalidArgument whose
+   * message names the key to change - for an invalid configuration, and that of the term factory for a formulation it
+   * cannot assemble. The only way to build one: the constructor is private, and it used to be a public one that threw
+   * std::invalid_argument with the same message. makeContactPlanner builds through it.
+   */
+  static absl::StatusOr<std::unique_ptr<LipContactPlanner>> Create(ContactPlanningConfig config);
 
   /** Plans from the given input. The previous plan (if any) seeds the incumbent. Never throws on solver failure: an invalid
    * plan is returned instead. */
   ContactPlan plan(const ContactPlannerInput& input) override;
 
   /**
-   * Replaces the configuration (validated) and re-assembles the problem and the stages from its term lists. The warm
-   * start (the previous plan and its assignment) survives unless the grid or the variable layout changed: dropping it on
-   * every hot reload made the plan after each edit start from scratch and move footholds and timing abruptly.
+   * Replaces the configuration and re-assembles the problem and the stages from its term lists. The warm start (the
+   * previous plan and its assignment) survives unless the grid or the variable layout changed: dropping it on every hot
+   * reload made the plan after each edit start from scratch and move footholds and timing abruptly. A configuration that
+   * does not validate, or whose lists cannot be assembled, is refused with the InvalidArgument naming the key, and the
+   * running one is kept.
    */
-  void setConfig(const ContactPlanningConfig& config) override;
+  absl::Status setConfig(const ContactPlanningConfig& config) override;
   const ContactPlanningConfig& getConfig() const { return config_; }
 
   /** Drops the warm start. */
@@ -104,15 +113,18 @@ class LipContactPlanner final : public ContactPlannerInterface {
 
   /** The assembled formulation: layout, every term with its description, the search stages and the planner settings. */
   std::string getFormulationSummary() const override;
-  /** The same for a configuration, without a planner (what a planner built from it would print). */
-  static std::string formulationSummary(const ContactPlanningConfig& config);
+  /**
+   * The same for a configuration (what a planner built from it would print), or Create()'s refusal of it. It used to
+   * build the planner with the throwing constructor, so an invalid configuration threw out of a summary.
+   */
+  static absl::StatusOr<std::string> formulationSummary(const ContactPlanningConfig& config);
 
   // The following are public for testing.
   /** Builds the OCP-QP around the default nominal heading trajectory (previous plan, or the commanded yaw integrated). */
   OcpQpProblem buildProblem(const ContactPlannerInput& input) const;
   OcpQpProblem buildProblem(const ContactPlannerInput& input, const HeadingNominal& nominal) const;
   /**
-   * The nominal trajectory the frame terms are linearised around: the previous plan shifted to `input.time` when there
+   * The nominal trajectory the frame terms are linearized around: the previous plan shifted to `input.time` when there
    * is a usable one, the commanded yaw rate and CoM velocity integrated from the input otherwise.
    *
    * `nodeDuration > 0` builds it for a grid of that node duration instead of planner.dt, which is what the cadence
@@ -140,6 +152,9 @@ class LipContactPlanner final : public ContactPlannerInterface {
   ContactLogicState makeLogicState(const ContactPlannerInput& input) const;
 
  private:
+  /** Private: Create() validates the configuration and builds the problem and the search stages it is handed here. */
+  LipContactPlanner(ContactPlanningConfig config, ContactPlanningProblem problem, TermCollection<SearchStage> searchStages);
+
   /** Node shift between the previous plan and `input.time` (nodes), or -1 when the previous plan is not usable. */
   int previousPlanShift(const ContactPlannerInput& input) const;
   ContactPlan decode(const ContactPlannerInput& input, const ContactPlanningContext& ctx, const MiqpResult& result) const;

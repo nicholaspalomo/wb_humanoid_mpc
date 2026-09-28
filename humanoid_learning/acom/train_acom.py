@@ -155,7 +155,7 @@ def train_acom(
     dataset: Dict[str, np.ndarray],
     in_dim: int,
     hidden_dim: int = 64,
-    num_layers: int = 3,
+    num_layers: int = 2,  # sine layers; 2 is the only count the C++ evaluator loads
     omega_0: float = 30.0,
     learning_rate: float = 1e-3,
     num_epochs: int = 50,

@@ -51,7 +51,12 @@ class ContactPlanningTerm {
   virtual std::vector<std::string> requiredBlocks() const { return {}; }
   /** Resolves the variable indices the term uses. Called once after the layout is final and after every re-assembly. */
   virtual void bind(const Layout& /*layout*/) {}
-  /** Reads the term's parameter block. Validates it and throws std::invalid_argument on bad values. */
+  /**
+   * Reads the term's parameter block. The configuration has passed ContactPlanningConfig::validateStatus(), which is the one
+   * place the values are checked and the one that names the key an operator has to change, so a term does not
+   * re-validate them: every configure() used to repeat a check of validateStatus() with a message that named no key, and
+   * threw std::invalid_argument from what is a plain setter.
+   */
   virtual void configure(const ContactPlanningConfig& config) = 0;
 };
 

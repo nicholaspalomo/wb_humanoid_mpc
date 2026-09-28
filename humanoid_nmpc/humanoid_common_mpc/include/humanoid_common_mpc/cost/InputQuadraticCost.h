@@ -30,7 +30,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <ocs2_core/cost/QuadraticStateInputCost.h>
-#include <ocs2_pinocchio_interface/PinocchioInterface.h>
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
@@ -44,7 +43,6 @@ class InputQuadraticCost final : public QuadraticStateInputCost {
   InputQuadraticCost(matrix_t R,
                      size_t stateDim,
                      const SwitchedModelReferenceManager& referenceManager,
-                     const PinocchioInterface& pinocchioInterface,
                      const MpcRobotModelBase<scalar_t>& mpcRobotModel);
 
   ~InputQuadraticCost() override = default;
@@ -60,7 +58,6 @@ class InputQuadraticCost final : public QuadraticStateInputCost {
 
   const size_t stateDim_;
   const SwitchedModelReferenceManager* referenceManagerPtr_;
-  const PinocchioInterface& pinInterface_;
   const MpcRobotModelBase<scalar_t>* mpcRobotModelPtr_;
 };
 

@@ -68,7 +68,7 @@ TEST_F(CentroidalMpcRobotModelTest, ConstructorAndDimensions) {
 
 // Test clone functionality
 TEST_F(CentroidalMpcRobotModelTest, CloneTest) {
-  auto clonedModel = std::unique_ptr<CentroidalMpcRobotModel<scalar_t>>(testingModelInterface.getMpcRobotModel().clone());
+  std::unique_ptr<CentroidalMpcRobotModel<scalar_t>> clonedModel(testingModelInterface.getMpcRobotModel().clone());
   ASSERT_NE(clonedModel, nullptr);
   EXPECT_EQ(clonedModel->getStateDim(), testingModelInterface.getMpcRobotModel().getStateDim());
   EXPECT_EQ(clonedModel->getInputDim(), testingModelInterface.getMpcRobotModel().getInputDim());
@@ -192,13 +192,13 @@ TEST_F(CentroidalMpcRobotModelTest, JointVelocities) {
 // Test contact wrench extraction and setting
 TEST_F(CentroidalMpcRobotModelTest, ContactWrench) {
   // Test left foot (contact 0)
-  vector6_t leftWrench = testingModelInterface.getMpcRobotModel().getContactWrench(testInput, 0);
+  vector6_t leftWrench = testingModelInterface.getMpcRobotModel().getContactWrench(testInput, /*contactIndex=*/0);
   EXPECT_EQ(leftWrench.size(), 6);
   EXPECT_DOUBLE_EQ(leftWrench[2], 400.0);  // Force in z
   EXPECT_DOUBLE_EQ(leftWrench[3], 5.0);    // Moment about x
 
   // Test right foot (contact 1)
-  vector6_t rightWrench = testingModelInterface.getMpcRobotModel().getContactWrench(testInput, 1);
+  vector6_t rightWrench = testingModelInterface.getMpcRobotModel().getContactWrench(testInput, /*contactIndex=*/1);
   EXPECT_EQ(rightWrench.size(), 6);
   EXPECT_DOUBLE_EQ(rightWrench[2], 400.0);  // Force in z
   EXPECT_DOUBLE_EQ(rightWrench[3], -5.0);   // Moment about x
@@ -207,30 +207,30 @@ TEST_F(CentroidalMpcRobotModelTest, ContactWrench) {
   vector_t modifiedInput = testInput;
   vector6_t newWrench;
   newWrench << 10.0, 20.0, 500.0, 1.0, 2.0, 3.0;
-  testingModelInterface.getMpcRobotModel().setContactWrench(modifiedInput, newWrench, 0);
+  testingModelInterface.getMpcRobotModel().setContactWrench(modifiedInput, newWrench, /*contactIndex=*/0);
 
-  vector6_t retrievedWrench = testingModelInterface.getMpcRobotModel().getContactWrench(modifiedInput, 0);
+  vector6_t retrievedWrench = testingModelInterface.getMpcRobotModel().getContactWrench(modifiedInput, /*contactIndex=*/0);
   EXPECT_TRUE(retrievedWrench.isApprox(newWrench, 1e-10));
 }
 
 // Test contact force extraction and setting
 TEST_F(CentroidalMpcRobotModelTest, ContactForce) {
-  vector3_t leftForce = testingModelInterface.getMpcRobotModel().getContactForce(testInput, 0);
+  vector3_t leftForce = testingModelInterface.getMpcRobotModel().getContactForce(testInput, /*contactIndex=*/0);
   EXPECT_EQ(leftForce.size(), 3);
   EXPECT_DOUBLE_EQ(leftForce[2], 400.0);
 
   // Test setting contact force
   vector_t modifiedInput = testInput;
   vector3_t newForce(50.0, 60.0, 700.0);
-  testingModelInterface.getMpcRobotModel().setContactForce(modifiedInput, newForce, 1);
+  testingModelInterface.getMpcRobotModel().setContactForce(modifiedInput, newForce, /*contactIndex=*/1);
 
-  vector3_t retrievedForce = testingModelInterface.getMpcRobotModel().getContactForce(modifiedInput, 1);
+  vector3_t retrievedForce = testingModelInterface.getMpcRobotModel().getContactForce(modifiedInput, /*contactIndex=*/1);
   EXPECT_TRUE(retrievedForce.isApprox(newForce, 1e-10));
 }
 
 // Test contact moment extraction and setting
 TEST_F(CentroidalMpcRobotModelTest, ContactMoment) {
-  vector3_t leftMoment = testingModelInterface.getMpcRobotModel().getContactMoment(testInput, 0);
+  vector3_t leftMoment = testingModelInterface.getMpcRobotModel().getContactMoment(testInput, /*contactIndex=*/0);
   EXPECT_EQ(leftMoment.size(), 3);
   EXPECT_DOUBLE_EQ(leftMoment[0], 5.0);
   EXPECT_DOUBLE_EQ(leftMoment[1], -2.0);
@@ -238,9 +238,9 @@ TEST_F(CentroidalMpcRobotModelTest, ContactMoment) {
   // Test setting contact moment
   vector_t modifiedInput = testInput;
   vector3_t newMoment(8.0, 9.0, 10.0);
-  testingModelInterface.getMpcRobotModel().setContactMoment(modifiedInput, newMoment, 1);
+  testingModelInterface.getMpcRobotModel().setContactMoment(modifiedInput, newMoment, /*contactIndex=*/1);
 
-  vector3_t retrievedMoment = testingModelInterface.getMpcRobotModel().getContactMoment(modifiedInput, 1);
+  vector3_t retrievedMoment = testingModelInterface.getMpcRobotModel().getContactMoment(modifiedInput, /*contactIndex=*/1);
   EXPECT_TRUE(retrievedMoment.isApprox(newMoment, 1e-10));
 }
 
@@ -290,8 +290,8 @@ TEST_F(CentroidalMpcRobotModelTest, BoundaryConditions) {
 
   EXPECT_NO_THROW(testingModelInterface.getMpcRobotModel().getBasePose(zeroState));
   EXPECT_NO_THROW(testingModelInterface.getMpcRobotModel().getJointAngles(zeroState));
-  EXPECT_NO_THROW(testingModelInterface.getMpcRobotModel().getContactWrench(zeroInput, 0));
-  EXPECT_NO_THROW(testingModelInterface.getMpcRobotModel().getContactWrench(zeroInput, 1));
+  EXPECT_NO_THROW(testingModelInterface.getMpcRobotModel().getContactWrench(zeroInput, /*contactIndex=*/0));
+  EXPECT_NO_THROW(testingModelInterface.getMpcRobotModel().getContactWrench(zeroInput, /*contactIndex=*/1));
 
   // Test contact indices
   for (size_t i = 0; i < 2; ++i) {

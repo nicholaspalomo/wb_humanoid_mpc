@@ -30,6 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_ros2/ros_comm/MRTPolicySubscriber.h"
 
+#include <cstdint>
+
 #include <ocs2_core/control/FeedforwardController.h>
 #include <ocs2_core/control/LinearController.h>
 #include "ocs2_ros2_interfaces/common/RosMsgConversions.h"
@@ -85,7 +87,7 @@ void MRTPolicySubscriber::readPolicyMsg(const ocs2_ros2_msgs::msg::MpcFlattenedC
   }
 
   primalSolution.postEventIndices_.reserve(msg.post_event_indices.size());
-  for (auto ind : msg.post_event_indices) {
+  for (const uint8_t ind : msg.post_event_indices) {
     primalSolution.postEventIndices_.emplace_back(static_cast<size_t>(ind));
   }
 

@@ -5,14 +5,23 @@ telemetryFrequency: 100      # [Hz] Telemetry publishing frequency (decimated fr
 # the contact state the executed MPC policy plans against the simulator's ground truth over a sliding window of time.
 simContactTimelineWindow: 5.0          # [s] width of the sliding window
 simContactForceThreshold: 5.0          # [N] normal force above which a contact point counts as touching (ground truth)
-# Fall recovery: the tilt of the base past which the simulator catches the robot on the gantry, reattaching it upright
-# at the gantry height, switching to JOINT_PD (the whole-body MPC is overconstrained against a pinned base) and
-# resetting the MPC. The remote control follows the same transition and re-centres its joysticks, so a stick left
-# forward cannot keep commanding a walk into a robot hanging from the harness. The measure is the angle between the
-# base's own vertical and the world vertical, so it is heading independent: 0 upright, pi/2 on its side, pi upside
-# down. 0 disables the recovery and leaves a fallen robot where it lands, which is what you want when the fall itself
-# is the thing being studied. 1.0 rad (57 deg) is past any recoverable lean.
+# Fall recovery (SimFallRecovery, humanoid_nmpc/docs/mpc_reset/README.md). simMaxBaseTiltAngle is the tilt of the base
+# past which the simulator catches the robot on the gantry, holding it upright where it is at the gantry height,
+# switching to JOINT_PD (the whole-body MPC is overconstrained against a pinned base) and resetting the controller, which
+# holds the robot until it has planned from where the robot is now. The simulator's own resets (base below the floor
+# limit, an unstable step) are caught the same way. The remote control follows the lock and re-centers its joysticks,
+# so a stick left forward cannot keep commanding a walk into a robot hanging from the harness. The measure is the angle
+# between the base's own vertical and the world vertical, so it is heading independent: 0 upright, pi/2 on its side, pi
+# upside down. 0 disables the catch and leaves a fallen robot where it lands, which is what you want when the fall
+# itself is the thing being studied. 1.0 rad (57 deg) is past any recoverable lean.
+# simGantryCatchLift is how far the gantry then lifts the caught robot so that its feet clear the ground: JOINT_PD brings
+# the legs back to the nominal posture, the gantry lowers the robot back onto its feet, and WB_MPC is refused until it
+# rests there. Caught at its standing height with its feet loaded where they landed, the robot hung pitched and fell
+# again within two seconds of the unlock. 0 skips the sequence and accepts WB_MPC at once. Simulation only.
+# LINT.IfChange(sim_fall_recovery)
 simMaxBaseTiltAngle: 1.0                # [rad] 0 disables
+simGantryCatchLift: 0.15  # [m] 0 skips the settle sequence
+# LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc_ros2/src/WBMpcRobotSim.cpp:sim_fall_recovery_keys)
 # Measured contact state of the controller, by name (robot_model/ContactEstimatorRegistry.h): the MPC observation mode and
 # which planned contact wrenches the inverse dynamics projects into feedforward torques. One of:
 #   cheater_sim        the ground truth of the physics (normal force above simContactForceThreshold); required for the
@@ -22,6 +31,36 @@ simMaxBaseTiltAngle: 1.0                # [rad] 0 disables
 # LINT.IfChange(contact_estimator)
 contactEstimator: cheater_sim
 # LINT.ThenChange(//robot_runtime/robot_model/src/ContactEstimatorRegistry.cpp:contact_estimator_names, //robot_runtime/mujoco_sim_interface/src/CheaterSimContactEstimator.cpp:cheater_sim_contact_estimator_name)
+
+# Where the mode schedule and the footholds come from, by name (MpcFormulationConfig.h). The whole-body MPC builds the
+# gait schedule's reference manager only, so `gait_schedule` (the default) is the one name it accepts: it refuses
+# `contact_planner`, the online contact planner, which is implemented for the centroidal MPC only. It replaced the
+# useContactPlanning key, which start-up refuses. See humanoid_nmpc/docs/README.md, section 2.
+# LINT.IfChange(contact_schedule_source_config)
+contactScheduleSource: gait_schedule
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/MpcFormulationConfig.h:contact_schedule_source_names)
+
+# The ball the GUI's Dodgeball tab throws, by name (robot_runtime/mujoco_sim_interface/.../Projectile.h). MuJoCo
+# compiles its model once at load and bodies cannot be added afterwards, so naming one here appends a free-floating
+# sphere to the scene BEFORE it is compiled. Until a throw arms it, it is parked 100 m above the scene with its
+# collisions off and its weight held by gravity compensation; it is parked again once it has come to rest, after ten
+# seconds in play at most, and whenever the robot is caught on the gantry.
+#
+#   dodgeball   a regulation 0.216 m sphere of 0.45 kg (the GUI's mass slider sets 0.1-5 kg per throw) that bounces
+#               back at 0.80 of the speed it arrived at. MuJoCo has no restitution parameter: it is converted to the
+#               contact damping ratio solref needs by the logarithmic decrement (0.80 gives 0.0708), and the ball's
+#               contact parameters take priority over the floor's and the robot's so that it is the bounce it gets.
+#
+# Remove the key, or set it empty, to compile the scene exactly as it is on disk. The Throw button then still works:
+# with no ball to fly, the simulator applies the momentum the ball would have ARRIVED with as a one-step force on the
+# base - a lower bound on the push, since a real ball that bounces off hands over more.
+#
+# Simulation only. It changes nothing about the MPC, and a contact with the ball is excluded from the ground-truth
+# contact mask and from the ZMP marker, so a ball against a swing foot is never mistaken for the ground.
+# LINT.IfChange(sim_projectile)
+simProjectile: dodgeball
+# LINT.ThenChange(//robot_runtime/mujoco_sim_interface/src/Projectile.cpp:projectile_names)
+
 # Viewer visualizations (each listed one starts on; the key in brackets toggles it, 'p' prints the cheatsheet). Every
 # marker is a class in robot_runtime/mujoco_sim_interface/.../visualization; the names are those of VisualizationRegistry.
 # LINT.IfChange(sim_visualizations)
@@ -32,13 +71,13 @@ simVisualizations:
   - base_velocity           # measured (red) vs commanded (green) base velocity and yaw rate at the CoM
   - contact_timeline        # [b] barcode of planned vs ground-truth contact per contact point
   - target_contact_patches  # [g] contact patch of every foot at the planner's target position and yaw
-  # - center_of_mass        # [o] whole-body centre of mass: sphere, vertical, and its shadow on the ground
+  # - center_of_mass        # [o] whole-body center of mass: sphere, vertical, and its shadow on the ground
   # - zmp                   # [z] zero moment point of the physical ground reaction, on the ground
   # - dcm                   # [d] divergent component of motion (capture point) of the measured CoM, on the ground
   # MuJoCo's own markers, off unless listed:
   # - mj_contact_points     # [c] markers at the physical contact points
   # - mj_contact_forces     # [f] MuJoCo's normal and friction force arrows at the contacts
-  # - mj_com                # [m] centre of mass markers of the bodies
+  # - mj_com                # [m] center of mass markers of the bodies
   # - mj_inertia            # [i] equivalent inertia ellipsoids
   # - mj_convex_hull        # [h] convex hulls of the meshes
   # - mj_transparent        # [t] model transparency (x-ray view)
@@ -70,6 +109,20 @@ costs:
   - terminal_cost
   - task_space_foot_cost
 
+# Locomotion heuristics (Bledt RPC, humanoid_nmpc/docs/locomotion_heuristics/README.md) are NOT configurable here.
+#
+# They are built and installed by CentroidalMpcInterface::setupLocomotionHeuristics(), and WBMpcInterface has no
+# counterpart, so nothing in the whole-body path ever reads a `locomotion_heuristics` block. A block in this file
+# would be silently inert - exactly the failure the layer refuses to allow elsewhere - so it is deliberately absent
+# rather than present and dead. The centroidal task file of this same robot
+# (robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.yaml) carries the real one.
+#
+# Two things stand between here and supporting it. The reference manager and the base-pose seam are shared and would
+# work unchanged, but the commanded yaw rate the foothold and wrench heuristics read is recovered by inverting the
+# CENTROIDAL state's angular-momentum channel, and the whole-body state has no such channel; and
+# MpcParameterUpdaterModule, which hot-reloads the coefficients, lives in humanoid_centroidal_mpc only.
+
+
 interface:
   verbose: false  # show the loaded parameters
   useAnalyticalGradientsDynamics: false
@@ -92,7 +145,6 @@ model_settings:
 
   verboseCppAd: true
   recompileLibrariesCppAd: false
-  modelFolderCppAd: build/wb_mpc_cppad_autocode_gen
 
   # Exclude these joints from MPC model
   fixedJointNames:

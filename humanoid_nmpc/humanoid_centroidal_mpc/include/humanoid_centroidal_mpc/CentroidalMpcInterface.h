@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <optional>
+#include <string>
 
 #include <ocs2_core/Types.h>
 #include <ocs2_core/penalties/Penalties.h>
@@ -49,14 +50,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/initialization/CentroidalWeightCompInitializer.h"
 #include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
 #include "humanoid_common_mpc/common/BasisInputsModelDecorator.h"
+#include "humanoid_common_mpc/common/ContactInputParameterization.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/MpcFormulationConfig.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerModule.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningModelParameters.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicLayer.h"
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 
 namespace ocs2::humanoid {
 
@@ -69,7 +74,8 @@ class CentroidalMpcInterface final : public RobotInterface {
    * @param [in] taskFile: The absolute path to the configuration file for the MPC.
    * @param [in] urdfFile: The absolute path to the URDF file for the robot.
    * @param [in] referenceFile: The absolute path to the reference configuration file.
-   * @return absl::StatusOr<CentroidalMpcInterface> The constructed interface, or error status.
+   * @return absl::StatusOr<CentroidalMpcInterface> The constructed interface, or error status: NotFound naming the path
+   *         when one of the three files does not exist, checked before anything reads them.
    */
   static absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> Create(const std::string& taskFile,
                                                                         const std::string& urdfFile,
@@ -89,6 +95,11 @@ class CentroidalMpcInterface final : public RobotInterface {
   const sqp::Settings& sqpSettings() const { return sqpSettings_; }
 
   const vector_t& getInitialState() const { return initialState_; }
+  /**
+   * [m] The model's center of mass above its feet at the task file's initialState (computeComHeightAboveFeet): the
+   * pendulum length a dcm_terminal_cost.comHeight or a contact_planning.yaml shared.comHeight of 0 stands for.
+   */
+  scalar_t getNominalComHeight() const { return nominalComHeight_; }
   const RolloutBase& getRollout() const { return *rolloutPtr_; }
   PinocchioInterface& getPinocchioInterface() { return *pinocchioInterfacePtr_; }
   const CentroidalModelInfo& getCentroidalModelInfo() const { return centroidalModelInfo_; }
@@ -104,9 +115,19 @@ class CentroidalMpcInterface final : public RobotInterface {
   const MpcRobotModelBase<scalar_t>& getEffectiveMpcRobotModel() const { return *effectiveMpcRobotModelPtr_; }
   const MpcRobotModelBase<ad_scalar_t>& getEffectiveMpcRobotModelAD() const { return *effectiveMpcRobotModelADPtr_; }
 
-  bool usesContactBasisVectorInputs() const { return useContactBasisVectorInputs_; }
+  /** The contact input parameterization the task file selects (contactInputParameterization). */
+  ContactInputParameterization contactInputParameterization() const { return contactInputParameterization_; }
+  bool usesContactBasisVectorInputs() const { return contactInputParameterization_ == ContactInputParameterization::kBasisVectors; }
 
-  /** True when the mode schedule and footholds come from the online mixed-integer contact planner (useContactPlanning). */
+  /** The locomotion-heuristic layer, for the parameter updater's hot reload. Never null after construction. */
+  const std::shared_ptr<LocomotionHeuristicLayer>& getLocomotionHeuristicLayerPtr() const { return locomotionHeuristicLayerPtr_; }
+
+  /** Where the mode schedule and the footholds come from, as the task file's contactScheduleSource names it. */
+  ContactScheduleSource contactScheduleSource() const { return contactScheduleSource_; }
+  /**
+   * True when the mode schedule and footholds come from the online contact planner (contactScheduleSource:
+   * contact_planner; contact_planning.yaml planner.type chooses which planner).
+   */
   bool usesContactPlanning() const { return contactPlannerModulePtr_ != nullptr; }
   /**
    * The contact planner module, or nullptr when contact planning is off. It must be registered with the solver
@@ -123,11 +144,17 @@ class CentroidalMpcInterface final : public RobotInterface {
   size_t getWrenchInputDim() const { return centroidalModelInfo_.inputDim; }
   size_t getNumBasisInputs() const { return basisDecoratorPtr_ ? basisDecoratorPtr_->getNumBasisPerFoot() * N_CONTACTS : 0; }
   scalar_t getBasisScalingRegularization() const { return basisScalingRegularization_; }
+  /** The generator set the basis was built from (contacts.basisGeneratorSet); empty in wrench-space mode. */
+  const std::string& getBasisGeneratorSet() const { return basisGeneratorSet_; }
   const BasisInputsModelDecorator<scalar_t>* getBasisDecoratorPtr() const { return basisDecoratorPtr_.get(); }
 
-  /** Config for transforming a wrench-space input cost R into basis space; std::nullopt in wrench-space mode. */
+  /**
+   * The transform of a wrench-space input cost R into basis space, with the regularization the task file names
+   * (contacts.basisRegularization); std::nullopt in wrench-space mode. The OCP factory and the online parameter updater
+   * both transform through it, so a hot reload reproduces the start-up R.
+   */
   std::optional<BasisInputsCostTransformConfig> getBasisInputsCostTransformConfig() const {
-    if (!useContactBasisVectorInputs_) {
+    if (!usesContactBasisVectorInputs()) {
       return std::nullopt;
     }
     BasisInputsCostTransformConfig config;
@@ -135,6 +162,7 @@ class CentroidalMpcInterface final : public RobotInterface {
     config.wrenchInputDim = getWrenchInputDim();
     config.numBasisInputs = getNumBasisInputs();
     config.lambdaRegularization = basisScalingRegularization_;
+    config.regularization = basisRegularization_;
     return config;
   }
 
@@ -146,9 +174,46 @@ class CentroidalMpcInterface final : public RobotInterface {
 
  private:
   /**
-   * Private constructor — use Create() to construct.
+   * Private constructor — use Create() to construct. It loads the model and solver settings only; Create() then runs
+   * the four Status-returning set-up steps below, in order.
+   *
+   * @param verbose The task file's interface.verbose (ModelSettings::loadInterfaceVerbose), which Create() reads first:
+   *                it decides the logging of the model settings, which are loaded before anything else.
    */
-  CentroidalMpcInterface(const std::string& taskFile, const std::string& urdfFile, const std::string& referenceFile, bool setupOCP = false);
+  CentroidalMpcInterface(const std::string& taskFile, const std::string& urdfFile, const std::string& referenceFile, bool verbose);
+
+  /**
+   * Builds the robot models: the Pinocchio model (loadCustomPinocchioInterface, which checks its actuated joints against
+   * model_settings in order), the centroidal model info, the wrench-space MPC robot models, the initial state and the
+   * nominal pendulum length. A model that does not match its settings is an InvalidArgument naming the first joint that
+   * differs, returned rather than thrown.
+   */
+  absl::Status setupModels();
+
+  /**
+   * Reads contactInputParameterization and, under basis vectors, builds the per-foot bases (contacts.basisGeneratorSet
+   * from the contacts.contactWrenchConeSoftConstraint block), the decorated robot models and the regularization of the
+   * input cost (contacts.basisRegularization, contacts.basisScalingRegularization). Keys the CppAD model folder by the
+   * parameterization and the basis. Every configuration error is an InvalidArgument naming the key to change.
+   */
+  absl::Status setupContactInputParameterization();
+
+  /** Appends `libraryKey` to the CppAD model folder, so that no cached library is shared across parameterizations or bases. */
+  void keyCppAdModelFolder(absl::string_view libraryKey);
+
+  /**
+   * Reads contactScheduleSource (refusing the retired useContactPlanning boolean) and builds the reference manager it
+   * names: the gait schedule's, or the online contact planner's under contact_planner.
+   */
+  absl::Status setupReferenceManager();
+
+  /**
+   * Builds the locomotion-heuristic layer from the task file and installs it on the reference manager.
+   *
+   * Called first by setupOptimalControlProblem(), because the two input costs it builds afterwards read their
+   * contact-force reference through the reference manager and so through this layer.
+   */
+  absl::Status setupLocomotionHeuristics();
 
   absl::Status setupOptimalControlProblem();
 
@@ -173,6 +238,10 @@ class CentroidalMpcInterface final : public RobotInterface {
   std::shared_ptr<SwitchedModelReferenceManager> referenceManagerPtr_;
   std::shared_ptr<ContactPlannerModule> contactPlannerModulePtr_;
   std::optional<ContactPlanningModelParameters> contactPlanningModelParameters_;  // derived from the model, applied to every planner config
+  // The reference-shaping layer of Bledt's RPC heuristics, also held by the reference manager. Kept here so that the
+  // parameter updater can reach it to hot-reload the coefficients; empty, and therefore an exact no-op, on every robot
+  // whose task file lists none. See humanoid_nmpc/docs/locomotion_heuristics/README.md.
+  std::shared_ptr<LocomotionHeuristicLayer> locomotionHeuristicLayerPtr_;
 
   std::unique_ptr<CentroidalMpcRobotModel<scalar_t>> mpcRobotModelPtr_;
   std::unique_ptr<CentroidalMpcRobotModel<ad_scalar_t>> mpcRobotModelADPtr_;
@@ -186,17 +255,23 @@ class CentroidalMpcInterface final : public RobotInterface {
   std::unique_ptr<BasisInputsModelDecorator<scalar_t>> basisDecoratorPtr_;
   std::unique_ptr<BasisInputsModelDecorator<ad_scalar_t>> basisDecoratorADPtr_;
 
-  bool useContactBasisVectorInputs_ = false;
+  ContactInputParameterization contactInputParameterization_ = kDefaultContactInputParameterization;
+  ContactScheduleSource contactScheduleSource_ = kDefaultContactScheduleSource;
   /// Local-frame basis-to-wrench map M (wrenchInputDim × basisInputDim); populated only in basis-vector mode.
   std::optional<matrix_t> basisToWrenchMap_;
-  /// Diagonal regularization added to the λ block of the transformed input cost R_basis.
+  /// Name of the generator set of the bases (contacts.basisGeneratorSet); set only in basis-vector mode.
+  std::string basisGeneratorSet_;
+  /// Weight of the regularization added to the λ block of the transformed input cost R_basis.
   scalar_t basisScalingRegularization_ = 0.0;
+  /// Name of its shape S (contacts.basisRegularization); set only in basis-vector mode.
+  std::string basisRegularization_;
 
   rollout::Settings rolloutSettings_;
   std::unique_ptr<RolloutBase> rolloutPtr_;
   std::unique_ptr<CentroidalWeightCompInitializer> initializerPtr_;
 
   vector_t initialState_;
+  scalar_t nominalComHeight_ = 0.0;  // [m] see getNominalComHeight()
 
   const std::string taskFile_;
   const std::string urdfFile_;

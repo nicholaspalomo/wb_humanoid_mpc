@@ -6,6 +6,7 @@ from .joint_pd_tab import JointPdGainsTab
 from .joint_targets_tab import JointTargetsTab
 from .mpc_params_tab import MpcParamsTab
 from .command_limits_tab import CommandLimitsTab
+from .dodgeball_tab import DodgeballTab
 
 __all__ = [
     "JoystickGui",
@@ -16,4 +17,5 @@ __all__ = [
     "JointTargetsTab",
     "MpcParamsTab",
     "CommandLimitsTab",
+    "DodgeballTab",
 ]

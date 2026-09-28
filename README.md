@@ -28,12 +28,12 @@ flowchart LR
     subgraph ref["Reference generation (solver pre-solve hooks)"]
         MM["Procedural motion manager<br/>target trajectories (CoM velocity, base pose)"]
         GS["Gait schedule<br/>periodic mode templates"]
-        CP["Mixed-integer contact planner<br/>LIP MIQP: contacts, timing, footholds<br/><i>useContactPlanning</i>"]
+        CP["Online contact planner<br/>H-LIP or LIP MIQP: contacts, timing, footholds<br/><i>contactScheduleSource: contact_planner</i>"]
         RM["Switched-model reference manager<br/>mode schedule · swing-foot height · landing references"]
     end
 
     subgraph mpc["Centroidal NMPC (OCS2 SQP + HPIPM)"]
-        OCP["Costs: state / input / CoM+aCoM / foot & torso task-space<br/>Terminal: DCM viability (<i>useDcmTerminalCost</i>) or Q_final<br/>Constraints: contact wrench cone / basis vectors, zero velocity, normal velocity, joint limits"]
+        OCP["Costs: state / input / CoM+aCoM / foot & torso task-space<br/>Terminal: DCM viability (<i>dcm_terminal_cost</i>) or Q_final (<i>terminal_cost</i>)<br/>Constraints: contact wrench cone / basis vectors, zero velocity, normal velocity, joint limits"]
         UPD["Parameter updater<br/>hot-reload of task.yaml"]
     end
 
@@ -59,14 +59,14 @@ flowchart LR
     SIM --> TEL
 ```
 
-The reference layer decides *when* and *where* the feet touch the ground, the NMPC decides *how* the whole body moves. Two optional formulation features change the reference layer and the end of the NMPC horizon; both are toggled in the robot's `config/mpc/task.yaml`:
+The reference layer decides *when* and *where* the feet touch the ground, the NMPC decides *how* the whole body moves. Two optional formulation features change the reference layer and the end of the NMPC horizon; both are selected by name in the robot's `config/mpc/task.yaml`:
 
-| Toggle | What it does |
+| Selection | What it does |
 | --- | --- |
-| `useDcmTerminalCost` | Ends the horizon with a Divergent Component of Motion (capture point) viability cost instead of the quadratic `Q_final` terminal cost, which is then ignored. Keeps the horizon end capturable for any gait cadence. |
-| `useContactPlanning` | Replaces the periodic gait schedule with an online mixed-integer contact planner (LIP model, branch-and-bound over HPIPM relaxations) that chooses the contact sequence, the switching times and the footholds from the current state and the velocity command. Optional, off by default: the executed schedule can adapt to measured early / late touch-downs and the landing targets can follow the capture point (the `phase_resetting` and `dcm_step_adjustment` rules of the planner's `execution` list). The planner is assembled from named terms listed in `config/mpc/contact_planning.yaml`, like the NMPC from the task file's lists. |
+| `dcm_terminal_cost` in `costs` | Ends the horizon with a Divergent Component of Motion (capture point) viability cost instead of the quadratic `Q_final` terminal cost `terminal_cost`; the two are alternatives, and start-up refuses a list that names both. Keeps the horizon end capturable for any gait cadence. |
+| `contactScheduleSource: contact_planner` | Replaces the periodic gait schedule (`gait_schedule`, the default, which every robot ships) with an online contact planner, selected by `planner.type` in `config/mpc/contact_planning.yaml`: the closed-form H-LIP stepper (`hlip`, both shipped robots; [humanoid_nmpc/docs/hlip_contact_planner/README.md](humanoid_nmpc/docs/hlip_contact_planner/README.md)) or the mixed-integer program (`lip_miqp`: LIP model, branch-and-bound over HPIPM relaxations). It chooses the contact sequence, the switching times and the footholds from the current state and the velocity command. Optional, off by default: the executed schedule can adapt to measured early / late touch-downs and the landing targets can follow the capture point (the `phase_resetting` and `dcm_step_adjustment` rules of the planner's `execution` list). The planner is assembled from named terms listed in `config/mpc/contact_planning.yaml`, like the NMPC from the task file's lists. |
 
-The formulation and the math of both features are described in [humanoid_nmpc/docs/README.md](humanoid_nmpc/docs/README.md).
+Both replaced a top-level boolean (`useDcmTerminalCost`, `useContactPlanning`); a task file that still carries one is refused at start-up with a message naming its replacement. The formulation and the math of both features are described in [humanoid_nmpc/docs/README.md](humanoid_nmpc/docs/README.md).
 
 ---
 
@@ -117,9 +117,11 @@ The recommended way to develop and run the simulation is using the provided Dock
 <details>
 <summary><b>Option B: Docker Compose / Remote SSH (Antigravity / Cursor / Terminal)</b></summary>
 
-1. Start the container in detached mode:
+1. Start the container in detached mode. The first command caps its memory at 85% of the host's RAM with no swap
+   beyond it (see `tools/resource_limits/set_container_memory_limit.sh`), so a runaway build is stopped inside the
+   container instead of freezing the machine:
    ```bash
-   docker compose up -d --build
+   tools/resource_limits/set_container_memory_limit.sh && docker compose up -d --build
    ```
 2. Attach a terminal into the container:
    ```bash
@@ -236,7 +238,7 @@ Simulations launch in a safe **Zero-Torque Mode** suspended on a virtual gantry 
 
 State transitions are managed natively over ROS 2 topics:
 - **Command Topic:** `/humanoid/fsm_command` (`std_msgs/msg/String`)
-- **State Topic:** `/humanoid/fsm_state` (`std_msgs/msg/String`, Transient Local QoS)
+- **State Topic:** `/humanoid/fsm_state` (`std_msgs/msg/String`, Transient Local QoS): `<mode>,GANTRY_LOCKED|GANTRY_UNLOCKED,<controller resets>` (formatFsmState() in SimFsmBridge.cpp; the remote control re-centers its joysticks on a transition into a passive mode, a new lock and a new reset, see humanoid_nmpc/remote_control/README.md)
 
 ### Teleoperation & Root Height Control
 - Use the **Robot Base Controller GUI** or connect an **Xbox Controller** to command velocity vectors ($v_x, v_y, \omega_z$).
@@ -354,7 +356,7 @@ When focused in the MuJoCo simulation viewport, use these keyboard shortcuts and
 | **`m`** | Toggle **Center of Mass (CoM)** | Displays CoM indicator spheres for kinematic bodies / links |
 | **`i`** | Toggle **Inertia Ellipsoids** | Renders equivalent inertia ellipsoids depicting principal moments of inertia |
 | **`h`** | Toggle **Convex Hulls** | Displays computed convex hulls enclosing the link meshes |
-| **`o`** | Toggle **Centre of Mass** | Whole-body CoM sphere, its vertical, and its shadow on the ground (`center_of_mass` in `simVisualizations`) |
+| **`o`** | Toggle **Center of Mass** | Whole-body CoM sphere, its vertical, and its shadow on the ground (`center_of_mass` in `simVisualizations`) |
 | **`z`** | Toggle **ZMP** | Zero moment point of the physical ground reaction, as a disc on the ground (`zmp`) |
 | **`d`** | Toggle **DCM** | Divergent component of motion (capture point) of the measured CoM, on the ground, with its offset from the CoM's shadow (`dcm`) |
 | **`b`** | Toggle **Contact Timeline** | Barcode of planned vs ground-truth contact per contact point (`contact_timeline`) |
@@ -367,21 +369,19 @@ When focused in the MuJoCo simulation viewport, use these keyboard shortcuts and
 
 ---
 
-## 🎮 Interactive Jupyter Control Dashboard
+## ACoM Training Notebook
 
-Launch the unified browser-based teleoperation and diagnostics dashboard:
+The Angular Center of Mass (aCOM) network behind `com_and_acom_tracking_cost` and the contact planner's heading model
+is a small JAX SIREN trained per robot on centroidal momentum matrices. Start Jupyter with
 
 ```bash
-make jupyter
+make train-acom-jupyter
 ```
 
-Open **`http://localhost:8888`** and load [`notebooks/humanoid_control_dashboard.ipynb`](notebooks/humanoid_control_dashboard.ipynb).
-
-### Dashboard Highlights:
-1. **Simulation Process Manager:** One-click startup, monitoring, and shutdown of any robot model and solver backend with live terminal logs.
-2. **Virtual Joystick:** Directional D-pad and continuous analog velocity sliders streaming commands at 25 Hz.
-3. **Angular Center of Mass (aCOM) Studio:** Train JAX/SIREN networks on Centroidal Momentum Matrices and export static C++ headers (`AngularCenterOfMassWeights.h`).
-4. **Live Telemetry:** Real-time strip charts plotting base Euler angles, aCOM decoupling metrics, and ground reaction forces.
+open **`http://localhost:8888`**, and load [`notebooks/train_acom_siren.ipynb`](notebooks/train_acom_siren.ipynb). It
+trains the network for one robot and exports the C++ weight header `AcomSirenWeights<Robot>.h`; it is a thin driver over
+`humanoid_learning/acom/train_main.py`, which does the same from the command line. Only the DRC Atlas network is
+validated for closed-loop use - see [`humanoid_learning/acom/README.md`](humanoid_learning/acom/README.md).
 
 ---
 
@@ -449,7 +449,7 @@ If you use Whole-Body Humanoid MPC in your academic research, please cite:
 }
 ```
 
-## 👥 Acknowledgements
+## 👥 Acknowledgments
 
 This project was originally created by [Manuel Yves Galliker](https://github.com/manumerous) and open-sourced in collaboration with 1X Technologies.
 

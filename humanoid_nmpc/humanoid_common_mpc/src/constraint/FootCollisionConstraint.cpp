@@ -58,8 +58,8 @@ FootCollisionConstraint::FootCollisionConstraint(const SwitchedModelReferenceMan
       pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
       mpcRobotModelPtr_(&mpcRobotModel),
       cfg_(std::move(config)) {
-  initialize(mpcRobotModelPtr_->getStateDim(), 2, costName, modelSettings.modelFolderCppAd, modelSettings.recompileLibrariesCppAd,
-             modelSettings.verboseCppAd);
+  initialize(mpcRobotModelPtr_->getStateDim(), /*parameterDim=*/2, costName, modelSettings.modelFolderCppAd,
+             modelSettings.recompileLibrariesCppAd, modelSettings.verboseCppAd);
 }
 
 /******************************************************************************************************/
@@ -84,7 +84,7 @@ bool FootCollisionConstraint::isActive(scalar_t time) const {
   if (!isActive_) return false;
 
   // Inactivate the constraint if both feet are in contact. Prevents it from fighting against the stance foot constraints.
-  auto contactFlags = referenceManagerPtr_->getContactFlags(time);
+  contact_flag_t contactFlags = referenceManagerPtr_->getContactFlags(time);
   return !(contactFlags[0] && contactFlags[1]);
 }
 
@@ -95,8 +95,8 @@ bool FootCollisionConstraint::isActive(scalar_t time) const {
 ad_vector_t FootCollisionConstraint::constraintFunction(ad_scalar_t time, const ad_vector_t& state, const ad_vector_t& parameters) const {
   const pinocchio::ReferenceFrame rf = pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED;
 
-  const auto& model = pinocchioInterfaceCppAd_.getModel();
-  auto data = pinocchioInterfaceCppAd_.getData();
+  const PinocchioInterfaceCppAd::Model& model = pinocchioInterfaceCppAd_.getModel();
+  PinocchioInterfaceCppAd::Data data = pinocchioInterfaceCppAd_.getData();
 
   const ad_vector_t q = mpcRobotModelPtr_->getGeneralizedCoordinates(state);
   pinocchio::forwardKinematics(model, data, q);

@@ -41,6 +41,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_core/misc/LoadData.h>
 #include <ocs2_pinocchio_interface/urdf.h>
 
+#include "absl/status/statusor.h"
+
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/contact/ContactPolygon.h"
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
@@ -56,12 +58,29 @@ namespace ocs2::humanoid {
 PinocchioInterface createDefaultPinocchioInterface(const std::string& urdfFilePath);
 
 ///
-/// \brief Creates a custom pinocchio model from the urdf by setting all the joints not contained in mpcModelJointNames to
-/// FIXED and adds a frame for each corner point of the contact poygons specified in the task file
+/// \brief Creates the MPC's Pinocchio model from the URDF: every joint not in ModelSettings::mpcModelJointNames is set to
+/// FIXED, and a frame is added at the center and at every corner of each contact polygon of the task file.
 ///
-/// \param[in] taskFilePath: The absolute path to the task file used to specify the contact configuration to add a
-/// frame for each corner of the contact polygon. \param[in] urdfFilePath: The absolute path to the URDF file for the
-/// robot. \param[in] mpcModelJointNames: A list of joint names that are actuated. All other joints are set to FIXED.
+/// The model's actuated joints are then checked against mpcModelJointNames, in order (checkPinocchioJointNaming), in
+/// every build: the MPC indexes its state, joint limits and weights by that order.
+///
+/// \param[in] taskFilePath: The task file, whose contact configuration places the contact frames.
+/// \param[in] urdfFilePath: The URDF of the robot. It must be the one `modelSettings` was built from.
+/// \param[in] modelSettings: The model settings; mpcModelJointNames names the actuated joints.
+/// \return InvalidArgument when the URDF does not parse, or when the model's joints are not mpcModelJointNames in
+///         order - naming the first joint that differs.
+///
+
+absl::StatusOr<PinocchioInterface> loadCustomPinocchioInterface(const std::string& taskFilePath,
+                                                                const std::string& urdfFilePath,
+                                                                const ModelSettings& modelSettings,
+                                                                bool scaleTotalMass = false,
+                                                                scalar_t totalMass = 1.0,
+                                                                bool verbose = false);
+
+///
+/// \brief loadCustomPinocchioInterface() for the callers that cannot return a Status yet: throws std::invalid_argument
+/// with its message instead. Prefer loadCustomPinocchioInterface().
 ///
 
 PinocchioInterface createCustomPinocchioInterface(const std::string& taskFilePath,

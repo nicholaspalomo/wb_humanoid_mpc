@@ -31,7 +31,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <memory>
 #include <optional>
+#include <string>
+
+#include "absl/status/statusor.h"
 
 #include <ocs2_centroidal_model/CentroidalModelInfo.h>
 #include <ocs2_pinocchio_interface/PinocchioInterface.h>
@@ -39,8 +43,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_core/constraint/StateInputConstraint.h>
 #include <ocs2_core/cost/StateCost.h>
 #include <ocs2_core/cost/StateInputCost.h>
+#include <ocs2_core/penalties/penalties/PenaltyBase.h>
+#include <ocs2_core/penalties/penalties/RelaxedBarrierPenalty.h>
 #include <ocs2_robotic_tools/end_effector/EndEffectorKinematics.h>
 
+#include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -50,7 +57,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Implements the constraint h(t,x,u) >= 0 to constrain the contact moment in the x-y plane.
+ * The (mu, delta) of the penalty a contact cone - contact_wrench_cone, friction_force_cone, contact_moment_xy - is
+ * wrapped in: the task file's barrier parameters for a schedule-gated cone, and (mu, 0) for an un-gated one, whose
+ * squared hinge must keep its zero ON the cone (see makeContactConePenalty()). The factory builds the cones' penalties
+ * from it and MpcParameterUpdaterModule rewrites them with it on every hot reload, so the two cannot disagree about the
+ * hinge's delta: writing the barrier's delta into the hinge would move its zero into the cone and reinstate the force
+ * floor that un-gating removes.
+ */
+vector_t contactConePenaltyParameters(const RelaxedBarrierPenalty::Config& barrierConfig, bool scheduleGated);
+
+/**
+ * The penalty a contact cone is wrapped in: a RelaxedBarrierPenalty for a schedule-gated cone, a SquaredHingePenalty
+ * with delta 0 for an un-gated one, parameterized by contactConePenaltyParameters(). The definition explains why.
+ */
+std::unique_ptr<PenaltyBase> makeContactConePenalty(const RelaxedBarrierPenalty::Config& barrierConfig, bool scheduleGated);
+
+/**
+ * Builds the costs and constraints of the humanoid MPC formulations from the task file.
  */
 
 class HumanoidCostConstraintFactory {
@@ -68,35 +91,55 @@ class HumanoidCostConstraintFactory {
   ~HumanoidCostConstraintFactory() = default;
   HumanoidCostConstraintFactory(const HumanoidCostConstraintFactory& other) = delete;
 
+  /**
+   * Declares that the problem this factory assembles lists `com_and_acom_tracking_cost`, i.e. that ComAndAcomTrackingCost
+   * regulates the base pose. Every quadratic state cost built afterwards - getStateQuadraticCost(),
+   * getStateInputQuadraticCost() and getTerminalCost() - then has the base-pose block of its Q or Q_final zeroed
+   * (ComAndAcomTrackingCost::zeroBasePoseWeights). Off unless called; the whole-body MPC never calls it.
+   */
+  void setComAndAcomTrackingCostListed(bool listed) { comAndAcomTrackingCostListed_ = listed; }
+
+  /** Creates the state-input quadratic cost (Q, R); Q's base-pose block is zeroed under setComAndAcomTrackingCostListed. */
   std::unique_ptr<StateInputCost> getStateInputQuadraticCost() const;
 
-  /** Creates the state quadratic tracking cost */
+  /** Creates the state quadratic tracking cost (Q); its base-pose block is zeroed under setComAndAcomTrackingCostListed. */
   std::unique_ptr<StateInputCost> getStateQuadraticCost() const;
 
   /**
-   * Creates the CoM and ACoM tracking cost.
+   * Creates the running CoM and ACoM tracking cost, weighted by the task file's Q_com and Q_acom.
    *
    * @param info Centroidal model info for the same reduced Pinocchio model this
    *     factory was constructed with. Passed in rather than reconstructed here,
    *     because CentroidalModelInfo has no default member initializers and a
    *     hand-built one leaves the contact and nominal-inertia fields indeterminate.
+   * @return InvalidArgument naming Q_com or Q_acom when the task file does not carry it, or ComAndAcomTrackingCost::Create()'s
+   *     error if the weights, the model or the robot's ACoM network do not fit.
    */
-  std::unique_ptr<StateCost> getComAndAcomTrackingCost(const CentroidalModelInfo& info) const;
+  absl::StatusOr<std::unique_ptr<StateCost>> getComAndAcomTrackingCost(const CentroidalModelInfo& info) const;
+
+  /**
+   * Creates the terminal CoM and ACoM tracking cost that stands in for Q_final's zeroed base-pose block: the same cost
+   * weighted by terminalCostScaling * Q_com and terminalCostScaling * Q_acom, as Q_final is scaled for the rest of the
+   * state (see ComAndAcomTrackingCost). Fails like getComAndAcomTrackingCost(), and with an InvalidArgument naming
+   * terminalCostScaling when the task file does not carry it.
+   */
+  absl::StatusOr<std::unique_ptr<StateCost>> getTerminalComAndAcomTrackingCost(const CentroidalModelInfo& info) const;
 
   std::unique_ptr<StateInputCost> getInputQuadraticCost() const;
 
   /**
-   * Set the basis-to-wrench mapping M matrix for cost transformation.
-   * When set, R is loaded in wrench dimensions (wrenchInputDim × wrenchInputDim)
-   * and transformed: R_basis = M^T · R_wrench · M + λ-regularization
-   * (see transformWrenchInputCostToBasisSpace).
-   * @param M                    The local-frame mapping matrix (wrenchInputDim × basisInputDim).
-   * @param wrenchInputDim       The original wrench-based input dimension.
-   * @param numBasisInputs       Number of leading λ entries in the basis-vector input.
-   * @param lambdaRegularization Non-negative diagonal regularization added to the λ block of R_basis.
+   * Declares the basis-vector contact input parameterization. The input costs built afterwards load R in wrench
+   * dimensions (wrenchInputDim x wrenchInputDim) and transform it into basis space,
+   * R_basis = M^T R_wrench M + reg * blkdiag(S, 0), with the regularization S named by `config.regularization`
+   * (contacts.basisRegularization) - through transformWrenchInputCostToBasisSpace(R_wrench, config), the same call the
+   * online parameter updater makes, so that a hot reload reproduces the start-up R exactly.
+   *
+   * @param config A config validateBasisInputsCostTransformConfig() accepts; CentroidalMpcInterface builds it.
    */
-  void setBasisToWrenchMap(const matrix_t& M, size_t wrenchInputDim, size_t numBasisInputs, scalar_t lambdaRegularization);
+  void setBasisInputsCostTransform(BasisInputsCostTransformConfig config);
 
+  /** Creates the quadratic terminal cost (terminalCostScaling * Q_final); its base-pose block is zeroed under
+   * setComAndAcomTrackingCostListed, and getTerminalComAndAcomTrackingCost() then supplies the terminal regulation. */
   std::unique_ptr<StateCost> getTerminalCost() const;
 
   std::unique_ptr<StateCost> getFootCollisionConstraint() const;
@@ -105,7 +148,16 @@ class HumanoidCostConstraintFactory {
 
   std::unique_ptr<StateInputCost> getContactMomentXYConstraint(size_t contactPointIndex, const std::string& name) const;
 
-  std::unique_ptr<StateInputCost> getContactWrenchConeConstraint(size_t contactPointIndex, size_t numBasisVectors = 4) const;
+  /**
+   * The contact wrench cone of one foot as a soft constraint, from ContactWrenchConeConstraint::loadConfig() and the
+   * barrier parameters of the same task-file block. Wrench-space models only.
+   *
+   * @return InvalidArgument naming contacts.contactWrenchConeSoftConstraint.mu or .delta when the barrier parameter is not
+   *         a finite positive number (a negative mu rewards leaving the cone; an absent key keeps the barrier's default),
+   *         loadConfig()'s InvalidArgument naming the missing or out-of-range key of the ground, or
+   *         ContactWrenchConeConstraint::Create()'s refusal of a model whose input is not a wrench.
+   */
+  absl::StatusOr<std::unique_ptr<StateInputCost>> getContactWrenchConeConstraint(size_t contactPointIndex) const;
 
   std::unique_ptr<StateInputConstraint> getZeroWrenchConstraint(size_t contactPointIndex) const;
 
@@ -116,6 +168,9 @@ class HumanoidCostConstraintFactory {
  private:
   /** Loads the R matrix from task file, optionally transforming from wrench to basis-vector space. */
   matrix_t loadAndTransformR() const;
+
+  /** Loads Q_com and Q_acom, each multiplied by `scaling`, and builds a ComAndAcomTrackingCost on them. */
+  absl::StatusOr<std::unique_ptr<StateCost>> makeComAndAcomTrackingCost(const CentroidalModelInfo& info, scalar_t scaling) const;
 
   std::string taskFile_;
   std::string referenceFile_;
@@ -134,12 +189,11 @@ class HumanoidCostConstraintFactory {
    * i.e. would reinvent the force floor that dropping the affine cone offsets exists to remove.
    */
   const bool scheduleGatedContactConstraints_;
+  /// Whether `com_and_acom_tracking_cost` is listed, so that the base-pose blocks of Q and Q_final are zeroed.
+  bool comAndAcomTrackingCostListed_ = false;
 
-  /// Optional: when set, R is loaded in wrench dims then transformed to basis-vector space.
-  std::optional<matrix_t> basisToWrenchMap_;  // M: wrenchInputDim × basisInputDim
-  size_t wrenchInputDim_ = 0;
-  size_t numBasisInputs_ = 0;
-  scalar_t lambdaRegularization_ = 0.0;
+  /// Set under basis-vector contact inputs: R is then loaded in wrench dimensions and transformed into basis space.
+  std::optional<BasisInputsCostTransformConfig> basisCostTransform_;
 };
 
 }  // namespace ocs2::humanoid

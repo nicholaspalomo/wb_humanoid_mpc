@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_ros2/visualization/EquivalentContactCornerForcesVisualizer.h"
 
+#include <array>
+
 #include <ocs2_ros2_interfaces/visualization/VisualizationColors.h>
 #include <ocs2_ros2_interfaces/visualization/VisualizationHelpers.h>
 
@@ -76,7 +78,8 @@ visualization_msgs::msg::MarkerArray EquivalentContactCornerForcesVisualizer::ge
       // basis-vector inputs), so the state-aware accessor is required to obtain a world-frame wrench for every model.
       vector6_t globalWrench = mpcRobotModelPtr_->getContactWrenchInWorldFrame(state, input, i);
       vector6_t localContactWrench = rotateVectorWorldToLocal(globalWrench, data, contactFrameIndizes_[i]);
-      auto visualizationForces = currContactWrenchMapper.computeVisualizationForceArray(localContactWrench);
+      const std::array<vector3_t, N_CONTACT_POLYGON_POINTS> visualizationForces =
+          currContactWrenchMapper.computeVisualizationForceArray(localContactWrench);
       // Fill marker array with visualization forces
       for (int j = 0; j < N_CONTACT_POLYGON_POINTS; j++) {
         vector3_t footPosition = data.oMf[polygonPointFrameIndizes_[i][j]].translation();

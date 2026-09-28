@@ -87,8 +87,8 @@ TEST_F(ContactEstimatorRegistryTest, registersTheRobotModelEstimatorsAndCreatesT
   EXPECT_EQ(registry.availableNames(), "robot_state, always_in_contact");
 
   RobotDescription description(urdfPath_.string());
-  RobotState state(description, 2);
-  state.setContactFlag(0, false);
+  RobotState state(description, /*contactSize=*/2);
+  state.setContactFlag(/*index=*/0, /*contactFlag=*/false);
   EXPECT_EQ(registry.create("robot_state")->estimateContactFlags(state), (std::vector<bool>{false, true}));
   EXPECT_EQ(registry.create("always_in_contact")->estimateContactFlags(state), (std::vector<bool>{true, true}));
   EXPECT_EQ(registry.create("always_in_contact")->getName(), "AlwaysInContactEstimator");
@@ -122,7 +122,7 @@ TEST_F(ContactEstimatorRegistryTest, interfacesRegisterTheirOwnEstimatorsOnce) {
   EXPECT_EQ(registry.available().size(), 3u);
   EXPECT_THROW(registry.add("Cheater_Sim", "again", [] { return std::make_shared<AlwaysInContactEstimator>(); }), std::invalid_argument);
   EXPECT_THROW(registry.add("", "nameless", [] { return std::make_shared<AlwaysInContactEstimator>(); }), std::invalid_argument);
-  EXPECT_THROW(registry.add("no_factory", "factory-less", nullptr), std::invalid_argument);
+  EXPECT_THROW(registry.add("no_factory", "factory-less", /*factory=*/nullptr), std::invalid_argument);
 }
 
 }  // namespace

@@ -112,18 +112,32 @@ int ContactLogicState::stateBefore(const MiqpAssignment& a, size_t foot, int nod
 
 int ContactLogicState::contactAge(const MiqpAssignment& a, size_t foot, int node) const {
   std::int8_t kappa = input->contacts[foot] ? 1 : 0;
-  int tau = initialPhaseNodes(foot, true);
+  int tau = initialPhaseNodes(foot, /*roundUp=*/true);
   for (int k = 0; k < node; ++k) {
     const std::int8_t value = a[static_cast<size_t>(contactBinaryIndex(k, foot))];
     if (value == kMiqpFree) return -1;
     if (value == kappa) {
       ++tau;
     } else {
-      tau = switchedPhaseNodes(k, foot, true);
+      tau = switchedPhaseNodes(k, foot, /*roundUp=*/true);
       kappa = value;
     }
   }
   return kappa == 1 ? tau : 0;
+}
+
+scalar_t ContactLogicState::latestTouchDownNode(const MiqpAssignment& a, int node) const {
+  scalar_t latest = initialTouchDownNode;
+  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    std::int8_t kappa = input->contacts[foot] ? 1 : 0;
+    for (int k = 0; k <= node && k < numNodes; ++k) {
+      const std::int8_t value = a[static_cast<size_t>(contactBinaryIndex(k, foot))];
+      if (value == kMiqpFree) break;
+      if (kappa == 0 && value == 1) latest = std::max(latest, switchNode(k, foot));
+      kappa = value;
+    }
+  }
+  return latest;
 }
 
 }  // namespace ocs2::humanoid

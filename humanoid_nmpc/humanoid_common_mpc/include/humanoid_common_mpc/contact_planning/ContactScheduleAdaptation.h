@@ -26,6 +26,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <deque>
+#include <limits>
 #include <optional>
 #include <utility>
 #include <vector>
@@ -81,6 +82,42 @@ std::optional<std::pair<scalar_t, scalar_t>> swingPhaseAtTime(const ModeSchedule
 
 /** Index into eventTimes of the touch-down event of the swing of `foot` around `time`, empty if there is none. */
 std::optional<size_t> touchDownEventIndex(const ModeSchedule& schedule, size_t foot, scalar_t time);
+
+/**
+ * Stance duty factor of `foot` at `time`: the fraction of ITS OWN STRIDE that the foot spends on the ground, in (0, 1].
+ *
+ * Bledt's beta (Appendix C, the impulse-scaling heuristic): a foot down for a fraction beta of its cycle must push
+ * m*g/(F beta) while it is down for the feet between them to carry the weight over the cycle. The stride is measured
+ * lift-off to lift-off - a swing and the stance that follows it - and the stride containing `time` is used. On any
+ * periodic gait that is the gait's own duty factor at EVERY node, whichever foot and wherever in the cycle, which is
+ * what makes the scaled reference average to exactly m*g. (It used to be the contact fraction over a window as long as
+ * the MPC horizon. A horizon is not a whole number of strides in general - a 1.4 s walk stride against a 1.0 s horizon
+ * - so that beta swung with the phase, the two feet saw different values at the same node, and the reference averaged
+ * to 17% more than the weight.)
+ *
+ * Outside every complete stride of this foot - before its first lift-off, or after its last complete stride - it is
+ * the nearest complete stride's value while a gait is under way, and 1 once the robot is standing: 1 before any foot
+ * has lifted off, and after the last event of the whole schedule. 1 is "always down", the value at which the impulse
+ * correction vanishes, and it is also what an empty schedule, or the default ModeSchedule() - one FLY mode and no
+ * events - returns, so a caller never has to guard against a divide by zero.
+ */
+scalar_t stanceDutyFactor(const ModeSchedule& schedule, size_t foot, scalar_t time);
+
+/**
+ * [s] Duration of the stance `foot` begins by touching down at `touchDownTime`: from there to its next lift-off.
+ *
+ * If the schedule does not reach that lift-off, the duration of the foot's most recent complete stance before it; 0 if
+ * the foot has none. The Raibert-style foothold heuristics scale with it, so that one coefficient means the same thing
+ * on every gait the gait scheduler moves between.
+ */
+scalar_t upcomingStanceDuration(const ModeSchedule& schedule, size_t foot, scalar_t touchDownTime);
+
+/**
+ * Touch-down time of the most recent touch-down of `foot` at or before `time`, empty if the schedule has none. The
+ * nominal foothold measures a step from the stance foot's own landing, which is a fixed instant, rather than from the
+ * last solve, which moves.
+ */
+std::optional<scalar_t> previousTouchDownTime(const ModeSchedule& schedule, size_t foot, scalar_t time);
 
 /**
  * Lift-off time of the swing of `foot` that is in flight at `time`, or of its next swing if the foot is in contact at
@@ -144,6 +181,45 @@ feet_array_t<scalar_t> contactPhaseStartTimes(const ModeSchedule& schedule, scal
  */
 std::vector<feet_array_t<scalar_t>> committedPhaseStartsForPlanner(
     const ModeSchedule& schedule, scalar_t startTime, scalar_t dt, int maxNodes, scalar_t committedUntil);
+
+/**
+ * The last lift-off of every foot, remembered across executed schedules.
+ *
+ * The reference manager keeps the executed schedule only from one horizon before the solver time on (the merge's
+ * lowerBoundTime), so about a horizon after the robot comes to stand the schedule no longer holds the robot's last
+ * lift-off at all. The last swung foot used to be read off that schedule alone, and it then became -1 (unknown): the
+ * H-LIP blend lost the zero-command orbit it measures the lateral velocity against in double support
+ * (HlipContactPlanner::zeroCommandOrbitLateralVelocity), so the sway of settling counted in full towards walking, and
+ * the first step out of the stand was chosen from the phase timing instead of alternating. The history is kept by
+ * whoever builds planner inputs, independent of that window.
+ */
+struct LiftOffHistory {
+  /** [s] the latest lift-off seen of each foot; -infinity until one has been seen. */
+  feet_array_t<scalar_t> lastLiftOffTimes = makeFeetArray(-std::numeric_limits<scalar_t>::infinity());
+
+  /**
+   * Records every lift-off of `schedule` at or before `time` (an event at `time` itself has passed, as in
+   * modeIndexAtTime). A recorded lift-off later than `time` is forgotten first: time ran backwards (a reset), and it
+   * has not happened in the new run.
+   */
+  void record(const ModeSchedule& schedule, scalar_t time);
+
+  /** The foot whose lift-off is the latest recorded (the right one when both lifted at once), or -1 when none is. */
+  int lastSwungFoot() const;
+};
+
+/**
+ * Fills the part of a planner input that is read off the executed schedule at `input.time`, the one definition of it
+ * (ContactPlanningReferenceManager::makePlannerInput builds every input with it, the closed-loop planner tests theirs):
+ * the contact state, how long each foot has been in it (kPhaseElapsedTimeBeforeTheSchedule when the schedule does not
+ * reach back to its start), the last swung foot (from `liftOffHistory`, which it updates first), and the committed
+ * window of at most `maxCommittedNodes` nodes of `dt` up to `input.committedUntil`, which the caller sets first.
+ */
+void fillPlannerInputFromSchedule(
+    const ModeSchedule& schedule, scalar_t dt, int maxCommittedNodes, LiftOffHistory& liftOffHistory, ContactPlannerInput& input);
+
+/** [s] the elapsed phase time fillPlannerInputFromSchedule() reports for a phase that began before the schedule. */
+inline constexpr scalar_t kPhaseElapsedTimeBeforeTheSchedule = 10.0;
 
 /**
  * Applies to `plan` the re-timings of the executed schedule that happened after the plan's snapshot was taken. The log

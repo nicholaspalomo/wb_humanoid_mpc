@@ -26,7 +26,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/ContactPlanningTermFactory.h"
 
 #include <stdexcept>
+#include <utility>
 
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/str_join.h"
+#include "absl/strings/string_view.h"
+#include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningFormulation.h"
 #include "humanoid_common_mpc/contact_planning/constraint/FootMotionInSwingOnlyConstraint.h"
 #include "humanoid_common_mpc/contact_planning/constraint/FootSeparationConstraint.h"
@@ -65,22 +72,29 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/search/CadenceStretchStage.h"
 #include "humanoid_common_mpc/contact_planning/search/DivingStage.h"
 #include "humanoid_common_mpc/contact_planning/search/EventShiftLocalSearchStage.h"
-#include "humanoid_common_mpc/contact_planning/search/HeadingRelinearisationStage.h"
+#include "humanoid_common_mpc/contact_planning/search/HeadingRelinearizationStage.h"
 #include "humanoid_common_mpc/contact_planning/search/WarmStartPreviousPlanStage.h"
 
 namespace ocs2::humanoid {
 
 namespace {
 
-std::string supported(TermKind kind) {
-  std::string out;
-  for (const std::string& name : knownTermNames(kind)) out += (out.empty() ? "" : ", ") + name;
-  return out;
+absl::Status unknownTerm(TermKind kind, const std::string& name) {
+  return absl::InvalidArgumentError(absl::StrCat("[ContactPlanningTermFactory] unknown ", termKindName(kind), " term '", name,
+                                                 "'; supported: ", absl::StrJoin(knownTermNames(kind), ", ")));
 }
 
 [[noreturn]] void unknown(TermKind kind, const std::string& name) {
-  throw std::invalid_argument("[ContactPlanningTermFactory] unknown " + termKindName(kind) + " term '" + name +
-                              "'; supported: " + supported(kind));
+  throw std::invalid_argument(std::string(unknownTerm(kind, name).message()));
+}
+
+absl::Status unavailableExecutionRule(const std::string& canonical) {
+  return absl::InvalidArgumentError(absl::StrCat("[ContactPlanningTermFactory] the execution rule '", canonical,
+                                                 "' is not available here (it needs the reference manager's robot model)"));
+}
+
+absl::Status missingBlock(absl::string_view what, const std::string& name, const std::string& block) {
+  return absl::InvalidArgumentError(absl::StrCat("[ContactPlanningTermFactory] ", what, " '", name, "' needs the '", block, "' block"));
 }
 
 std::string canonicalOrThrow(TermKind kind, const std::string& name) {
@@ -158,27 +172,34 @@ std::unique_ptr<SearchStage> ContactPlanningTermFactory::makeSearchStage(const s
   if (canonical == term::kWarmStartPreviousPlan) return std::make_unique<WarmStartPreviousPlanStage>();
   if (canonical == term::kDiving) return std::make_unique<DivingStage>();
   if (canonical == term::kEventShiftLocalSearch) return std::make_unique<EventShiftLocalSearchStage>();
-  if (canonical == term::kHeadingRelinearisation) return std::make_unique<HeadingRelinearisationStage>();
+  if (canonical == term::kHeadingRelinearization) return std::make_unique<HeadingRelinearizationStage>();
   if (canonical == term::kCadenceStretch) return std::make_unique<CadenceStretchStage>();
   unknown(TermKind::SEARCH_STAGE, name);
 }
 
-std::unique_ptr<ExecutionRule> ContactPlanningTermFactory::makeExecutionRule(const std::string& name, const ExtraRuleMaker& extra) {
-  const std::string canonical = canonicalOrThrow(TermKind::EXECUTION_RULE, name);
+namespace {
+/** The execution rule `canonical` names, from the core or else from `extra`; null when neither can build it. */
+std::unique_ptr<ExecutionRule> executionRuleOrNull(const std::string& canonical, const ContactPlanningTermFactory::ExtraRuleMaker& extra) {
   if (canonical == term::kPhaseResetting) return std::make_unique<PhaseResettingRule>();
   if (canonical == term::kEnergyCadenceModulation) return std::make_unique<EnergyCadenceModulationRule>();
   if (canonical == term::kDcmStepAdjustment) return std::make_unique<DcmStepAdjustmentRule>();
-  if (extra) {
-    std::unique_ptr<ExecutionRule> rule = extra(canonical);
-    if (rule != nullptr) return rule;
-  }
-  throw std::invalid_argument("[ContactPlanningTermFactory] the execution rule '" + canonical +
-                              "' is not available here (it needs the reference manager's robot model)");
+  if (extra) return extra(canonical);
+  return nullptr;
+}
+}  // namespace
+
+std::unique_ptr<ExecutionRule> ContactPlanningTermFactory::makeExecutionRule(const std::string& name, const ExtraRuleMaker& extra) {
+  const std::string canonical = canonicalOrThrow(TermKind::EXECUTION_RULE, name);
+  std::unique_ptr<ExecutionRule> rule = executionRuleOrNull(canonical, extra);
+  if (rule == nullptr) throw std::invalid_argument(std::string(unavailableExecutionRule(canonical).message()));
+  return rule;
 }
 // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/contact_planning/ContactPlanningFormulation.cpp:known_term_names)
 
-ContactPlanningProblem ContactPlanningTermFactory::buildProblem(const ContactPlanningConfig& config) {
-  config.formulation.validate();
+absl::StatusOr<ContactPlanningProblem> ContactPlanningTermFactory::buildProblemStatus(const ContactPlanningConfig& config) {
+  // The formulation's own validation rejects every list this function could not assemble - an unknown or duplicate
+  // name, a term without the block it needs, the mandatory blocks out of place - so nothing below throws once it passed.
+  RETURN_IF_ERROR(config.formulation.validateStatus());
   const ContactPlanningFormulation& f = config.formulation;
   ContactPlanningProblem problem;
   for (const std::string& name : f.dynamics) problem.model.add(canonicalTermName(TermKind::MODEL_BLOCK, name), makeModelBlock(name));
@@ -197,34 +218,37 @@ ContactPlanningProblem ContactPlanningTermFactory::buildProblem(const ContactPla
   return problem;
 }
 
-TermCollection<SearchStage> ContactPlanningTermFactory::buildSearchStages(const ContactPlanningConfig& config) {
+absl::StatusOr<TermCollection<SearchStage>> ContactPlanningTermFactory::buildSearchStagesStatus(const ContactPlanningConfig& config) {
   TermCollection<SearchStage> stages;
   for (const std::string& name : config.formulation.search) {
-    std::unique_ptr<SearchStage> stage = makeSearchStage(name);
+    const std::string canonical = canonicalTermName(TermKind::SEARCH_STAGE, name);
+    if (canonical.empty()) return unknownTerm(TermKind::SEARCH_STAGE, name);
+    if (stages.has(canonical)) {
+      return absl::InvalidArgumentError(absl::StrCat("[ContactPlanningTermFactory] search lists '", canonical, "' twice"));
+    }
+    std::unique_ptr<SearchStage> stage = makeSearchStage(canonical);
     for (const std::string& block : stage->requiredBlocks()) {
-      if (!config.formulation.hasDynamics(block)) {
-        throw std::invalid_argument("[ContactPlanningTermFactory] search stage '" + name + "' needs the '" + block + "' block");
-      }
+      if (!config.formulation.hasDynamics(block)) return missingBlock("search stage", name, block);
     }
     stage->configure(config);
-    stages.add(canonicalTermName(TermKind::SEARCH_STAGE, name), std::move(stage));
+    stages.add(canonical, std::move(stage));
   }
   return stages;
 }
 
-TermCollection<ExecutionRule> ContactPlanningTermFactory::buildExecutionRules(const ContactPlanningConfig& config,
-                                                                              const ExtraRuleMaker& extra) {
-  config.formulation.validate();
+absl::StatusOr<TermCollection<ExecutionRule>> ContactPlanningTermFactory::buildExecutionRulesStatus(const ContactPlanningConfig& config,
+                                                                                                    const ExtraRuleMaker& extra) {
+  RETURN_IF_ERROR(config.formulation.validateStatus());
   TermCollection<ExecutionRule> rules;
   for (const std::string& name : config.formulation.execution) {
-    std::unique_ptr<ExecutionRule> rule = makeExecutionRule(name, extra);
+    const std::string canonical = canonicalTermName(TermKind::EXECUTION_RULE, name);
+    std::unique_ptr<ExecutionRule> rule = executionRuleOrNull(canonical, extra);
+    if (rule == nullptr) return unavailableExecutionRule(canonical);
     for (const std::string& block : rule->requiredBlocks()) {
-      if (!config.formulation.hasDynamics(block)) {
-        throw std::invalid_argument("[ContactPlanningTermFactory] execution rule '" + name + "' needs the '" + block + "' block");
-      }
+      if (!config.formulation.hasDynamics(block)) return missingBlock("execution rule", name, block);
     }
     rule->configure(config);
-    rules.add(canonicalTermName(TermKind::EXECUTION_RULE, name), std::move(rule));
+    rules.add(canonical, std::move(rule));
   }
   return rules;
 }

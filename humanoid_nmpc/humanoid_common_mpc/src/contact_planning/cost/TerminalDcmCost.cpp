@@ -25,33 +25,34 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/cost/TerminalDcmCost.h"
 
-#include <algorithm>
 #include <cmath>
-#include <sstream>
 
 namespace ocs2::humanoid {
 
 std::string TerminalDcmCost::describe() const {
-  return trackCommandedVelocity_
-             ? weightLine("w e^{2 omega dt} ||xi_{N-1} - zmp_{N-1} - v_cmd / omega||^2 on the last running node (keeps walking)")
-             : weightLine("w e^{2 omega dt} ||xi_{N-1} - zmp_{N-1}||^2 on the last running node (terminal capturability)");
+  return trackCommandedVelocity_ ? weightLine("w ||xi_N - zmp_{N-1} - v_cmd / omega||^2 on the last running node (keeps walking)")
+                                 : weightLine("w ||xi_N - zmp_{N-1}||^2 on the last running node (terminal capturability)");
 }
 
 void TerminalDcmCost::configure(const ContactPlanningConfig& config) {
-  checkWeight("terminal_dcm", config.terminalDcm.weight);
   weight_ = config.terminalDcm.weight;
   trackCommandedVelocity_ = config.terminalDcm.trackCommandedVelocity;
 }
 
 void TerminalDcmCost::addToStage(const ContactPlanningContext& ctx, int /*node*/, StageAccumulator& stage) const {
-  // Terminal capturability: xi_N - zmp_{N-1} = e^{omega dt} (xi_{N-1} - zmp_{N-1}).
+  // The terminal DCM is written on the last running node, where the ZMP of the last interval is a variable:
+  // xi_N - zmp_{N-1} = e^{omega dt} (xi_{N-1} - zmp_{N-1}), so w ||xi_N - zmp_{N-1} - r||^2 is
+  // w e^{2 omega dt} ||xi_{N-1} - zmp_{N-1} - e^{-omega dt} r||^2 exactly.
   const scalar_t omega = ctx.omega;
-  const scalar_t gain = std::exp(2.0 * omega * ctx.dt);
+  const scalar_t growth = std::exp(omega * ctx.dt);
   for (int axis = 0; axis < 2; ++axis) {
-    // With trackCommandedVelocity the target of the DCM is the last ZMP plus v_cmd / omega: the offset of a CoM over
-    // the foot that keeps moving at the commanded velocity, instead of the rest condition xi = zmp.
-    const scalar_t offset = trackCommandedVelocity_ ? -ctx.input->velocityCommand(axis) / omega : 0.0;
-    stage.addQuadraticResidual({{idx_.com[axis], 1.0}, {idx_.vel[axis], 1.0 / omega}}, {{idx_.zmp[axis], -1.0}}, offset, weight_ * gain);
+    // With trackCommandedVelocity the target of the terminal DCM is zmp_{N-1} + v_cmd / omega, the offset of a CoM
+    // over the foot that keeps moving at the commanded velocity, instead of the rest condition xi_N = zmp_{N-1}. The
+    // residual used to apply that offset to xi_{N-1} instead, which put the target of xi_N at e^{omega dt} v_cmd /
+    // omega - 35 % further ahead than documented at dt 0.1 on the Atlas's 1.0805 m pendulum.
+    const scalar_t target = trackCommandedVelocity_ ? ctx.input->velocityCommand(axis) / omega : 0.0;
+    stage.addQuadraticResidual({{idx_.com[axis], 1.0}, {idx_.vel[axis], 1.0 / omega}}, {{idx_.zmp[axis], -1.0}}, -target / growth,
+                               weight_ * growth * growth);
   }
 }
 

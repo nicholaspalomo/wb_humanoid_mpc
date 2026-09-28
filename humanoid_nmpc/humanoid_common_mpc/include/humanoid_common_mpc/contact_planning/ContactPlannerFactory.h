@@ -38,10 +38,15 @@ namespace ocs2::humanoid {
 
 /** The contact planner implementations, selected by `planner.type` in `contact_planning.yaml`. */
 namespace planner {
+// The YAML spellings of planner.type.
+// LINT.IfChange(planner_names)
 /** The closed-form H-LIP stepper of arXiv:2502.15630 (HlipContactPlanner). */
 inline constexpr const char* kHlip = "hlip";
 /** The mixed-integer program on a LIP model (LipContactPlanner). */
 inline constexpr const char* kLipMiqp = "lip_miqp";
+// clang-format off
+// LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/contact_planning/ContactPlannerFactory.cpp:known_planner_names, //robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/contact_planning.yaml:contact_planning_config, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/contact_planning.yaml:contact_planning_config)
+// clang-format on
 }  // namespace planner
 
 /** The planner names that can be selected, in the order they are offered. */
@@ -52,11 +57,12 @@ std::string canonicalPlannerName(absl::string_view name);
 
 /**
  * Builds the planner `config.planner.type` names. An unknown name is rejected with a message that lists the names
- * that exist, so a typo in the task file names the fix.
+ * that exist, so a typo in the task file names the fix, and an invalid configuration with the message of
+ * ContactPlanningConfig::validateStatus(), which names the key to change. Neither throws.
  */
 absl::StatusOr<std::unique_ptr<ContactPlannerInterface>> makeContactPlanner(const ContactPlanningConfig& config);
 
-/** The formulation summary of the planner a configuration selects, without building one. */
+/** The formulation summary of the planner a configuration selects, rejecting what makeContactPlanner rejects. */
 absl::StatusOr<std::string> contactPlannerSummary(const ContactPlanningConfig& config);
 
 }  // namespace ocs2::humanoid

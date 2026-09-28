@@ -49,37 +49,45 @@ namespace ocs2::humanoid {
  *
  *   f_n >= 0,   h >= 0,   f_n h = 0,
  *
- * of which the first is already enforced (the friction cone, or the non-negativity of the basis scalings), the second
- * is GroundPenetrationConstraint and the third is this term, penalised rather than imposed. A foot may then carry load
+ * of which the first is the contact cone's (the friction or wrench cone, or the non-negativity of the basis scalings),
+ * which has to be un-gated for it - loadMpcFormulationTasks() insists on a cone once `zero_wrench` is gone - the second
+ * is GroundPenetrationConstraint and the third is this term, penalized rather than imposed. A foot may then carry load
  * only where it touches the ground, and where it touches the ground it may carry load whatever the nominal gait says.
- * The contact schedule from the reduced-order planner survives only as a reference for the swing-foot cost, which is
- * exactly the role the paper gives it.
+ * The contact schedule from the reduced-order planner is demoted from a constraint to a set of REFERENCES - the
+ * swing-foot costs, the input regularization's weight-compensating nominal, the DCM terminal support - which the solver
+ * overrules whenever anything else pays more; see section 2 of humanoid_nmpc/docs/contact_implicit_mpc/README.md for
+ * every place it still enters.
  *
  * The term is bilinear - the force enters linearly through the model's contact parameterization and the height enters
- * through the foot kinematics - so its linear approximation is assembled in closed form from the end-effector
- * kinematics and the constant row that maps the input to the normal force. No automatic differentiation is needed.
+ * through the foot kinematics - so its linear approximation is assembled in closed form from the gap's Jacobian and
+ * the constant row that maps the input to the normal force. The gap's Jacobian is not free: FootprintCornerHeights
+ * tapes one first-order CppAD model of the corner heights per foot, shared with GroundPenetrationConstraint, and that
+ * generated library is keyed to the corner geometry so that editing the footprint regenerates it.
  *
- * The normal direction is the sole's, i.e. the third component of the model's contact force. For the flat terrain the
- * reduced-order planner assumes, that is the world vertical; on a tilted foot it is the physically correct normal.
+ * WHICH NORMAL FORCE. f_n is the third component of MpcRobotModelBase::getContactForce(), and which frame that is depends
+ * on the model: the WORLD vertical for the wrench-space models, and the contact frame's own normal under
+ * BasisInputsModelDecorator. Both are correct here, because the term uses f_n as a LOAD INDICATOR - a number that
+ * vanishes exactly when the foot carries no wrench - rather than as a physical force (README section 2a, "What f_n
+ * actually is").
  *
  * WHICH HEIGHT. h is the GAP - the height of the LOWEST point of the footprint above the terrain - and not the height
- * of the sole's centre. The two differ whenever the foot is pitched or rolled, which this formulation makes the normal
+ * of the sole's center. The two differ whenever the foot is pitched or rolled, which this formulation makes the normal
  * case rather than an exceptional one: ForceWeightedSlipConstraint deliberately leaves the rocking rates free so that
- * the foot can roll from heel to toe under load. Measured at the centre, a foot up on its heel reads a positive height
- * while it is carrying the whole robot, and this term then penalises the force it is physically holding - it pays for
+ * the foot can roll from heel to toe under load. Measured at the center, a foot up on its heel reads a positive height
+ * while it is carrying the whole robot, and this term then penalizes the force it is physically holding - it pays for
  * a contact that exists. It also disagreed with GroundPenetrationConstraint, which had already been moved to the
  * corners; the two now share one FootprintCornerHeights, so they cannot disagree again.
  *
  * The gap is the smoothMinimumHeight() of the corner heights rather than their exact minimum, because the exact
  * minimum is non-differentiable precisely at the flat-footed stance where the robot spends most of its time; see that
- * function for why the normalisation inside it is not cosmetic.
+ * function for why the normalization inside it is not cosmetic.
  *
- * The residual is normalised - it is (f_n / f_ref) (h / h_ref), not f_n h - and that matters more than it looks. The
+ * The residual is normalized - it is (f_n / f_ref) (h / h_ref), not f_n h - and that matters more than it looks. The
  * penalty wrapped around this term is quadratic, so what the solver actually sees is a curvature of
  *
  *   d2/dh2 [ w g^2 / 2 ] = w f_n^2 / f_ref^2 / h_ref^2,
  *
- * proportional to the square of the normal force. Unnormalised, on a 160 kg robot, f_n^2 spans nine orders of
+ * proportional to the square of the normal force. Unnormalized, on a 160 kg robot, f_n^2 spans nine orders of
  * magnitude between a foot in flight and a foot carrying the whole body, so one weight cannot be right at both ends:
  * chosen for the loaded foot it is negligible in flight, and chosen for the flight foot it dwarfs every other term in
  * the problem. It dwarfs, in particular, the swing height reference - and since f_n h = 0 is satisfied just as well by
@@ -88,7 +96,9 @@ namespace ocs2::humanoid {
  *
  * Dividing by a reference force and a reference height makes the residual dimensionless and O(1) at the worst
  * configuration the robot can reach - a foot at full swing height carrying full body weight - so the weight means the
- * same thing at every point of the horizon and is directly comparable with the task-space weights it competes against.
+ * same thing at every point of the horizon and is comparable with the slip term's weight. It is NOT comparable with the
+ * task-space weights it competes against, whose residuals are in meters: in cost, `pos_z` at the swing apex charges
+ * 0.5 * pos_z * heightReference^2, a factor heightReference^2 below what its raw number suggests (README section 4).
  */
 class ContactComplementarityConstraint final : public StateInputConstraint {
  public:

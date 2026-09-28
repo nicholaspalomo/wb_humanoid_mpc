@@ -52,7 +52,7 @@ HumanoidVisualizerRos2Interface::HumanoidVisualizerRos2Interface(const std::stri
 /******************************************************************************************************/
 
 void HumanoidVisualizerRos2Interface::launchSubscribers() {
-  auto qos = rclcpp::QoS(10);
+  rclcpp::QoS qos(10);
   qos.best_effort();
   mRTPolicySubscriper_.launchNodes(node_handle_, qos);
 
@@ -69,7 +69,7 @@ void HumanoidVisualizerRos2Interface::launchSubscribers() {
 /******************************************************************************************************/
 
 void HumanoidVisualizerRos2Interface::mpcObservationCallback(const ocs2_ros2_msgs::msg::MpcObservation::SharedPtr msg) {
-  auto currentObservation = ros_msg_conversions::readObservationMsg(*msg);
+  const SystemObservation currentObservation = ros_msg_conversions::readObservationMsg(*msg);
 
   if (mRTPolicySubscriper_.initialPolicyReceived()) {
     mRTPolicySubscriper_.updatePolicy();

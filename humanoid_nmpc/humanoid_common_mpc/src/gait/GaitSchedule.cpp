@@ -44,7 +44,9 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 GaitSchedule::GaitSchedule(ModeSchedule initModeSchedule, ModeSequenceTemplate initModeSequenceTemplate, scalar_t phaseTransitionStanceTime)
-    : modeSchedule_(std::move(initModeSchedule)),
+    : initModeSchedule_(initModeSchedule),
+      initModeSequenceTemplate_(initModeSequenceTemplate),
+      modeSchedule_(std::move(initModeSchedule)),
       modeSequenceTemplate_(std::move(initModeSequenceTemplate)),
       phaseTransitionStanceTime_(phaseTransitionStanceTime) {}
 
@@ -52,10 +54,19 @@ GaitSchedule::GaitSchedule(ModeSchedule initModeSchedule, ModeSequenceTemplate i
 /******************************************************************************************************/
 /******************************************************************************************************/
 
+void GaitSchedule::reset() {
+  modeSchedule_ = initModeSchedule_;
+  modeSequenceTemplate_ = initModeSequenceTemplate_;
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
 void GaitSchedule::insertModeSequenceTemplate(const ModeSequenceTemplate& modeSequenceTemplate, scalar_t startTime, scalar_t finalTime) {
   modeSequenceTemplate_ = modeSequenceTemplate;
-  auto& eventTimes = modeSchedule_.eventTimes;
-  auto& modeSequence = modeSchedule_.modeSequence;
+  std::vector<scalar_t>& eventTimes = modeSchedule_.eventTimes;
+  std::vector<size_t>& modeSequence = modeSchedule_.modeSequence;
 
   // find the index on which the new gait should be added
   const size_t index = std::lower_bound(eventTimes.begin(), eventTimes.end(), startTime) - eventTimes.begin();
@@ -85,8 +96,8 @@ void GaitSchedule::insertModeSequenceTemplate(const ModeSequenceTemplate& modeSe
 /******************************************************************************************************/
 /******************************************************************************************************/
 ModeSchedule GaitSchedule::getModeSchedule(scalar_t lowerBoundTime, scalar_t upperBoundTime) {
-  auto& eventTimes = modeSchedule_.eventTimes;
-  auto& modeSequence = modeSchedule_.modeSequence;
+  std::vector<scalar_t>& eventTimes = modeSchedule_.eventTimes;
+  std::vector<size_t>& modeSequence = modeSchedule_.modeSequence;
   const size_t index = std::lower_bound(eventTimes.begin(), eventTimes.end(), lowerBoundTime) - eventTimes.begin();
 
   if (index > 0) {
@@ -100,7 +111,7 @@ ModeSchedule GaitSchedule::getModeSchedule(scalar_t lowerBoundTime, scalar_t upp
   }
 
   // Start tiling at time
-  const auto tilingStartTime = eventTimes.empty() ? upperBoundTime : eventTimes.back();
+  const scalar_t tilingStartTime = eventTimes.empty() ? upperBoundTime : eventTimes.back();
 
   // delete the last default stance phase
   eventTimes.erase(eventTimes.end() - 1, eventTimes.end());
@@ -115,10 +126,10 @@ ModeSchedule GaitSchedule::getModeSchedule(scalar_t lowerBoundTime, scalar_t upp
 /******************************************************************************************************/
 /******************************************************************************************************/
 void GaitSchedule::tileModeSequenceTemplate(scalar_t startTime, scalar_t finalTime) {
-  auto& eventTimes = modeSchedule_.eventTimes;
-  auto& modeSequence = modeSchedule_.modeSequence;
-  const auto& templateTimes = modeSequenceTemplate_.switchingTimes;
-  const auto& templateModeSequence = modeSequenceTemplate_.modeSequence;
+  std::vector<scalar_t>& eventTimes = modeSchedule_.eventTimes;
+  std::vector<size_t>& modeSequence = modeSchedule_.modeSequence;
+  const std::vector<scalar_t>& templateTimes = modeSequenceTemplate_.switchingTimes;
+  const std::vector<size_t>& templateModeSequence = modeSequenceTemplate_.modeSequence;
   const size_t numTemplateSubsystems = modeSequenceTemplate_.modeSequence.size();
 
   // If no template subsystem is defined, the last subsystem should continue for ever
@@ -153,10 +164,11 @@ void GaitSchedule::tileModeSequenceTemplate(scalar_t startTime, scalar_t finalTi
 std::shared_ptr<GaitSchedule> GaitSchedule::loadGaitSchedule(const std::string& referenceFile,
                                                              const ModelSettings& modelSettings,
                                                              bool verbose) {
-  const auto initModeSchedule = loadModeSchedule(referenceFile, "initialModeSchedule", false);
-  const auto defaultModeSequenceTemplate = loadModeSequenceTemplate(referenceFile, "defaultModeSequenceTemplate", false);
+  const ModeSchedule initModeSchedule = loadModeSchedule(referenceFile, "initialModeSchedule", /*verbose=*/false);
+  const ModeSequenceTemplate defaultModeSequenceTemplate =
+      loadModeSequenceTemplate(referenceFile, "defaultModeSequenceTemplate", /*verbose=*/false);
 
-  const auto defaultGait = [&] {
+  const Gait defaultGait = [&] {
     Gait gait{};
     gait.duration = defaultModeSequenceTemplate.switchingTimes.back();
     // Events: from time -> phase

@@ -55,22 +55,22 @@ model, which is the check that the URDF and the MJCF still agree.
 | Base above sole, legs straight | 0.8561 m | RViz grid offset |
 | Nominal crouch | hip −0.30, knee 0.70, ankle −0.40 | `reference.yaml` `defaultJointState`, `task.yaml` `initialState` |
 | Base above sole at that crouch | 0.8135 m | `defaultBaseHeight`, `initialState` (8,0), MJCF spawn height |
-| CoM above sole at that crouch | 0.6124 m | `dcm_terminal_cost.comHeight`, `contact_planning` `shared.comHeight` |
+| CoM above sole at that crouch | 0.6124 m | the pendulum of the DCM terminal cost and the contact planner, both derived from the model (`dcm_terminal_cost.comHeight: 0`, `shared.comHeight: 0`); `capture_point.comHeightOverride` |
 | Sole | 0.27 × 0.10 m, 0.055 m below the ankle | `contacts.contact_frame_translation` |
 | Contact frame, from the ankle | `x 0.060, y 0, z −0.055` | `contacts.contact_frame_translation` |
 | Hip-to-hip spacing | 0.150 m | step widths, collision radii |
-| Natural stance (legs vertical) | 0.160 m sole centre to sole centre | `nominalStepWidth`, `hlip.stepWidth` |
+| Natural stance (legs vertical) | 0.160 m sole center to sole center | `nominalStepWidth`, `hlip.stepWidth` |
 
 The crouch is a 5.0% reduction from the straight-leg height, matching the 5.2% Atlas stands at. The three sagittal
 angles sum to zero so the sole stays flat, but they are **not** the usual symmetric `−θ / 2θ / −θ`: the thigh (0.30 m)
 and shank (0.37 m) are unequal, so a symmetric split puts the feet 2 cm ahead of the hips and leaves the robot
-standing on its heels. The −0.30 / 0.70 / −0.40 split puts the centre of mass 4 mm behind the centre of the support
+standing on its heels. The −0.30 / 0.70 / −0.40 split puts the center of mass 4 mm behind the center of the support
 polygon instead of 28 mm.
 
 ## Contact model
 
 Each sole is four corner spheres of radius 10 mm, the same scheme Atlas and the Unitree G1 use — point contacts
-rather than a box, which keeps the contact set small and the normals clean. Their centres are inset one radius from
+rather than a box, which keeps the contact set small and the normals clean. Their centers are inset one radius from
 the sole rectangle and sit 45 mm below the ankle, so the contact plane is at exactly −0.055 m and the support polygon
 is `x ∈ [−0.125, 0.125]`, `y ∈ [±0.035]` in the contact frame.
 
@@ -79,9 +79,9 @@ The MPC's `contacts.contact_rectangle` matches that polygon except for `x_max`, 
 ## Known issues to watch in the first bring-up
 
 **The ankle is the weakest link on this robot, and the MPC does not know it.** The ankle pitch actuator is 24 N·m
-against 324.8 N of body weight, so in single support the ankle can only hold the centre of pressure within 74 mm of
+against 324.8 N of body weight, so in single support the ankle can only hold the center of pressure within 74 mm of
 itself; in double support, carrying half the weight each, within 148 mm. The sole is 270 mm long and its toe is
-185 mm ahead of the ankle. Nothing in the formulation bounds ankle torque — the wrench cone bounds the centre of
+185 mm ahead of the ankle. Nothing in the formulation bounds ankle torque — the wrench cone bounds the center of
 pressure geometrically only — so the solver would happily plan a forward CoP the ankle cannot hold and the robot
 would pitch over its toes. `contact_rectangle.x_max` is therefore set to the double-support budget of 0.09 m rather
 than the geometric 0.125 m, and `task.yaml`'s external-torque cost weights the ankle joints five times higher than
@@ -103,28 +103,44 @@ out sooner, which is why `Q(11,11)` (base roll) is the largest base-pose weight 
 
 ## What is configured, and what is deliberately off
 
-SA01 ships the baseline formulation the Unitree R1 runs and is tuned against: base-pose tracking, the gait schedule,
-wrench inputs, a quadratic terminal cost. The weights are R1's, remapped to SA01's joint order — R1 is the closest
-robot by mass (28.8 kg against 33.1 kg). They are a starting point, not a tuned set.
+SA01 ships the baseline formulation the Unitree R1 runs and is tuned against - base-pose tracking and the gait
+schedule - with two of the newer formulations switched on: basis-vector contact inputs and the DCM terminal cost. The
+weights are R1's, remapped to SA01's joint order - R1 is the closest robot by mass (28.8 kg against 33.1 kg). They are a
+starting point, not a tuned set.
 
-Every newer feature is off, and each one is pre-parameterised where it is switched on, so they can be enabled one at
-a time and validated in MuJoCo:
+The formulation choices in `task.yaml`, as shipped - a named contact input parameterization, a named contact schedule
+source, and two entries of the `costs` list:
 
-| Toggle | State | To enable |
+<!-- LINT.IfChange(sa01_formulation_toggles) -->
+| Key or entry | State | Notes |
 | --- | --- | --- |
-| `useContactBasisVectorInputs` | off | one line; `basisNonNegativityBarrier` and `basisScalingRegularization` are already set |
-| `useDcmTerminalCost` | off | one line; `dcm_terminal_cost` is parameterised with SA01's real CoM height |
-| `useContactPlanning` | off | one line; `contact_planning.yaml` carries SA01's cadence, step widths and reach, and `task_space_foot_cost_weights.pos_x / pos_y` must be raised off 0 at the same time so the planned footholds reach something |
-| `useComAndAcomTracking` | **unavailable** | needs a trained ACoM SIREN network; see below |
+| `contactInputParameterization` | **`basis_vectors`** | the MPC optimizes basis-vector scalings instead of wrenches (11 per foot, the default `conservative_inner_approximation` generator set); `basisGeneratorSet`, `basisNonNegativityBarrier`, `basisScalingRegularization` and `basisRegularization` are set in `contacts`; see [contact_basis_vectors](../../humanoid_nmpc/docs/contact_basis_vectors/README.md). It replaced the `useContactBasisVectorInputs` toggle, which start-up now refuses |
+| `dcm_terminal_cost` in `costs` | **listed** | the horizon ends with the DCM viability cost, parameterized with SA01's real CoM height, in place of the quadratic `terminal_cost` (`Q_final`), which is not listed: start-up refuses a list that names both. It replaced the `useDcmTerminalCost` toggle, which start-up now refuses |
+| `contactScheduleSource` | `gait_schedule` | the online contact planner is `contact_planner`, one line; `contact_planning.yaml` carries SA01's cadence, step widths and reach, and `task_space_foot_cost_weights.pos_x / pos_y` must be raised off 0 at the same time so the planned footholds reach something. It replaced the `useContactPlanning` toggle, which start-up now refuses |
+| `com_and_acom_tracking_cost` in `costs` | not listed, **network NOT VALIDATED** | see below; it replaced the `useComAndAcomTracking` toggle, which start-up now refuses |
+<!-- LINT.ThenChange(//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:sa01_formulation_toggles, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:sa01_acom_cost, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:sa01_dcm_terminal_cost, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:contact_input_parameterization_config, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:contact_schedule_source_config) -->
 
-### ACoM tracking is not available for SA01
+SA01 has never run on hardware.
 
-`AngularCenterOfMass::createForRobot` dispatches on `model_settings.robotName` and only `atlas` and `g1` have trained
-weights, so setting `useComAndAcomTracking: true` throws `Unknown robot 'engineai_sa01'` at start-up. Enabling it
-means training SA01 weights with `humanoid_learning/acom` and adding an `AcomSirenWeightsSa01.h` to that dispatch.
-The same dependency is why `contact_planning.yaml` omits `heading_double_integrator` from its `dynamics` list: the
+### ACoM tracking: the network exists but is NOT VALIDATED
+
+<!-- LINT.IfChange(acom_status) -->
+SA01 has a trained ACoM network, `AcomSirenWeightsSa01.h`, registered in `AngularCenterOfMass.cpp` under
+`model_settings.robotName` `engineai_sa01`, so `com_and_acom_tracking_cost` no longer fails for want of a network. It is
+nevertheless **NOT VALIDATED, and must stay off**: its joint Jacobian is 51 % off the centroidal connection on average
+(Atlas's is 22 %), at its worst configurations it is further from the target than no network at all, and at the nominal
+crouch it is 53 % off and predicts the dominant walking coupling - hip pitch into yaw - at about a third of its true
+size (0.22 against 0.62).
+`testAcomAngularVelocityConsistency` grades the header against its own measured bounds, which only guard against it
+getting worse, and fails if `com_and_acom_tracking_cost` or `heading_double_integrator` is listed while SA01 is marked
+unvalidated there. Enabling it means retraining (`bazel run //humanoid_learning/acom:train_main -- --robot sa01
+--install_header`) until the header meets Atlas's bounds, then marking it validated in the test. See
+`humanoid_learning/acom/README.md`, section 6.3.
+
+The same network is why `contact_planning.yaml` leaves `heading_double_integrator` out of its `dynamics` list: the
 planner's heading model is the ACoM. Because ACoM tracking is off, `Q`'s base-pose block (6..11) is live and `Q_com` /
-`Q_acom` are absent rather than present and dead.
+`Q_acom` are absent rather than present and dead; turning it on means writing them.
+<!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/test/testAcomAngularVelocityConsistency.cpp:acom_acceptance_robots) -->
 
 ### Arm swing
 

@@ -25,21 +25,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/cost/RegularizationCost.h"
 
-#include <sstream>
-#include <stdexcept>
+#include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
 
 std::string RegularizationCost::describe() const {
-  std::ostringstream out;
-  out << "Q += " << state_ << " I at every node, R += " << input_ << " I on the running nodes";
-  return out.str();
+  return absl::StrCat("Q += ", state_, " I at every node, R += ", input_, " I on the running nodes");
 }
 
 void RegularizationCost::configure(const ContactPlanningConfig& config) {
-  if (config.regularization.state < 0.0 || config.regularization.input < 0.0) {
-    throw std::invalid_argument("[regularization] state and input must be >= 0");
-  }
   state_ = config.regularization.state;
   input_ = config.regularization.input;
 }

@@ -27,6 +27,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ****************************************************************************"""
 
+import math
 import tkinter as tk
 from tkinter import ttk
 
@@ -39,6 +40,11 @@ class SliderRow(ttk.Frame):
     - Synchronized numeric Entry box (allows precise typing)
     - Reset button (restores default value)
     - Visual indicator when modified from default value
+
+    By default a value typed beyond the slider's range WIDENS the range, which suits tuning parameters whose useful range
+    is not known in advance. `clamp_to_range=True` instead holds every value - typed, set or dragged - inside
+    [min_val, max_val] and shows the clamped value, for rows whose range is a hard limit on the other side of the wire.
+    A value that is not a finite number is rejected either way and the entry reverts.
     """
 
     def __init__(
@@ -51,6 +57,7 @@ class SliderRow(ttk.Frame):
         unit: str = "",
         on_change=None,
         label_width: int = 24,
+        clamp_to_range: bool = False,
         *args,
         **kwargs,
     ):
@@ -63,6 +70,7 @@ class SliderRow(ttk.Frame):
         self.max_val = float(max_val)
         self.unit = unit
         self.on_change = on_change
+        self.clamp_to_range = clamp_to_range
         self._updating = False
 
         # Name label
@@ -143,8 +151,12 @@ class SliderRow(ttk.Frame):
             return
         try:
             val = float(self.entry_var.get().strip())
+            if not math.isfinite(val):
+                raise ValueError(f"{val} is not a finite number")
+            if self.clamp_to_range:
+                val = min(max(val, self.min_val), self.max_val)
             # Extend scale bounds if user typed beyond current min/max
-            if val > self.max_val:
+            elif val > self.max_val:
                 self.max_val = val * 1.5
                 self.scale.configure(to=self.max_val)
             elif val < self.min_val:
@@ -154,6 +166,8 @@ class SliderRow(ttk.Frame):
             self.current_value = val
             self._updating = True
             self.scale_var.set(val)
+            # Shows what was accepted, which differs from what was typed when it was clamped.
+            self._format_entry(val)
             self._updating = False
             self._update_highlight()
             if self.on_change:
@@ -173,7 +187,12 @@ class SliderRow(ttk.Frame):
         self.set_value(self.default_value)
 
     def set_value(self, val: float):
-        self.current_value = float(val)
+        val = float(val)
+        if not math.isfinite(val):
+            return
+        if self.clamp_to_range:
+            val = min(max(val, self.min_val), self.max_val)
+        self.current_value = val
         if self.current_value > self.max_val:
             self.max_val = self.current_value * 1.5
             self.scale.configure(to=self.max_val)

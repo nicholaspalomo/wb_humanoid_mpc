@@ -1,4 +1,5 @@
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
 # humanoid_wb_mpc - Whole-Body MPC library
 
 package(default_visibility = ["//visibility:public"])
@@ -45,12 +46,317 @@ cc_library(
         "//lib/ocs2:ocs2_mpc",
         "//lib/ocs2:ocs2_sqp",
         "//lib/ocs2:ocs2_pinocchio_interface",
+        "@abseil-cpp//absl/container:flat_hash_map",
         "@abseil-cpp//absl/log:log",
+        "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
         "@eigen",
         "@boost",
         "@pinocchio",
         "@ros2_rclcpp",
         "@ros2_ament_index_cpp",
+    ],
+)
+
+cc_test(
+    name = "testWBMpcFormulation",
+    size = "small",
+    srcs = ["test/testWBMpcFormulation.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+        "-DBOOST_VARIANT_LIMIT_TYPES=50",
+        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+    ],
+    data = [
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    deps = [
+        ":humanoid_wb_mpc",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The contact schedule source and the DCM terminal cost, names where they were booleans: the whole-body MPC refuses the
+# ones it does not build and the retired booleans, and interface.verbose reaches its model settings.
+cc_test(
+    name = "testWBMpcFormulationNames",
+    size = "small",
+    srcs = ["test/testWBMpcFormulationNames.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+        "-DBOOST_VARIANT_LIMIT_TYPES=50",
+        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+    ],
+    data = [
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    deps = [
+        ":humanoid_wb_mpc",
+        "@abseil-cpp//absl/log:scoped_mock_log",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# Constructs the whole-body MPC from the shipped G1 task file - compiling every CppAD library it tapes - and evaluates
+# the assembled problem once.
+cc_test(
+    name = "testWBMpcConstruction",
+    size = "large",
+    srcs = ["test/testWBMpcConstruction.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+        "-DBOOST_VARIANT_LIMIT_TYPES=50",
+        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+    ],
+    data = [
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    deps = [
+        ":humanoid_wb_mpc",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_oc",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The base-height reference against the ground, end to end: the reference manager, the target calculator and the
+# procedural motion manager on a raised and on a hot-reloaded ground, and the contact planner's reference manager on a
+# hot-reloaded one. Builds no CppAD model.
+cc_test(
+    name = "testBaseHeightFollowsTerrain",
+    size = "small",
+    srcs = ["test/testBaseHeightFollowsTerrain.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+        "-DBOOST_VARIANT_LIMIT_TYPES=50",
+        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+    ],
+    data = [
+        "//humanoid_nmpc/humanoid_common_mpc:gait_config",
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    deps = [
+        ":humanoid_wb_mpc",
+        "//lib/ocs2:ocs2_core",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# WBMpcInterface::Create() on a missing task, URDF or reference file: NotFound naming the path, before anything reads
+# the files. Builds no CppAD model.
+cc_test(
+    name = "testWBMpcInterfaceInputFiles",
+    size = "small",
+    srcs = ["test/testWBMpcInterfaceInputFiles.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+        "-DBOOST_VARIANT_LIMIT_TYPES=50",
+        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+    ],
+    data = [
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    deps = [
+        ":humanoid_wb_mpc",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# HumanoidCostConstraintFactory::getContactWrenchConeConstraint() on the G1 whole-body model: a barrier mu or delta that
+# is not a finite positive number is refused naming its key. Builds no CppAD model.
+cc_test(
+    name = "testContactWrenchConeBarrierRange",
+    size = "small",
+    srcs = ["test/testContactWrenchConeBarrierRange.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+        "-DBOOST_VARIANT_LIMIT_TYPES=50",
+        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+    ],
+    data = [
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    deps = [
+        ":humanoid_wb_mpc",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# ContactWrenchConeConstraint::Create() on the G1 whole-body model: a Config out of range is refused naming its
+# task-file key. Builds no CppAD model.
+cc_test(
+    name = "testWBContactWrenchConeCreate",
+    size = "small",
+    srcs = ["test/testWBContactWrenchConeCreate.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+        "-DBOOST_VARIANT_LIMIT_TYPES=50",
+        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+    ],
+    data = [
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    deps = [
+        ":humanoid_wb_mpc",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The whole-body MRT joint controller's modes and reset contract around a scripted solver: it can be destroyed, JOINT_PD
+# holds the nominal posture, entering WB_MPC resets and holds, and repeated failures back off and hold JOINT_PD.
+cc_test(
+    name = "testWBMpcMrtJointController",
+    size = "medium",
+    srcs = ["test/testWBMpcMrtJointController.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+        "-DBOOST_VARIANT_LIMIT_TYPES=50",
+        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+    ],
+    data = [
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    deps = [
+        ":humanoid_wb_mpc",
+        "//lib/ocs2:ocs2_mpc_test_support",
+        "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/log:log",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# The CppAD library name of JointTorqueCostCppAd carries the version of the inverse dynamics it tapes, so that no library
+# taped from the former computeJointTorques is loaded from the cache. Builds no CppAD model.
+cc_test(
+    name = "testJointTorqueCostLibraryName",
+    size = "small",
+    srcs = ["test/testJointTorqueCostLibraryName.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+        "-DBOOST_VARIANT_LIMIT_TYPES=50",
+        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+    ],
+    deps = [
+        ":humanoid_wb_mpc",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The (state, input) overloads of computeJointTorques and computeBaseHeldJointTorques on the G1 whole-body model: they
+# hand the (q, v, qdd_j, wrenches) functions the state's and the input's pieces, and the base-held one - the gantry
+# feedforward - is g_j(q) for a robot hanging at rest. Builds no CppAD model.
+cc_test(
+    name = "testJointTorqueStateInputOverloads",
+    size = "small",
+    srcs = ["test/testJointTorqueStateInputOverloads.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+        "-DBOOST_VARIANT_LIMIT_TYPES=50",
+        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+    ],
+    # LINT.IfChange(joint_torque_overload_test_data)
+    data = [
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/test/testJointTorqueStateInputOverloads.cpp:robot_files)
+    deps = [
+        ":humanoid_wb_mpc",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+        "@pinocchio",
     ],
 )

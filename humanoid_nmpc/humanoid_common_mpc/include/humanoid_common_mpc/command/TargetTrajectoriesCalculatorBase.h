@@ -31,8 +31,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <atomic>
-
 #include <functional>
+#include <mutex>
+#include <string>
 
 #include <ocs2_core/reference/TargetTrajectories.h>
 #include <ocs2_mpc/SystemObservation.h>
@@ -52,6 +53,17 @@ class TargetTrajectoriesCalculatorBase {
 
   TargetTrajectoriesCalculatorBase(const TargetTrajectoriesCalculatorBase& rhs) = delete;
 
+  virtual ~TargetTrajectoriesCalculatorBase() = default;
+
+  /**
+   * Forgets the filter state the command path carries from one target to the next, so that the next target is built
+   * exactly as the first one of a freshly constructed calculator: here the low-pass filter of the commanded velocity.
+   * A derived calculator with filters of its own overrides this and calls it. The limits and the ground are
+   * configuration and are kept. Not thread-safe with respect to building a target: call it from the thread that builds
+   * them (the solver thread, through ProceduralMpcMotionManager::setResetHook()).
+   */
+  virtual void reset();
+
   /**
    * Re-reads the command limits and reference defaults from `referenceFile` (the scalars this class loads at
    * construction, not the nominal joint posture, which the joint targets path owns).
@@ -62,6 +74,35 @@ class TargetTrajectoriesCalculatorBase {
    * drag looks like anyway.
    */
   void reloadCommandLimits(const std::string& referenceFile);
+
+  /**
+   * Where the ground under the commanded base height comes from. `defaultBaseHeight` and a commanded pelvis height are
+   * heights ABOVE THE GROUND (WalkingVelocityCommand::desired_pelvis_height says so), while the target is a world pose,
+   * so every base height a command produces is written at that height above getTerrainHeight() - see
+   * commandedBaseHeight(). A base height taken from the measured state is already a world height and is left alone.
+   *
+   * Without a source the ground is the task file's top-level `terrainHeight` (ModelSettings::terrainHeight of the model
+   * this calculator was built with), which is all a command node running outside the MPC can know. A calculator that
+   * runs inside the MPC - the one ProceduralMpcMotionManager calls every solve - must be handed
+   * SwitchedModelReferenceManager::getAppliedTerrainHeight: the ground the reference manager applied in this very
+   * solve, so that a target built after a hot reload of `terrainHeight` stands on the new ground while the manager
+   * moves the target already in use by the change, exactly once (SwitchedModelReferenceManager::adaptToCurrentGroundHeight).
+   * getTerrainHeight() would not do: a reload landing between the manager's run and the target being built would then
+   * be applied twice. Thread-safe.
+   */
+  void setTerrainHeightSource(std::function<scalar_t()> terrainHeightSource);
+
+  /** [m] the ground the commanded base heights stand on: the source's, or the task file's without one. Thread-safe. */
+  scalar_t getTerrainHeight() const;
+
+  /**
+   * [m] The world height of the base a command asks for: the commanded pelvis height above the ground, or
+   * `defaultBaseHeight` above it when the command carries none (a value at or below kMinCommandedPelvisHeight).
+   */
+  scalar_t commandedBaseHeight(scalar_t commandedPelvisHeight) const;
+
+  /** [m] a commanded pelvis height at or below this is no command, and `defaultBaseHeight` is used instead. */
+  static constexpr scalar_t kMinCommandedPelvisHeight = 0.1;
 
   void setTargetDisplacementVelocity(scalar_t targetDisplacementVelocity) { targetDisplacementVelocity_ = targetDisplacementVelocity; }
   void setTargetRotationVelocity_(scalar_t targetRotationVelocity) { targetRotationVelocity = targetRotationVelocity; }
@@ -99,10 +140,11 @@ class TargetTrajectoriesCalculatorBase {
    */
   vector4_t filterAndTransformVelCommandToLocal(const vector4_t& commandedVelLocal, const scalar_t& currentEulerZ, scalar_t filterAlpha);
 
-  vector6_t integrateTargetBasePose(const vector6_t& currentPose,
-                                    const vector3_t& averageVel,
-                                    scalar_t deltaPelvisHeight,
-                                    scalar_t deltaT) const;
+  /**
+   * `currentPose` moved on by `averageVel` (x, y, yaw rate) for `deltaT`, at the world base height `baseHeight`
+   * (commandedBaseHeight()), level.
+   */
+  vector6_t integrateTargetBasePose(const vector6_t& currentPose, const vector3_t& averageVel, scalar_t baseHeight, scalar_t deltaT) const;
 
   const MpcRobotModelBase<scalar_t>* mpcRobotModelPtr_;
 
@@ -117,6 +159,10 @@ class TargetTrajectoriesCalculatorBase {
   std::atomic<scalar_t> maxRotationVelocity_{0.6};
 
   std::atomic<scalar_t> defaultBaseHeight_;
+  // The ground under the commanded base height (setTerrainHeightSource). Guarded, because the source is replaced from
+  // the thread that wires the calculator while a command thread may be building a target.
+  mutable std::mutex terrainHeightSourceMutex_;
+  std::function<scalar_t()> terrainHeightSource_;
   vector_t targetJointState_;
   scalar_t mpcHorizon_;
   // State of the first-order low-pass filter applied to the commanded velocity [v_x, v_y, dz, yaw rate].

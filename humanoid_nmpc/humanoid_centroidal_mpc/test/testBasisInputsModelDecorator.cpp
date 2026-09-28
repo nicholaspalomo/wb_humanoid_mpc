@@ -33,10 +33,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <Eigen/Core>
 #include <Eigen/Geometry>
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <initializer_list>
 #include <memory>
+#include <stdexcept>
 #include <string>
 
 #include <pinocchio/multibody/data.hpp>
@@ -48,7 +50,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_centroidal_model/FactoryFunctions.h>
 #include <ocs2_pinocchio_interface/PinocchioInterface.h>
 
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
+#include "humanoid_centroidal_mpc/dynamics/CentroidalDynamicsBasisInputsAD.h"
 #include "humanoid_centroidal_mpc/dynamics/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/common/BasisInputsModelDecorator.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
@@ -76,22 +84,49 @@ static constexpr scalar_t kTol = 1e-9;
 /// Index of the base yaw in the centroidal state [momentum(6), base position(3), base euler ZYX(3), joints].
 static constexpr Eigen::Index kBaseYawStateIndex = 9;
 
-// Helper to create basis matrices with typical Atlas parameters.
-std::array<ContactWrenchConeBasisMatrix, kNumContacts> makeTestBasisMatrices() {
+/// Cone parameters of the test bases (approximately the Atlas foot).
+ContactWrenchConeConstraint::Config makeTestConeConfig() {
   ContactWrenchConeConstraint::Config config;
   config.numBasisVectors = 4;
   config.frictionCoefficient = 0.7;
   config.torsionalFrictionCoefficient = 0.05;
   config.minNormalForce = 5.0;
   config.gripperForce = 0.0;
+  return config;
+}
 
-  // Approximate Atlas foot dimensions
+ContactRectangle makeTestContactRectangle(size_t contactIndex) {
   const PolygonBounds bounds(-0.10, 0.10, -0.05, 0.05);
-  const ContactCenterPoint centerL("foot_l_contact", "l_leg_akx", vector3_t::Zero());
-  const ContactCenterPoint centerR("foot_r_contact", "r_leg_akx", vector3_t::Zero());
+  return ContactRectangle(bounds, contactIndex == 0 ? ContactCenterPoint("foot_l_contact", "l_leg_akx", vector3_t::Zero())
+                                                    : ContactCenterPoint("foot_r_contact", "r_leg_akx", vector3_t::Zero()));
+}
 
-  return {ContactWrenchConeBasisMatrix(config, ContactRectangle(bounds, centerL)),
-          ContactWrenchConeBasisMatrix(config, ContactRectangle(bounds, centerR))};
+/// The rows of the cone the test bases are built for, which the wrench-space formulation would enforce.
+ContactWrenchConeRows makeTestConeRows() {
+  return buildLocalWrenchConeRows(makeTestConeConfig(), makeTestContactRectangle(0));
+}
+
+// Helper to create basis matrices of the given generator set with typical Atlas parameters.
+std::array<ContactWrenchConeBasisMatrix, kNumContacts> makeTestBasisMatrices(
+    absl::string_view generatorSet = kConservativeInnerApproximationGeneratorSet) {
+  absl::StatusOr<ContactWrenchConeBasisMatrix> left =
+      ContactWrenchConeBasisMatrix::Create(makeTestConeConfig(), makeTestContactRectangle(0), generatorSet);
+  absl::StatusOr<ContactWrenchConeBasisMatrix> right =
+      ContactWrenchConeBasisMatrix::Create(makeTestConeConfig(), makeTestContactRectangle(1), generatorSet);
+  if (!left.ok() || !right.ok()) {
+    throw std::runtime_error(absl::StrCat("cannot build the test basis: ", left.status().ToString(), " / ", right.status().ToString()));
+  }
+  return {*std::move(left), *std::move(right)};
+}
+
+/**
+ * Whether a local wrench is a non-negative combination of the columns of B, i.e. inside the cone the basis SPANS. That
+ * is what an exact round trip through the setters needs. It is not the same as satisfying the wrench-space rows
+ * (makeTestConeRows): the default conservative_inner_approximation set spans only part of that cone.
+ */
+bool isInConeOfBasis(const matrix_t& B, const vector6_t& wrench) {
+  const vector_t lambda = solveNonNegativeLeastSquares(B, wrench);
+  return lambda.minCoeff() >= 0.0 && (B * lambda - wrench).norm() <= kTol * std::max<scalar_t>(1.0, wrench.norm());
 }
 
 /// Applies the same rotation to the force and the moment part of a wrench: W_world = blkdiag(R, R) * W_local.
@@ -109,13 +144,13 @@ class BasisInputsModelDecoratorTest : public ::testing::Test {
     const std::string configDir = ament_index_cpp::get_package_share_directory("drc_atlas_centroidal_mpc");
     const std::string descriptionDir = ament_index_cpp::get_package_share_directory("drc_atlas_description");
 
-    const std::string taskFile = configDir + "/config/mpc/task.yaml";
-    const std::string referenceFile = configDir + "/config/command/reference.yaml";
-    const std::string urdfFile = descriptionDir + "/urdf/atlas.urdf";
+    const std::string taskFile = absl::StrCat(configDir, "/config/mpc/task.yaml");
+    const std::string referenceFile = absl::StrCat(configDir, "/config/command/reference.yaml");
+    const std::string urdfFile = absl::StrCat(descriptionDir, "/urdf/atlas.urdf");
 
     // Create model settings and pinocchio interface — stored as members to avoid dangling references.
     // MpcRobotModelBase stores modelSettings as `const ModelSettings&`, so the object must outlive the model.
-    modelSettings_ = std::make_unique<ModelSettings>(taskFile, urdfFile, "basis_decorator_test", "false");
+    modelSettings_ = std::make_unique<ModelSettings>(taskFile, urdfFile, "basis_decorator_test", /*verbose=*/false);
     pinocchioInterface_ = std::make_unique<PinocchioInterface>(createCustomPinocchioInterface(taskFile, urdfFile, *modelSettings_));
     centroidalModelInfo_ = std::make_unique<CentroidalModelInfo>(centroidal_model::createCentroidalModelInfo(
         *pinocchioInterface_, centroidal_model::loadCentroidalType(taskFile),
@@ -140,13 +175,13 @@ class BasisInputsModelDecoratorTest : public ::testing::Test {
     decorator_ = std::make_unique<BasisInputsModelDecorator<scalar_t>>(std::move(wrappedModel), basisMatrices_, *pinocchioInterface_);
   }
 
-  /// Standing configuration with the given base yaw, zero pitch/roll and all joints at zero. With zero joint
+  /// Standing configuration with the given base yaw and pitch, zero roll and all joints at zero. With zero joint
   /// angles the Atlas leg chain has no rotational offsets, so the contact frames are aligned with the base and
-  /// the base yaw alone determines their orientation in the world.
-  vector_t makeState(scalar_t yaw) const {
+  /// the base orientation alone determines their orientation in the world.
+  vector_t makeState(scalar_t yaw, scalar_t pitch = 0.0) const {
     vector_t state = vector_t::Zero(stateDim_);
     decorator_->setBasePosition(state, vector3_t(0.0, 0.0, kBaseHeight));
-    decorator_->setBaseOrientationEulerZYX(state, vector3_t(yaw, 0.0, 0.0));
+    decorator_->setBaseOrientationEulerZYX(state, vector3_t(yaw, pitch, 0.0));
     decorator_->setJointAngles(state, vector_t::Zero(jointDim_));
     return state;
   }
@@ -156,7 +191,7 @@ class BasisInputsModelDecoratorTest : public ::testing::Test {
   /// frame placement of the contact frame looked up by name.
   matrix3_t computeContactFrameRotationWithPinocchio(const vector_t& state, size_t contactIndex) const {
     const vector_t q = state.tail(6 + jointDim_);  // [base position, base euler ZYX, joint angles]
-    const auto& model = pinocchioInterface_->getModel();
+    const pinocchio::Model& model = pinocchioInterface_->getModel();
     pinocchio::Data data(model);
     updateFramePlacements<scalar_t>(q, model, data);
     const pinocchio::FrameIndex frameId = model.getFrameId(modelSettings_->contactNames[contactIndex]);
@@ -220,53 +255,118 @@ TEST_F(BasisInputsModelDecoratorTest, SetGetContactWrenchRoundTrip) {
   const size_t inputDim = decorator_->getInputDim();
   vector_t input = vector_t::Zero(inputDim);
 
-  // Set a known wrench for foot 0. Its centre of pressure is inside the footprint and its minimum-norm scalings are
-  // non-negative, so the clamp inside setContactWrench is inactive and the round trip is exact. See
-  // SetContactWrenchClampsNegativeScalings for a wrench where it is not.
+  // Set a known wrench for foot 0. It is inside the cone of the basis, so the round trip is exact. See
+  // SetContactWrenchReproducesConeWrenchesWhoseMinimumNormScalingsAreNegative for one where the minimum-norm scalings
+  // alone would not do.
   vector6_t wrench0;
   wrench0 << 10.0, 5.0, 100.0, 1.0, -1.0, 0.5;
-  decorator_->setContactWrench(input, wrench0, 0);
+  decorator_->setContactWrench(input, wrench0, /*contactIndex=*/0);
 
   // Get it back — should recover the wrench via B * B⁺ * W (projection onto column space)
   const matrix_t& B = basisMatrices_[0].getBasisMatrix();
   const matrix_t& B_pinv = basisMatrices_[0].getBasisMatrixPseudoInverse();
   vector6_t W_projected = B * (B_pinv * wrench0);
 
-  vector6_t wrench0_recovered = decorator_->getContactWrench(input, 0);
+  vector6_t wrench0_recovered = decorator_->getContactWrench(input, /*contactIndex=*/0);
   EXPECT_TRUE(wrench0_recovered.isApprox(W_projected, 1e-9))
       << "setContactWrench → getContactWrench should round-trip (modulo projection):\n"
       << "  set = " << wrench0.transpose() << "\n  got = " << wrench0_recovered.transpose()
       << "\n  expected (projected) = " << W_projected.transpose();
 }
 
-TEST_F(BasisInputsModelDecoratorTest, SetContactWrenchClampsNegativeScalings) {
-  // setContactWrench takes the minimum-norm scalings and clamps them at zero, so a wrench whose minimum-norm solution
-  // has a negative entry is reproduced only approximately. What must always hold is that the result stays inside the
-  // wrench cone, which is the property the basis-vector formulation relies on.
+TEST_F(BasisInputsModelDecoratorTest, SetContactWrenchReproducesConeWrenchesWhoseMinimumNormScalingsAreNegative) {
+  // This wrench is inside the cone of the basis, but its minimum-norm scalings have a negative entry. Clamping them at
+  // zero - what setContactWrench used to do - returns a different wrench; the non-negative least-squares solve must
+  // return this one exactly.
   vector6_t wrench;
-  wrench << 10.0, 5.0, 100.0, 1.0, -2.0, 0.5;  // minimum-norm scalings have one slightly negative entry
+  wrench << 10.0, 5.0, 100.0, 1.0, -2.0, 0.5;
   const matrix_t& B = basisMatrices_[0].getBasisMatrix();
-  const matrix_t& B_pinv = basisMatrices_[0].getBasisMatrixPseudoInverse();
-  const vector_t minimumNormLambda = B_pinv * wrench;
+  const vector_t minimumNormLambda = basisMatrices_[0].getBasisMatrixPseudoInverse() * wrench;
   ASSERT_LT(minimumNormLambda.minCoeff(), 0.0) << "this test needs a wrench whose minimum-norm scalings are not all non-negative";
+  ASSERT_GE(makeTestConeRows().evaluateCone(wrench).minCoeff(), 0.0) << "this test needs a wrench the wrench-space cone admits";
+  ASSERT_TRUE(isInConeOfBasis(B, wrench)) << "this test needs a wrench the basis can reproduce, which is more than the rows admitting it";
+  ASSERT_GT((B * minimumNormLambda.cwiseMax(0.0) - wrench).norm(), 1e-3 * wrench.norm()) << "the old clamp must be visibly wrong here";
 
   vector_t input = vector_t::Zero(decorator_->getInputDim());
-  decorator_->setContactWrench(input, wrench, 0);
+  decorator_->setContactWrench(input, wrench, /*contactIndex=*/0);
 
-  const vector_t lambda = getLambda(input, 0);
-  EXPECT_GE(lambda.minCoeff(), 0.0) << "the scalings written into the input must be non-negative";
-  EXPECT_TRUE(lambda.isApprox(minimumNormLambda.cwiseMax(0.0), 1e-12));
-  EXPECT_TRUE(decorator_->getContactWrench(input, 0).isApprox(B * minimumNormLambda.cwiseMax(0.0), 1e-12));
+  EXPECT_GE(getLambda(input, /*contactIndex=*/0).minCoeff(), 0.0) << "the scalings written into the input must be non-negative";
+  EXPECT_TRUE(decorator_->getContactWrench(input, /*contactIndex=*/0).isApprox(wrench, kTol))
+      << "set " << wrench.transpose() << ", got back " << decorator_->getContactWrench(input, /*contactIndex=*/0).transpose();
+}
 
-  // The clamped wrench is inside the cone the constraint would enforce, which the requested one also was.
-  ContactWrenchConeConstraint::Config coneConfig;
-  coneConfig.numBasisVectors = 4;
-  coneConfig.frictionCoefficient = 0.7;
-  coneConfig.torsionalFrictionCoefficient = 0.05;
-  const ContactWrenchConeRows rows = buildLocalWrenchConeRows(
-      coneConfig,
-      ContactRectangle(PolygonBounds(-0.10, 0.10, -0.05, 0.05), ContactCenterPoint("foot_l_contact", "l_leg_akx", vector3_t::Zero())));
-  EXPECT_GE(rows.evaluateCone(vector6_t(decorator_->getContactWrench(input, 0))).minCoeff(), -1e-9);
+TEST_F(BasisInputsModelDecoratorTest, SetContactWrenchProjectsAWrenchOutsideTheConeIntoIt) {
+  vector6_t outside;
+  outside << 200.0, 0.0, 100.0, 0.0, 0.0, 0.0;  // well beyond the friction limit
+  const ContactWrenchConeRows rows = makeTestConeRows();
+  ASSERT_LT(rows.evaluateCone(outside).minCoeff(), 0.0);
+  vector_t input = vector_t::Zero(decorator_->getInputDim());
+  decorator_->setContactWrench(input, outside, /*contactIndex=*/0);
+  EXPECT_GE(getLambda(input, /*contactIndex=*/0).minCoeff(), 0.0);
+  EXPECT_GE(rows.evaluateCone(vector6_t(decorator_->getContactWrench(input, /*contactIndex=*/0))).minCoeff(), -1e-9 * outside.norm());
+}
+
+TEST_F(BasisInputsModelDecoratorTest, PitchedStanceFootWeightRoundTripsThroughTheWorldFrameSetter) {
+  // The weight-compensation warm start and the MRT's fallback torques write the world-vertical weight of the robot
+  // through setContactForceInWorldFrame. Seen from a stance foot pitched by 15 degrees (heel strike, toe-off) that force
+  // has a tangential component and its minimum-norm scalings go negative; on the Atlas cone the old clamp returned a
+  // wrench 7 % too large with a 6 % sideways push. It is inside the friction cone, so it has to come back exactly.
+  const scalar_t totalGravitationalForce = centroidalModelInfo_->robotMass * 9.81;
+  for (const scalar_t pitch : {-15.0 * M_PI / 180.0, 15.0 * M_PI / 180.0}) {
+    const vector_t state = makeState(/*yaw=*/0.3, pitch);
+    const vector3_t weight(0.0, 0.0, totalGravitationalForce / 2.0);
+    for (size_t i = 0; i < kNumContacts; ++i) {
+      vector6_t weightInWorld = vector6_t::Zero();
+      weightInWorld.head<3>() = weight;
+      const vector6_t weightInLocal = decorator_->rotateWrenchWorldToLocal(state, weightInWorld, i);
+      ASSERT_LT((basisMatrices_[i].getBasisMatrixPseudoInverse() * weightInLocal).minCoeff(), 0.0)
+          << "at this pitch the minimum-norm scalings of the weight must have a negative entry, or the test exercises nothing";
+
+      vector_t input = vector_t::Zero(decorator_->getInputDim());
+      decorator_->setContactForceInWorldFrame(state, input, weight, i);
+      EXPECT_GE(getLambda(input, i).minCoeff(), 0.0);
+      EXPECT_LE((decorator_->getContactForceInWorldFrame(state, input, i) - weight).norm(), kTol * weight.norm())
+          << "pitch " << pitch << " contact " << i << ": got " << decorator_->getContactForceInWorldFrame(state, input, i).transpose();
+      EXPECT_LE(decorator_->getContactMomentInWorldFrame(state, input, i).norm(), kTol * weight.norm());
+    }
+    // The same through the helper that builds the whole weight-compensating input.
+    const vector_t compensating = weightCompensatingInput(*pinocchioInterface_, {true, true}, *decorator_, state);
+    for (size_t i = 0; i < kNumContacts; ++i) {
+      EXPECT_LE((decorator_->getContactForceInWorldFrame(state, compensating, i) - weight).norm(), 1e-6) << "pitch " << pitch;
+    }
+  }
+}
+
+TEST_F(BasisInputsModelDecoratorTest, ExactGeneratorSetDecoratesTheSameModel) {
+  // The exact wrench cone set changes only the number of scalings per foot; every accessor keeps its meaning.
+  const std::array<ContactWrenchConeBasisMatrix, kNumContacts> exactBases = makeTestBasisMatrices(kExactWrenchConeGeneratorSet);
+  BasisInputsModelDecorator<scalar_t> exact(
+      std::make_unique<CentroidalMpcRobotModel<scalar_t>>(*modelSettings_, *pinocchioInterface_, *centroidalModelInfo_), exactBases,
+      *pinocchioInterface_);
+  const size_t numBasisPerFoot = 8 * makeTestConeConfig().numBasisVectors;
+  EXPECT_EQ(exact.getNumBasisPerFoot(), numBasisPerFoot);
+  EXPECT_EQ(exact.getInputDim(), numBasisPerFoot * kNumContacts + jointDim_);
+  EXPECT_EQ(exact.getJointVelocitiesStartindex(), numBasisPerFoot * kNumContacts);
+
+  // Every wrench of the cone round-trips, including an extreme ray, whose minimum-norm scalings are negative.
+  const vector_t state = makeState(kYaw90, /*pitch=*/0.2);
+  const ContactWrenchConeRows rows = makeTestConeRows();
+  for (size_t i = 0; i < kNumContacts; ++i) {
+    const vector6_t extremeRay = 300.0 * exactBases[i].getBasisMatrix().col(0);
+    ASSERT_LT((exactBases[i].getBasisMatrixPseudoInverse() * extremeRay).minCoeff(), 0.0);
+    vector6_t interior;
+    interior << 30.0, -20.0, 300.0, 5.0, -10.0, 4.0;
+    ASSERT_GT(rows.evaluateCone(interior).minCoeff(), 0.0);
+    for (const vector6_t& wrenchLocal : {extremeRay, interior}) {
+      const vector6_t wrenchWorld = rotateWrench(computeContactFrameRotationWithPinocchio(state, i), wrenchLocal);
+      vector_t input = vector_t::Zero(exact.getInputDim());
+      exact.setContactWrenchInWorldFrame(state, input, wrenchWorld, i);
+      EXPECT_GE(input.segment(exact.getContactWrenchStartIndices(i), numBasisPerFoot).minCoeff(), 0.0);
+      EXPECT_TRUE(exact.getContactWrench(input, i).isApprox(wrenchLocal, kTol)) << exact.getContactWrench(input, i).transpose();
+      EXPECT_TRUE(exact.getContactWrenchInWorldFrame(state, input, i).isApprox(wrenchWorld, kTol));
+      EXPECT_TRUE(input.tail(jointDim_).isZero(0.0));
+    }
+  }
 }
 
 TEST_F(BasisInputsModelDecoratorTest, SetGetContactForceRoundTrip) {
@@ -275,9 +375,9 @@ TEST_F(BasisInputsModelDecoratorTest, SetGetContactForceRoundTrip) {
 
   vector3_t force1;
   force1 << 5.0, -3.0, 80.0;
-  decorator_->setContactForce(input, force1, 1);
+  decorator_->setContactForce(input, force1, /*contactIndex=*/1);
 
-  vector3_t force1_recovered = decorator_->getContactForce(input, 1);
+  vector3_t force1_recovered = decorator_->getContactForce(input, /*contactIndex=*/1);
 
   vector6_t wrench_padded = vector6_t::Zero();
   wrench_padded.head<3>() = force1;
@@ -298,9 +398,9 @@ TEST_F(BasisInputsModelDecoratorTest, ContactsAreIndependent) {
 
   vector6_t wrench0;
   wrench0 << 10.0, 5.0, 100.0, 1.0, -1.0, 0.5;
-  decorator_->setContactWrench(input, wrench0, 0);
+  decorator_->setContactWrench(input, wrench0, /*contactIndex=*/0);
 
-  vector6_t wrench1 = decorator_->getContactWrench(input, 1);
+  vector6_t wrench1 = decorator_->getContactWrench(input, /*contactIndex=*/1);
   EXPECT_TRUE(wrench1.isZero(1e-12)) << "Setting contact 0 wrench should not affect contact 1:\n  wrench1 = " << wrench1.transpose();
 }
 
@@ -333,15 +433,15 @@ TEST_F(BasisInputsModelDecoratorTest, CloneProducesWorkingCopy) {
   vector_t input = vector_t::Zero(inputDim);
   vector6_t wrench;
   wrench << 1.0, 2.0, 50.0, 0.1, -0.1, 0.01;
-  cloned->setContactWrench(input, wrench, 0);
+  cloned->setContactWrench(input, wrench, /*contactIndex=*/0);
 
-  vector6_t wrench_recovered = cloned->getContactWrench(input, 0);
+  vector6_t wrench_recovered = cloned->getContactWrench(input, /*contactIndex=*/0);
   EXPECT_FALSE(wrench_recovered.isZero(1e-6));
 
   // The clone must carry its own pinocchio copy so that the world-frame accessors keep working after cloning.
   const vector_t state = makeState(kYaw90);
-  EXPECT_TRUE(
-      cloned->getContactWrenchInWorldFrame(state, input, 0).isApprox(decorator_->getContactWrenchInWorldFrame(state, input, 0), kTol));
+  EXPECT_TRUE(cloned->getContactWrenchInWorldFrame(state, input, /*contactIndex=*/0)
+                  .isApprox(decorator_->getContactWrenchInWorldFrame(state, input, /*contactIndex=*/0), kTol));
 
   delete cloned;
 }
@@ -388,7 +488,7 @@ TEST_F(BasisInputsModelDecoratorTest, NonNegativeLambdaProducesValidWrench) {
     input(k) = 1.0;
   }
 
-  vector6_t wrench = decorator_->getContactWrench(input, 0);
+  vector6_t wrench = decorator_->getContactWrench(input, /*contactIndex=*/0);
   EXPECT_GT(wrench(2), 0.0) << "Non-negative lambdas should produce positive Fz";
 }
 
@@ -502,8 +602,7 @@ TEST_F(BasisInputsModelDecoratorTest, YawedBaseRotatesLocalXForceIntoWorldY) {
     vector_t input = vector_t::Zero(decorator_->getInputDim());
     decorator_->setContactWrench(input, W_inCone, i);
     ASSERT_GE(getLambda(input, i).minCoeff(), 0.0);
-    ASSERT_TRUE(decorator_->getContactWrench(input, i).isApprox(W_inCone, kTol))
-        << "The non-negativity clamp must be inactive for this wrench";
+    ASSERT_TRUE(decorator_->getContactWrench(input, i).isApprox(W_inCone, kTol)) << "A wrench inside the cone must round-trip exactly";
 
     const vector3_t f_world = decorator_->getContactForceInWorldFrame(stateYaw90, input, i);
     EXPECT_TRUE(f_world.isApprox(vector3_t(0.0, ySign * 10.0, 100.0), kTol))
@@ -522,10 +621,9 @@ TEST_F(BasisInputsModelDecoratorTest, SetGetContactWrenchInWorldFrameRoundTrip) 
   for (const scalar_t yaw : {0.0, kYaw90, -0.7}) {
     const vector_t state = makeState(yaw);
     for (size_t i = 0; i < kNumContacts; ++i) {
-      // Precondition of an exact round trip: the minimum-norm scalings for this wrench are non-negative, so the
-      // clamp in setContactWrench is inactive and B * B⁺ * W_local = W_local (B has full row rank).
-      ASSERT_GE((basisMatrices_[i].getBasisMatrixPseudoInverse() * W_local).minCoeff(), 0.0)
-          << "Test wrench is expected to have non-negative pseudoinverse scalings for contact " << i;
+      // Precondition of an exact round trip: the wrench is inside the cone the basis SPANS. Satisfying the wrench-space
+      // rows is not enough, because the default generator set spans only part of that cone.
+      ASSERT_TRUE(isInConeOfBasis(basisMatrices_[i].getBasisMatrix(), W_local)) << "Test wrench must be reproducible for contact " << i;
 
       const matrix3_t w_R_l = computeContactFrameRotationWithPinocchio(state, i);
       const vector6_t W_world_in = rotateWrench(w_R_l, W_local);
@@ -610,7 +708,7 @@ TEST_F(BasisInputsModelDecoratorTest, WrenchSpaceModelWorldFrameAccessorsEqualIn
 TEST_F(BasisInputsModelDecoratorTest, WeightCompensatingInputIsVerticalInWorldFrameForYawedBase) {
   const vector_t state = makeState(kYaw90);
   const scalar_t totalGravitationalForce = centroidalModelInfo_->robotMass * 9.81;
-  // Looser than kTol: the result is a pseudoinverse solve of an O(1e3) N wrench, compare with an absolute tolerance.
+  // Looser than kTol: the result is a least-squares solve of an O(1e3) N wrench, compare with an absolute tolerance.
   static constexpr scalar_t kForceTol = 1e-6;
 
   const vector_t inputDoubleContact = weightCompensatingInput(*pinocchioInterface_, {true, true}, *decorator_, state);
@@ -637,10 +735,56 @@ TEST_F(BasisInputsModelDecoratorTest, WeightCompensatingInputIsVerticalInWorldFr
 
   // Single support puts the full weight on the stance foot and leaves the swing foot at zero.
   const vector_t inputLeftContact = weightCompensatingInput(*pinocchioInterface_, {true, false}, *decorator_, state);
-  EXPECT_GE(getLambda(inputLeftContact, 0).minCoeff(), 0.0);
-  EXPECT_LT((decorator_->getContactForceInWorldFrame(state, inputLeftContact, 0) - vector3_t(0.0, 0.0, totalGravitationalForce)).norm(),
-            kForceTol);
-  EXPECT_TRUE(getLambda(inputLeftContact, 1).isZero(0.0));
+  EXPECT_GE(getLambda(inputLeftContact, /*contactIndex=*/0).minCoeff(), 0.0);
+  EXPECT_LT(
+      (decorator_->getContactForceInWorldFrame(state, inputLeftContact, /*contactIndex=*/0) - vector3_t(0.0, 0.0, totalGravitationalForce))
+          .norm(),
+      kForceTol);
+  EXPECT_TRUE(getLambda(inputLeftContact, /*contactIndex=*/1).isZero(0.0));
+}
+
+// ==================== Basis-input dynamics: validation before the CppAD build ====================
+
+TEST_F(BasisInputsModelDecoratorTest, BasisDynamicsValidationNamesTheKeyToChangeBeforeBuildingAnything) {
+  const std::array<matrix_t, kNumContacts> bases = decorator_->getBasisMatrices();
+  // Positive control: the configuration the fixture's decorator runs on is accepted.
+  EXPECT_TRUE(CentroidalDynamicsBasisInputsAD::validate(*pinocchioInterface_, *centroidalModelInfo_, *modelSettings_, bases).ok());
+
+  // A contact frame the URDF does not have. Create() must report it instead of compiling a tape around a bad index.
+  const std::string configDir = ament_index_cpp::get_package_share_directory("drc_atlas_centroidal_mpc");
+  const std::string descriptionDir = ament_index_cpp::get_package_share_directory("drc_atlas_description");
+  ModelSettings brokenSettings(absl::StrCat(configDir, "/config/mpc/task.yaml"), absl::StrCat(descriptionDir, "/urdf/atlas.urdf"),
+                               "basis_decorator_test", /*verbose=*/false);
+  brokenSettings.contactNames[1] = "no_such_frame";
+  const absl::StatusOr<std::unique_ptr<CentroidalDynamicsBasisInputsAD>> missingFrame =
+      CentroidalDynamicsBasisInputsAD::Create(*pinocchioInterface_, *centroidalModelInfo_, "dynamics", brokenSettings, bases);
+  ASSERT_FALSE(missingFrame.ok());
+  EXPECT_EQ(missingFrame.status().code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_NE(missingFrame.status().message().find("model_settings.contactNames6DoF"), absl::string_view::npos) << missingFrame.status();
+  EXPECT_NE(missingFrame.status().message().find("no_such_frame"), absl::string_view::npos) << missingFrame.status();
+
+  // A contact count the basis-vector formulation does not support.
+  CentroidalModelInfo oneContact = *centroidalModelInfo_;
+  oneContact.numSixDofContacts = 1;
+  const absl::Status wrongCount = CentroidalDynamicsBasisInputsAD::validate(*pinocchioInterface_, oneContact, *modelSettings_, bases);
+  EXPECT_EQ(wrongCount.code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_NE(wrongCount.message().find("model_settings.contactNames6DoF"), absl::string_view::npos) << wrongCount;
+
+  // Bases of different sizes are a programming error, not a configuration one.
+  std::array<matrix_t, kNumContacts> mismatched = bases;
+  mismatched[1] = makeTestBasisMatrices(kExactWrenchConeGeneratorSet)[1].getBasisMatrix();
+  EXPECT_EQ(CentroidalDynamicsBasisInputsAD::validate(*pinocchioInterface_, *centroidalModelInfo_, *modelSettings_, mismatched).code(),
+            absl::StatusCode::kInternal);
+}
+
+TEST_F(BasisInputsModelDecoratorTest, BasisDynamicsLibraryNameCarriesTheBasisKey) {
+  const std::array<matrix_t, kNumContacts> conservative = decorator_->getBasisMatrices();
+  const std::array<ContactWrenchConeBasisMatrix, kNumContacts> exactBases = makeTestBasisMatrices(kExactWrenchConeGeneratorSet);
+  const std::array<matrix_t, kNumContacts> exact = {exactBases[0].getBasisMatrix(), exactBases[1].getBasisMatrix()};
+  EXPECT_EQ(CentroidalDynamicsBasisInputsAD::uniqueModelName("dynamics", conservative),
+            absl::StrCat("dynamics_", basisInputsLibraryKey(conservative)));
+  EXPECT_NE(CentroidalDynamicsBasisInputsAD::uniqueModelName("dynamics", conservative),
+            CentroidalDynamicsBasisInputsAD::uniqueModelName("dynamics", exact));
 }
 
 }  // namespace

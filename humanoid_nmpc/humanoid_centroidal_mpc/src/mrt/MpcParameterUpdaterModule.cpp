@@ -29,12 +29,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc/mrt/MpcParameterUpdaterModule.h"
 
+#include <algorithm>
 #include <cmath>
 #include <fstream>
 #include <functional>
 #include <limits>
+#include <memory>
+#include <stdexcept>
+#include <string>
+#include <utility>
 
-#include <absl/log/log.h>
+#include <boost/optional.hpp>
+#include <boost/property_tree/ptree.hpp>
+
+#include "absl/log/log.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 
 #include <ocs2_core/cost/QuadraticStateCost.h>
 #include <ocs2_core/cost/QuadraticStateInputCost.h>
@@ -51,7 +63,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_centroidal_mpc/cost/CentroidalMpcEndEffectorFootCost.h"
 #include "humanoid_centroidal_mpc/cost/DcmTerminalCost.h"
 #include "humanoid_centroidal_mpc/cost/ICPCost.h"
+#include "humanoid_common_mpc/HumanoidCostConstraintFactory.h"
 #include "humanoid_common_mpc/HumanoidPreComputation.h"
+#include "humanoid_common_mpc/common/BasisInputsCostTransform.h"
+#include "humanoid_common_mpc/common/ContactInputParameterization.h"
+#include "humanoid_common_mpc/common/ContactTermNames.h"
+#include "humanoid_common_mpc/common/MpcFormulationConfig.h"
+#include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/constraint/BasisScalingNonNegativityConstraint.h"
 #include "humanoid_common_mpc/constraint/ContactComplementarityConstraint.h"
 #include "humanoid_common_mpc/constraint/ContactMomentXYConstraintCppAd.h"
@@ -65,16 +83,30 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/cost/EndEffectorKinematicCostHelpers.h"
 #include "humanoid_common_mpc/cost/EndEffectorKinematicsQuadraticCost.h"
 #include "humanoid_common_mpc/cost/ExternalTorqueQuadraticCostAD.h"
+#include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 
 namespace ocs2::humanoid {
 
 namespace {
 
-/// In the centroidal state x = [h_norm(6), p_base(3), euler_zyx(3), q_j], the
-/// base pose occupies the 6x6 block starting at index 6.
-constexpr Eigen::Index kBasePoseStateIndex = 6;
-constexpr Eigen::Index kBasePoseDim = 6;
+/**
+ * Reads the optional scalar `key` of `pt` into `value`, leaving it untouched when the file does not carry the key. A
+ * value that does not parse as a T is an InvalidArgument naming the key, and `value` is left untouched then too.
+ */
+template <typename T>
+absl::Status loadOptionalValue(const boost::property_tree::ptree& pt, absl::string_view key, T& value) {
+  const boost::optional<const boost::property_tree::ptree&> child = pt.get_child_optional(std::string(key));
+  if (!child) {
+    return absl::OkStatus();
+  }
+  const boost::optional<T> parsed = child->get_value_optional<T>();
+  if (!parsed) {
+    return absl::InvalidArgumentError(absl::StrCat(key, " is '", child->data(), "', which is not a value of the expected type."));
+  }
+  value = *parsed;
+  return absl::OkStatus();
+}
 
 /**
  * Loads a weight matrix out of an already-parsed property tree.
@@ -86,42 +118,314 @@ constexpr Eigen::Index kBasePoseDim = 6;
  * Mirrors loadEigenMatrix's semantics: a `scaling` key multiplies every entry, a
  * `default` key fills the entries that are absent.
  *
- * @throws std::runtime_error if the matrix is not present at all.
+ * @return NotFound when the file carries no entry of the matrix at all; InvalidArgument naming the key when `scaling`,
+ *         `default` or an entry does not parse as a number - loadEigenMatrix used to read those with a `get` that
+ *         silently substituted its default, so a mistyped weight became 1 or 0 on the running problem. `matrix` is then
+ *         partly written and must not be applied.
  */
-void loadEigenMatrixFromPtree(const boost::property_tree::ptree& pt, const std::string& matrixName, matrix_t& matrix) {
-  const scalar_t scaling = pt.get<scalar_t>(matrixName + ".scaling", 1.0);
-  const scalar_t defaultValue = pt.get<scalar_t>(matrixName + ".default", 0.0);
+absl::Status loadEigenMatrixFromPtree(const boost::property_tree::ptree& pt, const std::string& matrixName, matrix_t& matrix) {
+  scalar_t scaling = 1.0;
+  RETURN_IF_ERROR(loadOptionalValue(pt, absl::StrCat(matrixName, ".scaling"), scaling));
+  scalar_t defaultValue = 0.0;
+  RETURN_IF_ERROR(loadOptionalValue(pt, absl::StrCat(matrixName, ".default"), defaultValue));
 
-  Eigen::Index numFailed = 0;
+  Eigen::Index numFound = 0;
   for (Eigen::Index i = 0; i < matrix.rows(); ++i) {
     for (Eigen::Index j = 0; j < matrix.cols(); ++j) {
-      const auto entry = pt.get_optional<scalar_t>(matrixName + ".(" + std::to_string(i) + "," + std::to_string(j) + ")");
-      if (entry) {
-        matrix(i, j) = scaling * (*entry);
-      } else {
-        matrix(i, j) = scaling * defaultValue;
-        ++numFailed;
-      }
+      const std::string key = absl::StrCat(matrixName, ".(", i, ",", j, ")");
+      const bool present = pt.get_child_optional(key).is_initialized();
+      scalar_t entry = defaultValue;
+      RETURN_IF_ERROR(loadOptionalValue(pt, key, entry));
+      matrix(i, j) = scaling * entry;
+      numFound += present ? 1 : 0;
     }
   }
-  if (numFailed == matrix.size()) {
-    throw std::runtime_error("[MpcParameterUpdaterModule] Could not load matrix \"" + matrixName + "\" from the task file.");
+  if (numFound == 0) {
+    return absl::NotFoundError(absl::StrCat("[MpcParameterUpdaterModule] the task file carries no entry of the matrix ", matrixName, "."));
+  }
+  return absl::OkStatus();
+}
+
+/**
+ * Whether the running problem regulates the base pose through ComAndAcomTrackingCost, i.e. whether it was built from a
+ * task file listing `com_and_acom_tracking_cost`. That is decided once, when the problem is assembled, and a hot
+ * reload cannot change it - so this, and not the file being applied, is what decides whether the base-pose blocks of
+ * a reloaded Q and Q_final are zeroed.
+ */
+bool runsComAndAcomTrackingCost(const OptimalControlProblem& ocp) {
+  return ocp.stateCostPtr != nullptr && ocp.stateCostPtr->getTermNameMap().count(std::string(ComAndAcomTrackingCost::kRunningTermName)) > 0;
+}
+
+// The terminal cost terms CentroidalMpcInterface::setupOptimalControlProblem adds: one of the two, or neither.
+// LINT.IfChange(terminal_cost_term_names)
+constexpr const char* kQuadraticTerminalCostTerm = "terminalCost";
+// LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/src/CentroidalMpcInterface.cpp:quadratic_terminal_cost_term)
+constexpr const char* kDcmTerminalCostTerm = DcmTerminalCost::kTermName;
+
+/** Whether the RUNNING problem ends on the final-cost term `termName`, the same way for every worker (they are clones). */
+bool runsFinalCostTerm(const OptimalControlProblem& ocp, absl::string_view termName) {
+  return ocp.finalCostPtr != nullptr && ocp.finalCostPtr->getTermNameMap().count(std::string(termName)) > 0;
+}
+
+/**
+ * The cost, constraint and formulation lists of a task file are structural: they decide which terms the problem was
+ * assembled from, and a hot reload applies none of them. Reports a reloaded file whose lists the start-up loader would
+ * refuse (a retired key such as `useComAndAcomTracking` or `useDcmTerminalCost` among them), whose `costs` list
+ * disagrees with the running problem about `com_and_acom_tracking_cost`, whose choice of terminal cost
+ * (`dcm_terminal_cost` or `terminal_cost` in `costs`) disagrees with the one the running problem ends on, whose contact
+ * input parameterization differs from the running one, or whose contactScheduleSource differs from the running one, so
+ * that the operator knows the edit waits for a restart.
+ */
+void warnAboutStructuralFormulationChanges(const std::string& yamlFile,
+                                           bool runsComAndAcomTracking,
+                                           bool runsBasisVectorInputs,
+                                           bool runsDcmTerminalCost,
+                                           bool runsContactPlanner) {
+  // The contact input parameterization fixes the input dimension, so a reload cannot switch it either; nor the retired
+  // boolean it replaced, which the start-up loader refuses.
+  const absl::StatusOr<ContactInputParameterization> contactInputs = loadContactInputParameterization(yamlFile);
+  if (!contactInputs.ok()) {
+    LOG(WARNING) << "[MpcParameterUpdaterModule] the contact input parameterization of " << yamlFile
+                 << " would be refused at start-up, and it is not hot-reloaded: " << contactInputs.status().message();
+  } else if ((*contactInputs == ContactInputParameterization::kBasisVectors) != runsBasisVectorInputs) {
+    LOG(WARNING) << "[MpcParameterUpdaterModule] " << kContactInputParameterizationKey << " is "
+                 << contactInputParameterizationName(*contactInputs) << " in " << yamlFile << ", but the running problem uses "
+                 << (runsBasisVectorInputs ? kBasisVectorsContactInputParameterization : kWrenchContactInputParameterization)
+                 << ". It fixes the input dimension, so it takes effect at the next start.";
+  }
+
+  // The contact schedule source decides which reference manager the problem was built on; nor can a reload bring back
+  // the retired boolean it replaced.
+  const absl::StatusOr<ContactScheduleSource> contactScheduleSource = loadContactScheduleSource(yamlFile);
+  if (!contactScheduleSource.ok()) {
+    LOG(WARNING) << "[MpcParameterUpdaterModule] the contact schedule source of " << yamlFile
+                 << " would be refused at start-up, and it is not hot-reloaded: " << contactScheduleSource.status().message();
+  } else if ((*contactScheduleSource == ContactScheduleSource::kContactPlanner) != runsContactPlanner) {
+    LOG(WARNING) << "[MpcParameterUpdaterModule] " << kContactScheduleSourceKey << " is "
+                 << contactScheduleSourceName(*contactScheduleSource) << " in " << yamlFile
+                 << ", but the running problem takes its contact schedule from "
+                 << (runsContactPlanner ? kContactPlannerContactScheduleSource : kGaitScheduleContactScheduleSource)
+                 << ". It is structural and takes effect at the next start.";
+  }
+
+  const absl::StatusOr<MpcFormulationTasks> formulation = loadMpcFormulationTasks(yamlFile, /*verbose=*/false);
+  if (!formulation.ok()) {
+    LOG(WARNING) << "[MpcParameterUpdaterModule] the task lists of " << yamlFile
+                 << " would be refused at start-up, and the lists are not hot-reloaded, so the running problem keeps its own: "
+                 << formulation.status().message();
+    return;
+  }
+  const bool listed = formulation->hasCost(MpcCostType::ComAndAcomTrackingCost);
+  if (listed != runsComAndAcomTracking) {
+    LOG(WARNING) << "[MpcParameterUpdaterModule] com_and_acom_tracking_cost is " << (listed ? "listed" : "not listed")
+                 << " in the costs of " << yamlFile << ", but the running problem was built "
+                 << (runsComAndAcomTracking ? "with" : "without")
+                 << " it. The costs list is structural and takes effect at the next start; until then the base-pose blocks of Q "
+                    "and Q_final follow the running problem ("
+                 << (runsComAndAcomTracking ? "zeroed" : "live") << ").";
+  }
+  // The same selection CentroidalMpcInterface::setupOptimalControlProblem makes.
+  const bool fileSelectsDcmTerminalCost = formulation->hasCost(MpcCostType::DcmTerminalCost);
+  if (fileSelectsDcmTerminalCost != runsDcmTerminalCost) {
+    LOG(WARNING) << "[MpcParameterUpdaterModule] " << yamlFile << " ends the horizon on "
+                 << (fileSelectsDcmTerminalCost ? "the DCM terminal cost (dcm_terminal_cost in the costs)"
+                                                : "the quadratic terminal cost (Q_final), not on dcm_terminal_cost")
+                 << ", but the running problem ends on "
+                 << (runsDcmTerminalCost ? "the DCM terminal cost" : "the quadratic terminal cost (Q_final), or none")
+                 << ". The terminal cost is structural and changes at the next start; until then a reload applies Q_final and "
+                    "dcm_terminal_cost to whichever of the two the running problem carries.";
   }
 }
 
 /**
- * Zeroes the base pose block of a state weight matrix.
- *
- * Mirrors HumanoidCostConstraintFactory::zeroBasePoseWeights, which does the same
- * at construction time. Both the running and the terminal cost must be treated
- * identically, otherwise a live update re-introduces base pose tracking that
- * fights the CoM + aCOM cost.
+ * Reads the hot-reloadable `mu` and `delta` of a barrier section. Returns false, leaving both untouched, when the file
+ * does not carry the section, so that the apply step can leave the running value alone rather than apply a default.
+ * A value that is not a number is logged as a warning naming its key and returns false as well: the running barrier is
+ * kept, and the exception it used to throw no longer escapes the reload (out of preSolverRun, on a file-watch reload).
  */
-void zeroBasePoseWeights(matrix_t& Q) {
-  Q.block(kBasePoseStateIndex, kBasePoseStateIndex, kBasePoseDim, kBasePoseDim).setZero();
+bool loadBarrierSection(const boost::property_tree::ptree& pt, const std::string& section, scalar_t& mu, scalar_t& delta) {
+  if (!pt.get_child_optional(section)) {
+    return false;
+  }
+  scalar_t reloadedMu = mu;
+  scalar_t reloadedDelta = delta;
+  absl::Status status = loadOptionalValue(pt, absl::StrCat(section, ".mu"), reloadedMu);
+  if (status.ok()) {
+    status = loadOptionalValue(pt, absl::StrCat(section, ".delta"), reloadedDelta);
+  }
+  if (!status.ok()) {
+    LOG(WARNING) << "[MpcParameterUpdaterModule] the " << section
+                 << " barrier was not applied, the running one is kept: " << status.message();
+    return false;
+  }
+  mu = reloadedMu;
+  delta = reloadedDelta;
+  return true;
+}
+
+/**
+ * The first leaf under `section` of a reloaded file whose value is neither a number nor a bool, as `section.key is
+ * 'value'`, or an empty string. Sequence entries (keyed `[i]`, a list of joint names for instance) are not values and are
+ * skipped. A diagnostic only: the library loaders throw boost's ptree_bad_data, whose message names the type it could
+ * not convert to but not the key, and this is what lets the warning name the key the operator has to fix.
+ */
+std::string firstUnparsableLeaf(const boost::property_tree::ptree& block, const std::string& path) {
+  for (const boost::property_tree::ptree::value_type& child : block) {
+    if (!child.first.empty() && child.first.front() == '[') {
+      continue;
+    }
+    const std::string childPath = absl::StrCat(path, ".", child.first);
+    if (!child.second.empty()) {
+      const std::string nested = firstUnparsableLeaf(child.second, childPath);
+      if (!nested.empty()) {
+        return nested;
+      }
+      continue;
+    }
+    const std::string& value = child.second.data();
+    if (value.empty() || child.second.get_value_optional<scalar_t>() || child.second.get_value_optional<bool>()) {
+      continue;
+    }
+    return absl::StrCat(childPath, " is '", value, "'");
+  }
+  return std::string();
+}
+
+/**
+ * Runs `load`, which reads the section `section` of the reloaded file through a loader of the library (the one the start-up
+ * path uses, so that the two cannot read different keys), and says whether there is something to apply.
+ *
+ * Returns false without a word when the file does not carry the section: those loaders give every key they do not find
+ * its library default rather than throwing, so a file without the section - a hand-written partial file, say - used to
+ * apply zero foot weights, a zero ICP weight or a default swing trajectory to the running problem. Returns false with a
+ * WARNING naming the section and, where firstUnparsableLeaf() can tell, the key, when the loader throws: that used to be
+ * swallowed by an empty catch, so a mistyped weight was simply not applied and nothing said so.
+ */
+bool loadSection(const boost::property_tree::ptree& pt, const std::string& section, const std::function<void()>& load) {
+  const boost::optional<const boost::property_tree::ptree&> block = pt.get_child_optional(section);
+  if (!block) {
+    return false;
+  }
+  try {
+    load();
+    return true;
+  } catch (const std::exception& e) {
+    const std::string unparsable = firstUnparsableLeaf(*block, section);
+    LOG(WARNING) << "[MpcParameterUpdaterModule] " << section << " was not applied, the running values are kept: "
+                 << (unparsable.empty() ? std::string() : absl::StrCat(unparsable, ", which is not a number: ")) << e.what();
+    return false;
+  }
+}
+
+/**
+ * The `contact_implicit` block of a reloaded file: its values, over ModelSettings' defaults for the keys it does not
+ * carry, and which fields it does carry - only those are applied.
+ */
+struct ContactImplicitReload {
+  ModelSettings::ContactImplicitConfig config;
+  std::vector<scalar_t ModelSettings::ContactImplicitConfig::*> carried;
+
+  bool carries(scalar_t ModelSettings::ContactImplicitConfig::*field) const {
+    return std::find(carried.begin(), carried.end(), field) != carried.end();
+  }
+};
+
+/**
+ * Reads the `contact_implicit` block of a reloaded file through the key list ModelSettings loads it with, and checks it
+ * the way the start-up path does: a key that list does not know (a renamed or misspelled one) is refused by
+ * checkContactImplicitBlockKeys(), and the values by validateContactImplicitConfig(), each with a message that names the
+ * key. Returns nullopt when the file carries no such block.
+ */
+absl::StatusOr<std::optional<ContactImplicitReload>> loadContactImplicitReload(const boost::property_tree::ptree& pt) {
+  if (!pt.get_child_optional(std::string(ModelSettings::kContactImplicitBlock))) {
+    return std::optional<ContactImplicitReload>();
+  }
+  RETURN_IF_ERROR(checkContactImplicitBlockKeys(pt));
+  ContactImplicitReload reload;
+  for (const ModelSettings::ContactImplicitKey& key : ModelSettings::contactImplicitKeys()) {
+    const std::string path = absl::StrCat(ModelSettings::kContactImplicitBlock, ".", key.name);
+    if (!pt.get_child_optional(path)) {
+      continue;
+    }
+    RETURN_IF_ERROR(loadOptionalValue(pt, path, reload.config.*key.field));
+    reload.carried.push_back(key.field);
+  }
+  RETURN_IF_ERROR(validateContactImplicitConfig(reload.config));
+  return std::optional<ContactImplicitReload>(std::move(reload));
+}
+
+/**
+ * The foot-constraint gains of a reloaded file (the `model_settings.foot_constraint` section) into `gains`, which keeps
+ * its value for every key the file does not carry. A value that does not parse is an InvalidArgument naming its key;
+ * `gains` is then partly written and must not be applied. It used to be read with loadPtreeValue, which throws on such
+ * a value - out of preSolverRun on a file-watch reload.
+ */
+absl::Status loadFootConstraintGains(const boost::property_tree::ptree& pt, ModelSettings::FootConstraintConfig& gains) {
+  const std::string prefix = "model_settings.foot_constraint.";
+  RETURN_IF_ERROR(loadOptionalValue(pt, absl::StrCat(prefix, "positionErrorGain_z"), gains.positionErrorGain_z));
+  RETURN_IF_ERROR(loadOptionalValue(pt, absl::StrCat(prefix, "orientationErrorGain"), gains.orientationErrorGain));
+  RETURN_IF_ERROR(loadOptionalValue(pt, absl::StrCat(prefix, "linearVelocityErrorGain_z"), gains.linearVelocityErrorGain_z));
+  RETURN_IF_ERROR(loadOptionalValue(pt, absl::StrCat(prefix, "linearVelocityErrorGain_xy"), gains.linearVelocityErrorGain_xy));
+  RETURN_IF_ERROR(loadOptionalValue(pt, absl::StrCat(prefix, "angularVelocityErrorGain"), gains.angularVelocityErrorGain));
+  RETURN_IF_ERROR(loadOptionalValue(pt, absl::StrCat(prefix, "linearAccelerationErrorGain_z"), gains.linearAccelerationErrorGain_z));
+  RETURN_IF_ERROR(loadOptionalValue(pt, absl::StrCat(prefix, "linearAccelerationErrorGain_xy"), gains.linearAccelerationErrorGain_xy));
+  RETURN_IF_ERROR(loadOptionalValue(pt, absl::StrCat(prefix, "angularAccelerationErrorGain"), gains.angularAccelerationErrorGain));
+  RETURN_IF_ERROR(loadOptionalValue(pt, absl::StrCat(prefix, "constrainOrientation"), gains.constrainOrientation));
+  RETURN_IF_ERROR(
+      loadOptionalValue(pt, absl::StrCat(prefix, "constrainYawRateAboutContactNormal"), gains.constrainYawRateAboutContactNormal));
+  return absl::OkStatus();
+}
+
+/**
+ * The hot-reloadable subset of the SQP settings (the `multiple_shooting` section) into `settings`, which keeps its value
+ * for every key the file does not carry. The same refusal as loadFootConstraintGains().
+ */
+absl::Status loadSqpSettingsUpdates(const boost::property_tree::ptree& pt, sqp::Settings& settings) {
+  size_t sqpIteration = settings.sqpIteration;
+  RETURN_IF_ERROR(loadOptionalValue(pt, "multiple_shooting.sqpIteration", sqpIteration));
+  settings.sqpIteration = sqpIteration;
+  RETURN_IF_ERROR(loadOptionalValue(pt, "multiple_shooting.deltaTol", settings.deltaTol));
+  RETURN_IF_ERROR(loadOptionalValue(pt, "multiple_shooting.g_max", settings.g_max));
+  RETURN_IF_ERROR(loadOptionalValue(pt, "multiple_shooting.g_min", settings.g_min));
+  RETURN_IF_ERROR(loadOptionalValue(pt, "multiple_shooting.inequalityConstraintMu", settings.inequalityConstraintMu));
+  RETURN_IF_ERROR(loadOptionalValue(pt, "multiple_shooting.inequalityConstraintDelta", settings.inequalityConstraintDelta));
+  return absl::OkStatus();
 }
 
 }  // namespace
+
+absl::StatusOr<std::unique_ptr<MpcParameterUpdaterModule>> MpcParameterUpdaterModule::Create(
+    MPC_BASE* mpcPtr,
+    const std::string& taskFile,
+    const std::string& urdfFile,
+    const std::string& referenceFile,
+    size_t stateDim,
+    size_t inputDim,
+    const std::vector<std::string>& contactNames,
+    SwitchedModelReferenceManager* referenceManager,
+    std::optional<BasisInputsCostTransformConfig> basisCostTransform) {
+  if (basisCostTransform.has_value()) {
+    // The transformed R is written straight into the OCP with setGains(), which performs no size check. Catch a
+    // wrench-vs-basis dimension mix-up here, at construction, instead of silently corrupting the input cost online.
+    const BasisInputsCostTransformConfig& cfg = *basisCostTransform;
+    if (inputDim != cfg.basisInputDim()) {
+      return absl::InvalidArgumentError(absl::StrCat("[MpcParameterUpdaterModule] inputDim (", inputDim,
+                                                     ") must equal the basis-space input dimension of the cost transform (",
+                                                     cfg.basisInputDim(), ")."));
+    }
+    if (static_cast<size_t>(cfg.basisToWrenchMap.rows()) != cfg.wrenchInputDim) {
+      return absl::InvalidArgumentError(absl::StrCat("[MpcParameterUpdaterModule] basisToWrenchMap has ", cfg.basisToWrenchMap.rows(),
+                                                     " rows but wrenchInputDim is ", cfg.wrenchInputDim, "."));
+    }
+    if (cfg.numBasisInputs > inputDim) {
+      return absl::InvalidArgumentError(
+          absl::StrCat("[MpcParameterUpdaterModule] numBasisInputs (", cfg.numBasisInputs, ") exceeds inputDim (", inputDim, ")."));
+    }
+    RETURN_IF_ERROR(validateBasisInputsCostTransformConfig(cfg));
+  }
+  return std::unique_ptr<MpcParameterUpdaterModule>(new MpcParameterUpdaterModule(
+      mpcPtr, taskFile, urdfFile, referenceFile, stateDim, inputDim, contactNames, referenceManager, std::move(basisCostTransform)));
+}
 
 MpcParameterUpdaterModule::MpcParameterUpdaterModule(MPC_BASE* mpcPtr,
                                                      const std::string& taskFile,
@@ -130,7 +434,7 @@ MpcParameterUpdaterModule::MpcParameterUpdaterModule(MPC_BASE* mpcPtr,
                                                      size_t stateDim,
                                                      size_t inputDim,
                                                      const std::vector<std::string>& contactNames,
-                                                     const SwitchedModelReferenceManager* referenceManager,
+                                                     SwitchedModelReferenceManager* referenceManager,
                                                      std::optional<BasisInputsCostTransformConfig> basisCostTransform)
     : mpcPtr_(mpcPtr),
       taskFile_(taskFile),
@@ -142,25 +446,6 @@ MpcParameterUpdaterModule::MpcParameterUpdaterModule(MPC_BASE* mpcPtr,
       contactNames_(contactNames),
       referenceManagerPtr_(referenceManager),
       basisCostTransform_(std::move(basisCostTransform)) {
-  if (basisCostTransform_.has_value()) {
-    // The transformed R is written straight into the OCP with setGains(), which performs no size check. Catch a
-    // wrench-vs-basis dimension mix-up here, at construction, instead of silently corrupting the input cost online.
-    const auto& cfg = *basisCostTransform_;
-    if (inputDim_ != cfg.basisInputDim()) {
-      throw std::invalid_argument("[MpcParameterUpdaterModule] inputDim (" + std::to_string(inputDim_) +
-                                  ") must equal the basis-space input dimension of the cost transform (" +
-                                  std::to_string(cfg.basisInputDim()) + ").");
-    }
-    if (static_cast<size_t>(cfg.basisToWrenchMap.rows()) != cfg.wrenchInputDim) {
-      throw std::invalid_argument("[MpcParameterUpdaterModule] basisToWrenchMap has " + std::to_string(cfg.basisToWrenchMap.rows()) +
-                                  " rows but wrenchInputDim is " + std::to_string(cfg.wrenchInputDim) + ".");
-    }
-    if (cfg.numBasisInputs > inputDim_) {
-      throw std::invalid_argument("[MpcParameterUpdaterModule] numBasisInputs (" + std::to_string(cfg.numBasisInputs) +
-                                  ") exceeds inputDim (" + std::to_string(inputDim_) + ").");
-    }
-  }
-
   if (!taskFile_.empty() && std::filesystem::exists(taskFile_)) {
     std::error_code ec;
     taskFileLastWriteTime_ = std::filesystem::last_write_time(taskFile_, ec);
@@ -183,17 +468,21 @@ void MpcParameterUpdaterModule::preSolverRun(scalar_t initTime,
                                              scalar_t finalTime,
                                              const vector_t& currentState,
                                              const ReferenceManagerInterface& referenceManager) {
+  // First, before any reload: the reference manager has just rebuilt this solve's references, so this is the moment the
+  // contact-implicit terms can take the ground those references were built on.
+  followAppliedTerrainHeight();
+
   // Pathway 1: Check for ROS topic data (takes priority — no file I/O needed for the source YAML)
   if (hasNewTopicData_.load(std::memory_order_acquire)) {
     std::string yamlContent;
     {
       std::lock_guard<std::mutex> lock(pendingMutex_);
       yamlContent = std::move(pendingYamlContent_);
-      hasNewTopicData_.store(false, std::memory_order_release);
+      hasNewTopicData_.store(false, std::memory_order_release);  // NOLINT(argument-comment): libstdc++ names the value __i.
     }
     // Write to a temp file so we can reuse the existing loadData parsing pipeline.
     // Keep the .yaml extension so readPropertyTree dispatches to the YAML parser.
-    const std::string tempFile = taskFile_ + ".live.yaml";
+    const std::string tempFile = absl::StrCat(taskFile_, ".live.yaml");
     try {
       std::ofstream ofs(tempFile, std::ios::trunc);
       if (ofs.is_open()) {
@@ -213,22 +502,33 @@ void MpcParameterUpdaterModule::preSolverRun(scalar_t initTime,
   // `contact_planning` block inside the task file is applied by applyParameterUpdates() with the rest.
   if (!taskFile_.empty() && checkCounter_++ % 100 == 0) {
     std::error_code ec;
-    auto last_write = std::filesystem::last_write_time(taskFile_, ec);
-    if (!ec && last_write != taskFileLastWriteTime_) {
-      taskFileLastWriteTime_ = last_write;
-      applyParameterUpdates(taskFile_);
+    const std::filesystem::file_time_type lastWrite = std::filesystem::last_write_time(taskFile_, ec);
+    // Every read of a reloaded value reports a value it cannot use by its key and keeps the running one; this is the
+    // last line of defense, as on the topic path above, so that nothing a saved file contains can throw out of the
+    // solver's pre-solve hook.
+    if (!ec && lastWrite != taskFileLastWriteTime_) {
+      taskFileLastWriteTime_ = lastWrite;
+      try {
+        applyParameterUpdates(taskFile_);
+      } catch (const std::exception& e) {
+        LOG(ERROR) << "[MpcParameterUpdaterModule] the reload of " << taskFile_ << " stopped part-way: " << e.what();
+      }
     }
     if (contactPlanningFile_ != taskFile_) {
-      auto planningLastWrite = std::filesystem::last_write_time(contactPlanningFile_, ec);
+      const std::filesystem::file_time_type planningLastWrite = std::filesystem::last_write_time(contactPlanningFile_, ec);
       if (!ec && planningLastWrite != contactPlanningFileLastWriteTime_) {
         contactPlanningFileLastWriteTime_ = planningLastWrite;
-        applyContactPlanningUpdates(contactPlanningFile_);
+        try {
+          applyContactPlanningUpdates(contactPlanningFile_);
+        } catch (const std::exception& e) {
+          LOG(ERROR) << "[MpcParameterUpdaterModule] the reload of " << contactPlanningFile_ << " stopped part-way: " << e.what();
+        }
       }
     }
     // The command limits and ramps live in reference.yaml, which nothing else watches: without this a change to it
     // needed a restart of the controller (the Command Limits tab of the remote control writes exactly this file).
     if (!referenceFile_.empty() && !referenceFileReloaders_.empty()) {
-      auto referenceLastWrite = std::filesystem::last_write_time(referenceFile_, ec);
+      const std::filesystem::file_time_type referenceLastWrite = std::filesystem::last_write_time(referenceFile_, ec);
       if (!ec && referenceLastWrite != referenceFileLastWriteTime_) {
         referenceFileLastWriteTime_ = referenceLastWrite;
         for (const std::function<void(const std::string&)>& reload : referenceFileReloaders_) {
@@ -253,7 +553,7 @@ void MpcParameterUpdaterModule::subscribe(rclcpp::Node::SharedPtr node) {
 void MpcParameterUpdaterModule::topicCallback(const std_msgs::msg::String::SharedPtr msg) {
   std::lock_guard<std::mutex> lock(pendingMutex_);
   pendingYamlContent_ = msg->data;
-  hasNewTopicData_.store(true, std::memory_order_release);
+  hasNewTopicData_.store(true, std::memory_order_release);  // NOLINT(argument-comment): libstdc++ names the value __i.
 }
 
 /******************************************************************************************************/
@@ -284,14 +584,21 @@ void MpcParameterUpdaterModule::recordControllerSettings(const std::string& yaml
   }
   const boost::optional<std::string> name = pt.get_optional<std::string>("contactEstimator");
   std::optional<ContactWrenchGate::Config> gate;
-  if (const auto block = pt.get_child_optional("contact_wrench_gate")) {
+  if (const boost::optional<boost::property_tree::ptree&> block = pt.get_child_optional("contact_wrench_gate")) {
+    // A key the block does not carry keeps the library default, as at start-up; one that does not parse refuses the
+    // block, which the controller then keeps running as it was (a `get` with a default used to swallow it silently).
     ContactWrenchGate::Config config;
-    config.debounceTime = block->get<scalar_t>("debounceTime", config.debounceTime);
-    config.rampTime = block->get<scalar_t>("rampTime", config.rampTime);
-    if (config.debounceTime >= 0.0 && config.rampTime >= 0.0) {
+    absl::Status status = loadOptionalValue(pt, "contact_wrench_gate.debounceTime", config.debounceTime);
+    if (status.ok()) {
+      status = loadOptionalValue(pt, "contact_wrench_gate.rampTime", config.rampTime);
+    }
+    if (!status.ok()) {
+      LOG(WARNING) << "[MpcParameterUpdaterModule] contact_wrench_gate was not applied, the running gate is kept: " << status.message();
+    } else if (config.debounceTime >= 0.0 && config.rampTime >= 0.0) {
       gate = config;
     } else {
-      LOG(ERROR) << "[MpcParameterUpdaterModule] contact_wrench_gate.debounceTime and rampTime must be non-negative; the block is ignored.";
+      LOG(WARNING) << "[MpcParameterUpdaterModule] contact_wrench_gate.debounceTime and contact_wrench_gate.rampTime must be "
+                      "non-negative; the block was not applied, the running gate is kept.";
     }
   }
   std::lock_guard<std::mutex> lock(controllerSettingsMutex_);
@@ -309,12 +616,12 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
     LOG(ERROR) << "[MpcParameterUpdaterModule] mpcPtr_ is null.";
     return;
   }
-  auto* solverBasePtr = mpcPtr_->getSolverPtr();
+  SolverBase* solverBasePtr = mpcPtr_->getSolverPtr();
   if (solverBasePtr == nullptr) {
     LOG(ERROR) << "[MpcParameterUpdaterModule] getSolverPtr() returned null.";
     return;
   }
-  auto* sqpSolverPtr = dynamic_cast<SqpSolver*>(solverBasePtr);
+  SqpSolver* sqpSolverPtr = dynamic_cast<SqpSolver*>(solverBasePtr);
   if (sqpSolverPtr == nullptr) {
     LOG(ERROR) << "[MpcParameterUpdaterModule] Underlying solver is not SqpSolver. Cannot update parameters.";
     return;
@@ -331,69 +638,120 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
     return;
   }
 
+  // From the RUNNING problem, never from the file: the file's `costs` list is not hot-reloadable, and reading it here
+  // would zero the base-pose weights of a problem that has no ACoM cost to replace them, or restore them next to one
+  // that does. Every per-thread problem is a clone of the same one, so the first answers for all of them.
+  std::vector<OptimalControlProblem>& ocpDefinitions = sqpSolverPtr->getOcpDefinitions();
+  const bool runsComAndAcomTracking = !ocpDefinitions.empty() && runsComAndAcomTrackingCost(ocpDefinitions.front());
+  // Likewise the terminal cost: whether a reloaded Q_final has a term to go to is the running problem's answer, not
+  // the file's `costs` list, which is structural and would otherwise leave a running quadratic terminal cost frozen after
+  // the file switched to dcm_terminal_cost (or go looking for a term that is not there after it switched back).
+  const bool runsQuadraticTerminalCost = !ocpDefinitions.empty() && runsFinalCostTerm(ocpDefinitions.front(), kQuadraticTerminalCostTerm);
+  const bool runsDcmTerminalCost = !ocpDefinitions.empty() && runsFinalCostTerm(ocpDefinitions.front(), kDcmTerminalCostTerm);
+  warnAboutStructuralFormulationChanges(yamlFile, runsComAndAcomTracking, basisCostTransform_.has_value(), runsDcmTerminalCost,
+                                        contactPlannerModulePtr_ != nullptr);
+
+  // Every matrix below is applied only when it loaded: a key that does not parse refuses that matrix, named by the key,
+  // and the running problem keeps its own, while the rest of the file still applies.
   matrix_t Q = matrix_t::Zero(stateDim_, stateDim_);
-  matrix_t R = matrix_t::Zero(inputDim_, inputDim_);
-  matrix_t Q_final = matrix_t::Zero(stateDim_, stateDim_);
-  scalar_t terminalCostScaling = 1.0;
-  bool hasQFinal = false;
-
-  const bool useComAndAcom = pt.get<bool>("useComAndAcomTracking", false);
-
-  try {
-    loadEigenMatrixFromPtree(pt, "Q", Q);
-
-    if (basisCostTransform_.has_value()) {
-      // Hot-reload the basis scaling regularization if the contacts section has it.
-      // R_basis = M^T R_wrench M + reg * I is only positive definite for a
-      // non-negative regularization, and an indefinite R stalls the QP solver.
-      scalar_t basisReg = basisCostTransform_->lambdaRegularization;
-      loadData::loadPtreeValue(pt, basisReg, "contacts.basisScalingRegularization", false);
-      if (basisReg < 0.0) {
-        LOG(ERROR) << "[MpcParameterUpdaterModule] contacts.basisScalingRegularization must be non-negative, got " << basisReg
-                   << ". Keeping the previous value " << basisCostTransform_->lambdaRegularization << ".";
-      } else {
-        basisCostTransform_->lambdaRegularization = basisReg;
-      }
-      // The R indices in task.yaml refer to wrench-space inputs (forces/moments/joint velocities). In basis-vector mode
-      // the OCP input is [λ, joint velocities], so loading R directly at inputDim_ would put force weights on λ entries.
-      // Load at the wrench dimension and apply the same transform the OCP factory used: R_basis = Mᵀ R_wrench M + reg.
-      matrix_t R_wrench = matrix_t::Zero(basisCostTransform_->wrenchInputDim, basisCostTransform_->wrenchInputDim);
-      loadEigenMatrixFromPtree(pt, "R", R_wrench);
-      R = transformWrenchInputCostToBasisSpace(R_wrench, *basisCostTransform_);
-    } else {
-      loadEigenMatrixFromPtree(pt, "R", R);
-    }
-    // Q_final is optional, and ignored while useDcmTerminalCost is on (the OCP then has no quadratic terminal cost).
-    hasQFinal = pt.get_child_optional("Q_final").is_initialized() && !pt.get<bool>("useDcmTerminalCost", false);
-    if (hasQFinal) {
-      loadEigenMatrixFromPtree(pt, "Q_final", Q_final);
-      terminalCostScaling = pt.get<scalar_t>("terminalCostScaling", terminalCostScaling);
-    }
-
-    // The factory zeroes the base pose block of both the running and the terminal
-    // state cost when CoM + aCOM tracking is on, so live updates must do the same
-    // or a slider drag silently re-introduces base pose tracking.
-    if (useComAndAcom) {
-      zeroBasePoseWeights(Q);
-      zeroBasePoseWeights(Q_final);
-    }
-    Q_final *= terminalCostScaling;
-  } catch (const std::exception& e) {
-    LOG(ERROR) << "[MpcParameterUpdaterModule] Error parsing Q/R/Q_final: " << e.what();
-    return;
+  bool applyQ = true;
+  if (const absl::Status status = loadEigenMatrixFromPtree(pt, "Q", Q); !status.ok()) {
+    LOG(WARNING) << "[MpcParameterUpdaterModule] Q was not applied, the running state cost is kept: " << status.message();
+    applyQ = false;
   }
 
-  // CoM and ACoM tracking weights
+  matrix_t R = matrix_t::Zero(inputDim_, inputDim_);
+  bool applyR = true;
+  if (basisCostTransform_.has_value()) {
+    // The R indices in task.yaml refer to wrench-space inputs (forces/moments/joint velocities). In basis-vector mode
+    // the OCP input is [λ, joint velocities], so loading R directly at inputDim_ would put force weights on λ entries.
+    // Load at the wrench dimension and apply the transform the OCP factory applied at start-up,
+    // R_basis = Mᵀ R_wrench M + reg * blkdiag(S, 0), with the regularization weight `reg` and its shape S reloaded
+    // too. The generator set (contacts.basisGeneratorSet) is NOT reloaded: it fixes M and the input dimension.
+    BasisInputsCostTransformConfig candidate = *basisCostTransform_;
+    // LINT.IfChange(basis_regularization_updater_yaml_path)
+    absl::Status status = loadOptionalValue(pt, kBasisScalingRegularizationKey, candidate.lambdaRegularization);
+    if (status.ok()) {
+      status = loadOptionalValue(pt, kBasisRegularizationKey, candidate.regularization);
+    }
+    // clang-format off
+    // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:basis_regularization_config, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:basis_regularization_config)
+    // clang-format on
+    matrix_t R_wrench = matrix_t::Zero(candidate.wrenchInputDim, candidate.wrenchInputDim);
+    if (status.ok()) {
+      status = loadEigenMatrixFromPtree(pt, "R", R_wrench);
+    }
+    // A weight that is not a number, an unknown regularization name, a negative weight, or a λ block that is not
+    // positive definite (a zero weight, or null_space with a contact wrench direction R does not weigh) would install
+    // an R the QP cannot solve with, or none at all. The whole basis-space R is refused then, with a message naming
+    // the key, and the running R and regularization are kept; the rest of the file still applies.
+    if (status.ok()) {
+      status = validateBasisInputsCostTransformConfig(candidate);
+    }
+    if (status.ok()) {
+      R = transformWrenchInputCostToBasisSpace(R_wrench, candidate);
+      status = checkLambdaBlockPositiveDefinite(R, candidate.numBasisInputs);
+    }
+    if (status.ok()) {
+      basisCostTransform_ = std::move(candidate);
+    } else {
+      LOG(WARNING) << "[MpcParameterUpdaterModule] R was not applied, the running input cost is kept: " << status.message();
+      applyR = false;
+    }
+  } else if (const absl::Status status = loadEigenMatrixFromPtree(pt, "R", R); !status.ok()) {
+    LOG(WARNING) << "[MpcParameterUpdaterModule] R was not applied, the running input cost is kept: " << status.message();
+    applyR = false;
+  }
+
+  // terminalCostScaling weighs both Q_final and the terminal CoM + ACoM instance. Empty when the file does not carry it
+  // or carries a value that does not parse; the second case refuses both terminal weights rather than applying them at
+  // a scaling of 1.
+  std::optional<scalar_t> terminalCostScaling;
+  bool terminalCostScalingRefused = false;
+  if (pt.get_child_optional("terminalCostScaling")) {
+    scalar_t scaling = 1.0;
+    if (const absl::Status status = loadOptionalValue(pt, "terminalCostScaling", scaling); status.ok()) {
+      terminalCostScaling = scaling;
+    } else {
+      LOG(WARNING) << "[MpcParameterUpdaterModule] the terminal weights were not applied, the running ones are kept: " << status.message();
+      terminalCostScalingRefused = true;
+    }
+  }
+
+  // Q_final is optional, and applied only to a running quadratic terminal cost: a problem that ends on the DCM cost
+  // has none, whatever the reloaded file's `costs` list now says.
+  matrix_t Q_final = matrix_t::Zero(stateDim_, stateDim_);
+  bool hasQFinal = runsQuadraticTerminalCost && !terminalCostScalingRefused && pt.get_child_optional("Q_final").is_initialized();
+  if (hasQFinal) {
+    if (const absl::Status status = loadEigenMatrixFromPtree(pt, "Q_final", Q_final); !status.ok()) {
+      LOG(WARNING) << "[MpcParameterUpdaterModule] Q_final was not applied, the running terminal cost is kept: " << status.message();
+      hasQFinal = false;
+    }
+  }
+
+  // The factory zeroes the base pose block of both the running and the terminal
+  // state cost when the problem carries the CoM + aCOM cost, so live updates must
+  // do the same or a slider drag silently re-introduces base pose tracking.
+  if (runsComAndAcomTracking) {
+    ComAndAcomTrackingCost::zeroBasePoseWeights(Q);
+    ComAndAcomTrackingCost::zeroBasePoseWeights(Q_final);
+  }
+  Q_final *= terminalCostScaling.value_or(1.0);
+
+  // CoM and ACoM tracking weights. A file without them is the normal case for a problem without the cost.
   matrix_t Q_com = matrix_t::Zero(3, 3);
   matrix_t Q_acom = matrix_t::Zero(3, 3);
   bool hasComAcom = false;
-  try {
-    loadEigenMatrixFromPtree(pt, "Q_com", Q_com);
-    loadEigenMatrixFromPtree(pt, "Q_acom", Q_acom);
-    hasComAcom = true;
-  } catch (const std::exception& e) {
-    if (useComAndAcom) {
-      LOG(WARNING) << "[MpcParameterUpdaterModule] CoM + aCOM tracking is enabled but its weights could not be read: " << e.what();
+  {
+    absl::Status status = loadEigenMatrixFromPtree(pt, "Q_com", Q_com);
+    if (status.ok()) {
+      status = loadEigenMatrixFromPtree(pt, "Q_acom", Q_acom);
+    }
+    if (status.ok()) {
+      hasComAcom = true;
+    } else if (runsComAndAcomTracking || !absl::IsNotFound(status)) {
+      LOG(WARNING) << "[MpcParameterUpdaterModule] the CoM + aCOM tracking weights were not applied, the running ones are kept: "
+                   << status.message();
     }
   }
 
@@ -401,74 +759,68 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
   // 2. Parse task-space tracking cost weights
   // ────────────────────────────────────────────────────────────────
 
-  // The getWeights and loadConfigFromFile helpers below throw when their section
-  // is absent, which is the normal case for a task file that does not configure
-  // that cost. The catch is therefore deliberately silent: the corresponding
-  // has* flag stays false and the apply step is skipped, leaving the running
-  // value untouched.
-  EndEffectorKinematicsWeights footTrackingWeights;
+  // Each section below is read by the loader the start-up path uses, and only when the file carries it (loadSection):
+  // those loaders fill every key they do not find with a library default, so an absent section applied that way would
+  // replace the running values with defaults. A section they cannot read is reported by its key and not applied.
   vector12_t footTrackingWeightsVec = vector12_t::Zero();
-  bool hasFootTrackingWeights = false;
-  try {
-    footTrackingWeights = EndEffectorKinematicsWeights::getWeights(yamlFile, "task_space_foot_cost_weights.", false);
-    footTrackingWeightsVec = footTrackingWeights.toVector();
-    hasFootTrackingWeights = true;
-  } catch (...) {
-  }
+  const bool hasFootTrackingWeights = loadSection(pt, "task_space_foot_cost_weights", [&]() {
+    footTrackingWeightsVec =
+        EndEffectorKinematicsWeights::getWeights(yamlFile, "task_space_foot_cost_weights.", /*verbose=*/false).toVector();
+  });
 
-  // loadPtreeValue leaves its target untouched for a missing key rather than
-  // throwing, so presence has to be probed directly. Without the probe an absent
-  // key would be applied as its default and silently switch the flag off.
+  // Applied only when the file carries it: an absent key applied as its default would silently switch the flag off.
   bool footActiveInStance = false;
-  const bool hasFootActiveInStance = pt.get_optional<bool>("task_space_foot_cost_weights.activeInStance").is_initialized();
+  bool hasFootActiveInStance = pt.get_child_optional("task_space_foot_cost_weights.activeInStance").is_initialized();
   if (hasFootActiveInStance) {
-    loadData::loadPtreeValue(pt, footActiveInStance, "task_space_foot_cost_weights.activeInStance", false);
+    const absl::Status status = loadOptionalValue(pt, "task_space_foot_cost_weights.activeInStance", footActiveInStance);
+    if (!status.ok()) {
+      LOG(WARNING) << "[MpcParameterUpdaterModule] activeInStance was not applied, the running value is kept: " << status.message();
+      hasFootActiveInStance = false;
+    }
   }
 
   vector2_t icpWeights = vector2_t::Zero();
-  bool hasIcpWeights = false;
-  try {
-    icpWeights = ICPCost::getWeights(yamlFile, "icp_cost_weights.", false);
-    hasIcpWeights = true;
-  } catch (...) {
-  }
+  const bool hasIcpWeights =
+      loadSection(pt, "icp_cost_weights", [&]() { icpWeights = ICPCost::getWeights(yamlFile, "icp_cost_weights.", /*verbose=*/false); });
 
-  // DCM terminal cost (weights, CoM height, velocity offset); the CppAD model is parameterised, no recompilation needed.
+  // DCM terminal cost (weights, CoM height, velocity offset); the CppAD model is parameterized, no recompilation needed.
+  // The block is read as the file writes it: a comHeight of 0 is resolved to the model's pendulum length by each
+  // running cost's setConfig(), exactly as at start-up.
   std::optional<DcmTerminalCost::Config> dcmTerminalConfig;
   if (pt.get_child_optional("dcm_terminal_cost")) {
-    try {
-      dcmTerminalConfig = DcmTerminalCost::loadConfig(yamlFile, "dcm_terminal_cost.", false);
-    } catch (const std::exception& e) {
-      LOG(WARNING) << "[MpcParameterUpdaterModule] dcm_terminal_cost section could not be applied: " << e.what();
+    absl::StatusOr<DcmTerminalCost::Config> loaded =
+        DcmTerminalCost::loadConfig(yamlFile, DcmTerminalCost::kConfigPrefix, /*verbose=*/false);
+    if (loaded.ok()) {
+      dcmTerminalConfig = *std::move(loaded);
+    } else {
+      LOG(WARNING) << "[MpcParameterUpdaterModule] dcm_terminal_cost not applied, the running cost is kept: " << loaded.status().message();
     }
   }
+  bool dcmTerminalConfigRefusalLogged = false;
 
-  // Parse task-space torso/body tracking cost weights
+  // Task-space torso/body tracking cost weights, one section per tracked body.
   std::vector<std::pair<std::string, vector12_t>> taskSpaceCostUpdates;
-  try {
-    auto taskSpaceCostsIt = pt.find("task_space_costs");
-    if (taskSpaceCostsIt != pt.not_found()) {
-      for (auto& task_space_cost : taskSpaceCostsIt->second) {
-        std::string costName = task_space_cost.first;
-        try {
-          EndEffectorKinematicsWeights weights =
-              EndEffectorKinematicsWeights::getWeights(yamlFile, "task_space_costs." + costName + ".weights.", false);
-          taskSpaceCostUpdates.emplace_back(costName + "_TaskSpaceKinematicsCost", weights.toVector());
-        } catch (...) {
-        }
+  if (const boost::optional<boost::property_tree::ptree&> taskSpaceCosts = pt.get_child_optional("task_space_costs")) {
+    for (const boost::property_tree::ptree::value_type& taskSpaceCost : *taskSpaceCosts) {
+      const std::string& costName = taskSpaceCost.first;
+      const std::string section = absl::StrCat("task_space_costs.", costName, ".weights");
+      vector12_t weights = vector12_t::Zero();
+      if (loadSection(pt, section, [&]() {
+            weights = EndEffectorKinematicsWeights::getWeights(yamlFile, section + ".", /*verbose=*/false).toVector();
+          })) {
+        taskSpaceCostUpdates.emplace_back(absl::StrCat(costName, "_TaskSpaceKinematicsCost"), weights);
       }
     }
-  } catch (...) {
   }
 
-  // Parse external torque cost weights
+  // External torque cost weights, one section per leg.
   std::vector<std::pair<std::string, ExternalTorqueQuadraticCostAD::Config>> extTorqueConfigs;
   for (size_t i = 0; i < contactNames_.size(); ++i) {
-    try {
-      std::string fieldName = (i == 0) ? "left_leg_torque_cost." : "right_leg_torque_cost.";
-      auto config = ExternalTorqueQuadraticCostAD::loadConfigFromFile(yamlFile, fieldName, false);
-      extTorqueConfigs.emplace_back(contactNames_[i] + "_ExternalTorqueQuadraticCost", std::move(config));
-    } catch (...) {
+    const std::string section = (i == 0) ? "left_leg_torque_cost" : "right_leg_torque_cost";
+    ExternalTorqueQuadraticCostAD::Config config;
+    if (loadSection(pt, section,
+                    [&]() { config = ExternalTorqueQuadraticCostAD::loadConfigFromFile(yamlFile, section + ".", /*verbose=*/false); })) {
+      extTorqueConfigs.emplace_back(absl::StrCat(contactNames_[i], "_ExternalTorqueQuadraticCost"), std::move(config));
     }
   }
 
@@ -482,82 +834,78 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
   RelaxedBarrierPenalty::Config wrenchConeBarrier, frictionConeBarrier, contactMomentBarrier;
   PieceWisePolynomialBarrierPenalty::Config jointLimitsBarrier, collisionBarrier, basisNonNegativityBarrier;
 
-  // Only `mu` and `delta` are hot-reloadable. The geometric coefficients in the
-  // same yaml sections (frictionCoefficient, minNormalForce, ...) are baked into
-  // the CppAD-compiled constraints at build time and cannot be updated here.
+  // Only `mu` and `delta` are hot-reloadable. The geometric coefficients in the same yaml sections
+  // (frictionCoefficient, minNormalForce, numBasisVectors, ...) are baked in when the problem is built - into the
+  // constraints, and under basis-vector contact inputs into the generators and the input dimension - and cannot be
+  // updated here; the tuning GUI labels them "(restart)".
   // LINT.IfChange(hot_reloadable_barrier_keys)
-  const auto loadBarrier = [&pt](const std::string& section, scalar_t& mu, scalar_t& delta) {
-    if (!pt.get_child_optional(section)) {
-      return false;
-    }
-    loadData::loadPtreeValue(pt, mu, section + ".mu", false);
-    loadData::loadPtreeValue(pt, delta, section + ".delta", false);
-    return true;
-  };
-
-  const bool hasWrenchConeBarrier = loadBarrier("contacts.contactWrenchConeSoftConstraint", wrenchConeBarrier.mu, wrenchConeBarrier.delta);
+  const bool hasWrenchConeBarrier =
+      loadBarrierSection(pt, "contacts.contactWrenchConeSoftConstraint", wrenchConeBarrier.mu, wrenchConeBarrier.delta);
   const bool hasFrictionConeBarrier =
-      loadBarrier("contacts.frictionForceConeSoftConstraint", frictionConeBarrier.mu, frictionConeBarrier.delta);
+      loadBarrierSection(pt, "contacts.frictionForceConeSoftConstraint", frictionConeBarrier.mu, frictionConeBarrier.delta);
   const bool hasContactMomentBarrier =
-      loadBarrier("contacts.contactMomentXYSoftConstraint", contactMomentBarrier.mu, contactMomentBarrier.delta);
-  const bool hasBasisNonNegativityBarrier =
-      loadBarrier("contacts.basisNonNegativityBarrier", basisNonNegativityBarrier.mu, basisNonNegativityBarrier.delta);
-  const bool hasJointLimitsBarrier = loadBarrier("jointLimits", jointLimitsBarrier.mu, jointLimitsBarrier.delta);
-  const bool hasCollisionBarrier = loadBarrier("collision_constraint", collisionBarrier.mu, collisionBarrier.delta);
+      loadBarrierSection(pt, "contacts.contactMomentXYSoftConstraint", contactMomentBarrier.mu, contactMomentBarrier.delta);
+  const bool hasJointLimitsBarrier = loadBarrierSection(pt, "jointLimits", jointLimitsBarrier.mu, jointLimitsBarrier.delta);
+  const bool hasCollisionBarrier = loadBarrierSection(pt, "collision_constraint", collisionBarrier.mu, collisionBarrier.delta);
   // LINT.ThenChange(//humanoid_nmpc/remote_control/remote_control/tk_app/mpc_params_tab.py:build_time_contact_keys)
+  // The λ ≥ 0 barrier of the basis-vector contact inputs, which CentroidalMpcInterface builds from this section.
+  // LINT.IfChange(basis_barrier_updater_yaml_path)
+  const bool hasBasisNonNegativityBarrier =
+      loadBarrierSection(pt, "contacts.basisNonNegativityBarrier", basisNonNegativityBarrier.mu, basisNonNegativityBarrier.delta);
+  // clang-format off
+  // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:basis_barrier_config, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:basis_barrier_config)
+  // clang-format on
 
   // ────────────────────────────────────────────────────────────────
   // 3a. Parse contact-implicit config
   // ────────────────────────────────────────────────────────────────
-  scalar_t complementarityWeight = -1.0;
-  scalar_t slipWeight = -1.0;
-  // The residual references and the terrain height, retuned live alongside the weights. Every key of this block
-  // becomes a slider in the tuning dashboard, so one that quietly did nothing until the next launch would be a trap
-  // rather than a parameter; the negative sentinel marks a key the file does not carry.
-  scalar_t heightReference = -1.0;
-  scalar_t velocityReference = -1.0;
-  scalar_t angularVelocityReference = -1.0;
-  // The length scale the footprint corners' minimum is blended over; see ContactImplicitConfig::gapSmoothing.
-  scalar_t gapSmoothing = -1.0;
-  // Where the ground is: one top-level key, shared with the swing trajectories, rather than a second definition
-  // inside the contact_implicit block. NaN marks a file that does not carry it.
+  // Where the ground is: one top-level key, shared with the swing trajectories, rather than a second definition inside
+  // the contact_implicit block. NaN marks a file that does not carry it, or carries a value that cannot be applied.
   // LINT.IfChange(terrain_height_updater_yaml_path)
   scalar_t terrainHeight = std::numeric_limits<scalar_t>::quiet_NaN();
-  loadData::loadPtreeValue(pt, terrainHeight, "terrainHeight", false);
+  const absl::Status terrainHeightStatus = loadOptionalValue(pt, "terrainHeight", terrainHeight);
   // clang-format off
   // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:terrain_height_config, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:terrain_height_config)
   // clang-format on
-  // The hinge's two parameters. `delta` is structurally zero: it is the offset of the hinge's zero, and the whole
-  // point of using a hinge for h >= 0 is that its zero sits exactly on the ground. A positive delta would demand
-  // clearance from a foot that is supposed to be resting on the floor.
-  scalar_t penetrationWeight = -1.0;
-  bool hasPenetrationWeight = false;
-  if (pt.get_child_optional("contact_implicit")) {
-    const std::string ciPrefix = "contact_implicit.";
-    loadData::loadPtreeValue(pt, complementarityWeight, ciPrefix + "complementarityWeight", false);
-    loadData::loadPtreeValue(pt, slipWeight, ciPrefix + "slipWeight", false);
-    loadData::loadPtreeValue(pt, heightReference, ciPrefix + "heightReference", false);
-    loadData::loadPtreeValue(pt, velocityReference, ciPrefix + "velocityReference", false);
-    loadData::loadPtreeValue(pt, angularVelocityReference, ciPrefix + "angularVelocityReference", false);
-    loadData::loadPtreeValue(pt, gapSmoothing, ciPrefix + "gapSmoothing", false);
-
-    if (pt.get_optional<scalar_t>(ciPrefix + "penetrationWeight")) {
-      loadData::loadPtreeValue(pt, penetrationWeight, ciPrefix + "penetrationWeight", false);
-      hasPenetrationWeight = penetrationWeight >= 0.0;
+  if (!terrainHeightStatus.ok() || (pt.get_child_optional("terrainHeight") && !std::isfinite(terrainHeight))) {
+    LOG(WARNING) << "[MpcParameterUpdaterModule] terrainHeight not applied, the running ground is kept: "
+                 << (terrainHeightStatus.ok() ? absl::StrCat("terrainHeight is ", terrainHeight, ", which is not finite.")
+                                              : std::string(terrainHeightStatus.message()));
+    terrainHeight = std::numeric_limits<scalar_t>::quiet_NaN();
+  }
+  // The residual references and the weights, retuned live. Every key of this block becomes a slider in the tuning
+  // dashboard, so one that quietly did nothing until the next launch would be a trap rather than a parameter. The block
+  // is refused as a whole - a key the start-up path would not read, or a value it would refuse - so that the terms never
+  // run on half of an edit.
+  std::optional<ContactImplicitReload> contactImplicitReload;
+  {
+    absl::StatusOr<std::optional<ContactImplicitReload>> reload = loadContactImplicitReload(pt);
+    if (reload.ok()) {
+      contactImplicitReload = *std::move(reload);
+    } else {
+      LOG(WARNING) << "[MpcParameterUpdaterModule] contact_implicit not applied, the running terms are kept: " << reload.status().message();
     }
   }
 
   // LINT.IfChange(softConstraintWeight_yaml_path)
-  // The negative sentinel is what marks the weight absent: loadPtreeValue leaves
-  // it untouched for a missing key, and the apply step below only runs for a
-  // positive value.
+  // The negative sentinel is what marks the weight absent: loadOptionalValue leaves it untouched for a missing key, and
+  // for a value that does not parse (reported by its key), and the apply step below only runs for a positive value.
   scalar_t zeroVelWeight = -1.0;
-  loadData::loadPtreeValue(pt, zeroVelWeight, "model_settings.foot_constraint.softConstraintWeight", false);
+  if (const absl::Status status = loadOptionalValue(pt, "model_settings.foot_constraint.softConstraintWeight", zeroVelWeight);
+      !status.ok()) {
+    LOG(WARNING) << "[MpcParameterUpdaterModule] the zero_velocity soft weight was not applied, the running one is kept: "
+                 << status.message();
+  }
   // The weight of the SOFT normal-velocity term, which is what shapes the swing under the contact-implicit
-  // formulation and is therefore the knob an operator reaches for first. It was missing here while its neighbour
+  // formulation and is therefore the knob an operator reaches for first. It was missing here while its neighbor
   // above was present, so the task file told the operator to tune a key that took effect only on the next launch.
   scalar_t normalVelSoftWeight = -1.0;
-  loadData::loadPtreeValue(pt, normalVelSoftWeight, "model_settings.foot_constraint.normalVelocitySoftConstraintWeight", false);
+  if (const absl::Status status =
+          loadOptionalValue(pt, "model_settings.foot_constraint.normalVelocitySoftConstraintWeight", normalVelSoftWeight);
+      !status.ok()) {
+    LOG(WARNING) << "[MpcParameterUpdaterModule] the normal_velocity soft weight was not applied, the running one is kept: "
+                 << status.message();
+  }
   // clang-format off
   // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:foot_constraint_section, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:foot_constraint_section, //robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.yaml:foot_constraint_section)
   // clang-format on
@@ -567,18 +915,14 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
   ModelSettings::FootConstraintConfig footCfg;
   bool hasFootConstraintGains = false;
   if (pt.get_child_optional("model_settings.foot_constraint")) {
-    const std::string fcPrefix = "model_settings.foot_constraint.";
-    loadData::loadPtreeValue(pt, footCfg.positionErrorGain_z, fcPrefix + "positionErrorGain_z", false);
-    loadData::loadPtreeValue(pt, footCfg.orientationErrorGain, fcPrefix + "orientationErrorGain", false);
-    loadData::loadPtreeValue(pt, footCfg.linearVelocityErrorGain_z, fcPrefix + "linearVelocityErrorGain_z", false);
-    loadData::loadPtreeValue(pt, footCfg.linearVelocityErrorGain_xy, fcPrefix + "linearVelocityErrorGain_xy", false);
-    loadData::loadPtreeValue(pt, footCfg.angularVelocityErrorGain, fcPrefix + "angularVelocityErrorGain", false);
-    loadData::loadPtreeValue(pt, footCfg.linearAccelerationErrorGain_z, fcPrefix + "linearAccelerationErrorGain_z", false);
-    loadData::loadPtreeValue(pt, footCfg.linearAccelerationErrorGain_xy, fcPrefix + "linearAccelerationErrorGain_xy", false);
-    loadData::loadPtreeValue(pt, footCfg.angularAccelerationErrorGain, fcPrefix + "angularAccelerationErrorGain", false);
-    loadData::loadPtreeValue(pt, footCfg.constrainOrientation, fcPrefix + "constrainOrientation", false);
-    loadData::loadPtreeValue(pt, footCfg.constrainYawRateAboutContactNormal, fcPrefix + "constrainYawRateAboutContactNormal", false);
-    hasFootConstraintGains = true;
+    // All or nothing: a gain that does not parse refuses the group, so the constraint never runs on half of an edit.
+    const absl::Status status = loadFootConstraintGains(pt, footCfg);
+    if (status.ok()) {
+      hasFootConstraintGains = true;
+    } else {
+      LOG(WARNING) << "[MpcParameterUpdaterModule] the foot constraint gains were not applied, the running ones are kept: "
+                   << status.message();
+    }
   }
 
   // Build the Ax/Av config from foot constraint gains (mirrors CentroidalMpcInterface::getStanceFootConstraint)
@@ -587,10 +931,10 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
     footTwistConfig.b.setZero(6);
     footTwistConfig.Ax.setZero(6, 6);
     footTwistConfig.Av.setZero(6, 6);
-    if (!numerics::almost_eq(footCfg.positionErrorGain_z, 0.0)) {
+    if (!numerics::almost_eq(footCfg.positionErrorGain_z, /*y=*/0.0)) {
       footTwistConfig.Ax(2, 2) = footCfg.positionErrorGain_z;
     }
-    if (!numerics::almost_eq(footCfg.orientationErrorGain, 0.0)) {
+    if (!numerics::almost_eq(footCfg.orientationErrorGain, /*y=*/0.0)) {
       footTwistConfig.Ax.block(3, 3, 3, 3) = Eigen::MatrixXd::Identity(3, 3) * footCfg.orientationErrorGain;
     }
     footTwistConfig.Av(0, 0) = footCfg.linearVelocityErrorGain_xy;
@@ -607,29 +951,22 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
   sqp::Settings sqpUpdates = sqpSolverPtr->getSettings();
   bool hasSqpUpdates = false;
   if (pt.get_child_optional("multiple_shooting")) {
-    size_t sqpIter = sqpUpdates.sqpIteration;
-    loadData::loadPtreeValue(pt, sqpIter, "multiple_shooting.sqpIteration", false);
-    sqpUpdates.sqpIteration = sqpIter;
-    loadData::loadPtreeValue(pt, sqpUpdates.deltaTol, "multiple_shooting.deltaTol", false);
-    loadData::loadPtreeValue(pt, sqpUpdates.g_max, "multiple_shooting.g_max", false);
-    loadData::loadPtreeValue(pt, sqpUpdates.g_min, "multiple_shooting.g_min", false);
-    loadData::loadPtreeValue(pt, sqpUpdates.inequalityConstraintMu, "multiple_shooting.inequalityConstraintMu", false);
-    loadData::loadPtreeValue(pt, sqpUpdates.inequalityConstraintDelta, "multiple_shooting.inequalityConstraintDelta", false);
-    hasSqpUpdates = true;
+    const absl::Status status = loadSqpSettingsUpdates(pt, sqpUpdates);
+    if (status.ok()) {
+      hasSqpUpdates = true;
+    } else {
+      LOG(WARNING) << "[MpcParameterUpdaterModule] the multiple_shooting settings were not applied, the running ones are kept: "
+                   << status.message();
+    }
   }
 
   // ────────────────────────────────────────────────────────────────
   // 3d. Parse swing trajectory config
   // ────────────────────────────────────────────────────────────────
   SwingTrajectoryPlanner::Config swingConfig;
-  bool hasSwingConfig = false;
-  if (referenceManagerPtr_ != nullptr) {
-    try {
-      swingConfig = loadSwingTrajectorySettings(yamlFile, "swing_trajectory_config", false);
-      hasSwingConfig = true;
-    } catch (...) {
-    }
-  }
+  const bool hasSwingConfig = referenceManagerPtr_ != nullptr && loadSection(pt, "swing_trajectory_config", [&]() {
+                                swingConfig = loadSwingTrajectorySettings(yamlFile, "swing_trajectory_config", /*verbose=*/false);
+                              });
 
   // ────────────────────────────────────────────────────────────────
   // 4. Apply updates in-place to every thread-local OCP
@@ -637,10 +974,16 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
   const matrix_t zeroQ = matrix_t::Zero(stateDim_, stateDim_);
   const matrix_t zeroR = matrix_t::Zero(inputDim_, inputDim_);
 
-  for (auto& ocp : sqpSolverPtr->getOcpDefinitions()) {
+  for (OptimalControlProblem& ocp : ocpDefinitions) {
     // ── Quadratic costs ──
     try {
-      ocp.costPtr->get<QuadraticStateInputCost>("stateInputQuadraticCost").setGains(Q, R);
+      QuadraticStateInputCost& stateInputCost = ocp.costPtr->get<QuadraticStateInputCost>("stateInputQuadraticCost");
+      // Whichever of Q and R was refused above keeps its running value.
+      matrix_t runningQ;
+      matrix_t runningR;
+      matrix_t runningP;
+      stateInputCost.getGains(runningQ, runningR, runningP);
+      stateInputCost.setGains(applyQ ? Q : runningQ, applyR ? R : runningR, runningP);
     } catch (const std::out_of_range&) {
       // Expected if not used in task.yaml
     } catch (const std::exception& e) {
@@ -650,7 +993,9 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
     }
 
     try {
-      ocp.costPtr->get<QuadraticStateInputCost>("stateQuadraticCost").setGains(Q, zeroR);
+      if (applyQ) {
+        ocp.costPtr->get<QuadraticStateInputCost>("stateQuadraticCost").setGains(Q, zeroR);
+      }
     } catch (const std::out_of_range&) {
       // Expected if not used in task.yaml
     } catch (const std::exception& e) {
@@ -660,7 +1005,9 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
     }
 
     try {
-      ocp.costPtr->get<QuadraticStateInputCost>("inputQuadraticCost").setGains(zeroQ, R);
+      if (applyR) {
+        ocp.costPtr->get<QuadraticStateInputCost>("inputQuadraticCost").setGains(zeroQ, R);
+      }
     } catch (const std::out_of_range&) {
       // Expected if not used in task.yaml
     } catch (const std::exception& e) {
@@ -671,7 +1018,7 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
 
     if (hasQFinal) {
       try {
-        ocp.finalCostPtr->get<QuadraticStateCost>("terminalCost").setGains(Q_final);
+        ocp.finalCostPtr->get<QuadraticStateCost>(kQuadraticTerminalCostTerm).setGains(Q_final);
       } catch (const std::out_of_range&) {
         // Expected if not used in task.yaml
       } catch (const std::exception& e) {
@@ -684,40 +1031,53 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
     // ── DCM terminal cost ──
     if (dcmTerminalConfig.has_value()) {
       try {
-        ocp.finalCostPtr->get<DcmTerminalCost>("dcmTerminalCost").setConfig(*dcmTerminalConfig);
+        const absl::Status applied = ocp.finalCostPtr->get<DcmTerminalCost>(kDcmTerminalCostTerm).setConfig(*dcmTerminalConfig);
+        if (!applied.ok() && !dcmTerminalConfigRefusalLogged) {
+          LOG(WARNING) << "[MpcParameterUpdaterModule] dcm_terminal_cost not applied, the running cost is kept: " << applied.message();
+          dcmTerminalConfigRefusalLogged = true;
+        }
       } catch (const std::out_of_range&) {
         // Expected if dcm_terminal_cost is not in the cost list
-      } catch (const std::exception& e) {
-        LOG(WARNING) << "Failed to update dcmTerminalCost: " << e.what();
-      } catch (...) {
-        LOG(WARNING) << "Failed to update dcmTerminalCost: unknown exception";
       }
     }
 
-    // ── CoM and ACoM tracking cost ──
-    if (hasComAcom && ocp.stateCostPtr != nullptr) {
+    // ── CoM and ACoM tracking cost, running and terminal ──
+    if (hasComAcom && runsComAndAcomTracking) {
       try {
-        ocp.stateCostPtr->get<ComAndAcomTrackingCost>("comAndAcomTrackingCost").setWeights(Q_com, Q_acom);
-      } catch (const std::out_of_range&) {
-        // Expected if useComAndAcomTracking is false
+        ocp.stateCostPtr->get<ComAndAcomTrackingCost>(std::string(ComAndAcomTrackingCost::kRunningTermName)).setWeights(Q_com, Q_acom);
+        if (ocp.finalCostPtr != nullptr &&
+            ocp.finalCostPtr->getTermNameMap().count(std::string(ComAndAcomTrackingCost::kTerminalTermName)) > 0) {
+          // Weighted like Q_final, by terminalCostScaling, which a refused value (reported above) or an absent key leaves
+          // as it was.
+          if (terminalCostScaling.has_value()) {
+            ocp.finalCostPtr->get<ComAndAcomTrackingCost>(std::string(ComAndAcomTrackingCost::kTerminalTermName))
+                .setWeights(*terminalCostScaling * Q_com, *terminalCostScaling * Q_acom);
+          } else if (!terminalCostScalingRefused) {
+            LOG(WARNING) << "[MpcParameterUpdaterModule] terminalCostScaling is missing from " << yamlFile
+                         << "; the terminal CoM + aCOM tracking weights are left as they were.";
+          }
+        }
       } catch (const std::exception& e) {
-        LOG(WARNING) << "Failed to update comAndAcomTrackingCost: " << e.what();
+        LOG(WARNING) << "Failed to update the CoM + aCOM tracking cost: " << e.what();
       } catch (...) {
-        LOG(WARNING) << "Failed to update comAndAcomTrackingCost: unknown exception";
+        LOG(WARNING) << "Failed to update the CoM + aCOM tracking cost: unknown exception";
       }
     }
 
     // ── Foot tracking costs ──
     if (hasFootTrackingWeights || hasFootActiveInStance) {
-      for (const auto& footName : contactNames_) {
+      for (const std::string& footName : contactNames_) {
         try {
-          auto& footCost = ocp.costPtr->get<CentroidalMpcEndEffectorFootCost>(footName + "_TaskSpaceKinematicsCost");
+          CentroidalMpcEndEffectorFootCost& footCost =
+              ocp.costPtr->get<CentroidalMpcEndEffectorFootCost>(absl::StrCat(footName, "_TaskSpaceKinematicsCost"));
           if (hasFootTrackingWeights) {
             footCost.setWeights(footTrackingWeightsVec);
           }
           if (hasFootActiveInStance) {
             footCost.setActiveInStance(footActiveInStance);
           }
+        } catch (const std::out_of_range&) {
+          // The term is absent when its cost or constraint is not listed; the file's section is then read for nothing.
         } catch (const std::exception& e) {
           LOG(WARNING) << "Failed to update " << footName << "_TaskSpaceKinematicsCost: " << e.what();
         } catch (...) {
@@ -727,9 +1087,12 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
     }
 
     // ── Task-space body tracking costs (torso, etc.) ──
-    for (const auto& [costName, weightsVec] : taskSpaceCostUpdates) {
+    for (const std::pair<std::string, vector12_t>& update : taskSpaceCostUpdates) {
+      const std::string& costName = update.first;
       try {
-        ocp.costPtr->get<EndEffectorKinematicsQuadraticCost>(costName).setWeights(weightsVec);
+        ocp.costPtr->get<EndEffectorKinematicsQuadraticCost>(costName).setWeights(update.second);
+      } catch (const std::out_of_range&) {
+        // The term is absent when its cost is not listed; the file's section is then read for nothing.
       } catch (const std::exception& e) {
         LOG(WARNING) << "Failed to update " << costName << ": " << e.what();
       } catch (...) {
@@ -741,6 +1104,8 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
     if (hasIcpWeights) {
       try {
         ocp.costPtr->get<ICPCost>("icp_Cost").setWeights(icpWeights);
+      } catch (const std::out_of_range&) {
+        // The term is absent when icp_cost is not listed; the file's section is then read for nothing.
       } catch (const std::exception& e) {
         LOG(WARNING) << "Failed to update icp_Cost: " << e.what();
       } catch (...) {
@@ -749,9 +1114,12 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
     }
 
     // ── External torque costs ──
-    for (const auto& [costName, config] : extTorqueConfigs) {
+    for (const std::pair<std::string, ExternalTorqueQuadraticCostAD::Config>& update : extTorqueConfigs) {
+      const std::string& costName = update.first;
       try {
-        ocp.costPtr->get<ExternalTorqueQuadraticCostAD>(costName).setWeights(config.weights);
+        ocp.costPtr->get<ExternalTorqueQuadraticCostAD>(costName).setWeights(update.second.weights);
+      } catch (const std::out_of_range&) {
+        // The term is absent when external_torque_cost is not listed; the file's section is then read for nothing.
       } catch (const std::exception& e) {
         LOG(WARNING) << "Failed to update " << costName << ": " << e.what();
       } catch (...) {
@@ -763,28 +1131,30 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
     // Penalties are wrapped in PenaltyBaseWrapper (AugmentedPenaltyBase), so we use
     // setParameters(vector_t{mu, delta}) which delegates through to the inner PenaltyBase.
     //
-    // WHICH delta is written depends on the penalty that is actually installed, not on the YAML. A schedule-gated cone
-    // is wrapped in a RelaxedBarrierPenalty, whose `delta` is the width of its quadratic relaxation and is read
-    // straight from the file. An UN-gated cone - the contact-implicit formulation - is wrapped in a
-    // SquaredHingePenalty built with delta = 0, because a hinge's delta is the OFFSET of its zero, and the whole point
-    // of the hinge there is that its zero sits exactly on the cone that a foot at zero wrench lies on. Writing the
-    // barrier's delta into it would move that zero into the interior and reinstate the very force floor that dropping
-    // `minNormalForce` and the friction cone's parabolic margin exists to remove: with the shipped friction settings
-    // (mu 0.2, delta 5) a foot in flight would be charged 2.5 with a gradient of -1.0 pushing its normal force up.
-    const std::function<vector_t(const RelaxedBarrierPenalty::Config&, bool)> coneParameters =
-        [](const RelaxedBarrierPenalty::Config& barrier, bool scheduleGated) {
-          return vector_t((vector_t(2) << barrier.mu, scheduleGated ? barrier.delta : 0.0).finished());
-        };
-
+    // WHICH delta is written depends on the penalty that is actually installed, not on the YAML, and the factory's own
+    // contactConePenaltyParameters() - the function it built the penalty with - decides it. A schedule-gated cone is
+    // wrapped in a RelaxedBarrierPenalty, whose `delta` is the width of its quadratic relaxation and is read straight
+    // from the file. An UN-gated cone - the contact-implicit formulation - is wrapped in a SquaredHingePenalty built with
+    // delta = 0, because a hinge's delta is the OFFSET of its zero, and the whole point of the hinge there is that its
+    // zero sits exactly on the cone that a foot at zero wrench lies on. Writing the barrier's delta into it would move
+    // that zero into the interior and reinstate the very force floor that dropping `minNormalForce` and the friction
+    // cone's parabolic margin exists to remove: with the shipped friction settings (mu 0.2, delta 5) a foot in flight
+    // would be charged 2.5 with a gradient of -1.0 pushing its normal force up.
     for (const std::string& footName : contactNames_) {
       // Contact wrench cone
       if (hasWrenchConeBarrier) {
         try {
-          StateInputSoftConstraint& softCon = ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_contactWrenchCone");
-          const vector_t parameters = coneParameters(wrenchConeBarrier, softCon.get<ContactWrenchConeConstraint>().isScheduleGated());
+          StateInputSoftConstraint& softCon =
+              ocp.softConstraintPtr->get<StateInputSoftConstraint>(contact_term::name(footName, contact_term::kContactWrenchCone));
+          const vector_t parameters =
+              contactConePenaltyParameters(wrenchConeBarrier, softCon.get<ContactWrenchConeConstraint>().isScheduleGated());
           for (std::unique_ptr<augmented::AugmentedPenaltyBase>& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
             penalty->setParameters(parameters);
           }
+        } catch (const std::out_of_range&) {
+          // The term is absent whenever its constraint is not listed, and the wrench cone is never built under
+          // basis-vector contact inputs. Its section still exists in the file, so this is the normal case and must not
+          // warn, or every reload logs one failure per foot per worker.
         } catch (const std::exception& e) {
           LOG(WARNING) << "Failed to update " << footName << "_contactWrenchCone: " << e.what();
         } catch (...) {
@@ -795,11 +1165,17 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
       // Friction force cone
       if (hasFrictionConeBarrier) {
         try {
-          StateInputSoftConstraint& softCon = ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_frictionForceCone");
-          const vector_t parameters = coneParameters(frictionConeBarrier, softCon.get<FrictionForceConeConstraint>().isScheduleGated());
+          StateInputSoftConstraint& softCon =
+              ocp.softConstraintPtr->get<StateInputSoftConstraint>(contact_term::name(footName, contact_term::kFrictionForceCone));
+          const vector_t parameters =
+              contactConePenaltyParameters(frictionConeBarrier, softCon.get<FrictionForceConeConstraint>().isScheduleGated());
           for (std::unique_ptr<augmented::AugmentedPenaltyBase>& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
             penalty->setParameters(parameters);
           }
+        } catch (const std::out_of_range&) {
+          // The term is absent whenever its constraint is not listed, and the wrench cone is never built under
+          // basis-vector contact inputs. Its section still exists in the file, so this is the normal case and must not
+          // warn, or every reload logs one failure per foot per worker.
         } catch (const std::exception& e) {
           LOG(WARNING) << "Failed to update " << footName << "_frictionForceCone: " << e.what();
         } catch (...) {
@@ -810,11 +1186,17 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
       // Contact moment XY
       if (hasContactMomentBarrier) {
         try {
-          StateInputSoftConstraint& softCon = ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_contactMomentXY");
-          const vector_t parameters = coneParameters(contactMomentBarrier, softCon.get<ContactMomentXYConstraintCppAd>().isScheduleGated());
+          StateInputSoftConstraint& softCon =
+              ocp.softConstraintPtr->get<StateInputSoftConstraint>(contact_term::name(footName, contact_term::kContactMomentXY));
+          const vector_t parameters =
+              contactConePenaltyParameters(contactMomentBarrier, softCon.get<ContactMomentXYConstraintCppAd>().isScheduleGated());
           for (std::unique_ptr<augmented::AugmentedPenaltyBase>& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
             penalty->setParameters(parameters);
           }
+        } catch (const std::out_of_range&) {
+          // The term is absent whenever its constraint is not listed, and the wrench cone is never built under
+          // basis-vector contact inputs. Its section still exists in the file, so this is the normal case and must not
+          // warn, or every reload logs one failure per foot per worker.
         } catch (const std::exception& e) {
           LOG(WARNING) << "Failed to update " << footName << "_contactMomentXY: " << e.what();
         } catch (...) {
@@ -825,7 +1207,7 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
       // Basis scaling non-negativity barrier (λ ≥ 0)
       if (hasBasisNonNegativityBarrier) {
         try {
-          ocp.costPtr->get<BasisScalingNonNegativityConstraint>(footName + "_basisNonNegativity")
+          ocp.costPtr->get<BasisScalingNonNegativityConstraint>(absl::StrCat(footName, "_basisNonNegativity"))
               .setBarrierPenalty(basisNonNegativityBarrier);
         } catch (const std::out_of_range&) {
           // Expected if not in basis-vector mode
@@ -851,9 +1233,9 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
     // ── Foot collision ──
     if (hasCollisionBarrier) {
       try {
-        auto& softCon = ocp.stateSoftConstraintPtr->get<StateSoftConstraint>("FootCollisionSoftConstraint");
+        StateSoftConstraint& softCon = ocp.stateSoftConstraintPtr->get<StateSoftConstraint>("FootCollisionSoftConstraint");
         const vector_t collisionParams = (vector_t(2) << collisionBarrier.mu, collisionBarrier.delta).finished();
-        for (auto& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
+        for (std::unique_ptr<augmented::AugmentedPenaltyBase>& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
           penalty->setParameters(collisionParams);
         }
       } catch (const std::exception& e) {
@@ -864,88 +1246,86 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
     }
 
     // ── Contact implicit soft constraints ──
-    if (complementarityWeight >= 0.0 || heightReference > 0.0 || gapSmoothing > 0.0 || std::isfinite(terrainHeight)) {
-      vector_t param(1);
-      param[0] = complementarityWeight;
+    // Only what the reloaded block carries is applied; the terms are absent unless the formulation is listed, which is
+    // the normal case. The ground is not applied here: see followAppliedTerrainHeight().
+    // LINT.IfChange(contact_implicit_updater_keys)
+    if (contactImplicitReload.has_value()) {
+      const ModelSettings::ContactImplicitConfig& reloaded = contactImplicitReload->config;
+      const bool carriesComplementarityWeight =
+          contactImplicitReload->carries(&ModelSettings::ContactImplicitConfig::complementarityWeight);
+      const bool carriesHeightReference = contactImplicitReload->carries(&ModelSettings::ContactImplicitConfig::heightReference);
+      const bool carriesGapSmoothing = contactImplicitReload->carries(&ModelSettings::ContactImplicitConfig::gapSmoothing);
+      const bool carriesSlipWeight = contactImplicitReload->carries(&ModelSettings::ContactImplicitConfig::slipWeight);
+      const bool carriesVelocityReference = contactImplicitReload->carries(&ModelSettings::ContactImplicitConfig::velocityReference);
+      const bool carriesAngularVelocityReference =
+          contactImplicitReload->carries(&ModelSettings::ContactImplicitConfig::angularVelocityReference);
+      const bool carriesPenetrationWeight = contactImplicitReload->carries(&ModelSettings::ContactImplicitConfig::penetrationWeight);
       for (const std::string& footName : contactNames_) {
         try {
-          StateInputSoftConstraint& softCon = ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_contactComplementarity");
-          if (complementarityWeight >= 0.0) {
+          StateInputSoftConstraint& softCon =
+              ocp.softConstraintPtr->get<StateInputSoftConstraint>(contact_term::name(footName, contact_term::kContactComplementarity));
+          if (carriesComplementarityWeight) {
+            const vector_t weight = (vector_t(1) << reloaded.complementarityWeight).finished();
             for (std::unique_ptr<augmented::AugmentedPenaltyBase>& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
-              penalty->setParameters(param);
+              penalty->setParameters(weight);
             }
           }
           ContactComplementarityConstraint& constraint = softCon.get<ContactComplementarityConstraint>();
-          if (heightReference > 0.0) {
-            constraint.setHeightReference(heightReference);
+          if (carriesHeightReference) {
+            constraint.setHeightReference(reloaded.heightReference);
           }
-          if (gapSmoothing > 0.0) {
-            constraint.setGapSmoothing(gapSmoothing);
-          }
-          if (std::isfinite(terrainHeight)) {
-            constraint.setTerrainHeight(terrainHeight);
+          if (carriesGapSmoothing) {
+            constraint.setGapSmoothing(reloaded.gapSmoothing);
           }
         } catch (const std::out_of_range&) {
+          // Not listed: the formulation is off.
         } catch (const std::exception& e) {
-          LOG(WARNING) << "Failed to update " << footName << "_contactComplementarity: " << e.what();
-        } catch (...) {
+          LOG(WARNING) << "Failed to update " << contact_term::name(footName, contact_term::kContactComplementarity) << ": " << e.what();
         }
-      }
-    }
 
-    if (slipWeight >= 0.0 || velocityReference > 0.0 || angularVelocityReference > 0.0) {
-      vector_t param(1);
-      param[0] = slipWeight;
-      for (const std::string& footName : contactNames_) {
         try {
-          StateInputSoftConstraint& softCon = ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_forceWeightedSlip");
-          if (slipWeight >= 0.0) {
+          StateInputSoftConstraint& softCon =
+              ocp.softConstraintPtr->get<StateInputSoftConstraint>(contact_term::name(footName, contact_term::kForceWeightedSlip));
+          if (carriesSlipWeight) {
+            const vector_t weight = (vector_t(1) << reloaded.slipWeight).finished();
             for (std::unique_ptr<augmented::AugmentedPenaltyBase>& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
-              penalty->setParameters(param);
+              penalty->setParameters(weight);
             }
           }
           // The setter takes both references at once, so a file carrying only one of them keeps the other at the value
           // the term already holds rather than dropping the update on the floor.
-          if (velocityReference > 0.0 || angularVelocityReference > 0.0) {
+          if (carriesVelocityReference || carriesAngularVelocityReference) {
             ForceWeightedSlipConstraint& constraint = softCon.get<ForceWeightedSlipConstraint>();
             const vector3_t inverseCurrent = constraint.getInverseTwistReference();
-            const scalar_t velocity = velocityReference > 0.0 ? velocityReference : 1.0 / inverseCurrent(0);
-            const scalar_t angularVelocity = angularVelocityReference > 0.0 ? angularVelocityReference : 1.0 / inverseCurrent(2);
-            constraint.setTwistReferences(velocity, angularVelocity);
+            constraint.setTwistReferences(carriesVelocityReference ? reloaded.velocityReference : 1.0 / inverseCurrent(0),
+                                          carriesAngularVelocityReference ? reloaded.angularVelocityReference : 1.0 / inverseCurrent(2));
           }
         } catch (const std::out_of_range&) {
+          // Not listed: the formulation is off.
         } catch (const std::exception& e) {
-          LOG(WARNING) << "Failed to update " << footName << "_forceWeightedSlip: " << e.what();
-        } catch (...) {
+          LOG(WARNING) << "Failed to update " << contact_term::name(footName, contact_term::kForceWeightedSlip) << ": " << e.what();
         }
-      }
-    }
 
-    // The terrain height has to reach this term as well as the complementarity term. The two are a pair - one says a
-    // foot may not carry load above the ground, the other that it may not go below it - so a height applied to only
-    // one of them leaves the formulation with two disagreeing definitions of where the ground is.
-    if (hasPenetrationWeight || std::isfinite(terrainHeight)) {
-      // SquaredHingePenalty::setParameters takes (mu, delta); delta stays 0 so the hinge's zero stays on the ground.
-      const vector_t penetrationParams = (vector_t(2) << penetrationWeight, 0.0).finished();
-      for (const std::string& footName : contactNames_) {
-        try {
-          StateSoftConstraint& softCon = ocp.stateSoftConstraintPtr->get<StateSoftConstraint>(footName + "_groundPenetration");
-          if (std::isfinite(terrainHeight)) {
-            softCon.get<GroundPenetrationConstraint>().setTerrainHeight(terrainHeight);
+        if (carriesPenetrationWeight) {
+          try {
+            StateSoftConstraint& softCon =
+                ocp.stateSoftConstraintPtr->get<StateSoftConstraint>(contact_term::name(footName, contact_term::kGroundPenetration));
+            // SquaredHingePenalty::setParameters takes (mu, delta); delta stays 0 so the hinge's zero stays on the ground.
+            const vector_t penetrationParams = (vector_t(2) << reloaded.penetrationWeight, 0.0).finished();
+            for (std::unique_ptr<augmented::AugmentedPenaltyBase>& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
+              penalty->setParameters(penetrationParams);
+            }
+          } catch (const std::out_of_range&) {
+            // Not listed: the formulation is off.
+          } catch (const std::exception& e) {
+            LOG(WARNING) << "Failed to update " << contact_term::name(footName, contact_term::kGroundPenetration) << ": " << e.what();
           }
-          if (!hasPenetrationWeight) {
-            continue;
-          }
-          for (std::unique_ptr<augmented::AugmentedPenaltyBase>& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
-            penalty->setParameters(penetrationParams);
-          }
-        } catch (const std::out_of_range&) {
-        } catch (const std::exception& e) {
-          LOG(WARNING) << "Failed to update " << footName << "_groundPenetration: " << e.what();
-        } catch (...) {
         }
       }
     }
+    // clang-format off
+    // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/common/ModelSettings.cpp:contact_implicit_yaml_path, //robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:contact_implicit_config, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:contact_implicit_config)
+    // clang-format on
 
     // ── Zero velocity soft constraint weight ──
     if (zeroVelWeight > 0.0) {
@@ -953,12 +1333,15 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
       // Use setParameters() which delegates through the wrapper to QuadraticPenalty::setParameters().
       vector_t scaleParam(1);
       scaleParam[0] = zeroVelWeight;
-      for (const auto& footName : contactNames_) {
+      for (const std::string& footName : contactNames_) {
         try {
-          auto& softCon = ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_zeroVelocity");
-          for (auto& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
+          StateInputSoftConstraint& softCon = ocp.softConstraintPtr->get<StateInputSoftConstraint>(absl::StrCat(footName, "_zeroVelocity"));
+          for (std::unique_ptr<augmented::AugmentedPenaltyBase>& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
             penalty->setParameters(scaleParam);
           }
+        } catch (const std::out_of_range&) {
+          // No soft zero_velocity: it is listed as a hard constraint (the shipped Atlas), or not at all (the
+          // contact-implicit formulation). The weight then has no penalty to scale, which is not a failure.
         } catch (const std::exception& e) {
           LOG(WARNING) << "Failed to update " << footName << "_zeroVelocity (soft): " << e.what();
         } catch (...) {
@@ -973,7 +1356,8 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
       scaleParam[0] = normalVelSoftWeight;
       for (const std::string& footName : contactNames_) {
         try {
-          StateInputSoftConstraint& softCon = ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_normalVelocitySoft");
+          StateInputSoftConstraint& softCon =
+              ocp.softConstraintPtr->get<StateInputSoftConstraint>(contact_term::name(footName, contact_term::kNormalVelocitySoft));
           for (std::unique_ptr<augmented::AugmentedPenaltyBase>& penalty : softCon.getPenalty().getPenaltyPtrArray()) {
             penalty->setParameters(scaleParam);
           }
@@ -1004,13 +1388,16 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
         preComputationPtr->setNormalVelocityPositionErrorGain(footCfg.positionErrorGain_z);
       }
 
-      for (const auto& footName : contactNames_) {
+      for (const std::string& footName : contactNames_) {
         // Hard constraint path
         try {
-          auto& con = ocp.equalityConstraintPtr->get<ZeroVelocityConstraintCppAd>(footName + "_zeroVelocity");
+          ZeroVelocityConstraintCppAd& con =
+              ocp.equalityConstraintPtr->get<ZeroVelocityConstraintCppAd>(absl::StrCat(footName, "_zeroVelocity"));
           con.getTwistConstraint().setNumConstraints(footCfg.constrainOrientation ? 6 : 3);
           con.getTwistConstraint().setConstrainYawRateAboutNormal(footCfg.constrainYawRateAboutContactNormal);
           con.getTwistConstraint().configure(EndEffectorKinematicsTwistConstraint::Config(footTwistConfig));
+        } catch (const std::out_of_range&) {
+          // No hard zero_velocity: it is soft (handled below) or not listed.
         } catch (const std::exception& e) {
           LOG(WARNING) << "Failed to update " << footName << "_zeroVelocity (hard): " << e.what();
         } catch (...) {
@@ -1019,19 +1406,36 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
         // Soft constraint path: the inner constraint is wrapped in StateInputSoftConstraint.
         // ZeroVelocityConstraintCppAd is reached via dynamic_cast through the soft constraint wrapper.
         try {
-          auto& softCon = ocp.softConstraintPtr->get<StateInputSoftConstraint>(footName + "_zeroVelocity");
-          auto* zeroVelCon = dynamic_cast<ZeroVelocityConstraintCppAd*>(softCon.getConstraintPtr().get());
+          StateInputSoftConstraint& softCon = ocp.softConstraintPtr->get<StateInputSoftConstraint>(absl::StrCat(footName, "_zeroVelocity"));
+          ZeroVelocityConstraintCppAd* zeroVelCon = dynamic_cast<ZeroVelocityConstraintCppAd*>(softCon.getConstraintPtr().get());
           if (zeroVelCon != nullptr) {
             zeroVelCon->getTwistConstraint().setNumConstraints(footCfg.constrainOrientation ? 6 : 3);
             zeroVelCon->getTwistConstraint().setConstrainYawRateAboutNormal(footCfg.constrainYawRateAboutContactNormal);
             zeroVelCon->getTwistConstraint().configure(EndEffectorKinematicsTwistConstraint::Config(footTwistConfig));
           }
+        } catch (const std::out_of_range&) {
+          // No soft zero_velocity: it is hard (handled above) or not listed.
         } catch (const std::exception& e) {
           LOG(WARNING) << "Failed to update " << footName << "_zeroVelocity (soft config): " << e.what();
         } catch (...) {
           LOG(WARNING) << "Failed to update " << footName << "_zeroVelocity (soft config): unknown exception";
         }
       }
+    }
+  }
+
+  // ── The ground ──
+  // It goes to the reference manager, which owns it: the swing trajectories and the landing targets are rebuilt on it
+  // at the next solve, and followAppliedTerrainHeight() moves the complementarity and penetration terms onto it in that
+  // same solve - not in this one, whose references were built before this module ran. Writing the terms here, as this
+  // used to, gave them a ground the references would not have for a whole solve, and left the swing trajectories and
+  // the landing targets on the launch value for good. Without a reference manager there are no references to agree
+  // with, and the terms take the height at once.
+  if (std::isfinite(terrainHeight)) {
+    if (referenceManagerPtr_ != nullptr) {
+      referenceManagerPtr_->setTerrainHeight(terrainHeight);
+    } else {
+      setContactImplicitTermsTerrainHeight(ocpDefinitions, terrainHeight);
     }
   }
 
@@ -1042,7 +1446,7 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
 
   // ── Swing trajectory config ──
   if (hasSwingConfig && referenceManagerPtr_ != nullptr) {
-    auto swingPlanner = referenceManagerPtr_->getSwingTrajectoryPlanner();
+    const std::shared_ptr<SwingTrajectoryPlanner>& swingPlanner = referenceManagerPtr_->getSwingTrajectoryPlanner();
     if (swingPlanner) {
       swingPlanner->setConfig(swingConfig);
     }
@@ -1054,7 +1458,70 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
     applyContactPlanningUpdates(yamlFile);
   }
 
+  // ── Locomotion heuristics: the coefficients of Bledt's RPC reference-shaping layer
+  // (humanoid_nmpc/docs/locomotion_heuristics/README.md) ──
+  //
+  // The layer lives on the reference manager, which is shared rather than cloned per worker, so there is nothing to
+  // walk here - one reconfigure() reaches every thread's view of it. It is safe from this thread because
+  // preSolverRun() runs before any worker exists for the solve that follows.
+  //
+  // LINT.IfChange(locomotion_heuristics_updater_yaml_path)
+  if (locomotionHeuristicLayerPtr_ != nullptr && pt.get_child_optional(kLocomotionHeuristicsBlockKey)) {
+    const absl::StatusOr<LocomotionHeuristicConfig> heuristicConfig = loadLocomotionHeuristicConfig(yamlFile, /*verbose=*/false);
+    if (!heuristicConfig.ok()) {
+      // Reported and skipped rather than thrown: a half-typed coefficient in the tuning GUI must not take the
+      // controller down, and the layer keeps running on the values it already has.
+      LOG(WARNING) << "[MpcParameterUpdaterModule] locomotion_heuristics not applied: " << heuristicConfig.status().message();
+    } else if (const absl::Status status = locomotionHeuristicLayerPtr_->reconfigure(*heuristicConfig); !status.ok()) {
+      LOG(WARNING) << "[MpcParameterUpdaterModule] locomotion_heuristics not applied: " << status.message();
+    } else if (!locomotionHeuristicLayerPtr_->empty()) {
+      LOG(INFO) << "[MpcParameterUpdaterModule] Applied the locomotion_heuristics coefficients from " << yamlFile << ":\n"
+                << locomotionHeuristicLayerPtr_->summary();
+    }
+  }
+  // clang-format off
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/locomotion_heuristics/LocomotionHeuristicConfig.cpp:locomotion_heuristic_keys)
+  // clang-format on
+
   LOG(INFO) << "[MpcParameterUpdaterModule] Successfully applied in-place parameter updates to SqpSolver.";
+}
+
+void MpcParameterUpdaterModule::followAppliedTerrainHeight() {
+  if (referenceManagerPtr_ == nullptr || mpcPtr_ == nullptr) {
+    return;
+  }
+  const scalar_t appliedTerrainHeight = referenceManagerPtr_->getAppliedTerrainHeight();
+  if (contactImplicitTermsTerrainHeight_.has_value() && *contactImplicitTermsTerrainHeight_ == appliedTerrainHeight) {
+    return;
+  }
+  SqpSolver* sqpSolverPtr = dynamic_cast<SqpSolver*>(mpcPtr_->getSolverPtr());
+  if (sqpSolverPtr == nullptr) {
+    return;
+  }
+  setContactImplicitTermsTerrainHeight(sqpSolverPtr->getOcpDefinitions(), appliedTerrainHeight);
+}
+
+void MpcParameterUpdaterModule::setContactImplicitTermsTerrainHeight(std::vector<OptimalControlProblem>& ocpDefinitions,
+                                                                     scalar_t terrainHeight) {
+  // The two terms are a pair - one says a foot may not carry load above the ground, the other that it may not go below
+  // it - so they always move together. Absent unless the contact-implicit formulation is listed, which is the normal case.
+  for (OptimalControlProblem& ocp : ocpDefinitions) {
+    for (const std::string& footName : contactNames_) {
+      try {
+        ocp.softConstraintPtr->get<StateInputSoftConstraint>(contact_term::name(footName, contact_term::kContactComplementarity))
+            .get<ContactComplementarityConstraint>()
+            .setTerrainHeight(terrainHeight);
+      } catch (const std::out_of_range&) {
+      }
+      try {
+        ocp.stateSoftConstraintPtr->get<StateSoftConstraint>(contact_term::name(footName, contact_term::kGroundPenetration))
+            .get<GroundPenetrationConstraint>()
+            .setTerrainHeight(terrainHeight);
+      } catch (const std::out_of_range&) {
+      }
+    }
+  }
+  contactImplicitTermsTerrainHeight_ = terrainHeight;
 }
 
 void MpcParameterUpdaterModule::applyContactPlanningUpdates(const std::string& yamlFile) {
@@ -1063,22 +1530,25 @@ void MpcParameterUpdaterModule::applyContactPlanningUpdates(const std::string& y
   //
   // The file is parsed WITHOUT the loader's own validation, which is exactly what CentroidalMpcInterface does at
   // start-up: the parameters a robot is allowed to leave at 0 in contact_planning.yaml to mean "derive this one from
-  // the model" - shared.comHeight and the two zmp_support_region half widths - are only filled in afterwards, by
-  // ContactPlanningModelParameters::applyTo(), which ContactPlannerModule::setConfig() runs before it validates.
-  // This call used to leave the loader's `validate` argument at its default of true, which validated the freshly
-  // parsed configuration before applyTo() could ever see it, the exact inverse of the start-up order. The three
-  // fields applyTo() fills are precisely the ones validate() rejects at 0, so on a robot that takes the documented
-  // option every reload threw "[ContactPlanningConfig] shared.comHeight and shared.gravity must be positive" here.
-  // The throw was caught below and became one warning, and because the file watcher in preSolverRun() had already
-  // stored the new modification time, the edit was gone: every later save of that file was discarded for the rest of
-  // the run while the tuning GUI reported each change as applied. Nothing is left unvalidated by passing false here,
-  // since setConfig() applies the model parameters and then calls validate() itself, and its throw is caught by the
-  // same handler - so a genuinely inconsistent edit is still rejected and still reported.
-  try {
-    contactPlannerModulePtr_->setConfig(loadContactPlanningConfig(yamlFile, "contact_planning.", /*verbose=*/false, /*validate=*/false));
+  // the model" - shared.comHeight (both shipped robots) and the two zmp_support_region half widths - are only filled in
+  // afterwards, by ContactPlanningModelParameters::applyTo(), which ContactPlannerModule::setConfig() runs before it
+  // validates. This call used to validate the freshly parsed configuration before applyTo() could ever see it, the
+  // exact inverse of the start-up order. The fields applyTo() fills are precisely the ones validation rejects at 0, so
+  // on a robot that takes the documented option every reload was refused with "shared.comHeight must be positive", and
+  // because the file watcher in preSolverRun() had already stored the new modification time, the edit was gone: every
+  // later save of that file was discarded for the rest of the run while the tuning GUI reported each change as applied.
+  // Nothing is left unvalidated by passing false here, since setConfig() applies the model parameters and then
+  // validates, returning the rejection that names the key - so a genuinely inconsistent edit is still refused and still
+  // reported.
+  absl::StatusOr<ContactPlanningConfig> loaded =
+      loadContactPlanningConfigStatus(yamlFile, "contact_planning.", /*verbose=*/false, /*validate=*/false);
+  absl::Status applied = loaded.status();
+  if (applied.ok()) applied = contactPlannerModulePtr_->setConfig(*loaded);
+  if (applied.ok()) {
     LOG(INFO) << "[MpcParameterUpdaterModule] Applied the contact_planning configuration from " << yamlFile << ".";
-  } catch (const std::exception& e) {
-    LOG(WARNING) << "[MpcParameterUpdaterModule] contact_planning configuration of " << yamlFile << " could not be applied: " << e.what();
+  } else {
+    LOG(WARNING) << "[MpcParameterUpdaterModule] contact_planning configuration of " << yamlFile
+                 << " not applied, the running one is kept: " << applied.message();
   }
 }
 

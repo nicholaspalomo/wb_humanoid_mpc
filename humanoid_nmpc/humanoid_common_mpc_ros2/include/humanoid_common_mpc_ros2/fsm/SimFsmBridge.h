@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -46,19 +47,30 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <std_msgs/msg/string.hpp>
 #include <string_view>
 
+#include "absl/strings/string_view.h"
 #include "humanoid_common_mpc_ros2/ros_comm/JointTargetSubscriber.h"
 
 namespace ocs2::humanoid {
 
 /**
+ * The text of one `/humanoid/fsm_state` message: `<mode>,GANTRY_LOCKED|GANTRY_UNLOCKED,<controller resets>`, the last
+ * field the decimal count of controller resets since the bridge started (SimFsmBridge::publishControllerReset()). The
+ * remote control parses it in remote_control/fsm_state.py and re-centers its joysticks on every transition into a
+ * passive mode, on every new gantry lock and on every change of the reset count.
+ */
+std::string formatFsmState(absl::string_view modeName, bool gantryLocked, uint64_t controllerResets);
+
+/**
  * @brief ROS 2-native bridge between supervisory FSM commands/state and the simulation loop.
  *
  * Encapsulates:
- * 1. Tracking and storing nominal stance positions.
- * 2. Overriding actuator commands in JOINT_PD mode to strictly track nominal posture with 0 velocity and 0 feedforward effort.
- * 3. Subscribing to ROS 2 topic `/humanoid/fsm_command` (std_msgs/msg/String) and processing mode transitions.
- * 4. Publishing ROS 2 topic `/humanoid/fsm_state` (std_msgs/msg/String) with transient-local QoS.
- * 5. Virtual gantry lock and unlock management.
+ * 1. Tracking and storing nominal stance positions (the JOINT_PD posture, which the controllers compute the action of).
+ * 2. Subscribing to ROS 2 topic `/humanoid/fsm_command` (std_msgs/msg/String) and processing mode transitions.
+ * 3. Publishing ROS 2 topic `/humanoid/fsm_state` (std_msgs/msg/String) with transient-local QoS: the mode, the gantry
+ *    and the number of controller resets so far (formatFsmState()).
+ * 4. Virtual gantry lock and unlock commands, and the gantry height slider.
+ * The fall recovery - catching a fallen robot, noticing the simulator's own resets, settling the caught robot - is
+ * SimFallRecovery, which is free of ROS.
  */
 class SimFsmBridge {
  public:
@@ -73,21 +85,25 @@ class SimFsmBridge {
                rclcpp::Node::SharedPtr nodeHandle);
 
   /**
-   * @brief Publishes the current FSM mode and gantry state to `/humanoid/fsm_state`.
+   * @brief Publishes the current FSM mode, the gantry state and the controller resets so far to `/humanoid/fsm_state`.
    * @param modeName Current active mode name (e.g., "ZERO_TORQUE", "JOINT_PD", "WB_MPC").
    * @param gantryLocked Whether the gantry is currently locked.
    */
   void publishFsmState(std::string_view modeName, bool gantryLocked) const;
 
   /**
-   * @brief Applies mode-specific control overrides (e.g. JOINT_PD) to the joint action vector.
-   * @param modeName Current active mode name.
-   * @param robotDescription Robot description.
-   * @param robotJointAction Joint action vector to be updated in-place.
+   * @brief Counts one controller reset and publishes the state with the new count.
+   *
+   * A controller reset is a discontinuity of the plant after which the controller starts again from where the robot is
+   * (SimFallRecovery::Cycle::discontinuity): a catch, a LOCK_GANTRY, or a reset the simulator made on its own thread.
+   * The remote control re-centers its joysticks on every change of the count, which is what releases them after a reset
+   * that changes neither the mode nor the gantry - the simulator putting the robot back while the gantry was already
+   * locked in JOINT_PD. Call it from the control loop, the thread that publishes the state.
    */
-  void applyModeAction(std::string_view modeName,
-                       const robot::model::RobotDescription& robotDescription,
-                       robot::model::RobotJointAction& robotJointAction) const;
+  void publishControllerReset(std::string_view modeName, bool gantryLocked);
+
+  /** @brief The controller resets counted so far, the last field of every state published. */
+  uint64_t controllerResets() const { return controllerResets_; }
 
   /**
    * @brief Processes any pending ROS 2 commands received from `/humanoid/fsm_command`,
@@ -97,40 +113,6 @@ class SimFsmBridge {
    * @return true if a command was processed, false otherwise.
    */
   bool processCommands(std::string& currentModeName, robot::mujoco_sim_interface::MujocoSimInterface& robotInterface);
-
-  /**
-   * @brief Sets the tilt beyond which the robot is caught by the gantry, in radians; <= 0 disables the recovery.
-   *
-   * The measure is the angle between the base's own vertical and the world vertical, which is zero when the robot
-   * stands upright whatever its heading, and pi when it is upside down. A humanoid that has passed about a radian has
-   * no way back on its own, and leaving it to thrash on the floor teaches the controller nothing; catching it puts it
-   * back on the gantry ready for the next run.
-   */
-  void setMaxBaseTiltAngle(scalar_t maxBaseTiltAngle) { maxBaseTiltAngle_ = maxBaseTiltAngle; }
-  scalar_t getMaxBaseTiltAngle() const { return maxBaseTiltAngle_; }
-
-  /** The angle between the base's vertical and the world vertical, in radians (0 upright, pi upside down). */
-  static scalar_t baseTiltAngle(const quaternion_t& baseRotationLocalToWorld);
-
-  /**
-   * @brief Catches a fallen robot: locks the gantry and puts the robot in JOINT_PD when the base has tilted past
-   *        setMaxBaseTiltAngle().
-   *
-   * Locking the gantry is the reattachment - it pins the base upright at the gantry height - and JOINT_PD is the only
-   * mode that is safe there, since the whole-body MPC is overconstrained against a pinned base. Publishing the new
-   * state is what lets the remote control follow: it tracks the same `/humanoid/fsm_state` transition to re-centre its
-   * joysticks, so a stick left forward cannot keep commanding a walk into a robot hanging from the harness.
-   *
-   * The caller keeps whatever else a gantry lock means for it; the simulation loops additionally reset the MPC, which
-   * needs a handle this bridge does not have. Call this once per control cycle before processCommands(), so the lock
-   * is part of the same unlocked-to-locked transition those loops already watch for. Does nothing while the gantry is
-   * already locked, or while the recovery is disabled.
-   *
-   * @return true when this call caught the robot.
-   */
-  bool recoverFromFall(const robot::model::RobotState& robotState,
-                       robot::mujoco_sim_interface::MujocoSimInterface& robotInterface,
-                       std::string& currentModeName);
 
   /**
    * @brief Access the captured nominal joint positions.
@@ -150,14 +132,18 @@ class SimFsmBridge {
   void applyJointTargetUpdates();
 
  private:
-  /// [rad] tilt past which recoverFromFall() catches the robot; <= 0 disables it.
-  scalar_t maxBaseTiltAngle_{0.0};
-
   void fsmCommandCallback(const std_msgs::msg::String::ConstSharedPtr& msg);
+  /// Parses one YAML throw from the GUI and stages it. A malformed payload is reported and dropped: it is an
+  /// operator action, not a control input, so refusing it is better than guessing at it.
+  void dodgeballCallback(const std_msgs::msg::String::ConstSharedPtr& msg);
   void walkingVelocityCallback(const humanoid_mpc_msgs::msg::WalkingVelocityCommand::ConstSharedPtr& msg);
 
   rclcpp::Node::SharedPtr nodeHandle_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr fsmCommandSub_;
+  /// Dodgeball throws from the GUI's Dodgeball tab. A YAML payload, staged here and drained by processCommands()
+  /// onto the simulation interface - see MujocoSimInterface::throwDodgeball.
+  /// Its topic is set, and tied to the GUI's, where the subscription is created in SimFsmBridge.cpp.
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr dodgeballSub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr fsmStatePub_;
   rclcpp::Subscription<humanoid_mpc_msgs::msg::WalkingVelocityCommand>::SharedPtr walkingVelSub_;
 
@@ -167,8 +153,13 @@ class SimFsmBridge {
   JointTargetSubscriber jointTargetSubscriber_;
   std::mutex commandMutex_;
   std::optional<std::string> pendingCommand_;
+  /// Staged separately from pendingCommand_ so that throwing a ball cannot swallow a pending mode change, or the
+  /// other way round: both arrive on the operator's thread and only one of each is kept.
+  std::mutex dodgeballMutex_;
+  std::optional<robot::mujoco_sim_interface::MujocoSimInterface::DodgeballThrow> pendingDodgeball_;
   std::atomic<double> desiredGantryHeight_{0.0};      ///< Desired gantry height from walking velocity command slider.
   std::atomic<bool> hasReceivedGantryHeight_{false};  ///< True once a walking velocity message has set the height.
+  uint64_t controllerResets_ = 0;                     ///< Controller resets so far (publishControllerReset()).
 };
 
 /**

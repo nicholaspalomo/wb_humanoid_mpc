@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -241,7 +242,7 @@ ContactPlanningConfig makePlannerConfig() {
   config.shared.gaitLimits.maxSwingDuration = 0.5;
   config.shared.gaitLimits.minContactDuration = 0.15;
   config.shared.gaitLimits.minDoubleSupportDuration = 0.1;
-  config.validate();
+  EXPECT_EQ(config.validateStatus(), absl::OkStatus());
   return config;
 }
 
@@ -259,7 +260,7 @@ ContactPlanningConfig makeHeadingPlannerConfig() {
   config.yawTorqueBudget.torsionalFrictionTorque = 20.0;
   config.yawTorqueBudget.doubleSupportYawCouple = 40.0;
   config.setSymmetricFootYawOffset(0.5);
-  config.validate();
+  EXPECT_EQ(config.validateStatus(), absl::OkStatus());
   return config;
 }
 
@@ -294,9 +295,9 @@ int footOfContactInput(const Layout& layout, int inputIndex) {
  * node laid out in the feet's order. Nothing in the code connects the two, so this states the connection.
  */
 void expectBinaryLayoutAgreesWithContactBinaryIndex(const ContactPlanningConfig& config) {
-  const LipContactPlanner planner(config);
-  const Layout& layout = planner.getLayout();
-  const std::vector<MiqpBinaryVariable> binaries = planner.binaryVariables();
+  const std::unique_ptr<const LipContactPlanner> planner = LipContactPlanner::Create(config).value();
+  const Layout& layout = planner->getLayout();
+  const std::vector<MiqpBinaryVariable> binaries = planner->binaryVariables();
   const int numNodes = config.planner.numNodes;
 
   ASSERT_EQ(binaries.size(), static_cast<std::size_t>(ContactLogicState::kBinariesPerNode) * static_cast<std::size_t>(numNodes))
@@ -326,7 +327,7 @@ void expectBinaryLayoutAgreesWithContactBinaryIndex(const ContactPlanningConfig&
   // Every listed binary must also carry an input box constraint at its stage, which is what MixedIntegerOcpQp needs to
   // fix it (locateBinaries throws otherwise, and the plan is then lost for that frame).
   const ContactPlannerInput input = makeStandingInput();
-  const OcpQpProblem qp = planner.buildProblem(input);
+  const OcpQpProblem qp = planner->buildProblem(input);
   ASSERT_EQ(qp.numStages(), numNodes);
   for (const MiqpBinaryVariable& binary : binaries) {
     const OcpQpStage& stage = qp.stages[static_cast<std::size_t>(binary.stage)];
@@ -335,7 +336,7 @@ void expectBinaryLayoutAgreesWithContactBinaryIndex(const ContactPlanningConfig&
   }
 
   // The logic state sizes the assignment the rules read; it must be the same assignment the solver branches on.
-  const ContactLogicState logicState = planner.makeLogicState(input);
+  const ContactLogicState logicState = planner->makeLogicState(input);
   EXPECT_EQ(logicState.numBinaries(), static_cast<int>(binaries.size()));
 }
 
@@ -350,7 +351,7 @@ TEST(MixedIntegerOcpQpTest, FindsBruteForceOptimum) {
 
     MixedIntegerOcpQp miqp{OcpQpHpipmSolver::Settings{}, MiqpSettings{}};
     const MiqpAssignment initial(kNumStages, kMiqpFree);
-    const MiqpResult result = miqp.solve(problem, makeBinaries(), initial, nullptr);
+    const MiqpResult result = miqp.solve(problem, makeBinaries(), initial, /*propagate=*/nullptr);
     ASSERT_TRUE(result.hasIncumbent) << "target " << target;
     EXPECT_TRUE(result.optimal);
     EXPECT_NEAR(result.incumbentObjective, bruteForce, 1e-5) << "target " << target;
@@ -399,7 +400,7 @@ TEST(MixedIntegerOcpQpTest, WarmStartProvidesIncumbentEvenWithZeroNodeBudget) {
   MixedIntegerOcpQp miqp{OcpQpHpipmSolver::Settings{}, settings};
   const MiqpAssignment initial(kNumStages, kMiqpFree);
   const MiqpAssignment warm = {1, 0, 1, 0};
-  const MiqpResult result = miqp.solve(problem, makeBinaries(), initial, nullptr, &warm);
+  const MiqpResult result = miqp.solve(problem, makeBinaries(), initial, /*propagate=*/nullptr, &warm);
   ASSERT_TRUE(result.hasIncumbent);
   EXPECT_TRUE(result.nodeLimitHit);
   EXPECT_FALSE(result.optimal);
@@ -458,7 +459,7 @@ TEST(MixedIntegerOcpQpTest, AnIntegralRelaxationDoesNotFenceOffABetterCompletion
 
     MixedIntegerOcpQp miqp{OcpQpHpipmSolver::Settings{}, MiqpSettings{}};
     const MiqpAssignment initial(kNumStages, kMiqpFree);
-    const MiqpResult result = miqp.solve(problem, makeBinaries(), initial, nullptr, nullptr, assignmentCost);
+    const MiqpResult result = miqp.solve(problem, makeBinaries(), initial, /*propagate=*/nullptr, /*warmStart=*/nullptr, assignmentCost);
 
     ASSERT_TRUE(result.hasIncumbent) << "target " << target;
     EXPECT_NEAR(result.incumbentObjective, bruteForce, 1e-5)
@@ -480,7 +481,7 @@ TEST(MixedIntegerOcpQpTest, AnIntegralRelaxationStillClosesItsSubtreeWithoutAnAs
 
   MixedIntegerOcpQp miqp{OcpQpHpipmSolver::Settings{}, MiqpSettings{}};
   const MiqpAssignment initial(kNumStages, kMiqpFree);
-  const MiqpResult result = miqp.solve(problem, makeBinaries(), initial, nullptr);
+  const MiqpResult result = miqp.solve(problem, makeBinaries(), initial, /*propagate=*/nullptr);
   ASSERT_TRUE(result.hasIncumbent);
   EXPECT_TRUE(result.optimal);
   EXPECT_NEAR(result.incumbentObjective, bruteForce, 1e-5);
@@ -497,9 +498,10 @@ TEST(MixedIntegerOcpQpTest, AZeroAssignmentCostMatchesNoAssignmentCost) {
   const MiqpAssignment initial(kNumStages, kMiqpFree);
 
   MixedIntegerOcpQp a{OcpQpHpipmSolver::Settings{}, MiqpSettings{}};
-  const MiqpResult costed = a.solve(withCost, makeBinaries(), initial, nullptr, nullptr, [](const MiqpAssignment&) { return 0.0; });
+  const MiqpResult costed =
+      a.solve(withCost, makeBinaries(), initial, /*propagate=*/nullptr, /*warmStart=*/nullptr, [](const MiqpAssignment&) { return 0.0; });
   MixedIntegerOcpQp b{OcpQpHpipmSolver::Settings{}, MiqpSettings{}};
-  const MiqpResult plain = b.solve(without, makeBinaries(), initial, nullptr);
+  const MiqpResult plain = b.solve(without, makeBinaries(), initial, /*propagate=*/nullptr);
 
   ASSERT_TRUE(costed.hasIncumbent);
   ASSERT_TRUE(plain.hasIncumbent);
@@ -512,11 +514,11 @@ TEST(MixedIntegerOcpQpTest, AZeroAssignmentCostMatchesNoAssignmentCost) {
 
 /**
  * `solveFixed` is the single QP entry point of every stage that runs after the branch-and-bound - the event-shift local
- * search, the cadence stretch and the heading re-linearisation - and all three of them take its `objective` and compare
+ * search, the cadence stretch and the heading re-linearization - and all three of them take its `objective` and compare
  * it against `MiqpResult::incumbentObjective`, which is the QP objective PLUS the assignment cost of the incumbent. A
  * `solveFixed` that reported the QP objective alone would therefore look cheaper than the incumbent by exactly the
  * incumbent's logical cost, and the stages would accept every candidate they evaluated: the local search would walk the
- * contact events wherever it looked last, the cadence stretch would always stretch, and the re-linearisation would
+ * contact events wherever it looked last, the cadence stretch would always stretch, and the re-linearization would
  * "improve" the objective on a problem it did not change. Nothing in the three stages re-adds the cost, so it has to be
  * in here, and it has to be the cost of the assignment that was actually solved.
  */
@@ -528,13 +530,15 @@ TEST(MixedIntegerOcpQpSolveFixedTest, ReportsTheQpObjectivePlusTheAssignmentCost
   OcpQpProblem plainProblem = makeProblem(1.3);
   OcpQpSolution plainSolution;
   scalar_t plainObjective = -1.0;
-  ASSERT_TRUE(miqp.solveFixed(plainProblem, makeBinaries(), assignment, nullptr, nullptr, plainSolution, plainObjective));
+  ASSERT_TRUE(miqp.solveFixed(plainProblem, makeBinaries(), assignment, /*propagate=*/nullptr, /*assignmentCost=*/nullptr, plainSolution,
+                              plainObjective));
   EXPECT_EQ(plainObjective, plainSolution.objective) << "without a logical cost the reported objective is the QP's own";
 
   OcpQpProblem costedProblem = makeProblem(1.3);
   OcpQpSolution costedSolution;
   scalar_t costedObjective = -1.0;
-  ASSERT_TRUE(miqp.solveFixed(costedProblem, makeBinaries(), assignment, nullptr, assignmentCost, costedSolution, costedObjective));
+  ASSERT_TRUE(
+      miqp.solveFixed(costedProblem, makeBinaries(), assignment, /*propagate=*/nullptr, assignmentCost, costedSolution, costedObjective));
   // The QP never sees the assignment cost, so the continuous part of the two solves must be identical...
   EXPECT_NEAR(costedSolution.objective, plainSolution.objective, 1e-6);
   // ...and the whole difference between the two reported objectives is the logical cost.
@@ -555,7 +559,7 @@ TEST(MixedIntegerOcpQpSolveFixedTest, ReportsTheQpObjectivePlusTheAssignmentCost
  * Every path that returns false must leave `objective` at +infinity rather than at whatever the caller had there.
  *
  * The three afterSearch stages declare their own `scalar_t objective = 0.0` next to the call and only look at it after
- * a true return, so today they are safe by construction; but zero is the most natural value to initialise it with and
+ * a true return, so today they are safe by construction; but zero is the most natural value to initialize it with and
  * it is smaller than any real objective of these problems, so a failure path that left the out-parameter untouched
  * would hand a caller who forgot the return value a candidate that beats every incumbent. Stating it here is what makes
  * the out-parameter safe to read unconditionally, which is the only reason a bool-plus-out-parameter signature is
@@ -586,7 +590,7 @@ TEST(MixedIntegerOcpQpSolveFixedTest, EveryFailurePathLeavesTheObjectiveAtInfini
     const MiqpAssignment partial = {1, kMiqpFree, 1, 0};
     OcpQpSolution solution;
     scalar_t objective = -1.0;
-    EXPECT_FALSE(miqp.solveFixed(problem, makeBinaries(), partial, nullptr, assignmentCost, solution, objective))
+    EXPECT_FALSE(miqp.solveFixed(problem, makeBinaries(), partial, /*propagate=*/nullptr, assignmentCost, solution, objective))
         << "without a propagation there is nothing to fill the hole";
     EXPECT_EQ(objective, infinity);
 
@@ -615,7 +619,7 @@ TEST(MixedIntegerOcpQpSolveFixedTest, EveryFailurePathLeavesTheObjectiveAtInfini
     OcpQpProblem problem = makeProblem(1.3);
     OcpQpSolution solution;
     scalar_t objective = -1.0;
-    EXPECT_FALSE(miqp.solveFixed(problem, makeBinaries(), complete, nullptr, assignmentCost, solution, objective));
+    EXPECT_FALSE(miqp.solveFixed(problem, makeBinaries(), complete, /*propagate=*/nullptr, assignmentCost, solution, objective));
     EXPECT_EQ(objective, infinity);
   }
 }
@@ -637,8 +641,10 @@ TEST(MixedIntegerOcpQpSolveFixedTest, ThrowsWhenTheAssignmentDoesNotMatchTheBina
 
   const MiqpAssignment tooShort(static_cast<std::size_t>(kNumStages - 1), static_cast<std::int8_t>(1));
   const MiqpAssignment tooLong(static_cast<std::size_t>(kNumStages + 1), static_cast<std::int8_t>(1));
-  EXPECT_THROW(miqp.solveFixed(problem, makeBinaries(), tooShort, nullptr, nullptr, solution, objective), std::invalid_argument);
-  EXPECT_THROW(miqp.solveFixed(problem, makeBinaries(), tooLong, nullptr, nullptr, solution, objective), std::invalid_argument);
+  EXPECT_THROW(miqp.solveFixed(problem, makeBinaries(), tooShort, /*propagate=*/nullptr, /*assignmentCost=*/nullptr, solution, objective),
+               std::invalid_argument);
+  EXPECT_THROW(miqp.solveFixed(problem, makeBinaries(), tooLong, /*propagate=*/nullptr, /*assignmentCost=*/nullptr, solution, objective),
+               std::invalid_argument);
   EXPECT_TRUE(std::isinf(objective)) << "the out-parameter is invalidated before the length is checked, so a caller that "
                                         "swallows the exception cannot read a stale objective either";
 }
@@ -648,7 +654,7 @@ TEST(MixedIntegerOcpQpSolveFixedTest, ThrowsWhenTheAssignmentDoesNotMatchTheBina
  * priced.
  *
  * The event-shift local search hands `solveFixed` a candidate it has already propagated, so the two agree there; the
- * cadence stretch and the heading re-linearisation hand it the incumbent, which is complete. The contract is
+ * cadence stretch and the heading re-linearization hand it the incumbent, which is complete. The contract is
  * nevertheless the wider one - `solveFixed` runs the propagation itself and only then demands completeness - and the
  * distinction is not academic: the assignment cost of a partial assignment is only a lower bound (MixedIntegerOcpQp.h),
  * so pricing the caller's partial assignment instead of the propagated one would under-charge every candidate whose
@@ -697,13 +703,13 @@ TEST(MixedIntegerOcpQpSolveFixedTest, ReproducesTheBranchAndBoundIncumbentObject
 
   OcpQpProblem searched = makeDecoupledBinaryProblem(1.3);
   const MiqpAssignment initial(kNumStages, kMiqpFree);
-  const MiqpResult result = miqp.solve(searched, makeBinaries(), initial, nullptr, nullptr, assignmentCost);
+  const MiqpResult result = miqp.solve(searched, makeBinaries(), initial, /*propagate=*/nullptr, /*warmStart=*/nullptr, assignmentCost);
   ASSERT_TRUE(result.hasIncumbent);
 
   OcpQpProblem fresh = makeDecoupledBinaryProblem(1.3);
   OcpQpSolution solution;
   scalar_t objective = -1.0;
-  ASSERT_TRUE(miqp.solveFixed(fresh, makeBinaries(), result.assignment, nullptr, assignmentCost, solution, objective));
+  ASSERT_TRUE(miqp.solveFixed(fresh, makeBinaries(), result.assignment, /*propagate=*/nullptr, assignmentCost, solution, objective));
   EXPECT_NEAR(objective, result.incumbentObjective, 1e-5)
       << "solveFixed and the search must put the same schedule at the same objective, or the local search around the "
          "incumbent compares two different functionals";
@@ -731,7 +737,7 @@ TEST(MixedIntegerOcpQpSolveFixedTest, TheAssignmentIsIndexedByThePositionInTheBi
   OcpQpProblem problem = makeProblem(1.3);
   OcpQpSolution solution;
   scalar_t objective = -1.0;
-  ASSERT_TRUE(miqp.solveFixed(problem, reversed, assignment, nullptr, nullptr, solution, objective));
+  ASSERT_TRUE(miqp.solveFixed(problem, reversed, assignment, /*propagate=*/nullptr, /*assignmentCost=*/nullptr, solution, objective));
 
   for (std::size_t i = 0; i < reversed.size(); ++i) {
     const int stage = reversed[i].stage;
@@ -773,13 +779,13 @@ TEST(ContactPlannerBinaryLayoutTest, BinaryVariablesAgreeWithContactBinaryIndex)
  * are the fixings that hold for the whole search. Getting the mapping wrong here is the worst version of the
  * disagreement above, because the committed window is precisely the part of the plan the robot is already executing:
  * the planner would fix the wrong foot's contact for the next quarter second and then hand the result to the reference
- * manager as the schedule it promised to honour. The foot each entry belongs to is read back out of the layout rather
+ * manager as the schedule it promised to honor. The foot each entry belongs to is read back out of the layout rather
  * than assumed, so this test still says something if the feet's order in the layout ever changes.
  */
 TEST(ContactPlannerBinaryLayoutTest, TheCommittedPrefixLandsOnTheBinariesOfItsOwnNodeAndFoot) {
   const ContactPlanningConfig config = makePlannerConfig();
-  const LipContactPlanner planner(config);
-  const Layout& layout = planner.getLayout();
+  const std::unique_ptr<const LipContactPlanner> planner = LipContactPlanner::Create(config).value();
+  const Layout& layout = planner->getLayout();
 
   // An asymmetric prefix: without it a wrong foot or a wrong node cannot be told from the right one.
   ContactPlannerInput input = makeStandingInput();
@@ -787,8 +793,8 @@ TEST(ContactPlannerBinaryLayoutTest, TheCommittedPrefixLandsOnTheBinariesOfItsOw
   input.committedContacts[0] = {true, false};
   input.committedContacts[1] = {false, true};
 
-  const std::vector<MiqpBinaryVariable> binaries = planner.binaryVariables();
-  const MiqpAssignment initial = planner.initialAssignment(input);
+  const std::vector<MiqpBinaryVariable> binaries = planner->binaryVariables();
+  const MiqpAssignment initial = planner->initialAssignment(input);
   ASSERT_EQ(initial.size(), binaries.size());
 
   const int numCommittedNodes = static_cast<int>(input.committedContacts.size());

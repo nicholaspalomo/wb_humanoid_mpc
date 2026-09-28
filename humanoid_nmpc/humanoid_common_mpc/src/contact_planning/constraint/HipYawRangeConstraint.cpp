@@ -26,28 +26,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/constraint/HipYawRangeConstraint.h"
 
 #include <cmath>
-#include <sstream>
-#include <stdexcept>
+
+#include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
 
 std::string HipYawRangeConstraint::describe() const {
-  std::ostringstream out;
-  out << "psi_i - theta in";
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) out << " [" << params_.lower[foot] << ", " << params_.upper[foot] << "]";
-  out << " rad (hip yaw limits from the model) at every node, " << penaltyText();
-  return out.str();
+  std::string out = "psi_i - theta in";
+  for (size_t foot = 0; foot < N_CONTACTS; ++foot) absl::StrAppend(&out, " [", params_.lower[foot], ", ", params_.upper[foot], "]");
+  absl::StrAppend(&out, " rad (hip yaw limits from the model) at every node, ", penaltyText());
+  return out;
 }
 
 void HipYawRangeConstraint::configure(const ContactPlanningConfig& config) {
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-    const bool unset = config.hipYawRange.lower[foot] == 0.0 && config.hipYawRange.upper[foot] == 0.0;
-    if (!unset && !(config.hipYawRange.lower[foot] < 0.0 && config.hipYawRange.upper[foot] > 0.0)) {
-      throw std::invalid_argument("[hip_yaw_range] foot yaw bounds must be lower < 0 < upper");
-    }
-  }
   params_ = config.hipYawRange;
-  configurePenalty(config, config.hipYawRange.slack, "hip_yaw_range");
+  configurePenalty(config, config.hipYawRange.slack);
 }
 
 void HipYawRangeConstraint::addRows(const ContactPlanningContext& /*ctx*/, int /*node*/, RowBuilder& rows) const {

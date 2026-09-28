@@ -20,6 +20,7 @@ cc_library(
         "src/CentroidalMpcInterface.cpp",
         "src/command/CentroidalMpcTargetTrajectoriesCalculator.cpp",
         "src/mrt/CentroidalMpcMrtJointController.cpp",
+        "src/mrt/CentroidalMpcParameterUpdater.cpp",
         "src/mrt/MpcParameterUpdaterModule.cpp",
     ],
     hdrs = glob(["include/**"], allow_empty = True),
@@ -45,9 +46,13 @@ cc_library(
         "//lib/ocs2:ocs2_mpc",
         "//lib/ocs2:ocs2_sqp",
         "//lib/ocs2:ocs2_pinocchio_interface",
+        "@abseil-cpp//absl/container:flat_hash_map",
         "@abseil-cpp//absl/log:check",
         "@abseil-cpp//absl/log:log",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
         "@eigen",
         "@boost",
         "@pinocchio",
@@ -80,9 +85,44 @@ cc_test(
     ],
     deps = [
         ":humanoid_centroidal_mpc",
+        "@abseil-cpp//absl/log:scoped_mock_log",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
         "@ros2_rclcpp",
         "@ros2_std_msgs",
+    ],
+)
+
+# Create() refuses every contact-input configuration error with a Status naming its key, before any CppAD model is built.
+cc_test(
+    name = "testContactInputParameterizationWiring",
+    size = "medium",
+    srcs = ["test/testContactInputParameterizationWiring.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+        "-DBOOST_VARIANT_LIMIT_TYPES=50",
+        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+    ],
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":humanoid_centroidal_mpc",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+        "@pinocchio",
     ],
 )
 
@@ -113,6 +153,173 @@ cc_test(
 )
 
 cc_test(
+    name = "testAcomWiring",
+    size = "large",
+    srcs = ["test/testAcomWiring.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+        "-DBOOST_VARIANT_LIMIT_TYPES=50",
+        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+    ],
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":humanoid_centroidal_mpc",
+        ":problem_fingerprint",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+        "@ros2_ament_index_cpp",
+    ],
+)
+
+# The assembled optimal control problem of an interface as labeled matrices compared exactly: how a formulation switch
+# that became a name is shown to assemble the problem the switch did.
+cc_library(
+    name = "problem_fingerprint",
+    testonly = True,
+    srcs = ["test/support/ProblemFingerprint.cpp"],
+    hdrs = ["test/support/ProblemFingerprint.h"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+        "-DBOOST_VARIANT_LIMIT_TYPES=50",
+        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+    ],
+    strip_include_prefix = "test",
+    deps = [
+        ":humanoid_centroidal_mpc",
+        "//lib/ocs2:ocs2_oc",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest",
+    ],
+)
+
+# The DCM terminal cost and the contact schedule source, selected by name where they were top-level booleans: the
+# problem the name assembles is bit for bit the one the boolean did on both robots that shipped it, the retired keys are
+# refused naming their replacement, and interface.verbose reaches the model settings.
+cc_test(
+    name = "testFormulationNames",
+    size = "large",
+    srcs = ["test/testFormulationNames.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+        "-DBOOST_VARIANT_LIMIT_TYPES=50",
+        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+    ],
+    # LINT.IfChange(formulation_names_data)
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+        "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
+        "//robot_models/engineai_sa01/engineai_sa01_description",
+    ],
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/test/testFormulationNames.cpp:dcm_terminal_cost_robots)
+    deps = [
+        ":humanoid_centroidal_mpc",
+        ":problem_fingerprint",
+        "//lib/ocs2:ocs2_core",
+        "@abseil-cpp//absl/log:scoped_mock_log",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# Both shipped contact_planning.yaml files, on the pendulum the planner runs (a comHeight of 0 resolved from the model):
+# they validate with no warning, fit their first step, and share the DCM cost's pendulum.
+cc_test(
+    name = "testShippedContactPlanningFiles",
+    size = "medium",
+    srcs = ["test/testShippedContactPlanningFiles.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+        "-DBOOST_VARIANT_LIMIT_TYPES=50",
+        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+    ],
+    # LINT.IfChange(shipped_contact_planning_files_data)
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+        "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
+        "//robot_models/engineai_sa01/engineai_sa01_description",
+    ],
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/test/testShippedContactPlanningFiles.cpp:shipped_contact_planning_files)
+    deps = [
+        ":humanoid_centroidal_mpc",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# Every consumer of the nominal pendulum derives the same one, and every centroidal robot's shipped pendulum numbers
+# (the LIP heights and the heuristic coefficients derived from them) are the model's.
+cc_test(
+    name = "testNominalPendulum",
+    size = "medium",
+    srcs = ["test/testNominalPendulum.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+        "-DBOOST_VARIANT_LIMIT_TYPES=50",
+        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+    ],
+    # LINT.IfChange(nominal_pendulum_data)
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+        "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
+        "//robot_models/engineai_sa01/engineai_sa01_description",
+        "//robot_models/unitree_g1/g1_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_r1/unitree_r1_centroidal_mpc",
+        "//robot_models/unitree_r1/unitree_r1_description",
+    ],
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/test/testNominalPendulum.cpp:nominal_pendulum_robots)
+    deps = [
+        ":humanoid_centroidal_mpc",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
     name = "testDcmTerminalCost",
     size = "large",
     srcs = ["test/testDcmTerminalCost.cpp"],
@@ -133,8 +340,41 @@ cc_test(
     ],
     deps = [
         ":humanoid_centroidal_mpc",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
         "@ros2_ament_index_cpp",
+    ],
+)
+
+# CentroidalMpcInterface::Create() on a missing task, URDF or reference file: NotFound naming the path, before anything
+# reads the files. Builds no CppAD model.
+cc_test(
+    name = "testCentroidalMpcInterfaceInputFiles",
+    size = "small",
+    srcs = ["test/testCentroidalMpcInterfaceInputFiles.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+        "-DBOOST_VARIANT_LIMIT_TYPES=50",
+        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+    ],
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":humanoid_centroidal_mpc",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
     ],
 )
 
@@ -159,6 +399,9 @@ cc_test(
     ],
     deps = [
         ":humanoid_centroidal_mpc",
+        "@abseil-cpp//absl/log:scoped_mock_log",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
         "@ros2_ament_index_cpp",
     ],
@@ -190,6 +433,9 @@ cc_library(
     strip_include_prefix = "test",
     deps = [
         ":humanoid_centroidal_mpc",
+        "@abseil-cpp//absl/log:check",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
         "@googletest//:gtest",
         "@ros2_ament_index_cpp",
     ],
@@ -216,6 +462,9 @@ cc_test(
     ],
     deps = [
         ":humanoid_centroidal_mpc",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
         "@ros2_ament_index_cpp",
     ],
@@ -291,6 +540,12 @@ cc_test(
     deps = [
         ":contact_test_support",
         ":humanoid_centroidal_mpc",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_sqp",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
         "@ros2_ament_index_cpp",
     ],
@@ -303,6 +558,33 @@ cc_test(
     # for several hundred seconds; a 300 s timeout would make the test flaky exactly when the cache is cold.
     size = "large",
     srcs = ["test/testRelaxedContactConstraints.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+        "-DBOOST_VARIANT_LIMIT_TYPES=50",
+        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+    ],
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":humanoid_centroidal_mpc",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+        "@ros2_ament_index_cpp",
+    ],
+)
+
+cc_test(
+    name = "testLocomotionHeuristicIntegration",
+    size = "large",  # builds a CentroidalMpcInterface, which compiles the CppAD libraries on a cold cache
+    srcs = ["test/testLocomotionHeuristicIntegration.cpp"],
     copts = [
         "-std=c++20",
         "-Wall",
@@ -373,7 +655,198 @@ cc_test(
         ":humanoid_centroidal_mpc",
         "//humanoid_nmpc/humanoid_common_mpc",
         "//humanoid_nmpc/humanoid_common_mpc_ros2",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
+        "@ros2_ament_index_cpp",
         "@ros2_std_msgs",
+    ],
+)
+
+# The DRC Atlas references of the centroidal MPC wired as the sim wires them, around a scripted solver: for the tests of
+# what an MPC reset clears and of the MRT joint controller's reset contract. Builds no CppAD model.
+cc_library(
+    name = "reference_stack_support",
+    testonly = True,
+    srcs = ["test/support/AtlasReferenceStack.cpp"],
+    hdrs = ["test/support/AtlasReferenceStack.h"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+        "-DBOOST_VARIANT_LIMIT_TYPES=50",
+        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+    ],
+    strip_include_prefix = "test",
+    deps = [
+        ":humanoid_centroidal_mpc",
+        "//lib/ocs2:ocs2_mpc_test_support",
+        "@abseil-cpp//absl/log:check",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings:string_view",
+    ],
+)
+
+# What a reset of the MPC clears in the references: a reset stack answers as a fresh one, under the gait schedule and
+# under the contact planner; the clock running backwards; lift-off positions; per-instance gait thresholds; plan epochs.
+cc_test(
+    name = "testMpcResetState",
+    size = "medium",
+    srcs = ["test/testMpcResetState.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+        "-DBOOST_VARIANT_LIMIT_TYPES=50",
+        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+    ],
+    data = [
+        "//humanoid_nmpc/humanoid_common_mpc:gait_config",
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":humanoid_centroidal_mpc",
+        ":reference_stack_support",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The command filter as the DRC Atlas runs it: shipped off, switched on by a reload of reference.yaml, lagging the
+# reference on the solver clock, reset with the motion manager, and an invalid break frequency refused by name.
+cc_test(
+    name = "testVelocityCommandFilterWiring",
+    size = "small",
+    srcs = ["test/testVelocityCommandFilterWiring.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+        "-DBOOST_VARIANT_LIMIT_TYPES=50",
+        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+    ],
+    data = [
+        "//humanoid_nmpc/humanoid_common_mpc:gait_config",
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":humanoid_centroidal_mpc",
+        ":reference_stack_support",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The reset contract of CentroidalMpcMrtJointController with its solver thread running around a scripted solver:
+# ZERO_TORQUE, the divergence check, the failure back-off and its one error, the clock running backwards, and the first
+# policy after a fall.
+cc_test(
+    name = "testMrtJointControllerReset",
+    size = "medium",
+    srcs = ["test/testMrtJointControllerReset.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+        "-DBOOST_VARIANT_LIMIT_TYPES=50",
+        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+    ],
+    data = [
+        "//humanoid_nmpc/humanoid_common_mpc:gait_config",
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":humanoid_centroidal_mpc",
+        ":reference_stack_support",
+        "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/log:scoped_mock_log",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The yaw residual of the swing-foot cost: the wrapped yaw error at every non-singular orientation, and finite
+# derivatives at a yaw of exactly zero, where the atan2 it replaced had none. Generates the foot cost's CppAD library.
+cc_test(
+    name = "testFootYawResidual",
+    size = "large",
+    srcs = ["test/testFootYawResidual.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+        "-DBOOST_VARIANT_LIMIT_TYPES=50",
+        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+    ],
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":contact_test_support",
+        ":humanoid_centroidal_mpc",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+        "@ros2_ament_index_cpp",
+    ],
+)
+
+# The DRC Atlas centroidal MPC with the real SQP solver through a reset after a fall and a rewound clock, closed on its
+# own prediction: every solve after the full reset succeeds, the first policy stands where the robot is, and the robot
+# walks again when commanded. Generates the Atlas CppAD libraries.
+cc_test(
+    name = "testMpcResetSolverStack",
+    size = "large",
+    srcs = ["test/testMpcResetSolverStack.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
+        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
+        "-DBOOST_VARIANT_LIMIT_TYPES=50",
+        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
+    ],
+    data = [
+        "//humanoid_nmpc/humanoid_common_mpc:gait_config",
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":humanoid_centroidal_mpc",
+        ":reference_stack_support",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_sqp",
+        "@abseil-cpp//absl/log:log",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@googletest//:gtest_main",
     ],
 )

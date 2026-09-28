@@ -65,7 +65,7 @@ int main(int argc, char** argv) {
   // Initialize ros2 node
   rclcpp::init(argc, argv);
   // auto nodeHandle = std::make_shared<rclcpp::Node>(robotName + "_dummy_mrt");
-  auto qos = rclcpp::QoS(1);
+  rclcpp::QoS qos(1);
   qos.best_effort();
 
   // Robot interface
@@ -84,7 +84,7 @@ int main(int argc, char** argv) {
       new HumanoidVisualizer(taskFile, interface.getPinocchioInterface(), interface.getMpcRobotModel(), nodeHandle));
 
   // Dummy legged robot
-  MRT_ROS_Dummy_Loop dummySimulator(mrt, 80, interface.mpcSettings().mpcDesiredFrequency_);
+  MRT_ROS_Dummy_Loop dummySimulator(mrt, /*mrtDesiredFrequency=*/80, interface.mpcSettings().mpcDesiredFrequency_);
   dummySimulator.subscribeObservers({humanoidVisualizer});
 
   // Initial state

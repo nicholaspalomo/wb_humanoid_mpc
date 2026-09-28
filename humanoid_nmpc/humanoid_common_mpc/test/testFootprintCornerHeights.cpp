@@ -27,6 +27,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <initializer_list>
 #include <limits>
@@ -49,8 +50,8 @@ vector_t heights(std::initializer_list<scalar_t> values) {
 }
 
 TEST(SmoothMinimumHeight, isExactOnAFlatFoot) {
-  // THE property the 1/N normalisation buys, and the reason the plain log-sum-exp softmin could not be used. A flat
-  // foot is where a walking robot spends most of its stance; an un-normalised softmin reports it as log(4)*s = 1.39 mm
+  // THE property the 1/N normalization buys, and the reason the plain log-sum-exp softmin could not be used. A flat
+  // foot is where a walking robot spends most of its stance; an un-normalized softmin reports it as log(4)*s = 1.39 mm
   // LOWER than it is, and since the complementarity penalty is two-sided the solver answers a negative reported gap by
   // lifting the foot. The robot would hover under full load and never close the contact.
   for (scalar_t height : {-0.02, 0.0, 0.05, 1.3}) {
@@ -84,9 +85,11 @@ TEST(SmoothMinimumHeight, theBiasIsLogOfTheFractionOfCornersThatTouch) {
   //   k = 2, an EDGE down - the ordinary heel strike or toe-off of a rectangular sole: s * log 2 = 0.693 mm.
   //   k = 1, a single corner, which needs pitch AND roll at once: s * log 4 = 1.386 mm. This is the bound.
   //
-  // Against the shipped penetration hinge (penetrationWeight 5e4 against a complementarity curvature of
-  // complementarityWeight / heightReference^2 = 7812 at full body weight) those become 0.094 mm and 0.187 mm of
-  // equilibrium penetration respectively - the price of a differentiable minimum.
+  // Against the shipped penetration hinge (penetrationWeight 5e4 on every corner that is down, against a
+  // complementarity curvature of complementarityWeight / heightReference^2 = 7812 at full body weight) those become
+  // 0.050 mm and 0.187 mm of equilibrium penetration respectively - the edge's two corners both resist, so its bias is
+  // attenuated by C / (C + 2P) rather than C / (C + P). equilibriumPenetrationAttenuatesTheBiasByEveryCornerThatIsDown
+  // holds that arithmetic.
   const SmoothMinimumHeight flat = smoothMinimumHeight(heights({0.0, 0.0, 0.0, 0.0}), kSmoothing);
   EXPECT_NEAR(flat.value, 0.0, 1e-15);
 
@@ -99,7 +102,7 @@ TEST(SmoothMinimumHeight, theBiasIsLogOfTheFractionOfCornersThatTouch) {
 
   const SmoothMinimumHeight corner = smoothMinimumHeight(heights({0.0, 0.05, 0.05, 0.05}), kSmoothing);
   EXPECT_NEAR(corner.value, std::log(4.0) * kSmoothing, 1e-9);
-  EXPECT_LT(corner.value, 1.5e-3) << "the worst-case error must stay well under two millimetres";
+  EXPECT_LT(corner.value, 1.5e-3) << "the worst-case error must stay well under two millimeters";
   // The touching corner carries essentially the whole gradient: 0.05 m is fifty smoothing lengths away.
   EXPECT_NEAR(corner.weights(0), 1.0, 1e-9);
 
@@ -108,7 +111,53 @@ TEST(SmoothMinimumHeight, theBiasIsLogOfTheFractionOfCornersThatTouch) {
   EXPECT_LT(edge.value, corner.value);
 }
 
-TEST(SmoothMinimumHeight, weightsAreAConvexCombinationThatFavoursTheLowestCorner) {
+/**
+ * The derivative, with respect to a rigid vertical offset `m` of the foot, of the energy the two contact-implicit
+ * terms put on a loaded foot: 0.5 * C * softmin(h)^2 from the complementarity term, and 0.5 * P * min(h_i, 0)^2 for
+ * every corner from the penetration hinge. `cornersDown` corners sit at `m`, the rest 5 cm above it.
+ */
+scalar_t contactEnergySlope(scalar_t m, int cornersDown, scalar_t curvature, scalar_t penetrationWeight) {
+  vector_t corners = vector_t::Constant(4, m + 0.05);
+  corners.head(cornersDown).setConstant(m);
+  // d(softmin)/dm is the sum of the softmin weights, which is exactly one: the gap moves one-for-one with the foot.
+  scalar_t slope = curvature * smoothMinimumHeight(corners, kSmoothing).value;
+  for (long corner = 0; corner < corners.size(); ++corner) {
+    slope += penetrationWeight * std::min(corners(corner), 0.0);
+  }
+  return slope;
+}
+
+TEST(SmoothMinimumHeight, equilibriumPenetrationAttenuatesTheBiasByEveryCornerThatIsDown) {
+  // The documented equilibrium penetration is -C b / (C + k P), with b = s log(N / k) the bias and k the number of
+  // corners down: EVERY corner that is down resists with its own hinge. An earlier version of the documentation
+  // attenuated the edge case by C / (C + P), as if only one of its two corners pushed back, and quoted 0.094 mm where
+  // the equilibrium is 0.050 mm. The weights below are the ones the figures are quoted for; the assertion is about the
+  // formula, and holds for any positive pair.
+  constexpr scalar_t kCurvature = 50.0 / (0.08 * 0.08);  // complementarityWeight / heightReference^2, full body weight
+  constexpr scalar_t kPenetrationWeight = 5.0e4;
+  for (const int cornersDown : {1, 2, 4}) {
+    // The slope is increasing in m, so bisection finds its single root.
+    scalar_t below = -0.01;
+    scalar_t above = 0.01;
+    for (int iteration = 0; iteration < 200; ++iteration) {
+      const scalar_t middle = 0.5 * (below + above);
+      (contactEnergySlope(middle, cornersDown, kCurvature, kPenetrationWeight) < 0.0 ? below : above) = middle;
+    }
+    const scalar_t equilibrium = 0.5 * (below + above);
+    const scalar_t bias = kSmoothing * std::log(4.0 / static_cast<scalar_t>(cornersDown));
+    const scalar_t expected = -kCurvature * bias / (kCurvature + static_cast<scalar_t>(cornersDown) * kPenetrationWeight);
+    EXPECT_NEAR(equilibrium, expected, 1e-12) << cornersDown << " corners down";
+
+    if (cornersDown == 2) {
+      // Positive control: the single-hinge reading this replaces is a different number, by nearly a factor of two.
+      const scalar_t singleHinge = -kCurvature * bias / (kCurvature + kPenetrationWeight);
+      EXPECT_GT(equilibrium / singleHinge, 0.0);
+      EXPECT_LT(equilibrium / singleHinge, 0.6) << "the edge's two hinges must both be counted";
+    }
+  }
+}
+
+TEST(SmoothMinimumHeight, weightsAreAConvexCombinationThatFavorsTheLowestCorner) {
   const vector_t sample = heights({0.004, 0.0, 0.002, 0.010});
   const SmoothMinimumHeight result = smoothMinimumHeight(sample, kSmoothing);
   ASSERT_EQ(result.weights.size(), sample.size());
@@ -122,7 +171,7 @@ TEST(SmoothMinimumHeight, weightsAreAConvexCombinationThatFavoursTheLowestCorner
 
 TEST(SmoothMinimumHeight, weightsAreItsGradient) {
   // The weights are handed straight to the solver as d(gap)/d(corner height), so a value and a gradient that do not
-  // belong to the same function would be a silently wrong linearisation rather than a visibly wrong number.
+  // belong to the same function would be a silently wrong linearization rather than a visibly wrong number.
   const vector_t sample = heights({0.004, 0.0, 0.002, 0.010});
   const SmoothMinimumHeight result = smoothMinimumHeight(sample, kSmoothing);
   constexpr scalar_t kStep = 1.0e-7;
@@ -149,7 +198,7 @@ TEST(SmoothMinimumHeight, approachesTheTrueMinimumAsTheSmoothingShrinks) {
 }
 
 TEST(SmoothMinimumHeight, survivesCornersFarEnoughApartToUnderflow) {
-  // exp(-(h_i - m)/s) underflows to zero for a corner a metre up at a millimetre of smoothing. The shift by the true
+  // exp(-(h_i - m)/s) underflows to zero for a corner a meter up at a millimeter of smoothing. The shift by the true
   // minimum keeps the touching corner's term at exactly one, so the sum can never be empty and the logarithm never
   // sees zero - which would have come back as an infinite gap and an infinite complementarity residual.
   const SmoothMinimumHeight result = smoothMinimumHeight(heights({0.0, 1.0, 2.0, 5.0}), kSmoothing);
@@ -160,7 +209,7 @@ TEST(SmoothMinimumHeight, survivesCornersFarEnoughApartToUnderflow) {
 }
 
 TEST(SmoothMinimumHeight, isTranslationEquivariant) {
-  // The gap of a foot lifted by a centimetre is a centimetre larger, exactly. Without the shift-by-the-minimum this
+  // The gap of a foot lifted by a centimeter is a centimeter larger, exactly. Without the shift-by-the-minimum this
   // would be the first thing to break at large heights.
   const vector_t sample = heights({0.004, 0.0, 0.002, 0.010});
   const scalar_t base = smoothMinimumHeight(sample, kSmoothing).value;
@@ -176,8 +225,8 @@ TEST(SmoothMinimumHeight, handlesASinglePoint) {
 }
 
 TEST(SmoothMinimumHeight, rejectsANonPositiveSmoothing) {
-  EXPECT_DEATH(smoothMinimumHeight(heights({0.0, 0.0, 0.0, 0.0}), 0.0), "gapSmoothing");
-  EXPECT_DEATH(smoothMinimumHeight(heights({0.0, 0.0, 0.0, 0.0}), -1.0e-3), "gapSmoothing");
+  EXPECT_DEATH(smoothMinimumHeight(heights({0.0, 0.0, 0.0, 0.0}), /*smoothing=*/0.0), "gapSmoothing");
+  EXPECT_DEATH(smoothMinimumHeight(heights({0.0, 0.0, 0.0, 0.0}), /*smoothing=*/-1.0e-3), "gapSmoothing");
 }
 
 }  // namespace

@@ -25,22 +25,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/constraint/LipConstraintBase.h"
 
-#include <sstream>
-#include <stdexcept>
+#include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
 
-void LipConstraintBase::configurePenalty(const ContactPlanningConfig& config, const std::optional<SlackPenalty>& own, const char* term) {
+void LipConstraintBase::configurePenalty(const ContactPlanningConfig& config, const std::optional<SlackPenalty>& own) {
   penalty_ = own.value_or(config.shared.slackPenalty);
-  if (penalty_.quadratic < 0.0 || penalty_.linear < 0.0) {
-    throw std::invalid_argument(std::string("[") + term + "] slack penalties must be >= 0");
-  }
 }
 
 std::string LipConstraintBase::penaltyText() const {
-  std::ostringstream out;
-  out << "slack (" << penalty_.quadratic << ", " << penalty_.linear << ")";
-  return out.str();
+  return absl::StrCat("slack (", penalty_.quadratic, ", ", penalty_.linear, ")");
 }
 
 }  // namespace ocs2::humanoid

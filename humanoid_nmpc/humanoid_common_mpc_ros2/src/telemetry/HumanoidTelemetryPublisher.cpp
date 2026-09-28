@@ -32,6 +32,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
+#include <string>
+#include <vector>
 
 #include <humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h>
 #include <ocs2_core/misc/LinearInterpolation.h>
@@ -42,11 +45,11 @@ HumanoidTelemetryPublisher::HumanoidTelemetryPublisher(rclcpp::Node::SharedPtr n
                                                        const MpcRobotModelBase<scalar_t>& mpcRobotModel,
                                                        const ::robot::model::RobotDescription& robotDescription)
     : nodeHandle_(std::move(nodeHandle)), mpcRobotModelPtr_(&mpcRobotModel), robotDescriptionPtr_(&robotDescription) {
-  auto qos = rclcpp::QoS(10);
+  rclcpp::QoS qos(10);
   qos.best_effort();
 
   // Full joint names in model order
-  const auto& jointNames = mpcRobotModelPtr_->modelSettings.fullJointNames;
+  const std::vector<std::string>& jointNames = mpcRobotModelPtr_->modelSettings.fullJointNames;
   fullJointNames_.assign(jointNames.begin(), jointNames.end());
 
   // Publishers
@@ -91,7 +94,7 @@ void HumanoidTelemetryPublisher::publish(const ::robot::model::RobotState& robot
                                          const vector3_t& leftMeasuredForce,
                                          const vector3_t& rightMeasuredForce) {
   try {
-    const auto now = nodeHandle_->now();
+    const rclcpp::Time now = nodeHandle_->now();
 
     // 1. Current Robot Joint States (/joint_states)
     sensor_msgs::msg::JointState jointStateMsg;
@@ -104,9 +107,9 @@ void HumanoidTelemetryPublisher::publish(const ::robot::model::RobotState& robot
     for (size_t i = 0; i < fullJointNames_.size(); ++i) {
       jointStateMsg.position[i] = robotState.getJointPosition(i);
       jointStateMsg.velocity[i] = robotState.getJointVelocity(i);
-      const auto& actionOpt = robotJointAction.at(i);
+      const std::optional<::robot::model::JointAction>& actionOpt = robotJointAction.at(i);
       if (actionOpt.has_value()) {
-        const auto& action = actionOpt.value();
+        const ::robot::model::JointAction& action = actionOpt.value();
         jointStateMsg.effort[i] = action.feed_forward_effort + action.kp * (action.q_des - jointStateMsg.position[i]) +
                                   action.kd * (action.qd_des - jointStateMsg.velocity[i]);
       } else {
@@ -124,7 +127,7 @@ void HumanoidTelemetryPublisher::publish(const ::robot::model::RobotState& robot
     targetJointMsg.effort.resize(fullJointNames_.size());
 
     for (size_t i = 0; i < fullJointNames_.size(); ++i) {
-      const auto& actionOpt = robotJointAction.at(i);
+      const std::optional<::robot::model::JointAction>& actionOpt = robotJointAction.at(i);
       if (actionOpt.has_value()) {
         targetJointMsg.position[i] = actionOpt.value().q_des;
         targetJointMsg.velocity[i] = actionOpt.value().qd_des;
@@ -155,7 +158,7 @@ void HumanoidTelemetryPublisher::publish(const ::robot::model::RobotState& robot
     vector3_t targetLinVel = vector3_t::Zero();
     vector3_t targetAngVel = vector3_t::Zero();
 
-    const auto& targetTraj = mpcCommand.mpcTargetTrajectories_;
+    const TargetTrajectories& targetTraj = mpcCommand.mpcTargetTrajectories_;
     const bool hasValidTargetState = !targetTraj.timeTrajectory.empty() && !targetTraj.stateTrajectory.empty() &&
                                      targetTraj.timeTrajectory.size() == targetTraj.stateTrajectory.size() && mpcRobotModelPtr_ &&
                                      targetTraj.stateTrajectory.front().size() == mpcRobotModelPtr_->getStateDim();
@@ -212,9 +215,11 @@ void HumanoidTelemetryPublisher::publish(const ::robot::model::RobotState& robot
     }
     mpcObservationPub_->publish(obsMsg);
   } catch (const std::exception& e) {
-    RCLCPP_WARN_THROTTLE(nodeHandle_->get_logger(), *nodeHandle_->get_clock(), 1000, "Humanoid telemetry publishing error: %s", e.what());
+    RCLCPP_WARN_THROTTLE(nodeHandle_->get_logger(), *nodeHandle_->get_clock(), /*duration=*/1000, "Humanoid telemetry publishing error: %s",
+                         e.what());
   } catch (...) {
-    RCLCPP_WARN_THROTTLE(nodeHandle_->get_logger(), *nodeHandle_->get_clock(), 1000, "Humanoid telemetry publishing unknown error");
+    RCLCPP_WARN_THROTTLE(nodeHandle_->get_logger(), *nodeHandle_->get_clock(), /*duration=*/1000,
+                         "Humanoid telemetry publishing unknown error");
   }
 }
 

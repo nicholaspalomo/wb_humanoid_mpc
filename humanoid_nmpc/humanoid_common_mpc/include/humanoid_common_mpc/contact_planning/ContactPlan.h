@@ -55,7 +55,7 @@ struct ContactPlannerInput {
   int lastSwungFoot = -1;         // foot that swung most recently (-1 unknown), for alternation
   scalar_t committedUntil = 0.0;  // [s] the applied schedule is treated as fixed up to this time
 
-  // Heading model (ContactPlanningConfig::useAcomDynamics). `yaw` then equals `heading`.
+  // Heading model (`dynamics` lists heading_double_integrator: ContactPlanningConfig::usesHeadingModel()). `yaw` then equals `heading`.
   scalar_t heading = 0.0;             // [rad] whole-body heading at planning time (ACoM yaw, or base yaw)
   scalar_t headingRate = 0.0;         // [rad/s] its rate: angular momentum about the vertical / yaw inertia
   scalar_t headingRateCommand = 0.0;  // [rad/s] commanded yaw rate
@@ -67,7 +67,7 @@ struct ContactPlannerInput {
   //
   // This comment used to read "<= 0: configured value", promising a fallback that has never existed - there is no yaw
   // inertia anywhere in ContactPlanningConfig and none in any shipped contact_planning.yaml - and it contradicted the
-  // two neighbouring contracts that state the real one, LipContactPlanner.h ("from the input (the robot model). Throws
+  // two neighboring contracts that state the real one, LipContactPlanner.h ("from the input (the robot model). Throws
   // if it is not positive") and ContactPlanningModelParameters.h ("taken from the model at every plan and is not part
   // of this"). A caller who believed it would leave the field at its default and silently get no plan at all.
   scalar_t yawInertia = 0.0;
@@ -79,9 +79,21 @@ struct ContactPlan {
   bool valid = false;
   scalar_t startTime = 0.0;
   scalar_t dt = 0.1;
-  scalar_t committedUntil = 0.0;                   // [s] the plan honoured the applied schedule up to this time
-  scalar_t yaw = 0.0;                              // [rad] base yaw at planning time; the geometry was planned in this frame
-  std::vector<contact_flag_t> contacts;            // per interval k = 0..N-1
+  scalar_t committedUntil = 0.0;  // [s] the plan honored the applied schedule up to this time
+  scalar_t yaw = 0.0;             // [rad] base yaw at planning time; the geometry was planned in this frame
+  // [1/s] natural frequency sqrt(shared.gravity / shared.comHeight) of the pendulum the plan was made on, so that the
+  // plan's DCM is always taken on its own pendulum (ContactPlanningReferenceManager::getPlannedDcm); 0: not recorded.
+  scalar_t omega = 0.0;
+  std::vector<contact_flag_t> contacts;  // per interval k = 0..N-1
+  // The gait in continuous time, for a planner that decides its events off the node grid (HlipContactPlanner): the
+  // contact state of every phase, in order, and the time each begins (phaseStartTimes.front() is startTime). `contacts`
+  // is this gait sampled onto the intervals, every boundary assigned to its nearest node. toModeSchedule() and
+  // contactsAtTime() read these times when they are present. The mode schedule used to take its events from the node
+  // grid alone, so a double support lasted whatever the grid rounded it to - anywhere in hlip.dspDuration +- dt / 2, and
+  // at a fixed MPC period one systematic value - while the deadbeat gain that placed the step assumed hlip.dspDuration.
+  // Empty: the events are the node times of `contacts` (the mixed-integer planner, whose events are on the grid).
+  std::vector<contact_flag_t> phaseContacts;
+  std::vector<scalar_t> phaseStartTimes;
   std::vector<feet_array_t<vector2_t>> footholds;  // per node k = 0..N, planned foot xy (landing spot while swinging)
   std::vector<vector2_t> comPosition;              // per node
   std::vector<vector2_t> comVelocity;              // per node
@@ -110,8 +122,14 @@ struct ContactPlan {
   /** Interval index containing `time`, clamped to the plan. */
   int intervalIndex(scalar_t time) const;
 
-  /** Contact flags of the interval containing `time` (clamped). */
+  /**
+   * Contact flags at `time`: of the continuous-time phase containing it when the plan carries one (phaseContacts), of
+   * the interval containing it otherwise; clamped to the plan.
+   */
   contact_flag_t contactsAtTime(scalar_t time) const;
+
+  /** Whether the plan carries its gait in continuous time (phaseContacts / phaseStartTimes, consistent sizes). */
+  bool hasContinuousPhases() const { return !phaseContacts.empty() && phaseContacts.size() == phaseStartTimes.size(); }
 
   /** Planned foot position of the node nearest to `time` (clamped). Empty when the plan is not valid. */
   std::optional<vector2_t> footholdAtTime(size_t contactIndex, scalar_t time) const;
@@ -160,26 +178,28 @@ struct ContactPlan {
   std::optional<scalar_t> footYawBeforeTime(size_t contactIndex, scalar_t time) const;
 
   /**
-   * The reduced model's centre of mass at `time`, linearly interpolated between nodes and clamped to the plan.
+   * The reduced model's center of mass at `time`, linearly interpolated between nodes and clamped to the plan.
    *
    * This is the trajectory the footholds were planned for: with the H-LIP planner it is the orbit the deadbeat step
    * regulates to, whose lateral part deliberately falls towards the swing foot. The whole-body MPC has to be asked for
-   * that motion, or its own centre-of-mass reference and the planner's footholds pull in opposite directions
+   * that motion, or its own center-of-mass reference and the planner's footholds pull in opposite directions
    * (planned_com_override, humanoid_nmpc/docs/hlip_contact_planner/README.md).
    */
   std::optional<vector2_t> comPositionAtTime(scalar_t time) const;
   std::optional<vector2_t> comVelocityAtTime(scalar_t time) const;
 
   /**
-   * Moves the whole plan by `shift` seconds (start time and commit boundary). Used when the executed schedule is re-timed
-   * after the plan was made (late touch-down, cadence modulation) so that the plan's later events keep their timing
-   * relative to the re-timed switch.
+   * Moves the whole plan by `shift` seconds (start time, commit boundary and continuous phase times). Used when the executed schedule is
+   * re-timed after the plan was made (late touch-down, cadence modulation) so that the plan's later events keep their timing relative to
+   * the re-timed switch.
    */
   void shiftInTime(scalar_t shift);
 
   /**
-   * Converts the plan to a mode schedule. Event times are placed at the node times where the contact set changes. After the
-   * planning horizon the schedule continues with the last planned mode, or with STANCE if the last mode is not double support.
+   * Converts the plan to a mode schedule. Event times are the continuous phase boundaries when the plan carries them
+   * (phaseStartTimes; a phase shorter than a microsecond is dropped), and otherwise the node times where the contact set
+   * changes. After the planning horizon the schedule continues with the last planned mode, or with STANCE, from
+   * endTime(), if the last mode is not double support.
    */
   ModeSchedule toModeSchedule() const;
 };

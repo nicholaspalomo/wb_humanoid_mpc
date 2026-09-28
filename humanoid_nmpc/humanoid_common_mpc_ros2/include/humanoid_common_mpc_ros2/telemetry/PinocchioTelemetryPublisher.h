@@ -32,8 +32,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <limits>
 #include <memory>
 #include <string>
-#include <unordered_map>
 #include <vector>
+
+#include "absl/container/flat_hash_map.h"
 
 #include <ocs2_pinocchio_interface/PinocchioInterface.h>
 #include <geometry_msgs/msg/accel_stamped.hpp>
@@ -137,8 +138,8 @@ class PinocchioTelemetryPublisher {
                              const vector_t& q_des,
                              const vector_t& v_des,
                              const vector_t& tau_des,
-                             const std::unordered_map<std::string, vector3_t>& measuredForces = {},
-                             const std::unordered_map<std::string, vector6_t>& desiredWrenches = {});
+                             const absl::flat_hash_map<std::string, vector3_t>& measuredForces = {},
+                             const absl::flat_hash_map<std::string, vector6_t>& desiredWrenches = {});
 
   static vector3_t quaternionToEulerZYX(const quaternion_t& q);
 

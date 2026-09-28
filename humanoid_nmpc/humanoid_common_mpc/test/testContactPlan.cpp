@@ -29,8 +29,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
@@ -61,7 +63,7 @@ ContactPlanningConfig makeConfig() {
   config.planner.maxSolveTime = 10.0;
   config.eventShiftLocalSearch.maxTime = 2.0;
   config.planner.verbose = false;
-  config.validate();
+  EXPECT_EQ(config.validateStatus(), absl::OkStatus());
   return config;
 }
 
@@ -71,22 +73,22 @@ size_t modeWithSwinging(size_t foot) {
   return stanceLeg2ModeNumber(flags);
 }
 
-/** The planner input the reference manager builds from the executed schedule (ContactPlanningReferenceManager::makePlannerInput). */
+/**
+ * The planner input the reference manager builds from the executed schedule, built the way
+ * ContactPlanningReferenceManager::makePlannerInput builds it: the commit boundary of the applied schedule, then
+ * fillPlannerInputFromSchedule() - contacts, phase timing, the committed window and the last swung foot - with a
+ * lift-off history that has seen `schedule`. The input used to be assembled here by hand, and without the last swung
+ * foot, so these tests planned from an input production never hands the planner.
+ */
 ContactPlannerInput makeInput(const ModeSchedule& schedule, scalar_t time, const ContactPlanningConfig& config) {
   ContactPlannerInput input;
   input.time = time;
   input.velocityCommand = vector2_t(0.3, 0.0);
   input.footPositions[0] = vector2_t(0.0, 0.125);
   input.footPositions[1] = vector2_t(0.05, -0.125);
-  input.contacts = contactFlagsAtTime(schedule, time);
-  const feet_array_t<scalar_t> phaseStarts = contactPhaseStartTimes(schedule, time);
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-    input.phaseElapsedTime[foot] = std::isfinite(phaseStarts[foot]) ? time - phaseStarts[foot] : 10.0;
-  }
-  input.committedUntil = commitBoundaryForSchedule(schedule, time, config.planner.commitTime);
-  const int maxCommitted = config.planner.numNodes - 1;
-  input.committedContacts = committedContactsForPlanner(schedule, time, config.planner.dt, maxCommitted, input.committedUntil);
-  input.committedPhaseStartTimes = committedPhaseStartsForPlanner(schedule, time, config.planner.dt, maxCommitted, input.committedUntil);
+  input.committedUntil = commitBoundaryForSchedule(schedule, time, config.planner.commitTime, config.planner.maxCommitExtension);
+  LiftOffHistory liftOffHistory;
+  fillPlannerInputFromSchedule(schedule, config.planner.dt, std::max(0, config.planner.numNodes - 1), liftOffHistory, input);
   return input;
 }
 
@@ -141,12 +143,12 @@ void printSchedule(const ModeSchedule& schedule) {
 
 /**
  * Plans from the executed schedule at `time`, merges the plan at its commit boundary as the reference manager does, and
- * checks that every phase the merge produces honours the configured minima in real time.
+ * checks that every phase the merge produces honors the configured minima in real time.
  */
-ModeSchedule expectMergedScheduleHonoursMinimumDurations(const ModeSchedule& applied, scalar_t time, const ContactPlanningConfig& config) {
-  LipContactPlanner planner(config);
+ModeSchedule expectMergedScheduleHonorsMinimumDurations(const ModeSchedule& applied, scalar_t time, const ContactPlanningConfig& config) {
+  const std::unique_ptr<LipContactPlanner> planner = LipContactPlanner::Create(config).value();
   const ContactPlannerInput input = makeInput(applied, time, config);
-  const ContactPlan plan = planner.plan(input);
+  const ContactPlan plan = planner->plan(input);
   EXPECT_TRUE(plan.valid);
   if (!plan.valid) return applied;
   const scalar_t commitTime = std::max(time, plan.committedUntil);
@@ -163,10 +165,11 @@ ModeSchedule expectMergedScheduleHonoursMinimumDurations(const ModeSchedule& app
       EXPECT_LE(duration, config.shared.gaitLimits.maxSwingDuration + kTol) << "foot " << phase.foot << " swing from " << phase.start;
     }
   }
-  const auto supports = doubleSupportsInside(merged, time, plan.endTime());
+  const std::vector<std::pair<scalar_t, scalar_t>> supports = doubleSupportsInside(merged, time, plan.endTime());
   EXPECT_FALSE(supports.empty()) << "a walking plan transfers the weight at least once inside the horizon";
-  for (const auto& [start, end] : supports) {
-    EXPECT_GE(end - start, config.shared.gaitLimits.minDoubleSupportDuration - kTol) << "double support from " << start << " to " << end;
+  for (const std::pair<scalar_t, scalar_t>& support : supports) {
+    EXPECT_GE(support.second - support.first, config.shared.gaitLimits.minDoubleSupportDuration - kTol)
+        << "double support from " << support.first << " to " << support.second;
   }
   return merged;
 }
@@ -262,8 +265,8 @@ TEST(ContactPlanNodeLookup, footYawBeforeTimeMatchesTheFootholdRuleAndNeedsTheHe
 TEST(ContactPlanNodeLookup, theBeforeLookupsAreEmptyOnAnInvalidPlan) {
   ContactPlan invalid = makeCountingPlan(/*startTime=*/0.0, /*dt=*/0.1, /*numNodes=*/4);
   invalid.valid = false;
-  EXPECT_FALSE(invalid.footholdBeforeTime(CONTACT_LEFT_INDEX, 0.2).has_value());
-  EXPECT_FALSE(invalid.footYawBeforeTime(CONTACT_LEFT_INDEX, 0.2).has_value());
+  EXPECT_FALSE(invalid.footholdBeforeTime(CONTACT_LEFT_INDEX, /*time=*/0.2).has_value());
+  EXPECT_FALSE(invalid.footYawBeforeTime(CONTACT_LEFT_INDEX, /*time=*/0.2).has_value());
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -306,7 +309,7 @@ ContactPlanningConfig makeHlipConfig() {
   config.hlip.sspDuration = 0.25;
   config.hlip.dspDuration = 0.05;
   config.hlip.stepWidth = 0.25;
-  config.validate();
+  EXPECT_EQ(config.validateStatus(), absl::OkStatus());
   return config;
 }
 
@@ -401,7 +404,7 @@ TEST(ContactPlanMerge, TouchDownAtTheCommitBoundaryDoesNotShortenTheFollowingPha
   // landed against the 0.15 s minimum.
   const ContactPlanningConfig config = makeConfig();
   const ModeSchedule applied({0.57, 0.97}, {ModeNumber::STANCE, modeWithSwinging(1), ModeNumber::STANCE});
-  expectMergedScheduleHonoursMinimumDurations(applied, 0.7, config);
+  expectMergedScheduleHonorsMinimumDurations(applied, /*time=*/0.7, config);
 }
 
 TEST(ContactPlanMerge, TouchDownInsideTheCommitWindowDoesNotShortenTheFollowingPhases) {
@@ -410,7 +413,7 @@ TEST(ContactPlanMerge, TouchDownInsideTheCommitWindowDoesNotShortenTheFollowingP
   // [0.9, 1.0) straddles the boundary and reports the landed state, the landing itself is 0.02 s into the node.
   const ContactPlanningConfig config = makeConfig();
   const ModeSchedule applied({0.52, 0.92}, {ModeNumber::STANCE, modeWithSwinging(1), ModeNumber::STANCE});
-  expectMergedScheduleHonoursMinimumDurations(applied, 0.7, config);
+  expectMergedScheduleHonorsMinimumDurations(applied, /*time=*/0.7, config);
 }
 
 TEST(ContactPlanMerge, TouchDownAfterTheMidpointOfACommittedNodeIsCountedFromItsEvent) {
@@ -420,14 +423,42 @@ TEST(ContactPlanMerge, TouchDownAfterTheMidpointOfACommittedNodeIsCountedFromIts
   // 0.02 s younger than it is, which is harmless for the minima but shows that the event time, not the node, is used.
   const ContactPlanningConfig config = makeConfig();
   const ModeSchedule applied({0.48, 0.88}, {ModeNumber::STANCE, modeWithSwinging(1), ModeNumber::STANCE});
-  expectMergedScheduleHonoursMinimumDurations(applied, 0.7, config);
+  expectMergedScheduleHonorsMinimumDurations(applied, /*time=*/0.7, config);
+}
+
+/**
+ * The merge tests plan from the input production builds (makeInput above, through fillPlannerInputFromSchedule): it
+ * carries the foot the executed schedule swung last, and the plan merged at the commit boundary lifts the other one
+ * first. The hand-built input these tests used before carried no last swung foot (-1), which production never hands the
+ * planner once the robot has stepped.
+ */
+TEST(ContactPlanMerge, TheInputCarriesTheLastSwungFootAndTheMergedPlanAlternatesFromIt) {
+  if (N_CONTACTS < 2) GTEST_SKIP() << "needs a second foot";
+  const ContactPlanningConfig config = makeConfig();
+  for (const size_t swungFoot : {CONTACT_LEFT_INDEX, CONTACT_RIGHT_INDEX}) {
+    const ModeSchedule applied({0.57, 0.97}, {ModeNumber::STANCE, modeWithSwinging(swungFoot), ModeNumber::STANCE});
+    const ContactPlannerInput input = makeInput(applied, /*time=*/0.7, config);
+    EXPECT_EQ(input.lastSwungFoot, static_cast<int>(swungFoot));
+    const ModeSchedule merged = expectMergedScheduleHonorsMinimumDurations(applied, /*time=*/0.7, config);
+    std::optional<size_t> nextSwing;
+    for (size_t i = 0; i + 1 < merged.modeSequence.size() && i < merged.eventTimes.size() && !nextSwing.has_value(); ++i) {
+      if (merged.eventTimes[i] <= 0.97 + kTol) continue;
+      const contact_flag_t before = modeNumber2StanceLeg(merged.modeSequence[i]);
+      const contact_flag_t after = modeNumber2StanceLeg(merged.modeSequence[i + 1]);
+      for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+        if (before[foot] && !after[foot]) nextSwing = foot;
+      }
+    }
+    ASSERT_TRUE(nextSwing.has_value()) << "the plan must step after the touch-down at 0.97 s";
+    EXPECT_NE(*nextSwing, swungFoot) << "the first lift-off after foot " << swungFoot << " landed must be the other foot";
+  }
 }
 
 TEST(ContactPlanMerge, GridAlignedTouchDownIsUnchanged) {
   if (N_CONTACTS < 2) GTEST_SKIP() << "needs a second foot";
   const ContactPlanningConfig config = makeConfig();
   const ModeSchedule applied({0.6, 1.0}, {ModeNumber::STANCE, modeWithSwinging(1), ModeNumber::STANCE});
-  expectMergedScheduleHonoursMinimumDurations(applied, 0.7, config);
+  expectMergedScheduleHonorsMinimumDurations(applied, /*time=*/0.7, config);
 }
 
 /**
@@ -440,12 +471,12 @@ TEST(ContactPlanMerge, TouchDownJustBeforeAGridAlignedBoundaryIsNotReLifted) {
   if (N_CONTACTS < 2) GTEST_SKIP() << "needs a second foot";
   ContactPlanningConfig config = makeConfig();
   config.planner.commitTime = 0.3;
-  config.validate();
+  EXPECT_EQ(config.validateStatus(), absl::OkStatus());
   const ModeSchedule applied({0.57, 0.97}, {ModeNumber::STANCE, modeWithSwinging(1), ModeNumber::STANCE});
-  EXPECT_NEAR(commitBoundaryForSchedule(applied, 0.7, config.planner.commitTime), 1.0, kTol) << "the boundary lies on the grid";
-  const ModeSchedule merged = expectMergedScheduleHonoursMinimumDurations(applied, 0.7, config);
-  EXPECT_FALSE(contactFlagsAtTime(merged, 0.969)[1]);
-  EXPECT_TRUE(contactFlagsAtTime(merged, 0.971)[1]) << "the executed touch-down is kept";
+  EXPECT_NEAR(commitBoundaryForSchedule(applied, /*time=*/0.7, config.planner.commitTime), 1.0, kTol) << "the boundary lies on the grid";
+  const ModeSchedule merged = expectMergedScheduleHonorsMinimumDurations(applied, /*time=*/0.7, config);
+  EXPECT_FALSE(contactFlagsAtTime(merged, /*time=*/0.969)[1]);
+  EXPECT_TRUE(contactFlagsAtTime(merged, /*time=*/0.971)[1]) << "the executed touch-down is kept";
   for (scalar_t t = 0.97; t < 0.97 + config.shared.gaitLimits.minContactDuration; t += 0.005) {
     EXPECT_TRUE(contactFlagsAtTime(merged, t)[1]) << "phantom re-lift at " << t;
   }
@@ -455,12 +486,12 @@ TEST(ContactPlanMerge, TouchDownExactlyOnAGridAlignedBoundaryIsKept) {
   if (N_CONTACTS < 2) GTEST_SKIP() << "needs a second foot";
   ContactPlanningConfig config = makeConfig();
   config.planner.commitTime = 0.3;
-  config.validate();
+  EXPECT_EQ(config.validateStatus(), absl::OkStatus());
   const ModeSchedule applied({0.6, 1.0}, {ModeNumber::STANCE, modeWithSwinging(1), ModeNumber::STANCE});
-  EXPECT_NEAR(commitBoundaryForSchedule(applied, 0.7, config.planner.commitTime), 1.0, kTol);
-  const ModeSchedule merged = expectMergedScheduleHonoursMinimumDurations(applied, 0.7, config);
-  EXPECT_FALSE(contactFlagsAtTime(merged, 0.999)[1]);
-  EXPECT_TRUE(contactFlagsAtTime(merged, 1.0)[1]) << "the touch-down on the boundary is neither delayed nor dropped";
+  EXPECT_NEAR(commitBoundaryForSchedule(applied, /*time=*/0.7, config.planner.commitTime), 1.0, kTol);
+  const ModeSchedule merged = expectMergedScheduleHonorsMinimumDurations(applied, /*time=*/0.7, config);
+  EXPECT_FALSE(contactFlagsAtTime(merged, /*time=*/0.999)[1]);
+  EXPECT_TRUE(contactFlagsAtTime(merged, /*time=*/1.0)[1]) << "the touch-down on the boundary is neither delayed nor dropped";
   for (scalar_t t = 1.0; t < 1.0 + config.shared.gaitLimits.minContactDuration; t += 0.005) {
     EXPECT_TRUE(contactFlagsAtTime(merged, t)[1]) << "phantom re-lift at " << t;
   }
@@ -477,7 +508,7 @@ TEST(ContactPlanMerge, PhaseStartingExactlyAtTheLowerBoundSurvivesTheMerge) {
   const scalar_t lowerBound = -1.0;
   const ModeSchedule applied({lowerBound, lowerBound + 0.4}, {ModeNumber::STANCE, modeWithSwinging(0), ModeNumber::STANCE});
   const ModeSchedule allStance({}, {ModeNumber::STANCE});
-  const ModeSchedule merged = mergeModeSchedules(applied, allStance, 0.3, lowerBound, 2.0);
+  const ModeSchedule merged = mergeModeSchedules(applied, allStance, /*commitTime=*/0.3, lowerBound, /*upperBoundTime=*/2.0);
   EXPECT_FALSE(contactFlagsAtTime(merged, lowerBound + 0.2)[0]) << "the swing that began at the lower bound is kept";
   EXPECT_TRUE(contactFlagsAtTime(merged, lowerBound + 0.5)[0]);
   bool touchDownKept = false;
@@ -485,8 +516,60 @@ TEST(ContactPlanMerge, PhaseStartingExactlyAtTheLowerBoundSurvivesTheMerge) {
   EXPECT_TRUE(touchDownKept);
   // An event strictly before the lower bound is history that is not carried.
   const ModeSchedule earlier({lowerBound - 0.01, lowerBound + 0.4}, {ModeNumber::STANCE, modeWithSwinging(0), ModeNumber::STANCE});
-  const ModeSchedule mergedEarlier = mergeModeSchedules(earlier, allStance, 0.3, lowerBound, 2.0);
+  const ModeSchedule mergedEarlier = mergeModeSchedules(earlier, allStance, /*commitTime=*/0.3, lowerBound, /*upperBoundTime=*/2.0);
   EXPECT_FALSE(contactFlagsAtTime(mergedEarlier, lowerBound + 0.2)[0]) << "in flight at the lower bound: the leading mode";
+}
+
+/**
+ * A plan that carries its gait in continuous time (the H-LIP planner's) is scheduled at those times, not at the node
+ * times its sampled contacts change on: the executed single and double supports then last what the planner decided,
+ * where the node grid rounded every one of them to within half a node of it.
+ */
+TEST(ContactPlanContinuousPhases, theModeScheduleTakesTheContinuousEventTimes) {
+  ContactPlan plan;
+  plan.valid = true;
+  plan.startTime = 1.0;
+  plan.dt = 0.1;
+  const contact_flag_t stance = makeFeetArray(true);
+  const contact_flag_t leftSwings = modeNumber2StanceLeg(modeWithSwinging(CONTACT_LEFT_INDEX));
+  // Intervals [1.0, 2.0): the left foot swings from 1.137 to 1.387, sampled onto the grid as [1.1, 1.4).
+  plan.contacts.assign(10, stance);
+  for (size_t interval = 1; interval < 4; ++interval) plan.contacts[interval] = leftSwings;
+  plan.footholds.assign(11, makeFeetArray(vector2_t(vector2_t::Zero())));
+
+  // Positive control: without continuous phases the events are the node times.
+  const ModeSchedule onTheGrid = plan.toModeSchedule();
+  ASSERT_EQ(onTheGrid.eventTimes.size(), 2u);
+  EXPECT_NEAR(onTheGrid.eventTimes[0], 1.1, 1e-12);
+  EXPECT_NEAR(onTheGrid.eventTimes[1], 1.4, 1e-12);
+
+  // A zero-length phase between two swings of different feet only separates them; it is not scheduled.
+  plan.phaseContacts = {stance, leftSwings, stance, stance};
+  plan.phaseStartTimes = {1.0, 1.137, 1.387, 1.387};
+  ASSERT_TRUE(plan.hasContinuousPhases());
+  const ModeSchedule continuous = plan.toModeSchedule();
+  ASSERT_EQ(continuous.eventTimes.size(), 2u);
+  EXPECT_NEAR(continuous.eventTimes[0], 1.137, 1e-12);
+  EXPECT_NEAR(continuous.eventTimes[1], 1.387, 1e-12);
+  EXPECT_EQ(continuous.modeSequence.front(), static_cast<size_t>(ModeNumber::STANCE));
+  EXPECT_EQ(continuous.modeSequence[1], modeWithSwinging(CONTACT_LEFT_INDEX));
+  EXPECT_EQ(continuous.modeSequence.back(), static_cast<size_t>(ModeNumber::STANCE));
+
+  // The contact lookups follow the same times: at 1.12 the grid says swinging, the gait says not yet.
+  EXPECT_EQ(plan.contactsAtTime(/*time=*/1.12), stance);
+  EXPECT_EQ(plan.contactsAtTime(/*time=*/1.2), leftSwings);
+  EXPECT_EQ(plan.contactsAtTime(/*time=*/1.39), stance);
+
+  // A re-timing of the executed schedule moves the continuous times with the rest of the plan.
+  plan.shiftInTime(0.02);
+  const ModeSchedule shifted = plan.toModeSchedule();
+  ASSERT_EQ(shifted.eventTimes.size(), 2u);
+  EXPECT_NEAR(shifted.eventTimes[0], 1.157, 1e-12);
+  EXPECT_NEAR(shifted.eventTimes[1], 1.407, 1e-12);
+
+  // Sizes that do not match are not a continuous gait: the plan falls back to its intervals.
+  plan.phaseStartTimes.pop_back();
+  EXPECT_FALSE(plan.hasContinuousPhases());
 }
 
 }  // namespace ocs2::humanoid

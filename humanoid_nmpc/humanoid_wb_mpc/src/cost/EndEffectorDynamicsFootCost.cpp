@@ -66,7 +66,7 @@ EndEffectorDynamicsFootCost::EndEffectorDynamicsFootCost(const SwitchedModelRefe
       endEffectorDynamicsPtr_(endEffectorDynamics.clone()),
       pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
       mpcRobotModelPtr_(mpcRobotModel.clone()) {
-  initialize(mpcRobotModel.getStateDim(), mpcRobotModel.getInputDim(), 37, costName, modelSettings.modelFolderCppAd,
+  initialize(mpcRobotModel.getStateDim(), mpcRobotModel.getInputDim(), /*parameterDim=*/37, costName, modelSettings.modelFolderCppAd,
              modelSettings.recompileLibrariesCppAd);
   LOG(INFO) << "Frame ID: " << frameID_;
   LOG(INFO) << "Initialized EndEffectorDynamicsFootCost with weights: " << weights.toVector().transpose();
@@ -96,20 +96,20 @@ ad_vector_t EndEffectorDynamicsFootCost::costVectorFunction(ad_scalar_t time,
                                                             const ad_vector_t& parameters) {
   const pinocchio::ReferenceFrame rf = pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED;
 
-  const auto& model = pinocchioInterfaceCppAd_.getModel();
-  auto& data = pinocchioInterfaceCppAd_.getData();
+  const PinocchioInterfaceCppAd::Model& model = pinocchioInterfaceCppAd_.getModel();
+  PinocchioInterfaceCppAd::Data& data = pinocchioInterfaceCppAd_.getData();
 
   const ad_vector_t q = mpcRobotModelPtr_->getGeneralizedCoordinates(state);
   const ad_vector_t v = mpcRobotModelPtr_->getGeneralizedVelocities(state, input);
   const ad_vector_t a = computeGeneralizedAccelerations<ad_scalar_t>(state, input, pinocchioInterfaceCppAd_, *mpcRobotModelPtr_);
 
   pinocchio::forwardKinematics(model, data, q, v, a);
-  auto frameData = pinocchio::updateFramePlacement(model, data, frameID_);
+  const pinocchio::SE3Tpl<ad_scalar_t> frameData = pinocchio::updateFramePlacement(model, data, frameID_);
 
   ad_vector3_t linearVelocity = pinocchio::getFrameVelocity(model, data, frameID_, rf).linear();
   ad_quaternion_t orientation = matrixToQuaternion(frameData.rotation());
   ad_vector3_t angularVelocity = pinocchio::getFrameVelocity(model, data, frameID_, rf).angular();
-  auto accel = pinocchio::getFrameClassicalAcceleration(model, data, frameID_, rf);
+  const pinocchio::MotionTpl<ad_scalar_t> accel = pinocchio::getFrameClassicalAcceleration(model, data, frameID_, rf);
   ad_vector3_t linearAccel = accel.linear();
   ad_vector3_t angularAccel = accel.angular();
 

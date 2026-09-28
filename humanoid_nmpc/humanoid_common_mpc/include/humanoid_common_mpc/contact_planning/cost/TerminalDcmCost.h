@@ -31,8 +31,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * `terminal_dcm`: terminal capturability on the last running node, w e^{2 omega dt} ||xi_{N-1} - zmp_{N-1}||^2, since
- * xi_N - zmp_{N-1} = e^{omega dt} (xi_{N-1} - zmp_{N-1}) with xi = c + v / omega the divergent component of motion.
+ * `terminal_dcm`: terminal capturability, w ||xi_N - zmp_{N-1} - r||^2 with xi = c + v / omega the divergent component
+ * of motion, r = 0 (come to rest) or, with trackCommandedVelocity, r = v_cmd / omega (keep walking). It is written on
+ * the last running node, whose ZMP is a variable, as w e^{2 omega dt} ||xi_{N-1} - zmp_{N-1} - e^{-omega dt} r||^2,
+ * which is the same function because xi_N - zmp_{N-1} = e^{omega dt} (xi_{N-1} - zmp_{N-1}).
  */
 class TerminalDcmCost final : public LipWeightedCost {
  public:

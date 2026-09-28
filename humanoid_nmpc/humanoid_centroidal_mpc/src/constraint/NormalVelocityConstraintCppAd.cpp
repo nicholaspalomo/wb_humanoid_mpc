@@ -42,7 +42,7 @@ NormalVelocityConstraintCppAd::NormalVelocityConstraintCppAd(const SwitchedModel
                                                              size_t contactPointIndex)
     : StateInputConstraint(ConstraintOrder::Linear),
       referenceManagerPtr_(&referenceManager),
-      eeLinearConstraintPtr_(new EndEffectorKinematicsLinearVelConstraint(endEffectorKinematics, 1)),
+      eeLinearConstraintPtr_(new EndEffectorKinematicsLinearVelConstraint(endEffectorKinematics, /*numConstraints=*/1)),
       contactPointIndex_(contactPointIndex) {}
 
 /******************************************************************************************************/
@@ -73,7 +73,7 @@ vector_t NormalVelocityConstraintCppAd::getValue(scalar_t time,
                                                  const vector_t& state,
                                                  const vector_t& input,
                                                  const PreComputation& preComp) const {
-  const auto& humanoidPreComp = cast<HumanoidPreComputation>(preComp);
+  const HumanoidPreComputation& humanoidPreComp = cast<HumanoidPreComputation>(preComp);
   eeLinearConstraintPtr_->configure(humanoidPreComp.getEeNormalVelocityConstraintConfigs()[contactPointIndex_]);
   return eeLinearConstraintPtr_->getValue(time, state, input, preComp);
 }
@@ -85,7 +85,7 @@ VectorFunctionLinearApproximation NormalVelocityConstraintCppAd::getLinearApprox
                                                                                         const vector_t& state,
                                                                                         const vector_t& input,
                                                                                         const PreComputation& preComp) const {
-  const auto& humanoidPreComp = cast<HumanoidPreComputation>(preComp);
+  const HumanoidPreComputation& humanoidPreComp = cast<HumanoidPreComputation>(preComp);
   eeLinearConstraintPtr_->configure(humanoidPreComp.getEeNormalVelocityConstraintConfigs()[contactPointIndex_]);
   return eeLinearConstraintPtr_->getLinearApproximation(time, state, input, preComp);
 }

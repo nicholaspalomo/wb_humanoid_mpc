@@ -60,7 +60,7 @@ bool addGroundDiscGeom(mjvScene* scene, double x, double y, double radius, const
   const mjtNum size[3] = {radius, kHalfHeight, 0.0};
   const mjtNum position[3] = {x, y, kHalfHeight};
   const mjtNum identity[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
-  mjv_initGeom(geom, mjGEOM_CYLINDER, size, position, identity, nullptr);
+  mjv_initGeom(geom, mjGEOM_CYLINDER, size, position, identity, /*rgba=*/nullptr);
   paint(geom, color);
   return true;
 }
@@ -71,7 +71,7 @@ bool addSphereGeom(mjvScene* scene, const double position[3], double radius, con
   const mjtNum size[3] = {radius, 0.0, 0.0};
   const mjtNum at[3] = {position[0], position[1], position[2]};
   const mjtNum identity[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
-  mjv_initGeom(geom, mjGEOM_SPHERE, size, at, identity, nullptr);
+  mjv_initGeom(geom, mjGEOM_SPHERE, size, at, identity, /*rgba=*/nullptr);
   paint(geom, color);
   return true;
 }

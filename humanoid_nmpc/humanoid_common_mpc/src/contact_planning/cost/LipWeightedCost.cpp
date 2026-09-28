@@ -25,19 +25,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/cost/LipWeightedCost.h"
 
-#include <sstream>
-#include <stdexcept>
+#include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
 
-void LipWeightedCost::checkWeight(const char* term, scalar_t weight) {
-  if (weight < 0.0) throw std::invalid_argument(std::string("[") + term + "] weight must be >= 0");
-}
-
-std::string LipWeightedCost::weightLine(const std::string& math) const {
-  std::ostringstream out;
-  out << math << ", w = " << weight_;
-  return out.str();
+std::string LipWeightedCost::weightLine(absl::string_view math) const {
+  return absl::StrCat(math, ", w = ", weight_);
 }
 
 }  // namespace ocs2::humanoid

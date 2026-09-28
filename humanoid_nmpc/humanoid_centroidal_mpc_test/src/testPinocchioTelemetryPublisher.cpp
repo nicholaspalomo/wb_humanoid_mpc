@@ -45,14 +45,14 @@ using namespace ocs2::humanoid;
 
 TEST(TestPinocchioTelemetryPublisher, DofTopicNamingAndPublishing) {
   if (!rclcpp::ok()) {
-    rclcpp::init(0, nullptr);
+    rclcpp::init(/*argc=*/0, /*argv=*/nullptr);
   }
   auto node = std::make_shared<rclcpp::Node>("test_pinocchio_telemetry_node");
 
   CentroidalTestingModelInterface testingModelInterface;
-  const auto& pinocchioInterface = testingModelInterface.getPinocchioInterface();
-  const auto& modelSettings = *testingModelInterface.modelSettingsPtr;
-  const auto& mpcRobotModel = testingModelInterface.getMpcRobotModel();
+  const PinocchioInterface& pinocchioInterface = testingModelInterface.getPinocchioInterface();
+  const ModelSettings& modelSettings = *testingModelInterface.modelSettingsPtr;
+  const CentroidalMpcRobotModel<scalar_t>& mpcRobotModel = testingModelInterface.getMpcRobotModel();
 
   ::robot::model::RobotDescription robotDesc(testingModelInterface.urdfFile);
 
@@ -60,7 +60,7 @@ TEST(TestPinocchioTelemetryPublisher, DofTopicNamingAndPublishing) {
   PinocchioTelemetryPublisher publisher(node, pinocchioInterface, modelSettings, mpcRobotModel, robotDesc, trackedFrames);
 
   // 1. Verify DOF names contain base DOFs followed by actuated joint names
-  const auto& dofNames = publisher.getDofNames();
+  const std::vector<std::string>& dofNames = publisher.getDofNames();
   ASSERT_GE(dofNames.size(), humanoid::JOINT_COORDINATE_OFFSET + modelSettings.mpc_joint_dim);
   EXPECT_EQ(dofNames[humanoid::BASE_POS_X_INDEX], "base_x");
   EXPECT_EQ(dofNames[humanoid::BASE_POS_Y_INDEX], "base_y");
@@ -70,44 +70,45 @@ TEST(TestPinocchioTelemetryPublisher, DofTopicNamingAndPublishing) {
   EXPECT_EQ(dofNames[humanoid::BASE_TRANSLATION_DIM + humanoid::BASE_ROT_ROLL_INDEX], "base_roll");
 
   // 2. Verify tracked frame names
-  const auto& frameNames = publisher.getTrackedFrameNames();
+  const std::vector<std::string>& frameNames = publisher.getTrackedFrameNames();
   EXPECT_EQ(frameNames.size(), 2u);
   EXPECT_EQ(frameNames[0], "foot_l_contact");
   EXPECT_EQ(frameNames[1], "foot_r_contact");
 
   // 3. Subscribe to per-DOF topics formatted as /mpc/desired/generalized_coordinates/[dof_name]
-  auto subQos = rclcpp::QoS(10).best_effort();
+  rclcpp::QoS subQos = rclcpp::QoS(10).best_effort();
 
   bool receivedMpcBaseZ = false;
   double mpcBaseZVal = 0.0;
-  auto subMpcBaseZ = node->create_subscription<std_msgs::msg::Float64>("mpc/desired/generalized_coordinates/base_z", subQos,
-                                                                       [&](const std_msgs::msg::Float64::SharedPtr msg) {
-                                                                         receivedMpcBaseZ = true;
-                                                                         mpcBaseZVal = msg->data;
-                                                                       });
+  rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr subMpcBaseZ = node->create_subscription<std_msgs::msg::Float64>(
+      "mpc/desired/generalized_coordinates/base_z", subQos, [&](const std_msgs::msg::Float64::SharedPtr msg) {
+        receivedMpcBaseZ = true;
+        mpcBaseZVal = msg->data;
+      });
 
   bool receivedRobotBaseZ = false;
   double robotBaseZVal = 0.0;
-  auto subRobotBaseZ = node->create_subscription<std_msgs::msg::Float64>("robot/generalized_coordinates/base_z", subQos,
-                                                                         [&](const std_msgs::msg::Float64::SharedPtr msg) {
-                                                                           receivedRobotBaseZ = true;
-                                                                           robotBaseZVal = msg->data;
-                                                                         });
+  rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr subRobotBaseZ = node->create_subscription<std_msgs::msg::Float64>(
+      "robot/generalized_coordinates/base_z", subQos, [&](const std_msgs::msg::Float64::SharedPtr msg) {
+        receivedRobotBaseZ = true;
+        robotBaseZVal = msg->data;
+      });
 
   bool receivedFrameAccel = false;
-  auto subFrameAccel = node->create_subscription<geometry_msgs::msg::AccelStamped>(
-      "robot/frames/foot_l_contact/accel", subQos,
-      [&](const geometry_msgs::msg::AccelStamped::SharedPtr /*msg*/) { receivedFrameAccel = true; });
+  rclcpp::Subscription<geometry_msgs::msg::AccelStamped>::SharedPtr subFrameAccel =
+      node->create_subscription<geometry_msgs::msg::AccelStamped>(
+          "robot/frames/foot_l_contact/accel", subQos,
+          [&](const geometry_msgs::msg::AccelStamped::SharedPtr /*msg*/) { receivedFrameAccel = true; });
 
   bool receivedGenState = false;
-  auto subGenState = node->create_subscription<sensor_msgs::msg::JointState>("robot/generalized_state", subQos,
-                                                                             [&](const sensor_msgs::msg::JointState::SharedPtr msg) {
-                                                                               receivedGenState = true;
-                                                                               EXPECT_EQ(msg->name.size(), dofNames.size());
-                                                                             });
+  rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr subGenState = node->create_subscription<sensor_msgs::msg::JointState>(
+      "robot/generalized_state", subQos, [&](const sensor_msgs::msg::JointState::SharedPtr msg) {
+        receivedGenState = true;
+        EXPECT_EQ(msg->name.size(), dofNames.size());
+      });
 
   // 4. Publish Pinocchio state
-  const auto& model = pinocchioInterface.getModel();
+  const PinocchioInterface::Model& model = pinocchioInterface.getModel();
   vector_t q_meas = vector_t::Zero(model.nq);
   q_meas[BASE_POS_Z_INDEX] = 0.78;  // base_z = 0.78 m
   vector_t v_meas = vector_t::Zero(model.nv);
@@ -138,14 +139,14 @@ TEST(TestPinocchioTelemetryPublisher, DofTopicNamingAndPublishing) {
 
 TEST(TestPinocchioTelemetryPublisher, PublishHighLevelState) {
   if (!rclcpp::ok()) {
-    rclcpp::init(0, nullptr);
+    rclcpp::init(/*argc=*/0, /*argv=*/nullptr);
   }
   auto node = std::make_shared<rclcpp::Node>("test_pinocchio_high_level_node");
 
   CentroidalTestingModelInterface testingModelInterface;
-  const auto& pinocchioInterface = testingModelInterface.getPinocchioInterface();
-  const auto& modelSettings = *testingModelInterface.modelSettingsPtr;
-  const auto& mpcRobotModel = testingModelInterface.getMpcRobotModel();
+  const PinocchioInterface& pinocchioInterface = testingModelInterface.getPinocchioInterface();
+  const ModelSettings& modelSettings = *testingModelInterface.modelSettingsPtr;
+  const CentroidalMpcRobotModel<scalar_t>& mpcRobotModel = testingModelInterface.getMpcRobotModel();
 
   ::robot::model::RobotDescription robotDesc(testingModelInterface.urdfFile);
   ::robot::model::RobotState robotState(robotDesc);
@@ -160,7 +161,7 @@ TEST(TestPinocchioTelemetryPublisher, PublishHighLevelState) {
   // Set active joint angles
   for (size_t i = 0; i < robotDesc.getNumJoints(); ++i) {
     robotState.setJointPosition(i, 0.02 * static_cast<double>(i));
-    robotState.setJointVelocity(i, 0.01);
+    robotState.setJointVelocity(i, /*jointVelocity=*/0.01);
   }
 
   SystemObservation observation;
@@ -175,27 +176,28 @@ TEST(TestPinocchioTelemetryPublisher, PublishHighLevelState) {
   std::vector<std::string> trackedFrames = {"foot_l_contact", "foot_r_contact"};
   PinocchioTelemetryPublisher publisher(node, pinocchioInterface, modelSettings, mpcRobotModel, robotDesc, trackedFrames);
 
-  auto subQos = rclcpp::QoS(10).best_effort();
+  rclcpp::QoS subQos = rclcpp::QoS(10).best_effort();
   bool receivedJointStates = false;
-  auto subJointStates = node->create_subscription<sensor_msgs::msg::JointState>(
+  rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr subJointStates = node->create_subscription<sensor_msgs::msg::JointState>(
       "joint_states", subQos, [&](const sensor_msgs::msg::JointState::SharedPtr msg) {
         receivedJointStates = true;
         EXPECT_EQ(msg->name.size(), modelSettings.fullJointNames.size());
       });
 
   bool receivedBasePose = false;
-  auto subBasePose = node->create_subscription<geometry_msgs::msg::PoseStamped>("robot/base_pose", subQos,
-                                                                                [&](const geometry_msgs::msg::PoseStamped::SharedPtr msg) {
-                                                                                  receivedBasePose = true;
-                                                                                  EXPECT_DOUBLE_EQ(msg->pose.position.z, 0.8);
-                                                                                });
+  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr subBasePose = node->create_subscription<geometry_msgs::msg::PoseStamped>(
+      "robot/base_pose", subQos, [&](const geometry_msgs::msg::PoseStamped::SharedPtr msg) {
+        receivedBasePose = true;
+        EXPECT_DOUBLE_EQ(msg->pose.position.z, 0.8);
+      });
 
   bool receivedObs = false;
-  auto subObs = node->create_subscription<ocs2_ros2_msgs::msg::MpcObservation>(
-      "mpc/observation", subQos, [&](const ocs2_ros2_msgs::msg::MpcObservation::SharedPtr msg) {
-        receivedObs = true;
-        EXPECT_DOUBLE_EQ(msg->time, 1.0);
-      });
+  rclcpp::Subscription<ocs2_ros2_msgs::msg::MpcObservation>::SharedPtr subObs =
+      node->create_subscription<ocs2_ros2_msgs::msg::MpcObservation>("mpc/observation", subQos,
+                                                                     [&](const ocs2_ros2_msgs::msg::MpcObservation::SharedPtr msg) {
+                                                                       receivedObs = true;
+                                                                       EXPECT_DOUBLE_EQ(msg->time, 1.0);
+                                                                     });
 
   publisher.publish(robotState, robotJointAction, observation, mpcPolicyInput, commandData, vector3_t::Zero(), vector3_t::Zero());
 

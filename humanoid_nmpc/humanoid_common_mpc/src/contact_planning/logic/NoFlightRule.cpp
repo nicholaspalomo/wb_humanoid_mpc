@@ -35,13 +35,13 @@ std::string NoFlightRule::describe() const {
   return "c_L + c_R >= 1 at every node";
 }
 
-bool NoFlightRule::propagate(const ContactLogicState& s, const ContactLogicScan& /*scan*/, MiqpAssignment& a, bool& changed) const {
-  using S = ContactLogicState;
+bool NoFlightRule::propagate(const ContactLogicState& s, MiqpAssignment& a, bool& changed) const {
   for (int k = 0; k < s.numNodes; ++k) {
-    const int cL = S::contactBinaryIndex(k, 0), cR = S::contactBinaryIndex(k, 1);
+    const int cL = ContactLogicState::contactBinaryIndex(k, /*foot=*/0);
+    const int cR = ContactLogicState::contactBinaryIndex(k, /*foot=*/1);
     if (a[static_cast<size_t>(cL)] == 0 && a[static_cast<size_t>(cR)] == 0) return false;
-    if (a[static_cast<size_t>(cL)] == 0 && !fixBinary(a, cR, 1, changed)) return false;
-    if (a[static_cast<size_t>(cR)] == 0 && !fixBinary(a, cL, 1, changed)) return false;
+    if (a[static_cast<size_t>(cL)] == 0 && !fixBinary(a, cR, /*value=*/1, changed)) return false;
+    if (a[static_cast<size_t>(cR)] == 0 && !fixBinary(a, cL, /*value=*/1, changed)) return false;
   }
   return true;
 }

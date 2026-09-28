@@ -26,24 +26,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/constraint/YawTorqueBudgetConstraint.h"
 
 #include <cmath>
-#include <sstream>
-#include <stdexcept>
+
+#include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
 
 static_assert(N_CONTACTS == 2, "the yaw torque budget rows are written for a biped");
 
 std::string YawTorqueBudgetConstraint::describe() const {
-  std::ostringstream out;
-  out << "|tau_i| <= T_t c_i + (T_c - T_t) (c_L + c_R - 1) / 2 on the running nodes, T_t = " << params_.torsionalFrictionTorque
-      << " N m, T_c = " << params_.doubleSupportYawCouple << " N m (from the model)";
-  return out.str();
+  return absl::StrCat("|tau_i| <= T_t c_i + (T_c - T_t) (c_L + c_R - 1) / 2 on the running nodes, T_t = ", params_.torsionalFrictionTorque,
+                      " N m, T_c = ", params_.doubleSupportYawCouple, " N m (from the model)");
 }
 
 void YawTorqueBudgetConstraint::configure(const ContactPlanningConfig& config) {
-  if (config.yawTorqueBudget.torsionalFrictionTorque < 0.0 || config.yawTorqueBudget.doubleSupportYawCouple < 0.0) {
-    throw std::invalid_argument("[yaw_torque_budget] yaw torque limits must be >= 0");
-  }
   params_ = config.yawTorqueBudget;
 }
 

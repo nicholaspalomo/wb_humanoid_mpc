@@ -44,14 +44,14 @@ namespace ocs2::humanoid {
  * and this is the one that is a genuine inequality; it is wrapped in a one-sided squared hinge, which is zero in value
  * AND gradient on the ground and quadratic below it, so it says nothing at all about a foot that is merely resting.
  *
- * WHICH points matter. Given the contact frame alone this term constrains the CENTRE of the sole, and that is not
+ * WHICH points matter. Given the contact frame alone this term constrains the CENTER of the sole, and that is not
  * enough: the contact-implicit formulation deliberately leaves the foot's rocking rates free, because rolling over the
- * heel and the toe under load is how a heel-to-toe strike happens. A foot free to pitch about a sole centre held at
+ * heel and the toe under load is how a heel-to-toe strike happens. A foot free to pitch about a sole center held at
  * ground level has its toe and heel below ground for nothing. On the DRC Atlas the corners sit 0.12 m fore and aft, so
  * the shipped 0.08 rad of swing-foot pitch alone buries the toe by about 10 mm. The FootprintCornerHeights this term
  * is built with therefore carries the footprint's CORNER frames - which createPinocchioModel() already adds, one per
  * point of the contact polygon - and the corner heights are exact kinematics rather than a small-angle correction of
- * the centre's.
+ * the center's.
  *
  * It shares that object with ContactComplementarityConstraint of the same foot, so the two terms cannot end up
  * disagreeing about where the foot is; see the class comment there.

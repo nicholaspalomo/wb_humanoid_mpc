@@ -34,9 +34,9 @@ namespace ocs2::humanoid {
 
 /**
  * `cadence_stretch`: re-time the whole incumbent by scaling the node grid, recovering the cadences the grid's
- * quantisation cannot express.
+ * quantization cannot express.
  *
- * A phase of the plan lasts a whole number of nodes, so the stride the planner can emit is quantised by `planner.dt`:
+ * A phase of the plan lasts a whole number of nodes, so the stride the planner can emit is quantized by `planner.dt`:
  * at dt 0.1 with swing limits [0.4, 0.5] a swing is four or five nodes and nothing in between, a 25% jump in the step
  * the commanded speed needs. Under a *fixed* contact pattern, though, the cadence simply is the scale of the grid, so
  * re-solving the same pattern on a grid of node duration `s * dt` re-times every phase of the plan together. Every
@@ -45,8 +45,8 @@ namespace ocs2::humanoid {
  * plan needs no new representation - which is what `SearchRun::assembleWithGrid` and `SearchRun::chosenDt` exist for.
  *
  * Two qualifications on that exactness, both of which used to be missing and both of which are properties of the
- * caller rather than of this stage. The LINEARISATION POINT is not a function of the node duration: the nominal
- * heading trajectory the frame terms are linearised around is indexed by node, so it has to be rebuilt for the
+ * caller rather than of this stage. The LINEARIZATION POINT is not a function of the node duration: the nominal
+ * heading trajectory the frame terms are linearized around is indexed by node, so it has to be rebuilt for the
  * candidate grid, or the terms that read `ctx.dt` end up on one clock and the terms that read `ctx.nominal` on
  * another (LipContactPlanner::plan binds `assembleWithGrid` so that it is). And "no new representation" holds only as
  * long as the rest of the planner accepts a plan whose dt is not planner.dt: LipContactPlanner::previousPlanShift
@@ -56,7 +56,8 @@ namespace ocs2::humanoid {
  * The stage evaluates `samples` stretches spread over the admissible range and keeps the best. The range starts at 1:
  * a stretch below 1 shrinks the committed window below `planner.commitTime` and the horizon below `mpc.timeHorizon`,
  * which makes the merge pad the tail with STANCE and throws away the last steps' anticipation. It ends at
- * `maxStretch`, clipped so that no phase of the incumbent is stretched past the gait limits.
+ * `maxStretch`, clipped so that no phase of the incumbent is stretched past the gait limits and so that the last
+ * committed node is still the one live at the commit boundary (commitWindowStretch).
  */
 class CadenceStretchStage final : public SearchStage {
  public:
@@ -84,12 +85,33 @@ class CadenceStretchStage final : public SearchStage {
    *
    * The run that ends at the horizon's end needs no such correction: ContactPlan::toModeSchedule() closes an open
    * swing at endTime(), so the duration it emits is exactly its in-horizon nodes times the stretched node duration.
+   *
+   * With an input the bound also includes commitWindowStretch(), so that the stretched plan still hands the executed
+   * schedule over at the commit boundary the way the unstretched one does.
    */
   static scalar_t admissibleStretch(const ContactPlanningConfig& config,
                                     const MiqpAssignment& assignment,
                                     int numNodes,
                                     scalar_t maxStretch,
                                     const ContactPlannerInput* input = nullptr);
+
+  /**
+   * The largest stretch that keeps the LAST committed node live at the commit boundary, never below 1 (infinity when at
+   * most one node is committed).
+   *
+   * The stretch re-times the whole assignment, committed prefix included, but not the boundary: ContactPlan::
+   * committedUntil stays input.committedUntil. committedSampleTimes() sampled the committed nodes on the planner.dt
+   * grid - at their midpoints, and the last one AT the boundary, with the state the executed schedule hands over there
+   * - and mergeModeSchedules takes the plan's mode just after the boundary. On a grid of node duration s dt the last
+   * committed node starts at (numCommitted - 1) s dt; once that passes the boundary an EARLIER committed node is live
+   * at the merge, and the merged schedule replays the executed state from before the boundary after it. The common
+   * case is a boundary extended to the touch-down of a swing in flight (commitBoundaryForSchedule): that swing then
+   * stays in the air past the touch-down the robot is already descending to - at dt 0.1, a touch-down 0.32 s ahead
+   * and a stretch of 1.25 it landed 55 ms late - which breaks the guarantee that a swing in flight is never re-timed
+   * by a later plan. Nothing downstream caught it, because planAgreesWithSwingsInFlight only rejects a plan that has a
+   * foot DOWN which the applied schedule has in the air.
+   */
+  static scalar_t commitWindowStretch(const ContactPlannerInput& input, scalar_t dt, int numNodes);
 
  private:
   int samples_ = 0;

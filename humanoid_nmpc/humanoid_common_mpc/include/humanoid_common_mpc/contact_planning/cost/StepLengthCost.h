@@ -43,7 +43,7 @@ namespace ocs2::humanoid {
  * the QP variables (dp and the relaxed binary c), so the term stays a convex quadratic in every relaxation.
  *
  * It complements velocity_tracking, which alone is indifferent between a few long steps and many short ones at the
- * same average speed and, from rest, favours the short quick steps that accelerate the pendulum fastest: this term ties
+ * same average speed and, from rest, favors the short quick steps that accelerate the pendulum fastest: this term ties
  * the step length to the commanded speed, so a ramped command lengthens the steps progressively.
  */
 class StepLengthCost final : public LipWeightedCost {

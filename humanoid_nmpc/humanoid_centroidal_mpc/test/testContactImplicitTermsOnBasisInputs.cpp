@@ -51,7 +51,7 @@ constexpr scalar_t kAngularReference = 1.0;   // [rad/s]
 
 /**
  * The contact-implicit terms against the BASIS-VECTOR input parameterization - the one the shipped DRC Atlas actually
- * runs (`useContactBasisVectorInputs: true`).
+ * runs (`contactInputParameterization: basis_vectors`).
  *
  * testRelaxedContactConstraints.cpp builds these terms on the wrench-space CentroidalMpcRobotModel only. That model
  * stores the contact wrench in the WORLD frame, so `getContactForce(input, i)(2)` there is the world-vertical force;
@@ -72,7 +72,7 @@ class ContactImplicitTermsOnBasisInputsTest : public ::testing::Test {
     state_ = model_->nominalState();
     // A plausible working point: the foot carries about half the body weight through its basis scalings, and the
     // joints are moving so the slip term's velocity rows are non-trivial.
-    input_ = model_->makeInput(model_->basisModel(), kFoot, 800.0);
+    input_ = model_->makeInput(model_->basisModel(), kFoot, /*normalForce=*/800.0);
   }
 
   std::unique_ptr<DrcAtlasContactTestModel> model_;
@@ -105,7 +105,7 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest, theNormalForceRowIsANonNegativeLoa
 }
 
 TEST_F(ContactImplicitTermsOnBasisInputsTest, theForceJacobianIsTheParameterizationAndTheNormalRowIsItsThirdRow) {
-  // normalContactForceRow() is one row of contactForceInputJacobian(), and the friction cone linearises through the
+  // normalContactForceRow() is one row of contactForceInputJacobian(), and the friction cone linearizes through the
   // other two. Pinning the relationship keeps the three terms reading one description of the parameterization: a
   // future input layout that broke it would otherwise break them one at a time and in different ways.
   const matrix_t jacobian = contactForceInputJacobian(model_->basisModel(), kFoot);
@@ -158,8 +158,8 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest, theIndicatorVanishesExactlyWhenThe
   }
 
   // The other foot's scalings do not register as load on this one.
-  vector_t otherFootLoaded =
-      model_->makeInput(model_->basisModel(), kFoot == CONTACT_LEFT_INDEX ? CONTACT_RIGHT_INDEX : CONTACT_LEFT_INDEX, 800.0);
+  vector_t otherFootLoaded = model_->makeInput(model_->basisModel(), kFoot == CONTACT_LEFT_INDEX ? CONTACT_RIGHT_INDEX : CONTACT_LEFT_INDEX,
+                                               /*normalForce=*/800.0);
   EXPECT_NEAR(row.dot(otherFootLoaded), 0.0, 1e-9);
 }
 
@@ -168,7 +168,7 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest, theIndicatorVanishesExactlyWhenThe
 // that catches a scale or a frame applied to the value but not to the Jacobian.
 // ---------------------------------------------------------------------------------------------------------------
 
-TEST_F(ContactImplicitTermsOnBasisInputsTest, complementarityIsTheNormalisedProductOnTheBasisModel) {
+TEST_F(ContactImplicitTermsOnBasisInputsTest, complementarityIsTheNormalizedProductOnTheBasisModel) {
   const scalar_t lowestCorner = cornerHeights_->getHeights(state_).minCoeff();
   const scalar_t terrainHeight = lowestCorner - 0.03;  // the lowest corner of the foot is 3 cm above the ground
   const ContactComplementarityConstraint term(*cornerHeights_, model_->basisModel(), kFoot, terrainHeight, kForceReference,
@@ -177,7 +177,7 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest, complementarityIsTheNormalisedProd
 
   const vector_t row = normalContactForceRow(model_->basisModel(), kFoot);
   const scalar_t expected = (row.dot(input_) / kForceReference) * (term.getGap(state_) / kHeightReference);
-  EXPECT_NEAR(term.getValue(0.0, state_, input_, preComp)(0), expected, 1e-9);
+  EXPECT_NEAR(term.getValue(/*time=*/0.0, state_, input_, preComp)(0), expected, 1e-9);
   // The gap the term reports is the clearance of the lowest corner, up to the smoothing of the minimum.
   EXPECT_GE(term.getGap(state_), 0.03 - 1e-12);
   EXPECT_LE(term.getGap(state_), 0.03 + std::log(4.0) * term.getGapSmoothing() + 1e-12);
@@ -185,10 +185,10 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest, complementarityIsTheNormalisedProd
   // A foot on the ground costs nothing however hard it presses...
   const ContactComplementarityConstraint onGround(*cornerHeights_, model_->basisModel(), kFoot, lowestCorner, kForceReference,
                                                   kHeightReference);
-  EXPECT_NEAR(onGround.getValue(0.0, state_, input_, preComp)(0), 0.0, 1e-2);
+  EXPECT_NEAR(onGround.getValue(/*time=*/0.0, state_, input_, preComp)(0), 0.0, 1e-2);
   // ...and a foot carrying nothing costs nothing however high it is.
   const vector_t noLoad = vector_t::Zero(model_->basisModel().getInputDim());
-  EXPECT_NEAR(term.getValue(0.0, state_, noLoad, preComp)(0), 0.0, 1e-12);
+  EXPECT_NEAR(term.getValue(/*time=*/0.0, state_, noLoad, preComp)(0), 0.0, 1e-12);
 }
 
 TEST_F(ContactImplicitTermsOnBasisInputsTest, complementarityDerivativesMatchFiniteDifferencesOnTheBasisModel) {
@@ -210,7 +210,7 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest, slipConstrainsThreeTwistRowsOnTheB
   const ForceWeightedSlipConstraint term(*basisKinematics_, model_->basisModel(), kFoot, kForceReference, kVelocityReference,
                                          kAngularReference);
   const PreComputation preComp;
-  const vector_t value = term.getValue(0.0, state_, input_, preComp);
+  const vector_t value = term.getValue(/*time=*/0.0, state_, input_, preComp);
   ASSERT_EQ(value.size(), 3);
 
   const vector3_t velocity = basisKinematics_->getVelocity(state_, input_).front();
@@ -222,7 +222,7 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest, slipConstrainsThreeTwistRowsOnTheB
 
   // A foot carrying nothing is free to move however it likes.
   const vector_t noLoad = vector_t::Zero(model_->basisModel().getInputDim());
-  EXPECT_TRUE(term.getValue(0.0, state_, noLoad, preComp).isZero(1e-12));
+  EXPECT_TRUE(term.getValue(/*time=*/0.0, state_, noLoad, preComp).isZero(1e-12));
 }
 
 TEST_F(ContactImplicitTermsOnBasisInputsTest, slipDerivativesMatchFiniteDifferencesOnTheBasisModel) {
@@ -236,35 +236,35 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest, slipDerivativesMatchFiniteDifferen
 // ---------------------------------------------------------------------------------------------------------------
 
 TEST_F(ContactImplicitTermsOnBasisInputsTest, penetrationIsCheckedAtEveryCornerAndItsDerivativesAreRight) {
-  const GroundPenetrationConstraint term(*cornerHeights_, 0.0);
+  const GroundPenetrationConstraint term(*cornerHeights_, /*terrainHeight=*/0.0);
   ASSERT_EQ(cornerHeights_->numCorners(), 4U);
   EXPECT_EQ(term.getNumPoints(), 4U);
   EXPECT_EQ(term.getNumConstraints(0.0), 4U);
 
   const PreComputation preComp;
-  const vector_t value = term.getValue(0.0, state_, preComp);
+  const vector_t value = term.getValue(/*time=*/0.0, state_, preComp);
   ASSERT_EQ(value.size(), 4);
   const vector_t heights = cornerHeights_->getHeights(state_);
   for (long corner = 0; corner < 4; ++corner) {
     EXPECT_NEAR(value(corner), heights(corner), 1e-12);
   }
 
-  // At the nominal state the foot is flat, so every corner sits at the sole centre's height and a centre-only term
+  // At the nominal state the foot is flat, so every corner sits at the sole center's height and a center-only term
   // would look perfectly adequate. PITCH the foot and the whole point of finding A6 appears: the lowest corner drops
-  // well below the centre, so a term watching only the centre lets the toe through the floor. The Atlas footprint is
+  // well below the center, so a term watching only the center lets the toe through the floor. The Atlas footprint is
   // 0.12 m fore and aft, so 0.15 rad of ankle pitch should move a corner by about 0.12 * sin(0.15) = 18 mm.
-  const std::unique_ptr<PinocchioEndEffectorKinematicsCppAd> soleCentre =
+  const std::unique_ptr<PinocchioEndEffectorKinematicsCppAd> soleCenter =
       model_->makeEndEffectorKinematics(kFoot, model_->basisModel().getInputDim());
   EXPECT_NEAR(value.maxCoeff() - value.minCoeff(), 0.0, 1e-6) << "the nominal foot is expected to be flat";
 
   vector_t pitchedState = state_;
   pitchedState(model_->anklePitchStateIndex(kFoot)) += 0.15;
-  const vector_t pitchedHeights = term.getValue(0.0, pitchedState, preComp);
-  const scalar_t pitchedCentreHeight = soleCentre->getPosition(pitchedState).front()(2);
+  const vector_t pitchedHeights = term.getValue(/*time=*/0.0, pitchedState, preComp);
+  const scalar_t pitchedCenterHeight = soleCenter->getPosition(pitchedState).front()(2);
   EXPECT_GT(pitchedHeights.maxCoeff() - pitchedHeights.minCoeff(), 0.01)
       << "pitching the foot must separate the corner heights, or the corners are not being read";
-  EXPECT_LT(pitchedHeights.minCoeff(), pitchedCentreHeight - 0.005)
-      << "the lowest corner must sit below the sole centre: that gap is exactly what a centre-only term missed";
+  EXPECT_LT(pitchedHeights.minCoeff(), pitchedCenterHeight - 0.005)
+      << "the lowest corner must sit below the sole center: that gap is exactly what a center-only term missed";
 
   expectStateDerivativesMatchFiniteDifferences(term, state_);
   expectStateDerivativesMatchFiniteDifferences(term, pitchedState);
@@ -272,7 +272,7 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest, penetrationIsCheckedAtEveryCornerA
 
 TEST_F(ContactImplicitTermsOnBasisInputsTest, theGapAndThePenetrationRowsComeFromTheSamePoints) {
   // One FootprintCornerHeights feeds both terms, so there is no way for them to end up measuring different geometry -
-  // which is what happened when the hinge was moved to the corners and the product was left on the sole centre.
+  // which is what happened when the hinge was moved to the corners and the product was left on the sole center.
   vector_t pitchedState = state_;
   pitchedState(model_->anklePitchStateIndex(kFoot)) += 0.15;
   const vector_t heights = cornerHeights_->getHeights(pitchedState);
@@ -283,16 +283,16 @@ TEST_F(ContactImplicitTermsOnBasisInputsTest, theGapAndThePenetrationRowsComeFro
   const PreComputation preComp;
 
   // The lowest corner is on the ground, so the hinge sits exactly at its boundary...
-  EXPECT_NEAR(penetration.getValue(0.0, pitchedState, preComp).minCoeff(), 0.0, 1e-9);
+  EXPECT_NEAR(penetration.getValue(/*time=*/0.0, pitchedState, preComp).minCoeff(), 0.0, 1e-9);
   // ...and the product agrees that the foot is touching, to within the smoothing of the minimum.
   EXPECT_LE(complementarity.getGap(pitchedState), std::log(4.0) * complementarity.getGapSmoothing() + 1e-12);
   EXPECT_GE(complementarity.getGap(pitchedState), -1e-12);
 
-  // Measured at the sole centre instead, the same configuration would have claimed a centimetre of clearance while
+  // Measured at the sole center instead, the same configuration would have claimed a centimeter of clearance while
   // the foot was carrying load - the term would have charged full price for a contact that physically exists.
-  const std::unique_ptr<PinocchioEndEffectorKinematicsCppAd> soleCentre =
+  const std::unique_ptr<PinocchioEndEffectorKinematicsCppAd> soleCenter =
       model_->makeEndEffectorKinematics(kFoot, model_->basisModel().getInputDim());
-  EXPECT_GT(soleCentre->getPosition(pitchedState).front()(2) - heights.minCoeff(), 0.005);
+  EXPECT_GT(soleCenter->getPosition(pitchedState).front()(2) - heights.minCoeff(), 0.005);
 }
 
 }  // namespace

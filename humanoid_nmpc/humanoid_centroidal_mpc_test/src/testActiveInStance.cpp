@@ -4,9 +4,12 @@ Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 
 #include <gtest/gtest.h>
 #include <boost/property_tree/ptree.hpp>
+#include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <memory>
+#include <string>
+#include <vector>
 
 #include <humanoid_common_mpc/gait/GaitSchedule.h>
 #include <humanoid_common_mpc/pinocchio_model/createPinocchioModel.h>
@@ -21,19 +24,37 @@ Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 using namespace ocs2;
 using namespace ocs2::humanoid;
 
+namespace {
+
+/**
+ * A data file of this test (BUILD `_TEST_DATA`), from the Bazel runfiles. It used to be an absolute path into the dev
+ * container's checkout, which exists nowhere else, so the test failed in CI's clean container.
+ */
+std::string runfilePath(const std::string& relativePath) {
+  std::vector<std::filesystem::path> roots;
+  if (const char* srcDir = std::getenv("TEST_SRCDIR")) roots.emplace_back(std::filesystem::path(srcDir) / "_main");
+  roots.emplace_back(std::filesystem::current_path());
+  for (const std::filesystem::path& root : roots) {
+    const std::filesystem::path candidate = root / relativePath;
+    if (std::filesystem::exists(candidate)) return candidate.string();
+  }
+  return relativePath;
+}
+
+}  // namespace
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Test 1: Verify YAML Parsing for activeInStance across boolean and integer formats
 // ─────────────────────────────────────────────────────────────────────────────
 TEST(ActiveInStanceTest, VerifyYamlParsing) {
-  const std::string atlasTaskFile =
-      "/wb_humanoid_mpc_ws/workspace/wb_humanoid_mpc/robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml";
+  const std::string atlasTaskFile = runfilePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml");
   ASSERT_TRUE(std::filesystem::exists(atlasTaskFile)) << "Atlas task.yaml not found: " << atlasTaskFile;
 
   boost::property_tree::ptree pt;
   loadData::readPropertyTree(atlasTaskFile, pt);
 
   bool activeInStance = false;
-  EXPECT_NO_THROW({ loadData::loadPtreeValue(pt, activeInStance, "task_space_foot_cost_weights.activeInStance", false); });
+  EXPECT_NO_THROW({ loadData::loadPtreeValue(pt, activeInStance, "task_space_foot_cost_weights.activeInStance", /*verbose=*/false); });
   EXPECT_FALSE(activeInStance) << "Atlas task.yaml must have activeInStance = false";
 
   // Test with GUI format: "activeInStance: 1"
@@ -45,7 +66,7 @@ TEST(ActiveInStanceTest, VerifyYamlParsing) {
   boost::property_tree::ptree ptLive;
   loadData::readPropertyTree(tempLiveYaml, ptLive);
   bool activeInStanceLive = false;
-  loadData::loadPtreeValue(ptLive, activeInStanceLive, "task_space_foot_cost_weights.activeInStance", false);
+  loadData::loadPtreeValue(ptLive, activeInStanceLive, "task_space_foot_cost_weights.activeInStance", /*verbose=*/false);
   EXPECT_TRUE(activeInStanceLive) << "activeInStance: 1 from GUI should parse as true";
 
   // Test with false format: "activeInStance: false"
@@ -57,7 +78,7 @@ TEST(ActiveInStanceTest, VerifyYamlParsing) {
   boost::property_tree::ptree ptFalse;
   loadData::readPropertyTree(tempFalseYaml, ptFalse);
   bool activeInStanceFalse = true;
-  loadData::loadPtreeValue(ptFalse, activeInStanceFalse, "task_space_foot_cost_weights.activeInStance", false);
+  loadData::loadPtreeValue(ptFalse, activeInStanceFalse, "task_space_foot_cost_weights.activeInStance", /*verbose=*/false);
   EXPECT_FALSE(activeInStanceFalse) << "activeInStance: false should parse as false";
 
   // Test with integer 0 format: "activeInStance: 0"
@@ -69,7 +90,7 @@ TEST(ActiveInStanceTest, VerifyYamlParsing) {
   boost::property_tree::ptree ptZero;
   loadData::readPropertyTree(tempZeroYaml, ptZero);
   bool activeInStanceZero = true;
-  loadData::loadPtreeValue(ptZero, activeInStanceZero, "task_space_foot_cost_weights.activeInStance", false);
+  loadData::loadPtreeValue(ptZero, activeInStanceZero, "task_space_foot_cost_weights.activeInStance", /*verbose=*/false);
   EXPECT_FALSE(activeInStanceZero) << "activeInStance: 0 should parse as false";
 
   std::filesystem::remove(tempLiveYaml);
@@ -81,19 +102,17 @@ TEST(ActiveInStanceTest, VerifyYamlParsing) {
 // Test 2: Verify CentroidalMpcEndEffectorFootCost::isActive(time) logic
 // ─────────────────────────────────────────────────────────────────────────────
 TEST(ActiveInStanceTest, VerifyFootCostIsActiveBehaviorWithAtlasModel) {
-  const std::string atlasTaskFile =
-      "/wb_humanoid_mpc_ws/workspace/wb_humanoid_mpc/robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml";
-  const std::string atlasUrdfFile =
-      "/wb_humanoid_mpc_ws/workspace/wb_humanoid_mpc/robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf";
-  const std::string atlasReferenceFile =
-      "/wb_humanoid_mpc_ws/workspace/wb_humanoid_mpc/robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.yaml";
+  const std::string atlasTaskFile = runfilePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml");
+  const std::string atlasUrdfFile = runfilePath("robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf");
+  const std::string atlasReferenceFile = runfilePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.yaml");
 
   ASSERT_TRUE(std::filesystem::exists(atlasTaskFile));
   ASSERT_TRUE(std::filesystem::exists(atlasUrdfFile));
   ASSERT_TRUE(std::filesystem::exists(atlasReferenceFile));
 
-  ModelSettings modelSettings(atlasTaskFile, atlasUrdfFile, "drc_atlas", false);
-  PinocchioInterface pinocchioInterface(createCustomPinocchioInterface(atlasTaskFile, atlasUrdfFile, modelSettings, false));
+  ModelSettings modelSettings(atlasTaskFile, atlasUrdfFile, "drc_atlas", /*verbose=*/false);
+  PinocchioInterface pinocchioInterface(
+      createCustomPinocchioInterface(atlasTaskFile, atlasUrdfFile, modelSettings, /*scaleTotalMass=*/false));
 
   CentroidalModelInfo centroidalModelInfo = centroidal_model::createCentroidalModelInfo(
       pinocchioInterface, centroidal_model::loadCentroidalType(atlasTaskFile),
@@ -104,33 +123,34 @@ TEST(ActiveInStanceTest, VerifyFootCostIsActiveBehaviorWithAtlasModel) {
   CentroidalMpcRobotModel<ad_scalar_t> mpcRobotModelAD(modelSettings, pinocchioInterface.toCppAd(), centroidalModelInfo.toCppAd());
 
   std::unique_ptr<SwingTrajectoryPlanner> swingTrajectoryPlanner(
-      new SwingTrajectoryPlanner(loadSwingTrajectorySettings(atlasTaskFile, "swing_trajectory_config", false), 2));
+      new SwingTrajectoryPlanner(loadSwingTrajectorySettings(atlasTaskFile, "swing_trajectory_config", /*verbose=*/false), /*numFeet=*/2));
 
-  auto gaitSchedule = GaitSchedule::loadGaitSchedule(atlasReferenceFile, modelSettings, false);
+  std::shared_ptr<GaitSchedule> gaitSchedule = GaitSchedule::loadGaitSchedule(atlasReferenceFile, modelSettings, /*verbose=*/false);
   ModeSchedule initialModeSchedule = gaitSchedule->getModeSchedule(0.0, 1.0);
 
   auto referenceManager = std::make_shared<SwitchedModelReferenceManager>(std::move(gaitSchedule), std::move(swingTrajectoryPlanner),
                                                                           pinocchioInterface, mpcRobotModel);
   referenceManager->setModeSchedule(initialModeSchedule);
-  referenceManager->preSolverRun(0.0, 1.0, vector_t::Zero(centroidalModelInfo.stateDim), 3);
+  referenceManager->preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.0, vector_t::Zero(centroidalModelInfo.stateDim), /*initMode=*/3);
 
   // Time t=0.0 is double stance for DRC Atlas
   const scalar_t stanceTime = 0.0;
-  ASSERT_TRUE(referenceManager->isInContact(stanceTime, 0)) << "Atlas left foot should be in contact at t=0";
-  ASSERT_TRUE(referenceManager->isInContact(stanceTime, 1)) << "Atlas right foot should be in contact at t=0";
+  ASSERT_TRUE(referenceManager->isInContact(stanceTime, /*contactIndex=*/0)) << "Atlas left foot should be in contact at t=0";
+  ASSERT_TRUE(referenceManager->isInContact(stanceTime, /*contactIndex=*/1)) << "Atlas right foot should be in contact at t=0";
 
-  EndEffectorKinematicsWeights weights = EndEffectorKinematicsWeights::getWeights(atlasTaskFile, "task_space_foot_cost_weights.", false);
+  EndEffectorKinematicsWeights weights =
+      EndEffectorKinematicsWeights::getWeights(atlasTaskFile, "task_space_foot_cost_weights.", /*verbose=*/false);
 
   // 1. Check with activeInStance = false:
-  CentroidalMpcEndEffectorFootCost footCostInactive(*referenceManager, weights, pinocchioInterface, mpcRobotModelAD, 0,
-                                                    "foot_l_contact_TaskSpaceKinematicsCost", modelSettings, false /* activeInStance */);
+  CentroidalMpcEndEffectorFootCost footCostInactive(*referenceManager, weights, pinocchioInterface, mpcRobotModelAD, /*contactIndex=*/0,
+                                                    "foot_l_contact_TaskSpaceKinematicsCost", modelSettings, /*activeInStance=*/false);
 
   EXPECT_FALSE(footCostInactive.getActiveInStance());
   EXPECT_FALSE(footCostInactive.isActive(stanceTime)) << "When activeInStance is false, foot cost MUST be inactive during stance";
 
   // 2. Check with activeInStance = true:
-  CentroidalMpcEndEffectorFootCost footCostActive(*referenceManager, weights, pinocchioInterface, mpcRobotModelAD, 0,
-                                                  "foot_l_contact_TaskSpaceKinematicsCost", modelSettings, true /* activeInStance */);
+  CentroidalMpcEndEffectorFootCost footCostActive(*referenceManager, weights, pinocchioInterface, mpcRobotModelAD, /*contactIndex=*/0,
+                                                  "foot_l_contact_TaskSpaceKinematicsCost", modelSettings, /*activeInStance=*/true);
 
   EXPECT_TRUE(footCostActive.getActiveInStance());
   EXPECT_TRUE(footCostActive.isActive(stanceTime)) << "When activeInStance is true, foot cost MUST BE ACTIVE during stance!";

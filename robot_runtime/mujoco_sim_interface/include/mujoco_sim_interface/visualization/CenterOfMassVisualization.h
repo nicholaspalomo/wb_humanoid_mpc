@@ -34,13 +34,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::mujoco_sim_interface {
 
 /**
- * Whole-body centre of mass of the robot: a sphere at the CoM, a thin vertical line down to the ground, and its
+ * Whole-body center of mass of the robot: a sphere at the CoM, a thin vertical line down to the ground, and its
  * "shadow", a disc at the CoM's projection on the ground plane (the point the ZMP and the DCM are compared against).
  */
 class CenterOfMassVisualization final : public MujocoVisualization {
  public:
   std::string name() const override { return "center_of_mass"; }
-  std::string description() const override { return "whole-body centre of mass (sphere), its vertical and its shadow on the ground"; }
+  std::string description() const override { return "whole-body center of mass (sphere), its vertical and its shadow on the ground"; }
   char hotkey() const override { return 'o'; }
   void addSceneGeoms(const VisualizationFrame& frame) override;
 };

@@ -50,7 +50,7 @@ namespace robot::mujoco_sim_interface {
 
 // keyboard callback
 void MujocoRenderer::keyboard(GLFWwindow* window, int key, int, int act, int) {
-  auto* renderer = static_cast<MujocoRenderer*>(glfwGetWindowUserPointer(window));
+  MujocoRenderer* renderer = static_cast<MujocoRenderer*>(glfwGetWindowUserPointer(window));
   if (act != GLFW_PRESS) return;
 
   // Number keys '0'-'5': toggle geom groups
@@ -78,7 +78,7 @@ void MujocoRenderer::keyboard(GLFWwindow* window, int key, int, int act, int) {
 
 // mouse button callback
 void MujocoRenderer::mouse_button(GLFWwindow* window, int, int, int) {
-  auto* renderer = static_cast<MujocoRenderer*>(glfwGetWindowUserPointer(window));
+  MujocoRenderer* renderer = static_cast<MujocoRenderer*>(glfwGetWindowUserPointer(window));
   // update button state
   renderer->button_left = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS);
   renderer->button_middle = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_MIDDLE) == GLFW_PRESS);
@@ -90,7 +90,7 @@ void MujocoRenderer::mouse_button(GLFWwindow* window, int, int, int) {
 
 // mouse move callback
 void MujocoRenderer::mouse_move(GLFWwindow* window, double xpos, double ypos) {
-  auto* renderer = static_cast<MujocoRenderer*>(glfwGetWindowUserPointer(window));
+  MujocoRenderer* renderer = static_cast<MujocoRenderer*>(glfwGetWindowUserPointer(window));
   // no buttons down: nothing to do
   if (!renderer->button_left && !renderer->button_middle && !renderer->button_right) return;
 
@@ -122,9 +122,10 @@ void MujocoRenderer::mouse_move(GLFWwindow* window, double xpos, double ypos) {
 
 // scroll callback
 void MujocoRenderer::scroll(GLFWwindow* window, double, double yoffset) {
-  auto* renderer = static_cast<MujocoRenderer*>(glfwGetWindowUserPointer(window));
+  MujocoRenderer* renderer = static_cast<MujocoRenderer*>(glfwGetWindowUserPointer(window));
   // emulate vertical mouse motion = 5% of window height
-  mjv_moveCamera(renderer->simInterface_->getModel(), mjMOUSE_ZOOM, 0, -0.05 * yoffset, &renderer->mujocoScene_, &renderer->mujocoCam_);
+  mjv_moveCamera(renderer->simInterface_->getModel(), mjMOUSE_ZOOM, /*reldx=*/0, -0.05 * yoffset, &renderer->mujocoScene_,
+                 &renderer->mujocoCam_);
 }
 
 //// Public
@@ -198,10 +199,10 @@ void MujocoRenderer::renderLoop() {
   initialize();
   init_complete_.store(true);
 
-  const auto start_time = std::chrono::steady_clock::now();
+  const std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
 
   while (!glfwWindowShouldClose(window_)) {
-    auto start = std::chrono::steady_clock::now();
+    const std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
 
     glfwGetFramebufferSize(window_, &viewport_.width, &viewport_.height);
 
@@ -222,7 +223,7 @@ void MujocoRenderer::renderLoop() {
     // Options and model tweaks, for every visualization so that a disabled one can undo its effect.
     for (const std::unique_ptr<MujocoVisualization>& visualization : visualizations_) visualization->beforeSceneUpdate(frame);
 
-    mjv_updateScene(simInterface_->getModel(), simState_.data, &mujocoOptions_, nullptr, &mujocoCam_, mjCAT_ALL, &mujocoScene_);
+    mjv_updateScene(simInterface_->getModel(), simState_.data, &mujocoOptions_, /*pert=*/nullptr, &mujocoCam_, mjCAT_ALL, &mujocoScene_);
 
     // Decor geoms of the enabled visualizations, added to the scene before it is rendered.
     for (const std::unique_ptr<MujocoVisualization>& visualization : visualizations_) {
@@ -300,7 +301,7 @@ void MujocoRenderer::initialize() {
   if (!glfwInit()) mju_error("Could not initialize GLFW");
 
   // create window, make OpenGL context current, request v-sync
-  window_ = glfwCreateWindow(viewportWidth, viewportHeight, "Mujoco Robot Sim", nullptr, nullptr);
+  window_ = glfwCreateWindow(viewportWidth, viewportHeight, "Mujoco Robot Sim", /*monitor=*/nullptr, /*share=*/nullptr);
   glfwMakeContextCurrent(window_);
 
   // init glew
@@ -316,7 +317,7 @@ void MujocoRenderer::initialize() {
   mjv_defaultOption(&mujocoOptions_);
   mjv_defaultScene(&mujocoScene_);
   mjr_defaultContext(&mujocoContext_);
-  mjv_makeScene(simInterface_->getModel(), &mujocoScene_, 2000);                 // space for 2000 objects
+  mjv_makeScene(simInterface_->getModel(), &mujocoScene_, /*maxgeom=*/2000);     // space for 2000 objects
   mjr_makeContext(simInterface_->getModel(), &mujocoContext_, mjFONTSCALE_150);  // model-specific context
 
   // MuJoCo's own markers start off; the mj_* visualizations of the task file switch them on (MujocoOptionFlagVisualization).
@@ -342,7 +343,7 @@ void MujocoRenderer::initialize() {
   mj_step(simInterface_->getModel(), simState_.data);  // populate state info
   glfwGetFramebufferSize(window_, &viewport_.width, &viewport_.height);
 
-  mjv_updateScene(simInterface_->getModel(), simState_.data, &mujocoOptions_, nullptr, &mujocoCam_, mjCAT_ALL, &mujocoScene_);
+  mjv_updateScene(simInterface_->getModel(), simState_.data, &mujocoOptions_, /*pert=*/nullptr, &mujocoCam_, mjCAT_ALL, &mujocoScene_);
 
   mjr_render(viewport_, &mujocoScene_, &mujocoContext_);
   // swap OpenGL buffers (blocking call due to v-sync)

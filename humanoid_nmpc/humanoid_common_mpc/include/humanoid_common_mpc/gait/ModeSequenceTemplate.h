@@ -35,6 +35,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_core/reference/ModeSchedule.h>
 
+#include "absl/status/status.h"
+#include "absl/strings/string_view.h"
+
 #include "humanoid_common_mpc/gait/Gait.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 
@@ -101,6 +104,14 @@ Gait toGait(const ModeSequenceTemplate& modeSequenceTemplate);
  * }
  */
 ModeSequenceTemplate loadModeSequenceTemplate(const std::string& filename, const std::string& topicName, bool verbose = true);
+
+/**
+ * Checks that a template describes a gait: one more switching time than there are modes, and the switching times
+ * strictly increasing, so that every mode lasts a positive time. The error names `topicName` and its
+ * `switchingTimes` key. loadModeSequenceTemplate() refuses a template this rejects: a time out of order would otherwise
+ * give a phase of negative duration, which nothing downstream checks for.
+ */
+absl::Status validateModeSequenceTemplate(const ModeSequenceTemplate& modeSequenceTemplate, absl::string_view topicName);
 
 /**
  * Load a mode schedule template from file.  The schedule needs to be declared as:

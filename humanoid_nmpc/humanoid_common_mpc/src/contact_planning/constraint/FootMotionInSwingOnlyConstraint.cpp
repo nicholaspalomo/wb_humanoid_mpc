@@ -26,15 +26,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/constraint/FootMotionInSwingOnlyConstraint.h"
 
 #include <cmath>
-#include <sstream>
-#include <stdexcept>
+
+#include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
 
 std::string FootMotionInSwingOnlyConstraint::describe() const {
-  std::ostringstream out;
-  out << "+-dp_{ij} + M c_i <= M on the running nodes (a foot only moves while it is not in contact), M = " << bigM_;
-  return out.str();
+  return absl::StrCat("+-dp_{ij} + M c_i <= M on the running nodes (a foot only moves while it is not in contact), M = ", bigM_);
 }
 
 void FootMotionInSwingOnlyConstraint::configure(const ContactPlanningConfig& config) {

@@ -27,13 +27,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
-#include <iostream>
-#include <sstream>
-#include <stdexcept>
-
-#include "humanoid_common_mpc/contact_planning/logic/ContactLogicState.h"
+#include <limits>
 
 #include "absl/log/log.h"
+#include "absl/strings/str_cat.h"
+#include "humanoid_common_mpc/contact_planning/logic/ContactLogicState.h"
 
 namespace ocs2::humanoid {
 namespace {
@@ -84,22 +82,14 @@ FootPhaseRuns footPhaseRuns(const MiqpAssignment& assignment, int numNodes, size
 }  // namespace
 
 std::string CadenceStretchStage::describe() const {
-  std::ostringstream out;
-  out << "re-time the incumbent by scaling the node grid, " << samples_ << " stretch(es) up to " << maxStretch_
-      << " (0 samples disables the stage)";
-  return out.str();
+  return absl::StrCat("re-time the incumbent by scaling the node grid, ", samples_, " stretch(es) up to ", maxStretch_,
+                      " (0 samples disables the stage)");
 }
 
 void CadenceStretchStage::configure(const ContactPlanningConfig& config) {
-  if (config.cadenceStretch.samples < 0) {
-    throw std::invalid_argument("[cadence_stretch] samples must be non-negative");
-  }
-  if (config.cadenceStretch.samples > 0 && config.cadenceStretch.maxStretch < 1.0) {
-    throw std::invalid_argument("[cadence_stretch] maxStretch must be at least 1: a stretch below 1 shrinks the committed window");
-  }
   samples_ = config.cadenceStretch.samples;
   maxStretch_ = config.cadenceStretch.maxStretch;
-  // The plan's own time budget, as the re-linearisation stage uses: the branch-and-bound's plus the local search's.
+  // The plan's own time budget, as the re-linearization stage uses: the branch-and-bound's plus the local search's.
   timeBudget_ = config.planner.maxSolveTime + config.eventShiftLocalSearch.maxTime;
 }
 
@@ -139,7 +129,19 @@ scalar_t CadenceStretchStage::admissibleStretch(const ContactPlanningConfig& con
       }
     }
   }
+  if (input != nullptr) stretch = std::min(stretch, commitWindowStretch(*input, dt, numNodes));
   return stretch;
+}
+
+scalar_t CadenceStretchStage::commitWindowStretch(const ContactPlannerInput& input, scalar_t dt, int numNodes) {
+  const int numCommitted = std::min(static_cast<int>(input.committedContacts.size()), numNodes);
+  // With at most one committed node the node live at the boundary is node 0 on every grid.
+  if (numCommitted <= 1) return std::numeric_limits<scalar_t>::infinity();
+  // The last committed node starts at (numCommitted - 1) s dt on the stretched grid and has to start no later than the
+  // boundary. A window that does not even cover the committed nodes at s = 1 (an input whose committedUntil does not
+  // match its committedContacts) admits no stretch at all rather than a shrink.
+  const scalar_t window = input.committedUntil - input.time;
+  return std::max(1.0, window / (dt * static_cast<scalar_t>(numCommitted - 1)));
 }
 
 void CadenceStretchStage::afterSearch(SearchRun& run) const {

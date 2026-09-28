@@ -55,7 +55,7 @@ namespace ocs2::humanoid {
  * already forbids force at a height, and to GroundPenetrationConstraint, which forbids the foot going under the
  * terrain; constraining it here as well would forbid lift-off under load and reintroduce exactly the scheduling this
  * formulation removes. The two rocking rates are free for the same reason and for a second one: rolling the foot about
- * its heel and toe edges under load is how a heel-to-toe strike happens, which is one of the behaviours the
+ * its heel and toe edges under load is how a heel-to-toe strike happens, which is one of the behaviors the
  * contact-implicit formulation exists to allow (arXiv:2502.15630, Fig. 3).
  *
  * WHERE AND IN WHICH FRAME the twist is measured, since both have been raised as defects and the answers differ.
@@ -71,28 +71,34 @@ namespace ocs2::humanoid {
  * them support a slope either.
  *
  * The POINT is the contact frame, which `contact_frame_translation` places on the sole. That is an approximation,
- * and unlike the frame question it is a real one: when the foot rocks about an edge, the sole centre moves even
+ * and unlike the frame question it is a real one: when the foot rocks about an edge, the sole center moves even
  * though the contact line does not, and the term charges for slip that is not happening. Because the contact frame
- * sits ON the sole, the lever arm is a * sin(theta) rather than a fixed offset, so the coupling vanishes at a flat
- * foot and grows with the tilt: v_x = omega_y * a * sin(theta) with a = 0.12 m on this robot. At the shipped 0.08 rad
- * of swing pitch and 1 rad/s that is 9.6 mm/s, a residual of 0.032 and a cost of 0.077 at full load - negligible. At
- * an aggressive 0.3 rad heel-to-toe roll at 2 rad/s it is 71 mm/s, a residual of 0.24 and a cost of 4.2, which is no
+ * sits in the plane of the footprint corners, the lever arm from the edge to it lies along the sole, so the coupling
+ * vanishes at a flat foot and grows with the tilt: v_x = omega * a * sin(theta), with a the fore-aft distance from the
+ * edge to the contact frame (0.12 m on the DRC Atlas, half its footprint). At the shipped 0.08 rad of swing pitch and
+ * 1 rad/s that is 9.6 mm/s, a residual of 0.032 and, at slipWeight 150, a cost of 0.077 at full load - negligible. At an
+ * aggressive 0.3 rad heel-to-toe roll at 2 rad/s it is 71 mm/s, a residual of 0.24 and a cost of 4.2, which is no
  * longer negligible and does resist the roll. Measuring the twist at the softmin-weighted contact point, the way
- * FootprintCornerHeights already measures the gap, would remove it; that is a change to the closed-loop behaviour and
- * belongs in its own validated step rather than folded into a tuning pass. testRelaxedContactConstraints pins the
- * magnitude so the trade-off stays visible.
+ * FootprintCornerHeights already measures the gap, would remove it; that is a change to the closed-loop behavior and
+ * belongs in its own validated step rather than folded into a tuning pass.
+ *
+ * testRelaxedContactConstraints pins the mechanism rather than one number: it drives a pure rock about the toe edge -
+ * joint rates solved so that the toe corner's own velocity is zero, with the base held still - and checks that this
+ * term's tangential row is omega * a * sin(theta) at a flat foot and at two tilts, with `a` read from the configured
+ * footprint. A contact frame that left the plane of the sole would show up as a non-zero coupling at the flat foot.
  *
  * Like the complementarity term this is bilinear in the force and the kinematics, so the linear approximation is
- * exact in closed form and needs no automatic differentiation.
+ * assembled in closed form from the kinematics' own linearization - the CppAD model of the contact frame that
+ * EndEffectorKinematics wraps, the same one `zero_velocity` reads - and the constant normal-force row.
  *
- * The residual is normalised, (f_n / f_ref) (v / v_ref), for the reason given at length on
+ * The residual is normalized, (f_n / f_ref) (v / v_ref), for the reason given at length on
  * ContactComplementarityConstraint: the penalty is quadratic in the product, so the curvature it puts on the foot
- * velocity is w f_n^2 / f_ref^2 / v_ref^2, and unnormalised that spans nine orders of magnitude between a foot in
+ * velocity is w f_n^2 / f_ref^2 / v_ref^2, and unnormalized that spans nine orders of magnitude between a foot in
  * flight and a foot carrying the robot, which no single weight can span.
  *
- * Normalising also repairs a second problem the three rows had in common. Two of them are linear velocities in m/s
- * and the third is a yaw rate in rad/s, and a quadratic penalty over the un-normalised vector adds their squares
- * together - so the weight silently declared one radian per second to be as bad as one metre per second, a ratio that
+ * Normalizing also repairs a second problem the three rows had in common. Two of them are linear velocities in m/s
+ * and the third is a yaw rate in rad/s, and a quadratic penalty over the un-normalized vector adds their squares
+ * together - so the weight silently declared one radian per second to be as bad as one meter per second, a ratio that
  * has no physical justification and changes meaning with the size of the foot. Each row is now divided by a reference
  * in its own units before the squares are summed, so the weight applies to three comparable dimensionless numbers.
  */

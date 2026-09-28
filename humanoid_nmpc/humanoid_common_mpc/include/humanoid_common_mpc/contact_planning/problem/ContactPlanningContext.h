@@ -36,7 +36,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-/** Nominal trajectory the heading frame of the foothold constraints is linearised around (heading model), per node. */
+/** Nominal trajectory the heading frame of the foothold constraints is linearized around (heading model), per node. */
 struct HeadingNominal {
   std::vector<scalar_t> heading;
   std::vector<vector2_t> com;
@@ -44,8 +44,8 @@ struct HeadingNominal {
 };
 
 /**
- * Per-plan pre-computation, the analogue of ocs2::PreComputation: everything the terms read that depends on the input
- * and not on the node alone. Built once in LipContactPlanner::plan() (and once per heading re-linearisation pass);
+ * Per-plan pre-computation, the analog of ocs2::PreComputation: everything the terms read that depends on the input
+ * and not on the node alone. Built once in LipContactPlanner::plan() (and once per heading re-linearization pass);
  * every term reads from it and none of them recomputes it.
  */
 struct ContactPlanningContext {
@@ -78,7 +78,7 @@ struct ContactPlanningContext {
   void computeAxes();
 };
 
-/** The nominal heading trajectory read off a solution: its heading, CoM and foot positions per node (successive linearisation). */
+/** The nominal heading trajectory read off a solution: its heading, CoM and foot positions per node (successive linearization). */
 HeadingNominal nominalFromSolution(const Layout& layout, const std::vector<vector_t>& x);
 
 }  // namespace ocs2::humanoid

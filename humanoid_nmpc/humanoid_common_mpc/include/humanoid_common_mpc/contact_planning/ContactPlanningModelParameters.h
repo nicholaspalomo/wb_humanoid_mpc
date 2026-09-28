@@ -55,7 +55,7 @@ struct ContactPlanningGroundParameters {
  */
 struct ContactPlanningModelParameters {
   scalar_t totalMass = 0.0;      // [kg]
-  scalar_t comHeight = 0.0;      // [m] centre of mass above the mean foot height at the nominal state
+  scalar_t comHeight = 0.0;      // [m] center of mass above the mean foot height at the nominal state
   scalar_t zmpHalfWidthX = 0.0;  // [m] sole footprint half extents (0: unknown)
   scalar_t zmpHalfWidthY = 0.0;
   scalar_t torsionalFrictionTorque = 0.0;                          // [N m] torsional friction coefficient * weight
@@ -72,15 +72,38 @@ struct ContactPlanningModelParameters {
   std::string summary() const;
 };
 
+/** The foot yaw range the hip yaw joint of one leg allows, and the joint it was read from. */
+struct HipYawRange {
+  scalar_t lower = -ContactPlanningConfig::kDefaultFootYawOffset;  // [rad]
+  scalar_t upper = ContactPlanningConfig::kDefaultFootYawOffset;   // [rad]
+  std::string joint;                                               // empty when the leg has no hip yaw joint (the symmetric fallback above)
+};
+
+/**
+ * The hip yaw range of the leg whose contact frame hangs off `contactParentJointName`: walks the kinematic tree up
+ * from that joint to the first revolute joint whose axis is vertical IN THE WORLD FRAME at the neutral configuration,
+ * and reads its position limits as a range of foot yaw.
+ *
+ * The world frame matters for the sign as well as for the test. The foot yaw is +q when the axis points up and -q
+ * when it points down, so an axis along -z - which pinocchio's URDF parser turns into an unaligned revolute joint -
+ * or a +z axis under a parent frame that is flipped upside down maps the joint limits [lower, upper] to the foot yaw
+ * range [-upper, -lower]. Copying them unmirrored planned yaws the leg cannot reach on one side and forbade the ones
+ * it can on the other. A joint about a non-vertical axis is not a hip yaw, whatever its local axis is.
+ *
+ * A joint that stores an angle (nq == 1) contributes its limits clamped to [-pi, pi], and only when they contain 0;
+ * an unbounded (continuous) joint stores (cos q, sin q) and turns all the way round, so its range is [-pi, pi].
+ * Returns the symmetric fallback when no such joint exists or its limits do not contain 0.
+ */
+HipYawRange deriveHipYawRange(const PinocchioInterface::Model& model, const std::string& contactParentJointName);
+
 /**
  * Derives the planner's model parameters from the robot model and the ground parameters of the wrench cone:
- *  - comHeight: the centre of mass height above the mean foot height at `nominalState`;
- *  - zmpHalfWidthX / zmpHalfWidthY: the sole's footprint half extents (the centre of pressure region);
+ *  - comHeight: the center of mass height above the mean foot height at `nominalState`;
+ *  - zmpHalfWidthX / zmpHalfWidthY: the sole's footprint half extents (the center of pressure region);
  *  - torsionalFrictionTorque: torsional friction coefficient * total weight (one stance foot carrying the robot);
  *  - doubleSupportYawCouple: friction coefficient * half the weight * `nominalStepWidth` (the couple of two stance feet);
- *  - foot yaw bounds: the position limits of the hip yaw joint of every leg, found by walking the kinematic tree up from
- *    the joint that carries the contact frame to the first revolute joint about the vertical; a symmetric fallback of
- *    ContactPlanningConfig::kDefaultFootYawOffset where no such joint exists.
+ *  - foot yaw bounds: the position limits of the hip yaw joint of every leg, as a range of foot yaw (deriveHipYawRange);
+ *    a symmetric fallback of ContactPlanningConfig::kDefaultFootYawOffset where no such joint exists.
  * The heading model's yaw inertia is taken from the model at every plan and is not part of this.
  */
 ContactPlanningModelParameters deriveContactPlanningModelParameters(PinocchioInterface& pinocchioInterface,

@@ -121,7 +121,7 @@ class CommandLimitsTab(ttk.Frame):
         self.status_var.set("")
 
     def _render(self):
-        """Sliders for every numeric leaf of the file, labelled from its own trailing comment."""
+        """Sliders for every numeric leaf of the file, labeled from its own trailing comment."""
         frame = ttk.LabelFrame(
             self.scroll_container.scrollable_content,
             text="• Command limits and defaults",

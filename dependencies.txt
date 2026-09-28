@@ -9,7 +9,6 @@ libboost-filesystem-dev
 libboost-log-dev
 libglfw3-dev
 liburdfdom-dev
-libabsl-dev
 libxinerama-dev
 libxcursor-dev
 libxi-dev
@@ -34,4 +33,4 @@ ros-${ROS_DISTRO}-rviz2
 ros-${ROS_DISTRO}-rosidl-typesupport-fastrtps-c
 ros-${ROS_DISTRO}-ament-cmake-gmock
 ros-${ROS_DISTRO}-plotjuggler-ros
-# LINT.ThenChange(//docker/Dockerfile:system_dependencies, //.github/workflows/build_test.yml:system_dependencies)
+# LINT.ThenChange(//docker/Dockerfile:system_dependencies, //.github/workflows/build_test.yml:system_dependencies, //.github/workflows/format_test.yml:formatter_versions)

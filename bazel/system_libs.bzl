@@ -577,4 +577,4 @@ def register_system_libs():
         pkg_name = "humanoid_mpc_msgs",
         src_dir = "humanoid_nmpc/humanoid_mpc_msgs",
     )
-# LINT.ThenChange(//MODULE.bazel:system_repositories)
+# LINT.ThenChange(//MODULE.bazel:system_repositories, //setup_env.sh:bazel_msgs_repositories)

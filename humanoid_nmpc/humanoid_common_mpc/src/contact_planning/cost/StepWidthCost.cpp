@@ -27,16 +27,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
-#include <sstream>
+
+#include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
 
 std::string StepWidthCost::describe() const {
-  return weightLine("w (e_y . (p_L - p_R) - " + std::to_string(nominalStepWidth_) + ")^2 at every node (first-order in the heading)");
+  return weightLine(absl::StrCat("w (e_y . (p_L - p_R) - ", nominalStepWidth_, ")^2 at every node (first-order in the heading)"));
 }
 
 void StepWidthCost::configure(const ContactPlanningConfig& config) {
-  checkWeight("step_width", config.stepWidth.weight);
   weight_ = config.stepWidth.weight;
   nominalStepWidth_ = config.stepWidth.nominalStepWidth;
 }
@@ -51,7 +51,9 @@ void StepWidthCost::addToStage(const ContactPlanningContext& ctx, int node, Stag
   const vector2_t dNominal =
       ctx.hasHeading() ? vector2_t(ctx.nominal->feet[static_cast<size_t>(node)][0] - ctx.nominal->feet[static_cast<size_t>(node)][1])
                        : vector2_t(vector2_t::Zero());
-  const auto [g, offset] = ctx.frameTerm(node, 1, dNominal);
+  const std::pair<scalar_t, scalar_t> frameTerm = ctx.frameTerm(node, /*axis=*/1, dNominal);
+  const scalar_t g = frameTerm.first;
+  const scalar_t offset = frameTerm.second;
   if (ctx.hasHeading()) xc.push_back({idx_.heading, g});
   stage.addQuadraticResidual(xc, {}, -nominalStepWidth_ + offset, weight_);
 }

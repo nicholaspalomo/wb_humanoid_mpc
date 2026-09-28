@@ -29,26 +29,34 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include <cmath>
 #include <string>
+#include <utility>
 
 #include "humanoid_common_mpc/HumanoidCostConstraintFactory.h"
 
 #include <ocs2_core/misc/LoadData.h>
 #include <ocs2_core/misc/LoadStdVectorOfPair.h>
 
+#include <boost/optional.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include "absl/log/log.h"
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/cost/ComAndAcomTrackingCost.h"
 #include "humanoid_common_mpc/cost/EndEffectorKinematicCostHelpers.h"
 
 #include <ocs2_core/constraint/StateInputConstraint.h>
 #include <ocs2_core/cost/QuadraticStateCost.h>
+
 #include <ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h>
 #include <ocs2_core/penalties/penalties/RelaxedBarrierPenalty.h>
 #include <ocs2_core/penalties/penalties/SquaredHingePenalty.h>
 #include <ocs2_core/soft_constraint/StateInputSoftConstraint.h>
 #include <ocs2_core/soft_constraint/StateSoftConstraint.h>
+#include "humanoid_common_mpc/cost/BasePoseShapedQuadraticStateCost.h"
 
 #include <humanoid_common_mpc/common/BasisInputsCostTransform.h>
 #include <humanoid_common_mpc/constraint/FrictionForceConeConstraint.h>
@@ -68,20 +76,54 @@ namespace ocs2::humanoid {
 
 namespace {
 
-/// In the centroidal state x = [h_norm(6), p_base(3), euler_zyx(3), q_j], the
-/// base pose occupies the 6x6 block starting at index 6.
-constexpr Eigen::Index kBasePoseStateIndex = 6;
-constexpr Eigen::Index kBasePoseDim = 6;
+/**
+ * The error for an input of com_and_acom_tracking_cost - the 3x3 matrix Q_com or Q_acom, or the terminal instance's
+ * terminalCostScaling - that the task file does not carry. The loadData functions report a missing key by throwing;
+ * here it is an InvalidArgument naming the key, because listing the cost without writing what it reads - the state the
+ * G1 and SA01 task files are in, which carry no Q_com / Q_acom - is a configuration error fixed in the task file.
+ */
+absl::Status comAndAcomTrackingInputError(absl::string_view taskFile, absl::string_view key, absl::string_view what) {
+  return absl::InvalidArgumentError(absl::StrCat("[HumanoidCostConstraintFactory] costs lists com_and_acom_tracking_cost, but '", key,
+                                                 "' could not be loaded from ", taskFile, " (", what,
+                                                 "). Write the 3x3 matrices Q_com and Q_acom in the task file (terminalCostScaling too "
+                                                 "beside terminal_cost), or remove com_and_acom_tracking_cost from costs."));
+}
+
+/** Loads the 3x3 weight `key` (Q_com or Q_acom) of com_and_acom_tracking_cost, or returns comAndAcomTrackingInputError. */
+absl::Status loadComAndAcomTrackingWeight(const std::string& taskFile, absl::string_view key, matrix_t& weight) {
+  try {
+    loadData::loadEigenMatrix(taskFile, std::string(key), weight);
+  } catch (const std::exception& error) {
+    return comAndAcomTrackingInputError(taskFile, key, error.what());
+  }
+  return absl::OkStatus();
+}
 
 /**
- * Zeroes the base pose block of a state weight matrix.
- *
- * When CoM + aCOM tracking is active it regulates base position and orientation
- * in its own coordinates, so leaving these weights in place would penalise the
- * same physical error twice, in two different parameterisations.
+ * Reads the optional parameter `key` of a relaxed barrier into `value`, which keeps what it holds when the task file does
+ * not carry the key. The value must parse as a number, be finite and be positive: a negative `mu` turns the barrier into
+ * a reward for violating the constraint, a zero `mu` switches it off without saying so, and the relaxed log barrier is
+ * undefined at a `delta` of zero or below. InvalidArgument naming the key otherwise.
  */
-void zeroBasePoseWeights(matrix_t& Q) {
-  Q.block(kBasePoseStateIndex, kBasePoseStateIndex, kBasePoseDim, kBasePoseDim).setZero();
+absl::Status loadPositiveBarrierParameter(const boost::property_tree::ptree& pt, const std::string& key, scalar_t& value, bool verbose) {
+  const boost::optional<const boost::property_tree::ptree&> child = pt.get_child_optional(key);
+  if (child) {
+    const boost::optional<scalar_t> parsed = child->get_value_optional<scalar_t>();
+    if (!parsed) {
+      return absl::InvalidArgumentError(
+          absl::StrCat("[HumanoidCostConstraintFactory] ", key, " is '", child->data(), "', which is not a number."));
+    }
+    value = *parsed;
+  }
+  if (!std::isfinite(value) || value <= 0.0) {
+    return absl::InvalidArgumentError(absl::StrCat("[HumanoidCostConstraintFactory] ", key, " must be finite and positive, got ", value,
+                                                   ": a negative barrier weight rewards violating the constraint, and the "
+                                                   "relaxed barrier is undefined at a non-positive delta."));
+  }
+  if (verbose) {
+    LOG(INFO) << " #### " << key << " = " << value << (child ? "" : " (default)");
+  }
+  return absl::OkStatus();
 }
 
 }  // namespace
@@ -105,15 +147,13 @@ HumanoidCostConstraintFactory::HumanoidCostConstraintFactory(const std::string& 
       verbose_(verbose),
       scheduleGatedContactConstraints_(scheduleGatedContactConstraints) {}
 
-namespace {
-
 /**
  * The penalty a contact cone is wrapped in.
  *
  * A schedule-gated cone is only ever evaluated on a foot the schedule has declared loaded, where the slack is
  * comfortably positive and a relaxed log barrier is the right object. An always-active cone is also evaluated on a
  * foot in flight, which sits exactly ON the boundary of the homogeneous cone. A relaxed log barrier has value
- * -mu*ln(delta) - mu/2 and derivative -2*mu/delta there - with the shipped centre-of-pressure settings, mu = 0.6 and
+ * -mu*ln(delta) - mu/2 and derivative -2*mu/delta there - with the shipped center-of-pressure settings, mu = 0.6 and
  * delta = 0.03, that is a derivative of -40 per row - so it would pay the solver to leave the origin, i.e. to invent a
  * normal force on a foot in the air. That is precisely the failure that dropping `minNormalForce` and the friction
  * cone's parabolic margin exists to remove, and a log barrier would put it straight back.
@@ -135,29 +175,28 @@ namespace {
  * what is wanted here.
  */
 std::unique_ptr<PenaltyBase> makeContactConePenalty(const RelaxedBarrierPenalty::Config& barrierConfig, bool scheduleGated) {
+  const vector_t parameters = contactConePenaltyParameters(barrierConfig, scheduleGated);
   if (scheduleGated) {
-    return std::unique_ptr<PenaltyBase>(new RelaxedBarrierPenalty(barrierConfig));
+    return std::unique_ptr<PenaltyBase>(new RelaxedBarrierPenalty(RelaxedBarrierPenalty::Config(parameters(0), parameters(1))));
   }
-  LOG(INFO) << "[HumanoidCostConstraintFactory] Un-gated cone: squared hinge with stiffness mu = " << barrierConfig.mu
+  LOG(INFO) << "[HumanoidCostConstraintFactory] Un-gated cone: squared hinge with stiffness mu = " << parameters(0)
             << " (cost 0.5*mu*h^2 below the cone, zero on and above it). The configured barrier delta of " << barrierConfig.delta
             << " is deliberately not carried over; see makeContactConePenalty().";
-  return std::unique_ptr<PenaltyBase>(new SquaredHingePenalty(SquaredHingePenalty::Config(barrierConfig.mu, 0.0)));
+  return std::unique_ptr<PenaltyBase>(new SquaredHingePenalty(SquaredHingePenalty::Config(parameters(0), parameters(1))));
 }
 
-}  // namespace
+vector_t contactConePenaltyParameters(const RelaxedBarrierPenalty::Config& barrierConfig, bool scheduleGated) {
+  // An un-gated cone's hinge keeps its zero on the cone, which a foot at zero wrench lies on: its delta is the OFFSET of
+  // that zero, not the barrier's smoothing width, and is 0 whatever the file's barrier delta says.
+  return (vector_t(2) << barrierConfig.mu, scheduleGated ? barrierConfig.delta : 0.0).finished();
+}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-void HumanoidCostConstraintFactory::setBasisToWrenchMap(const matrix_t& M,
-                                                        size_t wrenchInputDim,
-                                                        size_t numBasisInputs,
-                                                        scalar_t lambdaRegularization) {
-  basisToWrenchMap_ = M;
-  wrenchInputDim_ = wrenchInputDim;
-  numBasisInputs_ = numBasisInputs;
-  lambdaRegularization_ = lambdaRegularization;
+void HumanoidCostConstraintFactory::setBasisInputsCostTransform(BasisInputsCostTransformConfig config) {
+  basisCostTransform_ = std::move(config);
 }
 
 /******************************************************************************************************/
@@ -165,15 +204,17 @@ void HumanoidCostConstraintFactory::setBasisToWrenchMap(const matrix_t& M,
 /******************************************************************************************************/
 
 matrix_t HumanoidCostConstraintFactory::loadAndTransformR() const {
-  if (basisToWrenchMap_.has_value()) {
-    // Load R in wrench dimensions, then transform: R_basis = M^T * R_wrench * M
-    matrix_t R_wrench(wrenchInputDim_, wrenchInputDim_);
+  if (basisCostTransform_.has_value()) {
+    // R is written in wrench dimensions; the basis-vector input needs R_basis = M^T R_wrench M + reg * blkdiag(S, 0).
+    const size_t wrenchInputDim = basisCostTransform_->wrenchInputDim;
+    matrix_t R_wrench(wrenchInputDim, wrenchInputDim);
     loadData::loadEigenMatrix(taskFile_, "R", R_wrench);
-    matrix_t R_basis = transformWrenchInputCostToBasisSpace(R_wrench, *basisToWrenchMap_, numBasisInputs_, lambdaRegularization_);
+    matrix_t R_basis = transformWrenchInputCostToBasisSpace(R_wrench, *basisCostTransform_);
     if (verbose_) {
-      LOG(INFO) << "\n #### R cost loaded in wrench space (" << wrenchInputDim_ << "x" << wrenchInputDim_
-                << ") and transformed to basis-vector space (" << R_basis.rows() << "x" << R_basis.cols()
-                << ", lambda regularization = " << lambdaRegularization_ << ")";
+      LOG(INFO) << "\n #### R cost loaded in wrench space (" << wrenchInputDim << "x" << wrenchInputDim
+                << ") and transformed to basis-vector space (" << R_basis.rows() << "x" << R_basis.cols() << ", " << kBasisRegularizationKey
+                << " = " << basisCostTransform_->regularization << ", " << kBasisScalingRegularizationKey << " = "
+                << basisCostTransform_->lambdaRegularization << ")";
     }
     return R_basis;
   } else {
@@ -190,6 +231,14 @@ matrix_t HumanoidCostConstraintFactory::loadAndTransformR() const {
 std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getStateInputQuadraticCost() const {
   matrix_t Q(mpcRobotModelADPtr_->getStateDim(), mpcRobotModelADPtr_->getStateDim());
   loadData::loadEigenMatrix(taskFile_, "Q", Q);
+  // The same replacement as in getStateQuadraticCost(): with com_and_acom_tracking_cost listed the base pose is
+  // regulated in CoM and ACoM coordinates, whichever of the two quadratic state costs carries the rest of Q.
+  if (comAndAcomTrackingCostListed_) {
+    ComAndAcomTrackingCost::zeroBasePoseWeights(Q);
+    if (verbose_) {
+      LOG(INFO) << "[HumanoidCostConstraintFactory] com_and_acom_tracking_cost is listed. Zeroing out base pose weights in Q.";
+    }
+  }
   matrix_t R = loadAndTransformR();
 
   if (verbose_) {
@@ -203,7 +252,7 @@ std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getStateInputQuad
   }
 
   return std::unique_ptr<StateInputCost>(
-      new StateInputQuadraticCost(std::move(Q), std::move(R), *referenceManagerPtr_, *pinocchioInterfacePtr_, *mpcRobotModelPtr_));
+      new StateInputQuadraticCost(std::move(Q), std::move(R), *referenceManagerPtr_, *mpcRobotModelPtr_));
 }
 
 /******************************************************************************************************/
@@ -214,10 +263,10 @@ std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getStateQuadratic
   matrix_t Q(mpcRobotModelADPtr_->getStateDim(), mpcRobotModelADPtr_->getStateDim());
   loadData::loadEigenMatrix(taskFile_, "Q", Q);
 
-  if (modelSettings_.useComAndAcomTracking) {
-    zeroBasePoseWeights(Q);
+  if (comAndAcomTrackingCostListed_) {
+    ComAndAcomTrackingCost::zeroBasePoseWeights(Q);
     if (verbose_) {
-      LOG(INFO) << "[HumanoidCostConstraintFactory] useComAndAcomTracking is enabled. Zeroing out base pose weights in Q.";
+      LOG(INFO) << "[HumanoidCostConstraintFactory] com_and_acom_tracking_cost is listed. Zeroing out base pose weights in Q.";
     }
   }
 
@@ -232,14 +281,17 @@ std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getStateQuadratic
   return std::unique_ptr<StateInputCost>(new StateQuadraticCost(std::move(Q), mpcRobotModelADPtr_->getInputDim(), *referenceManagerPtr_));
 }
 
-std::unique_ptr<StateCost> HumanoidCostConstraintFactory::getComAndAcomTrackingCost(const CentroidalModelInfo& info) const {
+absl::StatusOr<std::unique_ptr<StateCost>> HumanoidCostConstraintFactory::makeComAndAcomTrackingCost(const CentroidalModelInfo& info,
+                                                                                                     scalar_t scaling) const {
   matrix_t Q_com(3, 3);
   matrix_t Q_acom(3, 3);
-  loadData::loadEigenMatrix(taskFile_, "Q_com", Q_com);
-  loadData::loadEigenMatrix(taskFile_, "Q_acom", Q_acom);
+  RETURN_IF_ERROR(loadComAndAcomTrackingWeight(taskFile_, "Q_com", Q_com));
+  RETURN_IF_ERROR(loadComAndAcomTrackingWeight(taskFile_, "Q_acom", Q_acom));
+  Q_com *= scaling;
+  Q_acom *= scaling;
 
   if (verbose_) {
-    LOG(INFO) << "\n #### CoM + ACoM Tracking Cost Coefficients: \n"
+    LOG(INFO) << "\n #### CoM + ACoM Tracking Cost Coefficients (scaled by " << scaling << "): \n"
               << " #### =============================================================================\n"
               << "Q_com:\n"
               << Q_com << "\n"
@@ -248,8 +300,27 @@ std::unique_ptr<StateCost> HumanoidCostConstraintFactory::getComAndAcomTrackingC
               << " #### =============================================================================";
   }
 
-  return std::make_unique<ComAndAcomTrackingCost>(std::move(Q_com), std::move(Q_acom), *pinocchioInterfacePtr_, info,
-                                                  modelSettings_.robotName);
+  ASSIGN_OR_RETURN(
+      std::unique_ptr<ComAndAcomTrackingCost> cost,
+      ComAndAcomTrackingCost::Create(std::move(Q_com), std::move(Q_acom), *pinocchioInterfacePtr_, info, modelSettings_.robotName));
+  return std::unique_ptr<StateCost>(std::move(cost));
+}
+
+absl::StatusOr<std::unique_ptr<StateCost>> HumanoidCostConstraintFactory::getComAndAcomTrackingCost(const CentroidalModelInfo& info) const {
+  return makeComAndAcomTrackingCost(info, /*scaling=*/1.0);
+}
+
+absl::StatusOr<std::unique_ptr<StateCost>> HumanoidCostConstraintFactory::getTerminalComAndAcomTrackingCost(
+    const CentroidalModelInfo& info) const {
+  // The factor getTerminalCost() applies to Q_final, so that the terminal node weighs the CoM and the ACoM against the
+  // rest of the terminal state exactly as the running nodes weigh them against the rest of Q.
+  scalar_t terminalCostScaling = 1.0;
+  try {
+    loadData::loadCppDataType<scalar_t>(taskFile_, "terminalCostScaling", terminalCostScaling);
+  } catch (const std::exception& error) {
+    return comAndAcomTrackingInputError(taskFile_, "terminalCostScaling", error.what());
+  }
+  return makeComAndAcomTrackingCost(info, terminalCostScaling);
 }
 
 /******************************************************************************************************/
@@ -267,8 +338,8 @@ std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getInputQuadratic
               << " #### =============================================================================";
   }
 
-  return std::unique_ptr<StateInputCost>(new InputQuadraticCost(std::move(R), mpcRobotModelADPtr_->getStateDim(), *referenceManagerPtr_,
-                                                                *pinocchioInterfacePtr_, *mpcRobotModelPtr_));
+  return std::unique_ptr<StateInputCost>(
+      new InputQuadraticCost(std::move(R), mpcRobotModelADPtr_->getStateDim(), *referenceManagerPtr_, *mpcRobotModelPtr_));
 }
 
 /******************************************************************************************************/
@@ -350,30 +421,30 @@ std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getContactMomentX
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getContactWrenchConeConstraint(size_t contactPointIndex,
-                                                                                              size_t numBasisVectors) const {
+absl::StatusOr<std::unique_ptr<StateInputCost>> HumanoidCostConstraintFactory::getContactWrenchConeConstraint(
+    size_t contactPointIndex) const {
   boost::property_tree::ptree pt;
   loadData::readPropertyTree(taskFile_, pt);
-  const std::string prefix = "contacts.contactWrenchConeSoftConstraint.";
+  const std::string prefix = absl::StrCat(ContactWrenchConeConstraint::kConfigBlock, ".");
 
+  // The barrier's weight and relaxation, range-checked by their keys like the ground below: a negative mu would reward
+  // leaving the cone. A key the file does not carry keeps RelaxedBarrierPenalty's default.
   RelaxedBarrierPenalty::Config barrierPenaltyConfig;
-  loadData::loadPtreeValue(pt, barrierPenaltyConfig.mu, absl::StrCat(prefix, "mu"), verbose_);
-  loadData::loadPtreeValue(pt, barrierPenaltyConfig.delta, absl::StrCat(prefix, "delta"), verbose_);
+  RETURN_IF_ERROR(loadPositiveBarrierParameter(pt, absl::StrCat(prefix, "mu"), barrierPenaltyConfig.mu, verbose_));
+  RETURN_IF_ERROR(loadPositiveBarrierParameter(pt, absl::StrCat(prefix, "delta"), barrierPenaltyConfig.delta, verbose_));
   if (verbose_) {
     LOG(INFO) << " #### =============================================================================";
   }
 
-  ContactWrenchConeConstraint::Config config;
-  config.numBasisVectors = numBasisVectors;
-  loadData::loadPtreeValue(pt, config.frictionCoefficient, absl::StrCat(prefix, "frictionCoefficient"), verbose_);
-  loadData::loadPtreeValue(pt, config.torsionalFrictionCoefficient, absl::StrCat(prefix, "torsionalFrictionCoefficient"), verbose_);
-  loadData::loadPtreeValue(pt, config.minNormalForce, absl::StrCat(prefix, "minNormalForce"), verbose_);
-  loadData::loadPtreeValue(pt, config.gripperForce, absl::StrCat(prefix, "gripperForce"), verbose_);
-  loadData::loadPtreeValue(pt, config.numBasisVectors, absl::StrCat(prefix, "numBasisVectors"), verbose_);
+  // The ground itself - friction, torsion, the affine offsets and the pyramid's facets - is read by the loader every
+  // consumer of this block shares, which refuses a missing key instead of keeping a library default.
+  ASSIGN_OR_RETURN(ContactWrenchConeConstraint::Config config, ContactWrenchConeConstraint::loadConfig(taskFile_, verbose_));
 
-  std::unique_ptr<ContactWrenchConeConstraint> contactWrenchConeConstraintPtr(new ContactWrenchConeConstraint(
-      *referenceManagerPtr_, ContactRectangle::loadContactRectangle(taskFile_, mpcRobotModelPtr_->modelSettings, contactPointIndex),
-      contactPointIndex, *pinocchioInterfacePtr_, *mpcRobotModelPtr_, config, scheduleGatedContactConstraints_));
+  ASSIGN_OR_RETURN(
+      std::unique_ptr<ContactWrenchConeConstraint> contactWrenchConeConstraintPtr,
+      ContactWrenchConeConstraint::Create(
+          *referenceManagerPtr_, ContactRectangle::loadContactRectangle(taskFile_, mpcRobotModelPtr_->modelSettings, contactPointIndex),
+          contactPointIndex, *pinocchioInterfacePtr_, *mpcRobotModelPtr_, std::move(config), scheduleGatedContactConstraints_));
 
   std::unique_ptr<PenaltyBase> penalty = makeContactConePenalty(barrierPenaltyConfig, scheduleGatedContactConstraints_);
 
@@ -431,20 +502,24 @@ std::unique_ptr<StateCost> HumanoidCostConstraintFactory::getTerminalCost() cons
   matrix_t Qf(mpcRobotModelPtr_->getStateDim(), mpcRobotModelPtr_->getStateDim());
   loadData::loadEigenMatrix(taskFile_, "Q_final", Qf);
 
-  if (modelSettings_.useComAndAcomTracking) {
+  if (comAndAcomTrackingCostListed_) {
     // The running cost's base pose block is zeroed for the same reason. Leaving it
     // in the terminal cost would regulate the end of the horizon in base
     // coordinates while every other node is regulated in aCOM coordinates, and
     // terminalCostScaling makes that mismatch the dominant term at the horizon end.
-    zeroBasePoseWeights(Qf);
+    // What regulates the terminal base pose instead is getTerminalComAndAcomTrackingCost(), which the interface adds
+    // beside this cost; without it the last node would carry no CoM, height or orientation weight at all.
+    ComAndAcomTrackingCost::zeroBasePoseWeights(Qf);
     if (verbose_) {
-      LOG(INFO) << "[HumanoidCostConstraintFactory] useComAndAcomTracking is enabled. Zeroing out base pose weights in Q_final.";
+      LOG(INFO) << "[HumanoidCostConstraintFactory] com_and_acom_tracking_cost is listed. Zeroing out base pose weights in Q_final.";
     }
   }
 
   Qf *= terminalCostScaling;
   if (verbose_) LOG(INFO) << "Q_final:\n" << Qf;
-  return std::unique_ptr<StateCost>(new QuadraticStateCost(Qf));
+  // Shaped by the locomotion heuristics' base-pose offsets like the running costs, so the horizon's last node does not
+  // pull back to the unshaped pose; identical to QuadraticStateCost when none is listed.
+  return std::unique_ptr<StateCost>(new BasePoseShapedQuadraticStateCost(Qf, *referenceManagerPtr_));
 }
 
 /******************************************************************************************************/

@@ -38,7 +38,7 @@ constexpr std::string_view kTaskConfigPath = "/../config/mpc/task.yaml";
 // SA01 is a legs-only biped. The floating base is a JointModelTranslation + JointModelSphericalZYX composite
 // (createPinocchioModel.cpp getBaseJointcomposite), so it contributes SIX configuration variables - x, y, z and the
 // ZYX Euler angles, not a quaternion - and the twelve leg joints one each. The MPC state is these 18 plus the six
-// normalised centroidal momenta, i.e. 24.
+// normalized centroidal momenta, i.e. 24.
 constexpr int kConfigurationDim = 18;
 constexpr int kBaseDim = 6;
 
