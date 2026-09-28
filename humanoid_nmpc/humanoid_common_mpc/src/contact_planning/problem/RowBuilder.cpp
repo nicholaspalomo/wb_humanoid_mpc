@@ -35,8 +35,8 @@ void RowBuilder::add(const Coefficients& xCoefficients,
                      const SlackPenalty& penalty) {
   vector_t cRow = vector_t::Zero(nx_);
   vector_t dRow = vector_t::Zero(nu_);
-  for (const auto& [index, value] : xCoefficients) cRow(index) += value;
-  for (const auto& [index, value] : uCoefficients) dRow(index) += value;
+  for (const std::pair<int, scalar_t>& coefficient : xCoefficients) cRow(coefficient.first) += coefficient.second;
+  for (const std::pair<int, scalar_t>& coefficient : uCoefficients) dRow(coefficient.first) += coefficient.second;
   cRows_.push_back(std::move(cRow));
   dRows_.push_back(std::move(dRow));
   lower_.push_back(lower);

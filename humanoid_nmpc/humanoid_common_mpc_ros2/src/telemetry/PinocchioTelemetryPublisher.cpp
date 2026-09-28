@@ -32,14 +32,17 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
+#include <string>
+#include <vector>
 
 #include <pinocchio/algorithm/frames.hpp>
 #include <pinocchio/algorithm/kinematics.hpp>
 
-#include <absl/log/log.h>
 #include <ocs2_core/misc/LinearInterpolation.h>
 #include <ocs2_robotic_tools/common/RotationDerivativesTransforms.h>
 #include <ocs2_robotic_tools/common/RotationTransforms.h>
+#include "absl/log/log.h"
 
 namespace ocs2::humanoid {
 
@@ -56,7 +59,7 @@ PinocchioTelemetryPublisher::PinocchioTelemetryPublisher(rclcpp::Node::SharedPtr
       modelSettingsPtr_(&modelSettings),
       mpcRobotModelPtr_(&mpcRobotModel),
       robotDescriptionPtr_(&robotDescription) {
-  auto qos = rclcpp::QoS(10);
+  rclcpp::QoS qos(10);
   qos.best_effort();
 
   initializePublishers(qos, trackedFrames);
@@ -68,7 +71,7 @@ void PinocchioTelemetryPublisher::initializePublishers(const rclcpp::QoS& qos, c
   dofNames_ = getBaseDofNames();
 
   // Actuated joint names from MPC model settings
-  for (const auto& jointName : modelSettingsPtr_->mpcModelJointNames) {
+  for (const std::string& jointName : modelSettingsPtr_->mpcModelJointNames) {
     dofNames_.push_back(jointName);
   }
 
@@ -78,7 +81,7 @@ void PinocchioTelemetryPublisher::initializePublishers(const rclcpp::QoS& qos, c
   // Pre-calculate RobotDescription joint indices for MPC joints and full joints
   descJointIndices_.clear();
   descJointIndices_.reserve(modelSettingsPtr_->mpcModelJointNames.size());
-  for (const auto& jointName : modelSettingsPtr_->mpcModelJointNames) {
+  for (const std::string& jointName : modelSettingsPtr_->mpcModelJointNames) {
     if (robotDescriptionPtr_ && robotDescriptionPtr_->containsJoint(jointName)) {
       descJointIndices_.push_back(robotDescriptionPtr_->getJointIndex(jointName));
     } else {
@@ -88,7 +91,7 @@ void PinocchioTelemetryPublisher::initializePublishers(const rclcpp::QoS& qos, c
 
   descFullJointIndices_.clear();
   descFullJointIndices_.reserve(fullJointNames_.size());
-  for (const auto& jointName : fullJointNames_) {
+  for (const std::string& jointName : fullJointNames_) {
     if (robotDescriptionPtr_ && robotDescriptionPtr_->containsJoint(jointName)) {
       descFullJointIndices_.push_back(robotDescriptionPtr_->getJointIndex(jointName));
     } else {
@@ -98,7 +101,7 @@ void PinocchioTelemetryPublisher::initializePublishers(const rclcpp::QoS& qos, c
 
   // 2. Initialize Per-DOF Publishers (/mpc/desired/generalized_* and /robot/generalized_*)
   dofTrackInfos_.reserve(dofNames_.size());
-  for (const auto& dofName : dofNames_) {
+  for (const std::string& dofName : dofNames_) {
     DofTrackInfo dofInfo;
     dofInfo.dofName = dofName;
 
@@ -121,8 +124,8 @@ void PinocchioTelemetryPublisher::initializePublishers(const rclcpp::QoS& qos, c
     candidateFrames.insert(candidateFrames.end(), modelSettingsPtr_->contactNames.begin(), modelSettingsPtr_->contactNames.end());
   }
 
-  const auto& model = pinocchioInterface_.getModel();
-  for (const auto& frameName : candidateFrames) {
+  const PinocchioInterface::Model& model = pinocchioInterface_.getModel();
+  for (const std::string& frameName : candidateFrames) {
     if (!model.existFrame(frameName)) {
       LOG(WARNING) << "PinocchioTelemetryPublisher: Frame '" << frameName << "' does not exist in Pinocchio model. Skipping.";
       continue;
@@ -208,9 +211,9 @@ void PinocchioTelemetryPublisher::publishPinocchioState(const rclcpp::Time& stam
                                                         const vector_t& q_des,
                                                         const vector_t& v_des,
                                                         const vector_t& tau_des,
-                                                        const std::unordered_map<std::string, vector3_t>& measuredForces,
-                                                        const std::unordered_map<std::string, vector6_t>& desiredWrenches) {
-  const auto& model = pinocchioInterface_.getModel();
+                                                        const absl::flat_hash_map<std::string, vector3_t>& measuredForces,
+                                                        const absl::flat_hash_map<std::string, vector6_t>& desiredWrenches) {
+  const PinocchioInterface::Model& model = pinocchioInterface_.getModel();
 
   // Numerical differentiation for generalized acceleration
   vector_t a_meas = vector_t::Zero(model.nv);
@@ -304,13 +307,13 @@ void PinocchioTelemetryPublisher::publishPinocchioState(const rclcpp::Time& stam
   mpcDesiredGenStatePub_->publish(mGenMsg);
 
   // 3. Publish Per-Frame Signals (Pose, Euler, Twist, Accel, Wrench)
-  for (const auto& fInfo : frameTrackInfos_) {
+  for (const FrameTrackInfo& fInfo : frameTrackInfos_) {
     // Measured Frame
     if (q_meas.size() == model.nq && v_meas.size() == model.nv) {
-      const auto& placementMeas = dataMeasured_.oMf[fInfo.frameId];
-      const auto vFrameMeas =
+      const pinocchio::SE3& placementMeas = dataMeasured_.oMf[fInfo.frameId];
+      const pinocchio::Motion vFrameMeas =
           pinocchio::getFrameVelocity(model, dataMeasured_, fInfo.frameId, pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED);
-      const auto aFrameMeas =
+      const pinocchio::Motion aFrameMeas =
           pinocchio::getFrameClassicalAcceleration(model, dataMeasured_, fInfo.frameId, pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED);
 
       const quaternion_t qm(placementMeas.rotation());
@@ -319,7 +322,7 @@ void PinocchioTelemetryPublisher::publishPinocchioState(const rclcpp::Time& stam
       fInfo.measuredTwistPub->publish(createTwistStamped(stamp, "world", vFrameMeas.linear(), vFrameMeas.angular()));
       fInfo.measuredAccelPub->publish(createAccelStamped(stamp, "world", aFrameMeas.linear(), aFrameMeas.angular()));
 
-      auto itForce = measuredForces.find(fInfo.frameName);
+      const absl::flat_hash_map<std::string, vector3_t>::const_iterator itForce = measuredForces.find(fInfo.frameName);
       if (itForce != measuredForces.end()) {
         fInfo.measuredWrenchPub->publish(createForceWrenchStamped(stamp, "world", itForce->second));
       } else {
@@ -329,10 +332,10 @@ void PinocchioTelemetryPublisher::publishPinocchioState(const rclcpp::Time& stam
 
     // Desired Frame
     if (q_des.size() == model.nq && v_des.size() == model.nv) {
-      const auto& placementDes = dataDesired_.oMf[fInfo.frameId];
-      const auto vFrameDes =
+      const pinocchio::SE3& placementDes = dataDesired_.oMf[fInfo.frameId];
+      const pinocchio::Motion vFrameDes =
           pinocchio::getFrameVelocity(model, dataDesired_, fInfo.frameId, pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED);
-      const auto aFrameDes =
+      const pinocchio::Motion aFrameDes =
           pinocchio::getFrameClassicalAcceleration(model, dataDesired_, fInfo.frameId, pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED);
 
       const quaternion_t qd(placementDes.rotation());
@@ -341,7 +344,7 @@ void PinocchioTelemetryPublisher::publishPinocchioState(const rclcpp::Time& stam
       fInfo.desiredTwistPub->publish(createTwistStamped(stamp, "world", vFrameDes.linear(), vFrameDes.angular()));
       fInfo.desiredAccelPub->publish(createAccelStamped(stamp, "world", aFrameDes.linear(), aFrameDes.angular()));
 
-      auto itWrench = desiredWrenches.find(fInfo.frameName);
+      const absl::flat_hash_map<std::string, vector6_t>::const_iterator itWrench = desiredWrenches.find(fInfo.frameName);
       if (itWrench != desiredWrenches.end()) {
         fInfo.desiredWrenchPub->publish(createWrenchStamped(stamp, "world", itWrench->second));
       } else {
@@ -359,8 +362,8 @@ void PinocchioTelemetryPublisher::publish(const ::robot::model::RobotState& robo
                                           const vector3_t& leftMeasuredForce,
                                           const vector3_t& rightMeasuredForce) {
   try {
-    const auto now = nodeHandle_->now();
-    const auto& model = pinocchioInterface_.getModel();
+    const rclcpp::Time now = nodeHandle_->now();
+    const PinocchioInterface::Model& model = pinocchioInterface_.getModel();
     const size_t numMpcJoints = modelSettingsPtr_->mpc_joint_dim;
 
     // 1. Compute Measured Generalized State (q_meas, v_meas, tau_meas)
@@ -392,9 +395,9 @@ void PinocchioTelemetryPublisher::publish(const ::robot::model::RobotState& robo
             q_meas[JOINT_COORDINATE_OFFSET + j] = robotState.getJointPosition(descIdx);
             v_meas[JOINT_COORDINATE_OFFSET + j] = robotState.getJointVelocity(descIdx);
             if (robotDescriptionPtr_ && descIdx < robotDescriptionPtr_->getNumJoints()) {
-              const auto& actionOpt = robotJointAction.at(descIdx);
+              const std::optional<::robot::model::JointAction>& actionOpt = robotJointAction.at(descIdx);
               if (actionOpt.has_value()) {
-                const auto& action = actionOpt.value();
+                const ::robot::model::JointAction& action = actionOpt.value();
                 tau_meas[JOINT_COORDINATE_OFFSET + j] = action.feed_forward_effort +
                                                         action.kp * (action.q_des - q_meas[JOINT_COORDINATE_OFFSET + j]) +
                                                         action.kd * (action.qd_des - v_meas[JOINT_COORDINATE_OFFSET + j]);
@@ -418,7 +421,7 @@ void PinocchioTelemetryPublisher::publish(const ::robot::model::RobotState& robo
     // state whenever the input is taken from the target trajectory.
     vector_t targetInputState = mpcObservation.state;
 
-    const auto& targetTraj = mpcCommand.mpcTargetTrajectories_;
+    const TargetTrajectories& targetTraj = mpcCommand.mpcTargetTrajectories_;
     const bool hasValidTargetState = !targetTraj.timeTrajectory.empty() && !targetTraj.stateTrajectory.empty() &&
                                      targetTraj.timeTrajectory.size() == targetTraj.stateTrajectory.size() && mpcRobotModelPtr_ &&
                                      targetTraj.stateTrajectory.front().size() == mpcRobotModelPtr_->getStateDim();
@@ -446,7 +449,7 @@ void PinocchioTelemetryPublisher::publish(const ::robot::model::RobotState& robo
       if (j < descJointIndices_.size()) {
         size_t descIdx = descJointIndices_[j];
         if (descIdx != std::numeric_limits<size_t>::max() && robotDescriptionPtr_ && descIdx < robotDescriptionPtr_->getNumJoints()) {
-          const auto& actionOpt = robotJointAction.at(descIdx);
+          const std::optional<::robot::model::JointAction>& actionOpt = robotJointAction.at(descIdx);
           if (actionOpt.has_value()) {
             tau_des[JOINT_COORDINATE_OFFSET + j] = actionOpt.value().feed_forward_effort;
           }
@@ -455,8 +458,8 @@ void PinocchioTelemetryPublisher::publish(const ::robot::model::RobotState& robo
     }
 
     // 3. Contact Wrenches Setup
-    std::unordered_map<std::string, vector3_t> measuredForces;
-    std::unordered_map<std::string, vector6_t> desiredWrenches;
+    absl::flat_hash_map<std::string, vector3_t> measuredForces;
+    absl::flat_hash_map<std::string, vector6_t> desiredWrenches;
 
     if (modelSettingsPtr_->contactNames.size() >= N_CONTACTS) {
       measuredForces[modelSettingsPtr_->contactNames[0]] = leftMeasuredForce;
@@ -497,9 +500,9 @@ void PinocchioTelemetryPublisher::publish(const ::robot::model::RobotState& robo
           jointStateMsg.velocity[i] = 0.0;
         }
         if (robotDescriptionPtr_ && descIdx < robotDescriptionPtr_->getNumJoints()) {
-          const auto& actionOpt = robotJointAction.at(descIdx);
+          const std::optional<::robot::model::JointAction>& actionOpt = robotJointAction.at(descIdx);
           if (actionOpt.has_value()) {
-            const auto& action = actionOpt.value();
+            const ::robot::model::JointAction& action = actionOpt.value();
             jointStateMsg.effort[i] = action.feed_forward_effort + action.kp * (action.q_des - jointStateMsg.position[i]) +
                                       action.kd * (action.qd_des - jointStateMsg.velocity[i]);
           }
@@ -519,7 +522,7 @@ void PinocchioTelemetryPublisher::publish(const ::robot::model::RobotState& robo
     for (size_t i = 0; i < fullJointNames_.size(); ++i) {
       size_t descIdx = (i < descFullJointIndices_.size()) ? descFullJointIndices_[i] : std::numeric_limits<size_t>::max();
       if (descIdx != std::numeric_limits<size_t>::max() && robotDescriptionPtr_ && descIdx < robotDescriptionPtr_->getNumJoints()) {
-        const auto& actionOpt = robotJointAction.at(descIdx);
+        const std::optional<::robot::model::JointAction>& actionOpt = robotJointAction.at(descIdx);
         if (actionOpt.has_value()) {
           targetJointMsg.position[i] = actionOpt.value().q_des;
           targetJointMsg.velocity[i] = actionOpt.value().qd_des;
@@ -598,9 +601,11 @@ void PinocchioTelemetryPublisher::publish(const ::robot::model::RobotState& robo
     }
     mpcObservationPub_->publish(obsMsg);
   } catch (const std::exception& e) {
-    RCLCPP_WARN_THROTTLE(nodeHandle_->get_logger(), *nodeHandle_->get_clock(), 1000, "Pinocchio telemetry publishing error: %s", e.what());
+    RCLCPP_WARN_THROTTLE(nodeHandle_->get_logger(), *nodeHandle_->get_clock(), /*duration=*/1000,
+                         "Pinocchio telemetry publishing error: %s", e.what());
   } catch (...) {
-    RCLCPP_WARN_THROTTLE(nodeHandle_->get_logger(), *nodeHandle_->get_clock(), 1000, "Pinocchio telemetry publishing unknown error");
+    RCLCPP_WARN_THROTTLE(nodeHandle_->get_logger(), *nodeHandle_->get_clock(), /*duration=*/1000,
+                         "Pinocchio telemetry publishing unknown error");
   }
 }
 

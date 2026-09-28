@@ -30,6 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <vector>
+
 #include <ocs2_core/constraint/StateInputConstraint.h>
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 
@@ -39,9 +41,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * Implements the constraint h(t,x,u) >= 0
+ * Implements the friction cone of one contact as h(t,x,u) >= 0, in one of two forms chosen by `scheduleGated`.
  *
- * frictionCoefficient * (Fz + gripperForce) - sqrt(Fx * Fx + Fy * Fy + regularization) >= 0
+ * SCHEDULE GATED (the historical form, one row, active only while the mode schedule calls the foot a stance foot):
+ *
+ *   frictionCoefficient * (Fz + gripperForce) - sqrt(Fx * Fx + Fy * Fy + regularization) >= 0
  *
  * The gripper force shifts the origin of the friction cone down in z-direction by the amount of gripping force available. This makes it
  * possible to produce tangential forces without applying a regular normal force on that foot, or to "pull" on the foot with magnitude up to
@@ -49,8 +53,36 @@ namespace ocs2::humanoid {
  *
  * The regularization prevents the constraint gradient / hessian to go to infinity when Fx = Fz = 0. It also creates a parabolic safety
  * margin to the friction cone. For example: when Fx = Fy = 0 the constraint zero-crossing will be at Fz = 1/frictionCoefficient *
- * sqrt(regularization) instead of Fz = 0
+ * sqrt(regularization) instead of Fz = 0. This is an INNER approximation of the Coulomb cone, and that is sound for a foot the
+ * schedule has declared loaded.
  *
+ * NOT SCHEDULE GATED (the contact-implicit formulation, two rows, active at every node):
+ *
+ *   row 0:  sqrt(mu^2 Fz^2 + regularization) - sqrt(Fx^2 + Fy^2 + regularization) >= 0
+ *   row 1:  Fz >= 0
+ *
+ * An always-active cone is evaluated on every foot in flight, i.e. at the ZERO force, and the gated form reads
+ * -sqrt(regularization) there: a permanent violation that the penalty would buy off by inventing a normal force. The
+ * zero force has to lie exactly on the boundary. Adding sqrt(regularization) back to the gated row achieves that, and
+ * this term used to do exactly that - but it turns the inner approximation into an OUTER one. Its feasible set is then
+ * |F_t| <= sqrt(mu^2 Fz^2 + 2 mu Fz sqrt(regularization)), strictly larger than |F_t| <= mu Fz for every Fz > 0, by up to
+ * sqrt(regularization) = 5 N at the default; at Fz = 1 N and mu = 0.4 it admitted 2 N of friction, an effective
+ * coefficient five times the configured one, on exactly the lightly loaded touch-down and lift-off feet this
+ * formulation exists to handle.
+ *
+ * The two rows above are EXACT instead: row 0 is non-negative if and only if |F_t| <= mu |Fz| (both square roots are
+ * monotone in their argument, and the same regularization sits under both), and row 1 removes the mirror-image cone
+ * below the origin, so together they are the Coulomb cone and nothing else, for every force. Both rows are smooth,
+ * both are exactly zero at the zero force, and the regularization still keeps the gradient finite there - it only
+ * shapes how steeply a violation near the apex is priced, not where the boundary lies. No single smooth row can do
+ * this: a smooth function that is zero at the apex of a pointed cone and non-negative only inside it must have a zero
+ * gradient there, and then its second-order part is even in F and cannot tell the cone from its mirror image.
+ *
+ * Row 0 is convex in Fz, so its Hessian is indefinite. The un-gated term therefore declares ConstraintOrder::Linear
+ * and the soft-constraint wrapper linearizes it (a Gauss-Newton approximation of the penalty), which is positive
+ * semi-definite whatever the penalty; getQuadraticApproximation() still returns the exact second derivatives, minus the
+ * Hessian shift, for anyone who asks. The gated term keeps ConstraintOrder::Quadratic: its row is concave, so its
+ * Hessian can only add curvature to the penalty.
  */
 class FrictionForceConeConstraint final : public StateInputConstraint {
  public:
@@ -88,16 +120,12 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
    * @param [in] config : Friction model settings.
    * @param [in] contactPointIndex : The 3 DoF contact index.
    * @param [in] info : The centroidal model information.
-   * @param [in] scheduleGated : When true (the historical behaviour) the term switches itself off while the mode
+   * @param [in] scheduleGated : When true (the historical behavior) the term switches itself off while the mode
    *             schedule calls this foot a swing foot, which is only sound because the hard `zero_wrench` constraint
    *             has already pinned its wrench to zero. When false - the contact-implicit formulation, which removes
-   *             `zero_wrench` - the cone is enforced at every node. Two things then have to change, or an always-on
-   *             cone reports a permanent violation on a foot in flight: `gripperForce` is dropped, because a foot in
-   *             flight has no adhesion to offer, and the constant `sqrt(regularization)` is added back to the value so
-   *             that the zero force sits exactly on the cone rather than `sqrt(regularization)` inside it. Neither
-   *             touches the gradient or the Hessian, so the smoothing the regularization exists for is untouched and
-   *             only its parabolic safety margin - a statement about a loaded foot - is removed.
-   *             See humanoid_nmpc/docs/contact_implicit_mpc/README.md.
+   *             `zero_wrench` - the cone is enforced at every node, in the exact two-row form of the class comment,
+   *             whose boundary passes through the zero force; `gripperForce` is dropped as well, because a foot in
+   *             flight has no adhesion to offer. See humanoid_nmpc/docs/contact_implicit_mpc/README.md.
    */
   FrictionForceConeConstraint(const SwitchedModelReferenceManager& referenceManager,
                               Config config,
@@ -115,7 +143,7 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
   const Config& getConfig() const { return config_; }
 
   /**
-   * The 3 x getContactInputDim() block of d(contact force) / d(input) this term linearises through; for the tests.
+   * The 3 x getContactInputDim() block of d(contact force) / d(input) this term linearizes through; for the tests.
    *
    * It is the identity for a wrench-space model and the force rows of `B_local` under BasisInputsModelDecorator, and
    * pinning it is what keeps the cone's Jacobian tied to the parameterization actually in use.
@@ -128,7 +156,8 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
   bool isActive(scalar_t time) const override;
   void setActive(bool active) override { isActive_ = active; }
   bool getActive() const override { return isActive_; }
-  size_t getNumConstraints(scalar_t time) const override { return 1; };
+  /** One row when schedule gated, two when not: the friction row, then Fz >= 0. See the class comment. */
+  size_t getNumConstraints(scalar_t time) const override { return scheduleGated_ ? 1 : 2; }
   vector_t getValue(scalar_t time, const vector_t& state, const vector_t& input, const PreComputation& preComp) const override;
   VectorFunctionLinearApproximation getLinearApproximation(scalar_t time,
                                                            const vector_t& state,
@@ -151,15 +180,13 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
   };
 
   struct ConeLocalDerivatives {
-    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-    vector3_t dCone_dF;    // derivative w.r.t local force
-    matrix3_t d2Cone_dF2;  // second derivative w.r.t local force
+    matrix_t dCone_dF;                  // numRows x 3: derivative of every row w.r.t. the local force
+    std::vector<matrix3_t> d2Cone_dF2;  // one 3 x 3 second derivative w.r.t. the local force per row
   };
 
   struct ConeDerivatives {
-    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-    matrix_t dCone_du;    // 1 x contactInputDim_
-    matrix_t d2Cone_du2;  // contactInputDim_ x contactInputDim_
+    matrix_t dCone_du;                 // numRows x contactInputDim_
+    std::vector<matrix_t> d2Cone_du2;  // one contactInputDim_ x contactInputDim_ per row
   };
 
   FrictionForceConeConstraint(const FrictionForceConeConstraint& other);
@@ -170,8 +197,8 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
                                                    const LocalForceDerivatives& localForceDerivatives) const;
 
   matrix_t frictionConeInputDerivative(size_t inputDim, const ConeDerivatives& coneDerivatives) const;
-  matrix_t frictionConeSecondDerivativeInput(size_t inputDim, const ConeDerivatives& coneDerivatives) const;
-  matrix_t frictionConeSecondDerivativeState(size_t stateDim, const ConeDerivatives& coneDerivatives) const;
+  matrix_t frictionConeSecondDerivativeInput(size_t inputDim, const matrix_t& d2Cone_du2) const;
+  matrix_t frictionConeSecondDerivativeState(size_t stateDim) const;
 
   const SwitchedModelReferenceManager* referenceManagerPtr_;
   const MpcRobotModelBase<scalar_t>* mpcRobotModelPtr_;
@@ -195,11 +222,8 @@ class FrictionForceConeConstraint final : public StateInputConstraint {
 
   bool isActive_ = true;
   // Fixed by the formulation at load time rather than tuned, so it is const and the parallel solve reads it without
-  // synchronisation. It has to survive the copy the SQP solver makes of the whole problem per worker thread.
+  // synchronization. It has to survive the copy the SQP solver makes of the whole problem per worker thread.
   const bool scheduleGated_;
-  // sqrt(regularization) when the term is not schedule gated, 0 otherwise; added to the cone value so that the zero
-  // force lies exactly on the cone. See the constructor.
-  const scalar_t coneValueOffset_;
 };
 
 }  // namespace ocs2::humanoid

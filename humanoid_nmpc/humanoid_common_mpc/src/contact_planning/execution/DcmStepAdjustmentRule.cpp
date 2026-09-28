@@ -25,21 +25,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/execution/DcmStepAdjustmentRule.h"
 
-#include <sstream>
-#include <stdexcept>
+#include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
 
 std::string DcmStepAdjustmentRule::describe() const {
-  std::ostringstream out;
-  out << "landing target += " << params_.gain << " * DCM error propagated to touch-down, |offset| <= " << params_.maxOffset
-      << " m, clipped to the reachable region";
-  return out.str();
+  return absl::StrCat("landing target += ", params_.gain, " * DCM error propagated to touch-down, |offset| <= ", params_.maxOffset,
+                      " m, clipped to the reachable region");
 }
 
 void DcmStepAdjustmentRule::configure(const ContactPlanningConfig& config) {
-  if (config.dcmStepAdjustment.gain < 0.0) throw std::invalid_argument("[dcm_step_adjustment] gain must be >= 0");
-  if (config.dcmStepAdjustment.maxOffset < 0.0) throw std::invalid_argument("[dcm_step_adjustment] maxOffset must be >= 0");
   params_ = config.dcmStepAdjustment;
 }
 
@@ -53,7 +48,7 @@ feet_array_t<vector2_t> DcmStepAdjustmentRule::correctFootholds(const ExecutionC
   const vector2_t dcmError = computeDcm(ctx.com, ctx.comVelocity, omega) - computeDcm(ctx.predictedCom, ctx.predictedComVelocity, omega);
 
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-    const auto phase = swingPhaseAtTime(schedule, foot, ctx.time);
+    const std::optional<std::pair<scalar_t, scalar_t>> phase = swingPhaseAtTime(schedule, foot, ctx.time);
     if (!phase.has_value()) continue;
     const scalar_t touchDownTime = phase->second;
     const std::optional<vector2_t> landing = plan.footholdAtTime(foot, touchDownTime);

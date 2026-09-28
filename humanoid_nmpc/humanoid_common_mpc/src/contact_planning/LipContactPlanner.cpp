@@ -30,8 +30,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <iostream>
-#include <sstream>
 #include <stdexcept>
 #include <utility>
 
@@ -39,6 +37,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/model/LipBlockIndices.h"
 
 #include "absl/log/log.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
+#include "humanoid_common_mpc/common/StatusMacros.h"
 
 namespace ocs2::humanoid {
 
@@ -74,8 +76,9 @@ OcpQpHpipmSolver::Settings relaxationQpSettings(const ContactPlanningConfig& con
 
 }  // namespace
 
-Layout LipContactPlanner::makeLayout(const ContactPlanningConfig& config) {
-  return ContactPlanningTermFactory::buildProblem(config).layout();
+absl::StatusOr<Layout> LipContactPlanner::makeLayout(const ContactPlanningConfig& config) {
+  ASSIGN_OR_RETURN(const ContactPlanningProblem problem, ContactPlanningTermFactory::buildProblemStatus(config));
+  return problem.layout();
 }
 
 scalar_t LipContactPlanner::yawInertia(const ContactPlannerInput& input) const {
@@ -85,10 +88,18 @@ scalar_t LipContactPlanner::yawInertia(const ContactPlannerInput& input) const {
   return input.yawInertia;
 }
 
-LipContactPlanner::LipContactPlanner(ContactPlanningConfig config) : config_(std::move(config)) {
-  config_.validate();
-  problem_ = ContactPlanningTermFactory::buildProblem(config_);
-  searchStages_ = ContactPlanningTermFactory::buildSearchStages(config_);
+absl::StatusOr<std::unique_ptr<LipContactPlanner>> LipContactPlanner::Create(ContactPlanningConfig config) {
+  // validateStatus() covers the parameter values, and through ContactPlanningFormulation::validateStatus() the term
+  // names and the blocks the terms and stages need; the term factory reports anything it still cannot assemble.
+  RETURN_IF_ERROR(config.validateStatus());
+  ASSIGN_OR_RETURN(ContactPlanningProblem problem, ContactPlanningTermFactory::buildProblemStatus(config));
+  ASSIGN_OR_RETURN(TermCollection<SearchStage> stages, ContactPlanningTermFactory::buildSearchStagesStatus(config));
+  // Not std::make_unique: the constructor is private.
+  return std::unique_ptr<LipContactPlanner>(new LipContactPlanner(std::move(config), std::move(problem), std::move(stages)));
+}
+
+LipContactPlanner::LipContactPlanner(ContactPlanningConfig config, ContactPlanningProblem problem, TermCollection<SearchStage> searchStages)
+    : config_(std::move(config)), problem_(std::move(problem)), searchStages_(std::move(searchStages)) {
   rebuildSolver();
 }
 
@@ -101,10 +112,10 @@ void LipContactPlanner::rebuildSolver() {
   miqp_ = std::make_unique<MixedIntegerOcpQp>(relaxationQpSettings(config_), miqpSettings);
 }
 
-void LipContactPlanner::setConfig(const ContactPlanningConfig& config) {
-  config.validate();
-  ContactPlanningProblem problem = ContactPlanningTermFactory::buildProblem(config);
-  TermCollection<SearchStage> stages = ContactPlanningTermFactory::buildSearchStages(config);
+absl::Status LipContactPlanner::setConfig(const ContactPlanningConfig& config) {
+  RETURN_IF_ERROR(config.validateStatus());
+  ASSIGN_OR_RETURN(ContactPlanningProblem problem, ContactPlanningTermFactory::buildProblemStatus(config));
+  ASSIGN_OR_RETURN(TermCollection<SearchStage> stages, ContactPlanningTermFactory::buildSearchStagesStatus(config));
   // The warm start is only invalid when the grid or the decision variables change; it survives a change of weights,
   // limits or term lists that keep the layout.
   const Layout& layout = problem.layout();
@@ -116,6 +127,7 @@ void LipContactPlanner::setConfig(const ContactPlanningConfig& config) {
   searchStages_ = std::move(stages);
   rebuildSolver();
   if (!sameProblem) reset();
+  return absl::OkStatus();
 }
 
 void LipContactPlanner::reset() {
@@ -124,21 +136,21 @@ void LipContactPlanner::reset() {
 }
 
 std::string LipContactPlanner::getFormulationSummary() const {
-  std::ostringstream out;
   const PlannerSettings& p = config_.planner;
-  out << "planner: " << p.numNodes << " nodes x " << p.dt << " s, commit " << p.commitTime << " s, at most " << p.maxBranchAndBoundNodes
-      << " relaxations / " << p.maxSolveTime << " s, " << (p.runInBackgroundThread ? "background thread" : "synchronous") << " at "
-      << p.planningFrequency << " Hz\n";
-  out << problem_.summary();
-  out << "search (" << searchStages_.size() << "):\n";
+  std::string out = absl::StrCat("planner: ", p.numNodes, " nodes x ", p.dt, " s, commit ", p.commitTime, " s, at most ",
+                                 p.maxBranchAndBoundNodes, " relaxations / ", p.maxSolveTime, " s, ",
+                                 p.runInBackgroundThread ? "background thread" : "synchronous", " at ", p.planningFrequency, " Hz\n");
+  absl::StrAppend(&out, problem_.summary());
+  absl::StrAppend(&out, "search (", searchStages_.size(), "):\n");
   for (size_t i = 0; i < searchStages_.size(); ++i) {
-    out << "  - " << searchStages_.nameAt(i) << ": " << searchStages_.at(i).describe() << "\n";
+    absl::StrAppend(&out, "  - ", searchStages_.nameAt(i), ": ", searchStages_.at(i).describe(), "\n");
   }
-  return out.str();
+  return out;
 }
 
-std::string LipContactPlanner::formulationSummary(const ContactPlanningConfig& config) {
-  return LipContactPlanner(config).getFormulationSummary();
+absl::StatusOr<std::string> LipContactPlanner::formulationSummary(const ContactPlanningConfig& config) {
+  ASSIGN_OR_RETURN(const std::unique_ptr<LipContactPlanner> planner, Create(config));
+  return planner->getFormulationSummary();
 }
 
 int LipContactPlanner::previousPlanShift(const ContactPlannerInput& input) const {
@@ -218,7 +230,7 @@ HeadingNominal LipContactPlanner::defaultNominal(const ContactPlannerInput& inpu
       previousPlan_->comPosition.size() == static_cast<size_t>(N + 1) && previousPlan_->footholds.size() == static_cast<size_t>(N + 1);
   // The measured heading arrives wrapped to [-pi, pi] (an atan2 of the base quaternion), the previous plan's heading is
   // whatever branch that plan started on. Across a crossing of +-pi the two differ by 2 pi, and a nominal on the old
-  // branch made every first-order frame term g (theta - theta_n) worth g 2 pi (over a metre on the step width) and
+  // branch made every first-order frame term g (theta - theta_n) worth g 2 pi (over a meter on the step width) and
   // aimed the foot yaw tracking a full turn away. One offset moves the whole previous heading trajectory onto the branch
   // of the measurement, which keeps it continuous whatever the plan turns through.
   scalar_t branchOffset = 0.0;
@@ -292,6 +304,7 @@ ContactPlan LipContactPlanner::decode(const ContactPlannerInput& input, const Co
   plan.dt = config_.planner.dt;
   plan.committedUntil = input.committedUntil;
   plan.yaw = input.yaw;
+  plan.omega = config_.omega();
   plan.numBranchAndBoundNodes = statistics_.numBranchAndBoundRelaxations + statistics_.numLocalSearchQps;
   plan.solveTime = statistics_.branchAndBoundTime + statistics_.localSearchTime;
   // A search that ended without an incumbent (an infeasible root) is exhausted, but there is no optimal plan to report.
@@ -308,7 +321,7 @@ ContactPlan LipContactPlanner::decode(const ContactPlannerInput& input, const Co
 }
 
 ContactPlan LipContactPlanner::plan(const ContactPlannerInput& input) {
-  const auto start = Clock::now();
+  const Clock::time_point start = Clock::now();
   statistics_ = Statistics();
   const HeadingNominal nominal = defaultNominal(input);
   ContactPlanningContext ctx;
@@ -339,7 +352,7 @@ ContactPlan LipContactPlanner::plan(const ContactPlannerInput& input) {
   setup.numNodes = config_.planner.numNodes;
   setup.miqpSettings = miqp_->getSettings();
   setup.miqpSettings.useDivingHeuristic = false;
-  for (const auto& stage : searchStages_) stage->beforeSearch(setup);
+  for (const std::unique_ptr<SearchStage>& stage : searchStages_) stage->beforeSearch(setup);
   miqp_->setSettings(setup.miqpSettings);
 
   try {
@@ -368,18 +381,18 @@ ContactPlan LipContactPlanner::plan(const ContactPlannerInput& input) {
   // Both re-assembly closures below build their context on the grid CURRENTLY IN FORCE, which is SearchRun::chosenDt
   // once a stage has adopted a re-timed grid and planner.dt (the 0 fallback of makeContext) until then. The stages run
   // in the order of the `search` list and every one of them sees the grid the one before it adopted, so the node
-  // duration survives whatever order cadence_stretch and heading_relinearisation are listed in.
+  // duration survives whatever order cadence_stretch and heading_relinearization are listed in.
   //
-  // The LINEARISATION POINT does not compose the same way yet, and the asymmetry is worth stating: a stretch listed
-  // after a re-linearisation rebuilds the nominal from the command (or from the previous plan) and so drops that
-  // stage's relinearised frame, because SearchRun carries the adopted grid but has no field for the adopted nominal,
+  // The LINEARIZATION POINT does not compose the same way yet, and the asymmetry is worth stating: a stretch listed
+  // after a re-linearization rebuilds the nominal from the command (or from the previous plan) and so drops that
+  // stage's relinearized frame, because SearchRun carries the adopted grid but has no field for the adopted nominal,
   // and a stage's re-assembly closure is also called speculatively - for candidates it then rejects - so this side
-  // cannot infer the adopted point from the calls alone. Listing cadence_stretch before heading_relinearisation - the
+  // cannot infer the adopted point from the calls alone. Listing cadence_stretch before heading_relinearization - the
   // order setHeadingModel(true) produces when the stretch is already listed, since it appends - costs nothing and
-  // keeps both: the re-linearisation then runs last, on the stretched grid, around the incumbent's own heading.
+  // keeps both: the re-linearization then runs last, on the stretched grid, around the incumbent's own heading.
   //
   // assembleWithNominal used to pass no node duration at all, so makeContext reset the grid to planner.dt. A
-  // heading_relinearisation listed after a cadence_stretch then re-solved the incumbent on the UNSTRETCHED grid and
+  // heading_relinearization listed after a cadence_stretch then re-solved the incumbent on the UNSTRETCHED grid and
   // replaced *run.problem, result.solution and result.incumbentObjective with that solve, while run.chosenDt kept the
   // stretched value that plan() copies into ContactPlan::dt below. The emitted plan paired a node duration of s * dt
   // with trajectories that satisfy the dt recursion, and since ContactPlan::dt is the sole carrier of the grid -
@@ -387,9 +400,9 @@ ContactPlan LipContactPlanner::plan(const ContactPlannerInput& input) {
   // touch-down at node k was handed to the whole-body MPC (s - 1) k dt late, 0.3 s at the end of a twelve-node horizon
   // stretched by a quarter. Nothing rejected the order: the `search` list is
   // documented as not order-sensitive and validate() imposes no order on it, and setHeadingModel(true) appends
-  // heading_relinearisation to a list that may already contain cadence_stretch.
-  run.assembleWithNominal = [this, &input, &run](const HeadingNominal& relinearised) {
-    return problem_.assemble(makeContext(input, relinearised, run.chosenDt));
+  // heading_relinearization to a list that may already contain cadence_stretch.
+  run.assembleWithNominal = [this, &input, &run](const HeadingNominal& relinearized) {
+    return problem_.assemble(makeContext(input, relinearized, run.chosenDt));
   };
   // The mirror of the same mistake: this closure used to capture the nominal that defaultNominal() built on the
   // unstretched grid and hand it to a context whose dt alone had been overridden. A HeadingNominal is indexed by node,
@@ -398,7 +411,7 @@ ContactPlan LipContactPlanner::plan(const ContactPlannerInput& input) {
   // HeadingTrackingCost, StepLengthCost, TerminalDcmCost) and every term that reads ctx.nominal was not, so
   // heading_tracking pulled the heading to the commanded ramp on the stretched clock while foot_yaw_tracking aimed the
   // feet at the ramp on the old one, and the yaw-aligned frame the reachability, foot-separation and step-width rows
-  // are linearised in was rotated away from the heading the same QP was solving for. Rebuilding the nominal on the
+  // are linearized in was rotated away from the heading the same QP was solving for. Rebuilding the nominal on the
   // candidate grid removes that disagreement; the stretch then costs what it really costs, which is what
   // CadenceStretchStage compares against the unstretched incumbent.
   run.assembleWithGrid = [this, &input](scalar_t nodeDuration) {

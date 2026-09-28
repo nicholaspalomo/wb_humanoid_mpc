@@ -32,7 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace ocs2::humanoid {
 
-/** Variable names of the reduced model. Feet are labelled L and R for a biped, by index otherwise. */
+/** Variable names of the reduced model. Feet are labeled L and R for a biped, by index otherwise. */
 namespace var {
 std::string footLabel(size_t foot);
 // LIP block (lip_com): states c_x c_y v_x v_y, input zmp_x zmp_y.
@@ -76,12 +76,12 @@ struct Layout {
   int footYaw0 = -1;       // states: foot yaws, one per foot
   int yawTorque0 = -1;     // inputs: yaw torque per foot [N m]
   int footYawDelta0 = -1;  // inputs: foot yaw displacement per foot [rad]
-  // The three accessors honour the sentinel of the members they read: without the heading block they return -1 for
+  // The three accessors honor the sentinel of the members they read: without the heading block they return -1 for
   // EVERY foot. Plain offset arithmetic did not, and that was a trap rather than a live bug. With footYaw0 at -1,
   // footYaw(0) came out as -1 as documented while footYaw(1) came out as 0 - an in-bounds, valid index that aliases
   // c_x, because LipComDynamics forces the LIP block to declare its variables first; yawTorque(1) and footYawDelta(1)
   // likewise aliased zmp_x. Code written against the documented contract, `if (layout.footYaw(foot) < 0) continue;`,
-  // therefore read or wrote the centre-of-mass state of the second foot on any formulation without
+  // therefore read or wrote the center-of-mass state of the second foot on any formulation without
   // heading_double_integrator - which is the shipped EngineAI SA01 configuration - with no error and no crash. Nothing
   // was wrong in production only because LipIndices::bind, the single caller, worked around the hazard with its own
   // `hasHeading ? ... : -1`; the guard belongs here, where the invariant is stated.

@@ -32,6 +32,10 @@ namespace ocs2::humanoid {
 /**
  * `event_shift_local_search`: moves every lift-off / touch-down of the incumbent one node earlier or later (fixed-
  * assignment QPs) while it improves the objective, which refines the phase timing cheaply.
+ *
+ * It searches on the grid in force (SearchRun::problem, SearchRun::chosenDt): listed after a cadence_stretch it
+ * re-times candidates on the stretched grid, and a candidate is only admitted if its phases fit the gait limits at
+ * that node duration (CadenceStretchStage::admissibleStretch), since the propagation counts nodes of planner.dt.
  */
 class EventShiftLocalSearchStage final : public SearchStage {
  public:

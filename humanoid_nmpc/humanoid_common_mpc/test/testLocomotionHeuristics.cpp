@@ -51,6 +51,19 @@ std::string writeTemp(const std::string& name, const std::string& content) {
   return file;
 }
 
+/** The rest of the controller as the tests assume it: a positive nominal step width, so the feet have a separation. */
+LocomotionHeuristicEnvironment testEnvironment() {
+  LocomotionHeuristicEnvironment environment;
+  environment.nominalStepWidth = 0.2;
+  return environment;
+}
+
+LocomotionHeuristicEnvironment planningEnvironment() {
+  LocomotionHeuristicEnvironment environment = testEnvironment();
+  environment.usesContactPlanning = true;
+  return environment;
+}
+
 /** Model constants standing in for a mid-sized humanoid; the exact values matter only where a test says so. */
 LocomotionHeuristicModelParameters testModel() {
   LocomotionHeuristicModelParameters model;
@@ -133,11 +146,15 @@ TEST(LocomotionHeuristics, EveryNameOfBledtsAppendixCIsRegisteredAndBuildable) {
 }
 
 TEST(LocomotionHeuristics, UnknownNameNamesTheValidOnes) {
-  const absl::StatusOr<std::unique_ptr<FootholdHeuristic>> heuristic = LocomotionHeuristicFactory::makeFootholdHeuristic("capture_pointt");
+  // The message echoes the requested name, so the typo must not CONTAIN a valid one: with "capture_pointt" the
+  // assertion below would hold on the echo alone, even with the list of valid names removed from the message.
+  const absl::StatusOr<std::unique_ptr<FootholdHeuristic>> heuristic = LocomotionHeuristicFactory::makeFootholdHeuristic("captur_point");
   ASSERT_FALSE(heuristic.ok());
   EXPECT_EQ(heuristic.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_NE(std::string(heuristic.status().message()).find("capture_point"), std::string::npos)
-      << "the message must list the valid names: " << heuristic.status().message();
+  const std::string message(heuristic.status().message());
+  for (const std::string& valid : knownHeuristicNames(HeuristicKind::FOOTHOLD)) {
+    EXPECT_NE(message.find(valid), std::string::npos) << "the message must list the valid name '" << valid << "': " << message;
+  }
 }
 
 TEST(LocomotionHeuristics, MisfiledNameSaysWhereItBelongs) {
@@ -164,7 +181,7 @@ TEST(LocomotionHeuristics, EmptyListsAreAnExactNoOp) {
   const LocomotionHeuristicConfig config;
   ASSERT_TRUE(config.validate().ok());
   absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
-      LocomotionHeuristicLayer::Create(config, testModel(), /*usesContactPlanning=*/false, /*usesContactBasisVectorInputs=*/false);
+      LocomotionHeuristicLayer::Create(config, testModel(), testEnvironment());
   ASSERT_TRUE(layer.ok()) << layer.status().message();
   EXPECT_TRUE((*layer)->empty());
   EXPECT_FALSE((*layer)->footholdMovesAnchor());
@@ -188,7 +205,7 @@ TEST(LocomotionHeuristics, AListedHeuristicWithZeroCoefficientsIsStillANoOp) {
   LocomotionHeuristicConfig config;
   config.formulation.basePose = {"orientation_compensation", "periodic_orientation", "height_compensation"};
   absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
-      LocomotionHeuristicLayer::Create(config, testModel(), /*usesContactPlanning=*/false, /*usesContactBasisVectorInputs=*/false);
+      LocomotionHeuristicLayer::Create(config, testModel(), testEnvironment());
   ASSERT_TRUE(layer.ok()) << layer.status().message();
   EXPECT_FALSE((*layer)->empty());
 
@@ -212,7 +229,7 @@ TEST(LocomotionHeuristics, OrientationCompensationIsAffineInTheCommandAndClamped
   config.orientationCompensation.pitchOffset = -0.02;
   config.orientationCompensation.maximumTilt = 0.1;
   absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
-      LocomotionHeuristicLayer::Create(config, testModel(), /*usesContactPlanning=*/false, /*usesContactBasisVectorInputs=*/false);
+      LocomotionHeuristicLayer::Create(config, testModel(), testEnvironment());
   ASSERT_TRUE(layer.ok()) << layer.status().message();
 
   BasePoseHeuristicContext context;
@@ -235,7 +252,7 @@ TEST(LocomotionHeuristics, PeriodicOrientationIsASinusoidInTheGaitPhase) {
   config.periodicOrientation.pitchPhaseRate = 4.0 * M_PI;
   config.periodicOrientation.pitchPhaseOffset = 0.5;
   absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
-      LocomotionHeuristicLayer::Create(config, testModel(), /*usesContactPlanning=*/false, /*usesContactBasisVectorInputs=*/false);
+      LocomotionHeuristicLayer::Create(config, testModel(), testEnvironment());
   ASSERT_TRUE(layer.ok()) << layer.status().message();
 
   for (const scalar_t phase : {0.0, 0.25, 0.5, 0.75}) {
@@ -256,7 +273,7 @@ TEST(LocomotionHeuristics, HeightCompensationIsEvenInTheDirectionOfTravel) {
   config.heightCompensation.heightPerSpeed = -0.02;
   config.heightCompensation.maximumHeightOffset = 0.05;
   absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
-      LocomotionHeuristicLayer::Create(config, testModel(), /*usesContactPlanning=*/false, /*usesContactBasisVectorInputs=*/false);
+      LocomotionHeuristicLayer::Create(config, testModel(), testEnvironment());
   ASSERT_TRUE(layer.ok()) << layer.status().message();
 
   BasePoseHeuristicContext forward;
@@ -276,7 +293,7 @@ TEST(LocomotionHeuristics, CapturePointIsZeroWhenTheCommandIsTracked) {
   LocomotionHeuristicConfig config;
   config.formulation.foothold = {"capture_point"};
   absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
-      LocomotionHeuristicLayer::Create(config, testModel(), /*usesContactPlanning=*/false, /*usesContactBasisVectorInputs=*/false);
+      LocomotionHeuristicLayer::Create(config, testModel(), testEnvironment());
   ASSERT_TRUE(layer.ok()) << layer.status().message();
 
   // The defining property: it is feedback on the velocity ERROR, so a robot going exactly as fast as it was asked to
@@ -307,7 +324,7 @@ TEST(LocomotionHeuristics, TranslationalSteppingRotatesWithTheHeading) {
   config.formulation.foothold = {"translational_stepping"};
   config.translationalStepping.forwardPerForwardVelocity = 0.15;
   absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
-      LocomotionHeuristicLayer::Create(config, testModel(), /*usesContactPlanning=*/false, /*usesContactBasisVectorInputs=*/false);
+      LocomotionHeuristicLayer::Create(config, testModel(), testEnvironment());
   ASSERT_TRUE(layer.ok()) << layer.status().message();
 
   // Facing +x and walking +x: the step goes forward along +x.
@@ -320,7 +337,7 @@ TEST(LocomotionHeuristics, TranslationalSteppingRotatesWithTheHeading) {
   // Facing +y and walking +y: the same step, in the world's +y. The coefficients are in the base's frame, so the law
   // has to be applied there and rotated back - applying it in the world would swap forward for lateral here.
   FootholdHeuristicContext alongY = footholdContext();
-  alongY.measuredBaseYaw = M_PI / 2.0;
+  alongY.baseYaw = M_PI / 2.0;
   alongY.commandedVelocity = vector2_t(0.0, 2.0);
   const vector2_t stepAlongY = (*layer)->footholdOffset(alongY);
   EXPECT_NEAR(stepAlongY.x(), 0.0, 1e-9);
@@ -332,7 +349,7 @@ TEST(LocomotionHeuristics, InPlaceTurningLeadsEachHipIntoTheTurn) {
   config.formulation.foothold = {"in_place_turning"};
   config.inPlaceTurning.forwardPerYawRate = 0.05;
   absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
-      LocomotionHeuristicLayer::Create(config, testModel(), /*usesContactPlanning=*/false, /*usesContactBasisVectorInputs=*/false);
+      LocomotionHeuristicLayer::Create(config, testModel(), testEnvironment());
   ASSERT_TRUE(layer.ok()) << layer.status().message();
 
   FootholdHeuristicContext left = footholdContext();
@@ -359,7 +376,7 @@ TEST(LocomotionHeuristics, HighSpeedTurningVanishesAtZeroSpeed) {
   config.highSpeedTurning.lateralPerCrossTerm = 0.1;
   config.highSpeedTurning.forwardPerCrossTerm = 0.1;
   absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
-      LocomotionHeuristicLayer::Create(config, testModel(), /*usesContactPlanning=*/false, /*usesContactBasisVectorInputs=*/false);
+      LocomotionHeuristicLayer::Create(config, testModel(), testEnvironment());
   ASSERT_TRUE(layer.ok()) << layer.status().message();
 
   // The property that distinguishes it from in_place_turning: however fast the robot spins, standing still it is zero.
@@ -379,7 +396,7 @@ TEST(LocomotionHeuristics, HipCenteredSteppingPlacesEachFootOnItsOwnSide) {
   LocomotionHeuristicConfig config;
   config.formulation.foothold = {"hip_centered_stepping"};
   absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
-      LocomotionHeuristicLayer::Create(config, testModel(), /*usesContactPlanning=*/false, /*usesContactBasisVectorInputs=*/false);
+      LocomotionHeuristicLayer::Create(config, testModel(), testEnvironment());
   ASSERT_TRUE(layer.ok()) << layer.status().message();
   EXPECT_TRUE((*layer)->footholdMovesAnchor()) << "the reference manager must anchor on the base, not the stance foot";
 
@@ -392,7 +409,7 @@ TEST(LocomotionHeuristics, HipCenteredSteppingPlacesEachFootOnItsOwnSide) {
 
   // r_hip is in the BASE frame, so a robot facing +y puts its left hip towards -x in the world.
   FootholdHeuristicContext turned = footholdContext();
-  turned.measuredBaseYaw = M_PI / 2.0;
+  turned.baseYaw = M_PI / 2.0;
   EXPECT_NEAR((*layer)->footholdOffset(turned).x(), -0.08, 1e-9);
   EXPECT_NEAR((*layer)->footholdOffset(turned).y(), 0.0, 1e-9);
 }
@@ -401,7 +418,7 @@ TEST(LocomotionHeuristics, ImpulseScalingTargetsBledtsImpulseBudget) {
   LocomotionHeuristicConfig config;
   config.formulation.wrench = {"impulse_scaling"};
   absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
-      LocomotionHeuristicLayer::Create(config, testModel(), /*usesContactPlanning=*/false, /*usesContactBasisVectorInputs=*/false);
+      LocomotionHeuristicLayer::Create(config, testModel(), testEnvironment());
   ASSERT_TRUE(layer.ok()) << layer.status().message();
   EXPECT_FALSE((*layer)->wrenchNeedsWorldFrame()) << "a vertical force is yaw-invariant and must keep the cheap path";
 
@@ -435,7 +452,7 @@ TEST(LocomotionHeuristics, ImpulseScalingTargetsBledtsImpulseBudget) {
   // THE IMPULSE BUDGET, which is the whole point of the heuristic. Over one cycle the mean number of feet on the
   // ground is F * beta, so the mean total vertical reference must come back to exactly the robot's weight. Scaling
   // the INSTANTANEOUS weight compensation by 1/beta instead would put W/beta on the ground at every node and
-  // integrate to W*T/beta, i.e. it would regularise the solver towards accelerating the CoM upwards for ever.
+  // integrate to W*T/beta, i.e. it would regularize the solver towards accelerating the CoM upwards for ever.
   const scalar_t beta = 0.6;
   const scalar_t perFootReference = weight / (numFeet * beta);
   // A cycle of this duty factor is (2 beta - 1) double support and (2 - 2 beta) single support, by fractions.
@@ -455,12 +472,12 @@ TEST(LocomotionHeuristics, CentripetalAccelerationPointsIntoTheTurnAndNeedsTheWo
   LocomotionHeuristicConfig config;
   config.formulation.wrench = {"centripetal_acceleration"};
   absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
-      LocomotionHeuristicLayer::Create(config, testModel(), /*usesContactPlanning=*/false, /*usesContactBasisVectorInputs=*/false);
+      LocomotionHeuristicLayer::Create(config, testModel(), testEnvironment());
   ASSERT_TRUE(layer.ok()) << layer.status().message();
   // The one heuristic of the ten that forces the input costs onto the forward-kinematics path.
   EXPECT_TRUE((*layer)->wrenchNeedsWorldFrame());
 
-  // Walking along +x and turning left (positive yaw rate): the centre of the turn is to the LEFT, so the force is +y.
+  // Walking along +x and turning left (positive yaw rate): the center of the turn is to the LEFT, so the force is +y.
   WrenchHeuristicContext turning = wrenchContext();
   turning.commandedVelocity = vector2_t(2.0, 0.0);
   turning.commandedYawRate = 1.0;
@@ -489,18 +506,17 @@ TEST(LocomotionHeuristics, FootholdHeuristicUnderContactPlanningIsRejected) {
   LocomotionHeuristicConfig config;
   config.formulation.foothold = {"capture_point"};
   const absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
-      LocomotionHeuristicLayer::Create(config, testModel(), /*usesContactPlanning=*/true, /*usesContactBasisVectorInputs=*/false);
+      LocomotionHeuristicLayer::Create(config, testModel(), planningEnvironment());
   ASSERT_FALSE(layer.ok());
   const std::string message(layer.status().message());
-  EXPECT_NE(message.find("useContactPlanning"), std::string::npos) << message;
+  EXPECT_NE(message.find("contactScheduleSource is contact_planner"), std::string::npos) << message;
+  EXPECT_NE(message.find("contactScheduleSource: gait_schedule"), std::string::npos) << "the refusal must name the way out: " << message;
 
   // The other two channels are unaffected: the planner has no opinion about base pose or contact force.
   LocomotionHeuristicConfig other;
   other.formulation.basePose = {"orientation_compensation"};
   other.formulation.wrench = {"impulse_scaling"};
-  EXPECT_TRUE(LocomotionHeuristicLayer::Create(other, testModel(), /*usesContactPlanning=*/true,
-                                               /*usesContactBasisVectorInputs=*/false)
-                  .ok());
+  EXPECT_TRUE(LocomotionHeuristicLayer::Create(other, testModel(), planningEnvironment()).ok());
 }
 
 TEST(LocomotionHeuristics, InvalidParametersAreRejectedWithTheKeyThatIsWrong) {
@@ -601,7 +617,12 @@ TEST(LocomotionHeuristics, LoaderReturnsAStatusForAnUnparseableNumber) {
   const absl::StatusOr<LocomotionHeuristicConfig> config = loadLocomotionHeuristicConfig(file);
   ASSERT_FALSE(config.ok());
   EXPECT_EQ(config.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_NE(std::string(config.status().message()).find("could not be read as a number"), std::string::npos) << config.status().message();
+  // Naming the KEY and the offending TEXT, among forty keys - which the blanket catch this replaced could not do,
+  // because ptree_bad_data's own message says only "conversion of data to type d failed".
+  const std::string message(config.status().message());
+  EXPECT_NE(message.find("orientation_compensation.rollOffset"), std::string::npos) << message;
+  EXPECT_NE(message.find("0.0.1"), std::string::npos) << message;
+  EXPECT_NE(message.find("not a number"), std::string::npos) << message;
 }
 
 TEST(LocomotionHeuristics, ClampsCannotBeConfiguredAway) {
@@ -635,7 +656,7 @@ TEST(LocomotionHeuristics, ReconfigureReplacesCoefficientsWithoutRebuildingTheLa
   config.formulation.basePose = {"orientation_compensation"};
   config.orientationCompensation.pitchPerForwardVelocity = 0.05;
   absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> layer =
-      LocomotionHeuristicLayer::Create(config, testModel(), /*usesContactPlanning=*/false, /*usesContactBasisVectorInputs=*/false);
+      LocomotionHeuristicLayer::Create(config, testModel(), testEnvironment());
   ASSERT_TRUE(layer.ok()) << layer.status().message();
 
   BasePoseHeuristicContext context;
@@ -648,11 +669,24 @@ TEST(LocomotionHeuristics, ReconfigureReplacesCoefficientsWithoutRebuildingTheLa
   ASSERT_TRUE((*layer)->reconfigure(reloaded).ok());
   EXPECT_NEAR((*layer)->basePoseOffset(context).pitch, -0.03, 1e-12);
 
-  // An invalid reload leaves the running values alone rather than half-applying itself.
+  // An invalid reload leaves the running values alone rather than half-applying itself. It must CHANGE the coefficient
+  // it is checked on: copied unchanged from `reloaded`, the pitch would read -0.03 whether the reload was rejected
+  // before configuring anything or configured the heuristics first and was rejected afterwards.
   LocomotionHeuristicConfig invalid = reloaded;
+  invalid.orientationCompensation.pitchPerForwardVelocity = 0.2;
   invalid.impulseScaling.minimumDutyFactor = -1.0;
   EXPECT_FALSE((*layer)->reconfigure(invalid).ok());
   EXPECT_NEAR((*layer)->basePoseOffset(context).pitch, -0.03, 1e-12);
+
+  // Which heuristics are listed is structural and is NOT hot-reloaded: a list edited on disk is ignored, while the
+  // coefficients of the running list are still re-read from the same file.
+  LocomotionHeuristicConfig relisted = reloaded;
+  relisted.formulation.basePose = {"orientation_compensation", "height_compensation"};
+  relisted.heightCompensation.heightOffset = 0.02;
+  relisted.orientationCompensation.pitchPerForwardVelocity = 0.04;
+  ASSERT_TRUE((*layer)->reconfigure(relisted).ok());
+  EXPECT_NEAR((*layer)->basePoseOffset(context).pitch, 0.04, 1e-12) << "the running list's coefficients are re-read";
+  EXPECT_NEAR((*layer)->basePoseOffset(context).height, 0.0, kTol) << "a heuristic added on disk is not instantiated";
 }
 
 }  // namespace ocs2::humanoid

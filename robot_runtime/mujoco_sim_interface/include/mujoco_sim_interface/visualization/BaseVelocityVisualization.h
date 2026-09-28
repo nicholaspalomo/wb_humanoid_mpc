@@ -34,7 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace robot::mujoco_sim_interface {
 
 /**
- * Arrows at the centre of mass: the measured base velocity (red) against the commanded one (green), and the measured
+ * Arrows at the center of mass: the measured base velocity (red) against the commanded one (green), and the measured
  * (blue) against the commanded (yellow) yaw rate as vertical arrows.
  */
 class BaseVelocityVisualization final : public MujocoVisualization {

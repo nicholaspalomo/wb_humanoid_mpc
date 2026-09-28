@@ -30,6 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <cmath>
+
 #include <ocs2_core/cost/StateInputGaussNewtonCostAd.h>
 #include <ocs2_pinocchio_interface/PinocchioInterface.h>
 #include <ocs2_pinocchio_interface/PinocchioStateInputMapping.h>
@@ -73,6 +75,38 @@ class CentroidalMpcEndEffectorFootCost final : public StateInputCostGaussNewtonA
 
   void setWeights(const vector12_t& weights) { sqrtWeights_ = weights.cwiseSqrt(); }
   void getWeights(vector12_t& weights) const { weights = sqrtWeights_.cwiseProduct(sqrtWeights_); }
+
+  /**
+   * The yaw error of a foot whose orientation is `orientation` against the planned foot yaw `yawReference`, wrapped to
+   * (-pi, pi): the third orientation residual when `hasYawReference` is 1. When it is 0 the reference is replaced by
+   * the foot's own heading, and the error is exactly zero.
+   *
+   * With h the unit heading of the foot, (R00, R10) / |(R00, R10)|, and r the unit reference heading, the error is
+   * 2 atan(s / (1 + c)) with s = h x r and c = h . r, the sine and the cosine of the angle between them: the
+   * half-angle form of atan2(s, c), and the same number for every error short of pi. It replaces
+   * atan2(sin(yaw - ref), cos(yaw - ref)) with yaw = atan2(R10, R00). CppAD evaluates both branches of an atan2, one of
+   * which divides by its first argument, so at a foot yaw of exactly zero - the simulator's reset pose, MuJoCo's own
+   * reset pose, any pose built from a zero base yaw - the derivative of the error was 0 * inf = NaN. Multiplying the
+   * term by a zero hasYawReference did not help, 0 * NaN being NaN, and every QP of a swing of that foot failed.
+   *
+   * A template, so that the residual the CppAD model is taped from can be evaluated in double precision by the tests.
+   */
+  template <typename SCALAR>
+  static SCALAR footYawError(const Eigen::Matrix<SCALAR, 3, 3>& orientation, const SCALAR& yawReference, const SCALAR& hasYawReference) {
+    using std::atan;
+    using std::cos;
+    using std::sin;
+    using std::sqrt;
+    const SCALAR one(1.0);
+    const SCALAR headingNorm = sqrt(orientation(0, 0) * orientation(0, 0) + orientation(1, 0) * orientation(1, 0));
+    const SCALAR headingX = orientation(0, 0) / headingNorm;
+    const SCALAR headingY = orientation(1, 0) / headingNorm;
+    const SCALAR referenceX = hasYawReference * cos(yawReference) + (one - hasYawReference) * headingX;
+    const SCALAR referenceY = hasYawReference * sin(yawReference) + (one - hasYawReference) * headingY;
+    const SCALAR sine = headingY * referenceX - headingX * referenceY;
+    const SCALAR cosine = headingX * referenceX + headingY * referenceY;
+    return SCALAR(2.0) * atan(sine / (one + cosine));
+  }
 
  private:
   CentroidalMpcEndEffectorFootCost(const CentroidalMpcEndEffectorFootCost& other);

@@ -28,8 +28,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <stdexcept>
 #include <string>
-#include <unordered_map>
 #include <vector>
+
+#include "absl/container/flat_hash_map.h"
+#include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
 
@@ -52,14 +54,15 @@ class TermCollection {
 
   /** Adds a term under a unique name and takes ownership of it. Throws std::invalid_argument on a duplicate name. */
   void add(std::string name, TermPtr term) {
-    if (term == nullptr) throw std::invalid_argument("[TermCollection] term '" + name + "' is null");
-    if (indexByName_.count(name) > 0) throw std::invalid_argument("[TermCollection] term '" + name + "' is already in the collection");
+    if (term == nullptr) throw std::invalid_argument(absl::StrCat("[TermCollection] term '", name, "' is null"));
+    if (indexByName_.contains(name))
+      throw std::invalid_argument(absl::StrCat("[TermCollection] term '", name, "' is already in the collection"));
     indexByName_[name] = terms_.size();
     names_.push_back(std::move(name));
     terms_.push_back(std::move(term));
   }
 
-  bool has(const std::string& name) const { return indexByName_.count(name) > 0; }
+  bool has(const std::string& name) const { return indexByName_.contains(name); }
 
   /** The term under `name`, cast to `Derived`. Throws std::out_of_range if absent, std::bad_cast on a wrong type. */
   template <typename Derived = T>
@@ -73,7 +76,7 @@ class TermCollection {
 
   /** Removes the term under `name`; false if there was none. */
   bool erase(const std::string& name) {
-    const auto it = indexByName_.find(name);
+    const IndexMap::const_iterator it = indexByName_.find(name);
     if (it == indexByName_.end()) return false;
     const size_t i = it->second;
     terms_.erase(terms_.begin() + static_cast<std::ptrdiff_t>(i));
@@ -85,7 +88,7 @@ class TermCollection {
 
   /** Names in insertion order. */
   const std::vector<std::string>& names() const { return names_; }
-  std::unordered_map<std::string, size_t> getTermNameMap() const { return indexByName_; }
+  absl::flat_hash_map<std::string, size_t> getTermNameMap() const { return indexByName_; }
 
   const std::string& nameAt(size_t i) const { return names_.at(i); }
   T& at(size_t i) { return *terms_.at(i); }
@@ -98,15 +101,17 @@ class TermCollection {
   typename std::vector<TermPtr>::const_iterator end() const { return terms_.end(); }
 
  private:
+  using IndexMap = absl::flat_hash_map<std::string, size_t>;
+
   size_t index(const std::string& name) const {
-    const auto it = indexByName_.find(name);
-    if (it == indexByName_.end()) throw std::out_of_range("[TermCollection] no term named '" + name + "'");
+    const IndexMap::const_iterator it = indexByName_.find(name);
+    if (it == indexByName_.end()) throw std::out_of_range(absl::StrCat("[TermCollection] no term named '", name, "'"));
     return it->second;
   }
 
   std::vector<TermPtr> terms_;
   std::vector<std::string> names_;
-  std::unordered_map<std::string, size_t> indexByName_;
+  IndexMap indexByName_;
 };
 
 }  // namespace ocs2::humanoid

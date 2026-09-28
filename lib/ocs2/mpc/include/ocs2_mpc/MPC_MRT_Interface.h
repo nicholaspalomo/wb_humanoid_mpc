@@ -59,7 +59,19 @@ class MPC_MRT_Interface final : public MRT_BASE {
 
   ~MPC_MRT_Interface() override = default;
 
+  /**
+   * Resets the MPC (MPC_BASE::reset(): the solver, its reference manager and its synchronized modules), drops any policy
+   * still waiting in the buffer (discardBufferedPolicy()) and sets the target trajectories to start from. Call it from
+   * the thread that calls advanceMpc(), between two calls.
+   */
   void resetMpcNode(const TargetTrajectories& initTargetTrajectories) override;
+
+  /**
+   * As resetMpcNode(), but resets the solver alone (MPC_BASE::resetSolver()): the reference manager and the synchronized
+   * modules keep the schedule and the command state they are executing. The policy waiting in the buffer is dropped
+   * all the same. Same threading rule as resetMpcNode().
+   */
+  void resetMpcSolver(const TargetTrajectories& initTargetTrajectories);
 
   void setCurrentObservation(const SystemObservation& currentObservation) override;
 
@@ -75,7 +87,8 @@ class MPC_MRT_Interface final : public MRT_BASE {
    * Advance the mpc module for one iteration. The evaluation methods can be called while this method is running. They will evaluate the
    * control law that was up-to-date at the last updatePolicy() call.
    *
-   * @return absl::OkStatus() on success, or an error status if the solver crashed.
+   * @return absl::OkStatus() on success; InternalError if the solver threw; FailedPrecondition if the MPC did not run
+   *         because the observation time is past the end of the previous solution, which only a reset cures.
    */
   absl::Status advanceMpc();
 
@@ -131,6 +144,8 @@ class MPC_MRT_Interface final : public MRT_BASE {
 
   MPC_BASE& mpc_;
   benchmark::RepeatedTimer mpcTimer_;
+  // Solver crashes since the last solve that did not throw; the diagnostic dump is written for the first one only.
+  size_t consecutiveCrashes_ = 0;
 
   // MPC inputs
   SystemObservation currentObservation_;

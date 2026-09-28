@@ -45,7 +45,7 @@ namespace ocs2::humanoid {
  * Bledt's "Regularized Predictive Control Framework for Robust Dynamic Legged Locomotion", MIT 2020, Appendix C.
  *
  * These are the entries of the three lists of the `locomotion_heuristics` block of the task file, and each is also the
- * key of that heuristic's own parameter block. Lookups normalise a name the way the rest of this repository does
+ * key of that heuristic's own parameter block. Lookups normalize a name the way the rest of this repository does
  * (case-insensitive, `_`, `-` and spaces ignored), so `capturePoint` and `capture_point` are the same heuristic.
  */
 namespace heuristic {
@@ -100,7 +100,7 @@ const std::array<HeuristicKind, kNumHeuristicKinds>& allHeuristicKinds();
 /** The name of a kind as the task file spells its list: "base_pose", "foothold", "wrench". */
 absl::string_view heuristicKindName(HeuristicKind kind);
 
-/** Normalises a heuristic name for comparison: lower case, `_`, `-` and spaces removed. */
+/** Normalizes a heuristic name for comparison: lower case, `_`, `-` and spaces removed. */
 std::string normalizeHeuristicName(absl::string_view name);
 
 /** Canonical names of every heuristic of a kind, in the order of Bledt's Appendix C tables. */

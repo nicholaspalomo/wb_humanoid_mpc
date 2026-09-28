@@ -26,8 +26,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/problem/Layout.h"
 
 #include <algorithm>
-#include <sstream>
 #include <stdexcept>
+
+#include "absl/strings/str_cat.h"
+#include "absl/strings/str_join.h"
 
 namespace ocs2::humanoid {
 
@@ -64,8 +66,8 @@ std::string footYawDelta(size_t foot) {
 
 namespace {
 int indexOf(const std::vector<std::string>& names, const std::string& name, const char* what) {
-  const auto it = std::find(names.begin(), names.end(), name);
-  if (it == names.end()) throw std::out_of_range(std::string("[Layout] no ") + what + " named '" + name + "'");
+  const std::vector<std::string>::const_iterator it = std::find(names.begin(), names.end(), name);
+  if (it == names.end()) throw std::out_of_range(absl::StrCat("[Layout] no ", what, " named '", name, "'"));
   return static_cast<int>(it - names.begin());
 }
 }  // namespace
@@ -87,13 +89,7 @@ bool Layout::hasInput(const std::string& name) const {
 }
 
 std::string Layout::describe() const {
-  std::ostringstream out;
-  out << "x = [";
-  for (size_t i = 0; i < stateNames.size(); ++i) out << (i > 0 ? " " : "") << stateNames[i];
-  out << "] (" << nx << "), u = [";
-  for (size_t i = 0; i < inputNames.size(); ++i) out << (i > 0 ? " " : "") << inputNames[i];
-  out << "] (" << nu << ")";
-  return out.str();
+  return absl::StrCat("x = [", absl::StrJoin(stateNames, " "), "] (", nx, "), u = [", absl::StrJoin(inputNames, " "), "] (", nu, ")");
 }
 
 }  // namespace ocs2::humanoid

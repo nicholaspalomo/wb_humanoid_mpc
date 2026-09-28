@@ -28,14 +28,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "absl/status/status.h"
+
 namespace ocs2::humanoid {
 
 /**
  * Canonical names of the terms the contact planner can be assembled from. They are the entries of the term lists of
  * `contact_planning.yaml` and the keys of the parameter block of every term (ContactPlanningConfig), and they are what
- * the start-up print of the assembled problem shows. Lookups normalise a name like the task file's formulation lists
+ * the start-up print of the assembled problem shows. Lookups normalize a name like the task file's formulation lists
  * (case-insensitive, `_`, `-` and spaces ignored), so `velocityTracking` and `velocity_tracking` are the same term.
+ *
+ * These strings ARE the YAML spelling, so renaming one renames a key of every robot's file. The registry of
+ * ContactPlanningFormulation.cpp only refers to them, which is why the directive guards the strings themselves.
  */
+// LINT.IfChange(term_names)
 namespace term {
 // Model blocks (the `dynamics` list). The first two are mandatory and always first: they own the variable layout the
 // LipContactPlanner enums and the mixed-integer solver rely on.
@@ -79,7 +85,7 @@ inline constexpr const char* kWarmStartPreviousPlan = "warm_start_previous_plan"
 inline constexpr const char* kDiving = "diving";
 inline constexpr const char* kEventShiftLocalSearch = "event_shift_local_search";
 inline constexpr const char* kCadenceStretch = "cadence_stretch";
-inline constexpr const char* kHeadingRelinearisation = "heading_relinearisation";
+inline constexpr const char* kHeadingRelinearization = "heading_relinearization";
 // Execution rules of the reference manager, applied between plans.
 inline constexpr const char* kPhaseResetting = "phase_resetting";
 inline constexpr const char* kEnergyCadenceModulation = "energy_cadence_modulation";
@@ -87,19 +93,34 @@ inline constexpr const char* kDcmStepAdjustment = "dcm_step_adjustment";
 inline constexpr const char* kPlannedHeadingOverride = "planned_heading_override";
 inline constexpr const char* kPlannedComOverride = "planned_com_override";
 }  // namespace term
+// clang-format off
+// LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/contact_planning/ContactPlanningFormulation.cpp:known_term_names, //robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/contact_planning.yaml:contact_planning_config_tail, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/contact_planning.yaml:contact_planning_config_tail, //humanoid_nmpc/docs/README.md:formulation_term_table)
+// clang-format on
 
-/** Normalises a term name for comparison: lower case, `_`, `-` and spaces removed. */
+/** Normalizes a term name for comparison: lower case, `_`, `-` and spaces removed. */
 std::string normalizeTermName(const std::string& name);
 /** True if the two names denote the same term. */
 bool sameTermName(const std::string& a, const std::string& b);
 
 /** Which list of the formulation a term belongs to. */
 enum class TermKind { MODEL_BLOCK, COST, SOFT_CONSTRAINT, HARD_CONSTRAINT, LOGIC_RULE, ASSIGNMENT_COST, SEARCH_STAGE, EXECUTION_RULE };
+/** Every kind, in the order of the configuration file's lists. */
+const std::vector<TermKind>& allTermKinds();
+/** The configuration key of the list of a kind (`dynamics`, `costs`, ..., `execution`). */
 std::string termKindName(TermKind kind);
 /** Canonical names of every term of a kind, in the order of the default formulation. */
 const std::vector<std::string>& knownTermNames(TermKind kind);
 /** Canonical spelling of `name` among the terms of `kind`, or empty if the name is unknown. */
 std::string canonicalTermName(TermKind kind, const std::string& name);
+
+/**
+ * The model block the term `name` of `kind` needs in the `dynamics` list, or empty when it needs none. This is the one
+ * definition of "belongs to the heading model": validateStatus() checks the lists against it and setHeadingModel() adds and
+ * removes exactly these terms, where both used to carry a list of their own that nothing kept in step. Each term's
+ * ContactPlanningTerm::requiredBlocks() says the same thing a third time, from the term's side; a test builds every
+ * term through the factory and holds the two answers equal.
+ */
+std::string requiredModelBlock(TermKind kind, const std::string& name);
 
 /**
  * The term lists of the planner's formulation: which model blocks, costs, constraints, logic rules, assignment costs,
@@ -108,8 +129,12 @@ std::string canonicalTermName(TermKind kind, const std::string& name);
  *  - `costs` is the accumulation order of the stage matrices (a sum in floating point is not associative, so the shipped
  *    order reproduces the previous planner bit for bit);
  *  - `execution`: `phase_resetting` must precede `energy_cadence_modulation` when both are listed, because an early
- *    touch-down ends a swing before the cadence rule may re-time it (validate() enforces it).
- * The defaults are the point-mass LIP planner without the heading model and without execution heuristics.
+ *    touch-down ends a swing before the cadence rule may re-time it (validateStatus() enforces it).
+ * The defaults are the point-mass LIP planner without the heading model and without execution rules. That is the
+ * formulation of `planner.type: lip_miqp`, the library default (ContactPlanningConfig.h). It is NOT a working
+ * formulation for `planner.type: hlip`, which needs `planned_com_override` in `execution`; the rule is not put into
+ * this default because the default is shared with lip_miqp, and ContactPlanningConfig::warnings() reports the
+ * omission instead.
  */
 struct ContactPlanningFormulation {
   std::vector<std::string> dynamics{term::kLipCom, term::kFootholdIntegrator};
@@ -147,21 +172,22 @@ struct ContactPlanningFormulation {
   bool usesHeadingModel() const { return hasDynamics(term::kHeadingDoubleIntegrator); }
   /**
    * Adds or removes the heading model as a whole: the block, its costs (inserted before `zmp_regularization`, which
-   * keeps the accumulation order of the previous planner), its constraints, the re-linearisation stage and the
+   * keeps the accumulation order of the previous planner), its constraints, the re-linearization stage and the
    * planned-heading override of the reference manager. This is what `useAcomDynamics: true` meant.
    */
   void setHeadingModel(bool on);
 
-  /** True when a listed execution rule compares the measured centre of mass with the NMPC's prediction. */
+  /** True when a listed execution rule compares the measured center of mass with the NMPC's prediction. */
   bool needsPredictedTrajectory() const {
     return hasExecutionRule(term::kEnergyCadenceModulation) || hasExecutionRule(term::kDcmStepAdjustment);
   }
 
   /**
-   * Throws std::invalid_argument on an unknown name (the message lists the supported ones), a duplicate, a missing
-   * mandatory block, a term whose required block is not listed, or an execution order the rules cannot honour.
+   * InvalidArgument on an unknown name (the message lists the supported ones), a duplicate, a missing mandatory block,
+   * a term whose required block is not listed, or an execution order the rules cannot honor. Every message names the
+   * list key (`costs`, `execution`, ...) the operator has to edit.
    */
-  void validate() const;
+  absl::Status validateStatus() const;
 
   /** One line per list, for the start-up print. */
   std::string summary() const;

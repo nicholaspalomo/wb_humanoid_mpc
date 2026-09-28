@@ -27,7 +27,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
-#include <sstream>
 
 namespace ocs2::humanoid {
 
@@ -36,7 +35,6 @@ std::string VelocityTrackingCost::describe() const {
 }
 
 void VelocityTrackingCost::configure(const ContactPlanningConfig& config) {
-  checkWeight("velocity_tracking", config.velocityTracking.weight);
   weight_ = config.velocityTracking.weight;
 }
 

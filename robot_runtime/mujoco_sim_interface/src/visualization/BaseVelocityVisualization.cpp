@@ -31,8 +31,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cmath>
 #include <cstring>
+#include <functional>
 
 #include "mujoco_sim_interface/MujocoSimInterface.h"
+#include "mujoco_sim_interface/MujocoUtils.h"
 
 namespace robot::mujoco_sim_interface {
 
@@ -43,8 +45,11 @@ void BaseVelocityVisualization::addSceneGeoms(const VisualizationFrame& frame) {
   mjvScene& scene = *frame.scene;
   if (model == nullptr || data == nullptr || model->nq < 7 || model->nbody < 2) return;
 
-  // Centre of mass of the whole robot
-  const mjtNum* com = &data->subtree_com[0];
+  // Center of mass of the robot: its root's subtree, NOT body 0's. The world's subtree also holds the thrown ball,
+  // which would drag the arrows away from the robot - by meters, for a 5 kg ball parked out of play.
+  const RobotCentroidalState robot = robotCentroidalState(model, data);
+  if (!robot.valid) return;
+  const double* com = robot.com;
 
   // Base orientation: the base is body 1 on a free joint whose quaternion starts at qpos[3]
   const mjtNum* quat = &data->qpos[3];
@@ -65,13 +70,14 @@ void BaseVelocityVisualization::addSceneGeoms(const VisualizationFrame& frame) {
   // Rotate the linear velocities to the world frame for rendering
   const mjtNum v_cur_base[3] = {current_vx, current_vy, 0.0};
   mjtNum v_cur_world[3];
-  mju_mulMatVec(v_cur_world, mat, v_cur_base, 3, 3);
+  mju_mulMatVec(v_cur_world, mat, v_cur_base, /*nr=*/3, /*nc=*/3);
 
   const mjtNum v_tgt_base[3] = {target_vx, target_vy, 0.0};
   mjtNum v_tgt_world[3];
-  mju_mulMatVec(v_tgt_world, mat, v_tgt_base, 3, 3);
+  mju_mulMatVec(v_tgt_world, mat, v_tgt_base, /*nr=*/3, /*nc=*/3);
 
-  const auto draw_arrow = [&](const mjtNum* dir_world, const float rgba[4], double scale_factor) {
+  const std::function<void(const mjtNum*, const float*, double)> draw_arrow = [&](const mjtNum* dir_world, const float rgba[4],
+                                                                                  double scale_factor) {
     if (scene.ngeom >= scene.maxgeom) return;
     const double mag = std::sqrt(dir_world[0] * dir_world[0] + dir_world[1] * dir_world[1]);
     if (mag < 1e-3) return;
@@ -82,23 +88,23 @@ void BaseVelocityVisualization::addSceneGeoms(const VisualizationFrame& frame) {
     const mjtNum from[3] = {com[0], com[1], com[2]};
     const mjtNum to[3] = {com[0] + length * (dir_world[0] / mag), com[1] + length * (dir_world[1] / mag),
                           com[2] + length * (dir_world[2] / mag)};
-    mjv_connector(arrow, mjGEOM_ARROW, 0.02, from, to);
+    mjv_connector(arrow, mjGEOM_ARROW, /*width=*/0.02, from, to);
     for (int i = 0; i < 4; ++i) arrow->rgba[i] = rgba[i];
     arrow->category = mjCAT_DECOR;
     arrow->emission = 1.0f;
   };
 
   const float red[4] = {1.0f, 0.0f, 0.0f, 1.0f};
-  draw_arrow(v_cur_world, red, 1.0);
+  draw_arrow(v_cur_world, red, /*scale_factor=*/1.0);
   const float green[4] = {0.0f, 1.0f, 0.0f, 1.0f};
-  draw_arrow(v_tgt_world, green, 1.0);
+  draw_arrow(v_tgt_world, green, /*scale_factor=*/1.0);
 
   // The yaw rate is drawn along the base's z axis, up for a positive rate, offset so the two arrows do not overlap.
   const mjtNum yaw_axis_base[3] = {0.0, 0.0, 1.0};
   mjtNum yaw_axis_world[3];
-  mju_mulMatVec(yaw_axis_world, mat, yaw_axis_base, 3, 3);
+  mju_mulMatVec(yaw_axis_world, mat, yaw_axis_base, /*nr=*/3, /*nc=*/3);
 
-  const auto draw_yaw_arrow = [&](double yaw_rate, const float rgba[4], double offset) {
+  const std::function<void(double, const float*, double)> draw_yaw_arrow = [&](double yaw_rate, const float rgba[4], double offset) {
     if (scene.ngeom >= scene.maxgeom || std::abs(yaw_rate) < 1e-3) return;
     mjvGeom* arrow = &scene.geoms[scene.ngeom++];
     std::memset(arrow, 0, sizeof(mjvGeom));
@@ -107,16 +113,16 @@ void BaseVelocityVisualization::addSceneGeoms(const VisualizationFrame& frame) {
     const mjtNum from[3] = {com[0] + offset, com[1] + offset, com[2]};
     const mjtNum to[3] = {from[0] + sign * length * yaw_axis_world[0], from[1] + sign * length * yaw_axis_world[1],
                           from[2] + sign * length * yaw_axis_world[2]};
-    mjv_connector(arrow, mjGEOM_ARROW, 0.02, from, to);
+    mjv_connector(arrow, mjGEOM_ARROW, /*width=*/0.02, from, to);
     for (int i = 0; i < 4; ++i) arrow->rgba[i] = rgba[i];
     arrow->category = mjCAT_DECOR;
     arrow->emission = 1.0f;
   };
 
   const float blue[4] = {0.0f, 0.0f, 1.0f, 1.0f};
-  draw_yaw_arrow(current_yaw, blue, 0.05);
+  draw_yaw_arrow(current_yaw, blue, /*offset=*/0.05);
   const float yellow[4] = {1.0f, 1.0f, 0.0f, 1.0f};
-  draw_yaw_arrow(target_yaw, yellow, -0.05);
+  draw_yaw_arrow(target_yaw, yellow, /*offset=*/-0.05);
 }
 
 }  // namespace robot::mujoco_sim_interface

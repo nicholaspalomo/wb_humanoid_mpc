@@ -3,17 +3,21 @@ targetRotationVelocity: 0.5
 
 maxDisplacementVelocityX: 1.2
 # Sideways travel is bounded by geometry, not by the leg: with an alternating gait each foot must move v_y * T_stride
-# per stride, so the foot separation swings through exactly that excursion, and contact_planning.yaml's foot_separation
-# confines it to maxStepWidth - minStepWidth = 0.45 - 0.15 = 0.30 m at every node. At the stride floor
-# T_stride = 2 * minSwingDuration = 0.8 s the gait can therefore deliver 0.30 / 0.8 = 0.375 m/s, and it tracks exactly
-# only up to 2 * (nominalStepWidth - minStepWidth) / T_stride = 0.25 m/s before the separation starts hitting a bound.
+# per stride, so the foot separation swings through exactly that excursion, and contact_planning.yaml's width bounds
+# confine it to maxStepWidth - minStepWidth = 0.45 - 0.15 = 0.30 m. The gait tracks a sidestep exactly only up to
+# 2 * (nominal step width - minStepWidth) / T_stride = 2 * (0.25 - 0.15) / T_stride before the narrow step hits the
+# self-collision bound: 0.33 m/s under the shipped planner.type hlip, whose stride is 2 * (hlip.sspDuration +
+# hlip.dspDuration) = 0.6 s (ContactPlanningConfig::warnings() checks the same bound against
+# hlip.blend.maxCommandedVelocityY), and 0.40 m/s under lip_miqp at its 0.5 s stride floor, 2 * minSwingDuration.
 # Above that the planner under-tracks rather than violating the bound, and nothing feeds the shortfall back to the
 # whole-body MPC, whose CoM reference keeps following the raw command - the body then walks out from over the feet.
-# At 0.8 the stick could ask for more than twice what the gait delivers, which is what produced the sideways falls.
+# 0.25 m/s stays inside both. It was set when minSwingDuration was 0.4 s: that 0.8 s stride floor tracked exactly only
+# up to 0.25 m/s and delivered at most 0.30 / 0.8 = 0.375 m/s, and the 0.8 m/s the stick allowed before - more than
+# twice that - is what produced the sideways falls.
 # The forward axis needs no such cap: its budget is 2 * maxStepLength / T_stride, far above the 1.2 stick.
 # LINT.IfChange(lateral_velocity_limit)
 maxDisplacementVelocityY: 0.25
-# LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/contact_planning.yaml:contact_planning_config)
+# LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/contact_planning.yaml:contact_planning_config_tail)
 maxDeltaPelvisHeight: 0.4
 maxRotationVelocity: 1.0
 # Acceleration limits of the velocity reference the MPC target and the contact planner follow (0 = off, an unramped
@@ -21,6 +25,15 @@ maxRotationVelocity: 1.0
 # change in the command with short quick steps.
 maxLinearAcceleration: 1.0    # [m/s^2] 0 to 1.6 m/s in 1.6 s, about two strides
 maxAngularAcceleration: 2.0   # [rad/s^2]
+# First-order low-pass filter on the operator's velocity command, run on the solver time ahead of the acceleration
+# ramps: break frequency f_c [Hz], time constant 1 / (2 pi f_c). 0 switches it off and the command passes through
+# unchanged, which is what every robot has effectively run so far: the "5 Hz" filter this key replaces never updated
+# its state and scaled the command by t / (t + 0.032 s), t the wall-clock time since start-up - within 3% of the
+# identity after a second. A filter lags every command, a stop included, by about its time constant: try e.g. 2.0
+# (80 ms) in simulation before a robot. Reloaded with the limits above while the controller runs.
+# LINT.IfChange(velocity_command_filter)
+velocityCommandFilterBreakFrequency: 0.0  # [Hz] command low-pass filter, 0 = off
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h:velocity_command_filter_key)
 targetJointStateInterpolationTimeConstant: 2.0
 
 defaultBaseHeight: 0.8952

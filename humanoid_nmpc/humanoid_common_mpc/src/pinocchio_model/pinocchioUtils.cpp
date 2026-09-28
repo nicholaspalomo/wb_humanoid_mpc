@@ -30,12 +30,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <humanoid_common_mpc/pinocchio_model/pinocchioUtils.h>
 
+#include <algorithm>
 #include <fstream>
+#include <string>
+#include <vector>
+
 #include <pinocchio/algorithm/center-of-mass.hpp>
 #include <pinocchio/multibody/model.hpp>
 #include "pinocchio/parsers/urdf.hpp"
 
+#include "absl/log/check.h"
 #include "absl/log/log.h"
+#include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
 
@@ -43,19 +49,40 @@ namespace ocs2::humanoid {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-void checkPinocchioJointNaming(const PinocchioInterface& pinocchioInterface, const ModelSettings& modelSettings, bool verbose) {
+absl::Status checkPinocchioJointNaming(const PinocchioInterface& pinocchioInterface, const ModelSettings& modelSettings, bool verbose) {
   const pinocchio::Model& model = pinocchioInterface.getModel();
-  for (size_t i = 0; i < modelSettings.mpcModelJointNames.size(); i++) {
+  const std::vector<std::string>& mpcJointNames = modelSettings.mpcModelJointNames;
+  // The first two joints of the model are the universe and the floating base.
+  constexpr size_t kFirstActuatedJoint = 2;
+  const size_t numModelJoints = model.names.size() > kFirstActuatedJoint ? model.names.size() - kFirstActuatedJoint : 0;
+  const size_t numCompared = std::min(numModelJoints, mpcJointNames.size());
+  for (size_t i = 0; i < numCompared; ++i) {
+    const std::string& modelJointName = model.names[i + kFirstActuatedJoint];
     if (verbose) {
-      LOG(INFO) << "URDF Joint Name " << i << ": " << model.names[i + 2];
-      LOG(INFO) << "Model Settings Joint Name " << i << ": " << modelSettings.mpcModelJointNames[i];
+      LOG(INFO) << "[checkPinocchioJointNaming] MPC joint " << i << ": model '" << modelJointName << "', ModelSettings '"
+                << mpcJointNames[i] << "'";
     }
-    // Offset of 2 required to skip universe and root joint
-    assert(modelSettings.mpcModelJointNames[i] == model.names[i + 2] && "Joint name of PinocchioModel and Model Settings do not match!");
+    if (mpcJointNames[i] != modelJointName) {
+      return absl::InvalidArgumentError(absl::StrCat(
+          "[checkPinocchioJointNaming] MPC joint ", i, " is '", mpcJointNames[i],
+          "' in ModelSettings::mpcModelJointNames (the URDF's joints without model_settings.fixedJointNames) but '", modelJointName,
+          "' in the Pinocchio model. The two were built from different URDFs or from different model_settings.fixedJointNames; "
+          "build both from the same task file and URDF."));
+    }
+  }
+  if (numModelJoints != mpcJointNames.size()) {
+    const std::string firstUnmatched =
+        numModelJoints > mpcJointNames.size() ? model.names[numCompared + kFirstActuatedJoint] : mpcJointNames[numCompared];
+    return absl::InvalidArgumentError(absl::StrCat(
+        "[checkPinocchioJointNaming] the Pinocchio model has ", numModelJoints, " actuated joints but ModelSettings::mpcModelJointNames ",
+        mpcJointNames.size(), "; the first without a counterpart is '", firstUnmatched,
+        "'. The two were built from different URDFs or from different model_settings.fixedJointNames; build both from the same task "
+        "file and URDF."));
   }
   if (verbose) {
-    LOG(INFO) << "Joint naming check of pinocchio model passed. ";
+    LOG(INFO) << "[checkPinocchioJointNaming] the joint naming of the Pinocchio model matches ModelSettings.";
   }
+  return absl::OkStatus();
 }
 
 /******************************************************************************************************/
@@ -65,8 +92,11 @@ void checkPinocchioJointNaming(const PinocchioInterface& pinocchioInterface, con
 std::pair<vector_t, vector_t> readPinocchioJointLimits(const PinocchioInterface& pinocchioInterface,
                                                        const ModelSettings& modelSettings,
                                                        bool verbose) {
-  // check that Pinocchio Model joint naming and order is identical to model setting.
-  checkPinocchioJointNaming(pinocchioInterface, modelSettings);
+  // The limits are read by position, so the model's joint order has to be ModelSettings'. Every interface the MPC
+  // builds has been checked by loadCustomPinocchioInterface() already; a caller that hands in any other breaks this
+  // function's precondition, which is checked in every build (the assert() it replaces was compiled out of them).
+  const absl::Status naming = checkPinocchioJointNaming(pinocchioInterface, modelSettings);
+  CHECK(naming.ok()) << naming.message();
   const pinocchio::Model& model = pinocchioInterface.getModel();
   // Take the tail to avoid limits of universe and root joints
   vector_t upper_limits = model.upperPositionLimit.tail(modelSettings.mpcModelJointNames.size());
@@ -93,11 +123,11 @@ void scalePinocchioModelInertia(pinocchio::ModelTpl<scalar_t>& model, scalar_t t
     LOG(INFO) << "Adapting robot mass by a factor of " << inertiaScaleFactor << ".";
   }
   for (size_t i = 0; i < model.inertias.size(); i++) {
-    const auto inertia = model.inertias[i];
-    auto scaledMass = inertia.mass() * inertiaScaleFactor;
+    const pinocchio::ModelTpl<scalar_t>::Inertia inertia = model.inertias[i];
+    const scalar_t scaledMass = inertia.mass() * inertiaScaleFactor;
     matrix3_t inertiaMatrix = inertia.inertia().matrix();
     inertiaMatrix = inertiaMatrix * inertiaScaleFactor;
-    auto scaledInertia = pinocchio::Symmetric3(inertiaMatrix);
+    const pinocchio::Symmetric3 scaledInertia(inertiaMatrix);
     model.inertias[i] = pinocchio::ModelTpl<scalar_t>::Inertia(scaledMass, inertia.lever(), scaledInertia);
   }
   if (verbose) {

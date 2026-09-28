@@ -48,7 +48,7 @@ class TargetContactPatchVisualization final : public MujocoVisualization {
   char hotkey() const override { return 'g'; }
   void addSceneGeoms(const VisualizationFrame& frame) override;
 
-  /** Colour and fill of a patch: one hue per contact point, the kind sets the intensity and what is drawn. */
+  /** Color and fill of a patch: one hue per contact point, the kind sets the intensity and what is drawn. */
   static ContactPatchStyle styleFor(size_t contact, const TargetContactPatch& patch);
 
  private:

@@ -28,6 +28,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <optional>
+#include <utility>
+#include <vector>
 
 #include "humanoid_common_mpc/contact_planning/ContactPlanningTermFactory.h"
 #include "humanoid_common_mpc/contact_planning/execution/ExecutionContext.h"
@@ -60,7 +63,7 @@ size_t lastSwingPhase(const ModeSchedule& schedule, size_t foot, size_t index) {
 /*============================================ schedule queries ============================================*/
 
 size_t modeIndexAtTime(const ModeSchedule& schedule, scalar_t time) {
-  const auto& eventTimes = schedule.eventTimes;
+  const std::vector<scalar_t>& eventTimes = schedule.eventTimes;
   size_t index = static_cast<size_t>(std::upper_bound(eventTimes.begin(), eventTimes.end(), time) - eventTimes.begin());
   if (!schedule.modeSequence.empty() && index >= schedule.modeSequence.size()) index = schedule.modeSequence.size() - 1;
   return index;
@@ -79,55 +82,114 @@ std::optional<std::pair<size_t, size_t>> swingPhaseIndexRange(const ModeSchedule
 }
 
 std::optional<std::pair<scalar_t, scalar_t>> swingPhaseAtTime(const ModeSchedule& schedule, size_t foot, scalar_t time) {
-  const auto range = swingPhaseIndexRange(schedule, foot, time);
+  const std::optional<std::pair<size_t, size_t>> range = swingPhaseIndexRange(schedule, foot, time);
   if (!range.has_value()) return std::nullopt;
-  const auto [first, last] = *range;
+  const size_t first = range->first;
+  const size_t last = range->second;
   if (first == 0 || last + 1 >= schedule.modeSequence.size()) return std::nullopt;  // no lift-off or no touch-down event
   return std::make_pair(schedule.eventTimes[first - 1], schedule.eventTimes[last]);
 }
 
 std::optional<size_t> touchDownEventIndex(const ModeSchedule& schedule, size_t foot, scalar_t time) {
-  const auto range = swingPhaseIndexRange(schedule, foot, time);
+  const std::optional<std::pair<size_t, size_t>> range = swingPhaseIndexRange(schedule, foot, time);
   if (!range.has_value() || range->second + 1 >= schedule.modeSequence.size()) return std::nullopt;
   return range->second;
 }
 
-scalar_t stanceDutyFactor(const ModeSchedule& schedule, size_t foot, scalar_t time, scalar_t window) {
-  // 1 rather than 0 is the right answer to "no schedule": it is the always-in-contact case, and it is the value at
-  // which the impulse-scaling correction is identically zero, so an unknown schedule leaves the contact-force
-  // reference exactly as it was instead of inventing a scaling from nothing.
-  //
-  // A schedule with NO EVENT TIMES counts as no schedule, and that case is not hypothetical: `ModeSchedule()` is
-  // defined as ModeSchedule({}, {0}), i.e. one FLY mode and no events, and that is what SwitchedModelReferenceManager
-  // holds until its first modifyReferences(). Walking it would report a duty factor of zero - no foot ever in contact
-  // - which the caller clamps to minimumDutyFactor and turns into a fivefold contact-force reference on the strength
-  // of a placeholder. A duty factor is a fraction of a CYCLE, and a schedule with no events describes no cycle.
-  if (schedule.modeSequence.empty() || schedule.eventTimes.empty() || !(window > 0.0)) return 1.0;
+namespace {
 
-  const scalar_t windowEnd = time + window;
-  scalar_t contactDuration = 0.0;
-  scalar_t coveredDuration = 0.0;
-  // A well-formed schedule has N modes and N - 1 events, but nothing in ModeSchedule enforces that and its default
-  // constructor produces one mode and no events at all. Bounding the walk by BOTH sizes is what keeps a malformed or
-  // half-filled schedule from being read past the end of its event array.
+/** The lift-off and touch-down instants of one foot, in order. */
+struct FootEvents {
+  std::vector<scalar_t> liftOffs;
+  std::vector<scalar_t> touchDowns;
+};
+
+FootEvents footEvents(const ModeSchedule& schedule, size_t foot) {
+  FootEvents events;
+  // Phase p runs from eventTimes[p - 1] to eventTimes[p], so the transition between phase p and p + 1 is eventTimes[p].
+  // Bounded by both sizes, because ModeSchedule() is one mode and no events and nothing enforces N modes, N - 1 events.
   const size_t numPhases = std::min(schedule.modeSequence.size(), schedule.eventTimes.size() + 1);
-  for (size_t phase = 0; phase < numPhases; ++phase) {
-    // Phase `p` runs from eventTimes[p - 1] to eventTimes[p]; the first and last phases are unbounded, and are clipped
-    // to the window rather than skipped so that a window lying entirely inside one of them still measures something.
-    const scalar_t phaseStart = phase == 0 ? time : schedule.eventTimes[phase - 1];
-    const scalar_t phaseEnd = phase < schedule.eventTimes.size() ? schedule.eventTimes[phase] : windowEnd;
-    const scalar_t overlapStart = std::max(phaseStart, time);
-    const scalar_t overlapEnd = std::min(phaseEnd, windowEnd);
-    if (overlapEnd <= overlapStart) continue;
-    const scalar_t overlap = overlapEnd - overlapStart;
-    coveredDuration += overlap;
-    if (footInContact(schedule, phase, foot)) contactDuration += overlap;
+  for (size_t phase = 0; phase + 1 < numPhases; ++phase) {
+    const bool before = footInContact(schedule, phase, foot);
+    const bool after = footInContact(schedule, phase + 1, foot);
+    if (before && !after) events.liftOffs.push_back(schedule.eventTimes[phase]);
+    if (!before && after) events.touchDowns.push_back(schedule.eventTimes[phase]);
   }
-  // Measured against what the schedule COVERS rather than against the requested window. A schedule that ends inside
-  // the window would otherwise report the missing tail as swing, which would scale the force up on the strength of
-  // events that were never scheduled.
-  if (!(coveredDuration > 0.0)) return 1.0;
-  return std::clamp(contactDuration / coveredDuration, 0.0, 1.0);
+  return events;
+}
+
+/** A complete stride of one foot: a swing [liftOff, touchDown] and the stance [touchDown, nextLiftOff] after it. */
+struct Stride {
+  scalar_t liftOff;
+  scalar_t touchDown;
+  scalar_t nextLiftOff;
+  scalar_t dutyFactor() const { return (nextLiftOff - touchDown) / (nextLiftOff - liftOff); }
+};
+
+std::vector<Stride> completeStrides(const FootEvents& events) {
+  std::vector<Stride> strides;
+  for (size_t i = 0; i + 1 < events.liftOffs.size(); ++i) {
+    const scalar_t liftOff = events.liftOffs[i];
+    const scalar_t nextLiftOff = events.liftOffs[i + 1];
+    for (const scalar_t touchDown : events.touchDowns) {
+      if (touchDown > liftOff && touchDown < nextLiftOff) {
+        if (nextLiftOff - liftOff > 0.0) strides.push_back(Stride{liftOff, touchDown, nextLiftOff});
+        break;
+      }
+    }
+  }
+  return strides;
+}
+
+}  // namespace
+
+scalar_t stanceDutyFactor(const ModeSchedule& schedule, size_t foot, scalar_t time) {
+  if (schedule.modeSequence.empty() || schedule.eventTimes.empty()) return 1.0;
+  const std::vector<Stride> strides = completeStrides(footEvents(schedule, foot));
+  if (strides.empty()) return 1.0;
+
+  // Events at exactly `time` count as passed, as everywhere in this file: a stride begins at its lift-off.
+  for (const Stride& stride : strides) {
+    if (time >= stride.liftOff && time < stride.nextLiftOff) return std::clamp(stride.dutyFactor(), 0.0, 1.0);
+  }
+
+  // Outside this foot's complete strides. Standing - before the first lift-off of ANY foot, or after the last event of
+  // the whole schedule - is 1: nothing is being carried through a swing. Otherwise a gait is under way and the nearest
+  // stride stands in: this foot is in its first stance while the other foot takes its first step, or in its last one
+  // while the other finishes, and a foot carrying the robot through the other's swing must not be handed the standing
+  // value of half the weight.
+  scalar_t firstLiftOffOfAnyFoot = std::numeric_limits<scalar_t>::infinity();
+  for (size_t other = 0; other < N_CONTACTS; ++other) {
+    const FootEvents events = footEvents(schedule, other);
+    if (!events.liftOffs.empty()) firstLiftOffOfAnyFoot = std::min(firstLiftOffOfAnyFoot, events.liftOffs.front());
+  }
+  if (time < strides.front().liftOff) {
+    return time < firstLiftOffOfAnyFoot ? 1.0 : std::clamp(strides.front().dutyFactor(), 0.0, 1.0);
+  }
+  return time < schedule.eventTimes.back() ? std::clamp(strides.back().dutyFactor(), 0.0, 1.0) : 1.0;
+}
+
+scalar_t upcomingStanceDuration(const ModeSchedule& schedule, size_t foot, scalar_t touchDownTime) {
+  if (schedule.modeSequence.empty() || schedule.eventTimes.empty()) return 0.0;
+  const FootEvents events = footEvents(schedule, foot);
+  for (const scalar_t liftOff : events.liftOffs) {
+    if (liftOff > touchDownTime) return liftOff - touchDownTime;
+  }
+  // The schedule ends before this stance does: the most recent complete stance before it stands in.
+  const std::vector<Stride> strides = completeStrides(events);
+  for (size_t i = strides.size(); i > 0; --i) {
+    if (strides[i - 1].nextLiftOff <= touchDownTime) return strides[i - 1].nextLiftOff - strides[i - 1].touchDown;
+  }
+  return 0.0;
+}
+
+std::optional<scalar_t> previousTouchDownTime(const ModeSchedule& schedule, size_t foot, scalar_t time) {
+  const FootEvents events = footEvents(schedule, foot);
+  std::optional<scalar_t> latest;
+  for (const scalar_t touchDown : events.touchDowns) {
+    if (touchDown <= time) latest = touchDown;
+  }
+  return latest;
 }
 
 std::optional<scalar_t> currentOrNextLiftOffTime(const ModeSchedule& schedule, size_t foot, scalar_t time) {
@@ -150,8 +212,8 @@ scalar_t commitBoundaryForSchedule(const ModeSchedule& schedule, scalar_t time, 
   // support in a single instant has nothing but back-to-back swings: the boundary then reaches the end of the stepping
   // region and no plan ever reaches past it again.
   const scalar_t limit = maxCommitExtension > 0.0 ? boundary + maxCommitExtension : std::numeric_limits<scalar_t>::infinity();
-  const auto& eventTimes = schedule.eventTimes;
-  const auto& modeSequence = schedule.modeSequence;
+  const std::vector<scalar_t>& eventTimes = schedule.eventTimes;
+  const std::vector<size_t>& modeSequence = schedule.modeSequence;
   if (modeSequence.empty()) return boundary;
   // Walk the phases that overlap [time, boundary] in time order, all feet at once; a swing phase among them extends the
   // boundary to its touch-down, and the walk then covers the phases that overlap the extended boundary as well. (One
@@ -178,7 +240,7 @@ bool planAgreesWithSwingsInFlight(const ModeSchedule& applied, const ContactPlan
   if (!plan.valid || plan.contacts.empty()) return true;
   const contact_flag_t planned = plan.contactsAtTime(time + kMinTimeShift);
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-    const auto phase = swingPhaseAtTime(applied, foot, time);
+    const std::optional<std::pair<scalar_t, scalar_t>> phase = swingPhaseAtTime(applied, foot, time);
     // Not swinging, or a lift-off at `time` itself: nothing is in flight that the plan could contradict.
     if (!phase.has_value() || phase->first >= time - kMinTimeShift) continue;
     if (planned[foot]) return false;
@@ -233,11 +295,60 @@ std::vector<feet_array_t<scalar_t>> committedPhaseStartsForPlanner(
   return starts;
 }
 
+void LiftOffHistory::record(const ModeSchedule& schedule, scalar_t time) {
+  for (scalar_t& liftOffTime : lastLiftOffTimes) {
+    if (liftOffTime > time) liftOffTime = -std::numeric_limits<scalar_t>::infinity();
+  }
+  const std::vector<scalar_t>& eventTimes = schedule.eventTimes;
+  const std::vector<size_t>& modeSequence = schedule.modeSequence;
+  for (size_t event = 0; event < eventTimes.size() && event + 1 < modeSequence.size(); ++event) {
+    if (eventTimes[event] > time) break;
+    const contact_flag_t before = modeNumber2StanceLeg(modeSequence[event]);
+    const contact_flag_t after = modeNumber2StanceLeg(modeSequence[event + 1]);
+    for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+      if (before[foot] && !after[foot]) lastLiftOffTimes[foot] = std::max(lastLiftOffTimes[foot], eventTimes[event]);
+    }
+  }
+}
+
+int LiftOffHistory::lastSwungFoot() const {
+  int lastSwung = -1;
+  scalar_t latest = -std::numeric_limits<scalar_t>::infinity();
+  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    if (std::isfinite(lastLiftOffTimes[foot]) && lastLiftOffTimes[foot] >= latest) {
+      latest = lastLiftOffTimes[foot];
+      lastSwung = static_cast<int>(foot);
+    }
+  }
+  return lastSwung;
+}
+
+void fillPlannerInputFromSchedule(
+    const ModeSchedule& schedule, scalar_t dt, int maxCommittedNodes, LiftOffHistory& liftOffHistory, ContactPlannerInput& input) {
+  const scalar_t time = input.time;
+  input.contacts = contactFlagsAtTime(schedule, time);
+  const feet_array_t<scalar_t> phaseStarts = contactPhaseStartTimes(schedule, time);
+  for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
+    const scalar_t phaseStart = std::isfinite(phaseStarts[foot]) ? phaseStarts[foot] : time - kPhaseElapsedTimeBeforeTheSchedule;
+    input.phaseElapsedTime[foot] = std::max(0.0, time - phaseStart);
+  }
+  // The foot that lifted off last, from the history rather than from the schedule, which forgets it one horizon into a
+  // stand. While the schedule still holds that lift-off the two agree: every lift-off it holds is recorded first.
+  liftOffHistory.record(schedule, time);
+  input.lastSwungFoot = liftOffHistory.lastSwungFoot();
+  // Nodes that start before the boundary are fixed to the executed schedule. A phase that begins inside a committed
+  // node (a touch-down between two nodes) is counted from the executed event, so that the minimum durations that follow
+  // it are measured in real time, not from the node start.
+  input.committedContacts = committedContactsForPlanner(schedule, time, dt, maxCommittedNodes, input.committedUntil);
+  input.committedPhaseStartTimes = committedPhaseStartsForPlanner(schedule, time, dt, maxCommittedNodes, input.committedUntil);
+}
+
 scalar_t applyScheduleShiftsToPlan(ContactPlan& plan, const std::deque<std::pair<scalar_t, scalar_t>>& shiftLog) {
   const scalar_t snapshotTime = plan.startTime;  // the snapshot's identity, read before any shift moves it
   scalar_t total = 0.0;
-  for (const auto& [time, shift] : shiftLog) {
-    if (time > snapshotTime) total += shift;
+  for (const std::pair<scalar_t, scalar_t>& entry : shiftLog) {
+    // entry: (the time the later events were re-timed, the shift)
+    if (entry.first > snapshotTime) total += entry.second;
   }
   if (total != 0.0) plan.shiftInTime(total);
   return total;
@@ -246,8 +357,8 @@ scalar_t applyScheduleShiftsToPlan(ContactPlan& plan, const std::deque<std::pair
 /*============================================ schedule edits ==============================================*/
 
 void removeRedundantEvents(ModeSchedule& schedule) {
-  auto& eventTimes = schedule.eventTimes;
-  auto& modeSequence = schedule.modeSequence;
+  std::vector<scalar_t>& eventTimes = schedule.eventTimes;
+  std::vector<size_t>& modeSequence = schedule.modeSequence;
   size_t i = 0;
   while (i + 1 < modeSequence.size()) {
     if (modeSequence[i] == modeSequence[i + 1]) {
@@ -260,9 +371,9 @@ void removeRedundantEvents(ModeSchedule& schedule) {
 }
 
 std::optional<scalar_t> truncateSwingPhase(ModeSchedule& schedule, size_t foot, scalar_t time) {
-  auto& eventTimes = schedule.eventTimes;
-  auto& modeSequence = schedule.modeSequence;
-  const auto range = swingPhaseIndexRange(schedule, foot, time);
+  std::vector<scalar_t>& eventTimes = schedule.eventTimes;
+  std::vector<size_t>& modeSequence = schedule.modeSequence;
+  const std::optional<std::pair<size_t, size_t>> range = swingPhaseIndexRange(schedule, foot, time);
   if (!range.has_value()) return std::nullopt;
   size_t index = modeIndexAtTime(schedule, time);
   size_t last = range->second;
@@ -286,7 +397,7 @@ std::optional<scalar_t> truncateSwingPhase(ModeSchedule& schedule, size_t foot, 
 }
 
 bool shiftEventsFrom(ModeSchedule& schedule, size_t firstEventIndex, scalar_t shift) {
-  auto& eventTimes = schedule.eventTimes;
+  std::vector<scalar_t>& eventTimes = schedule.eventTimes;
   if (firstEventIndex >= eventTimes.size()) return false;
   if (firstEventIndex > 0 && eventTimes[firstEventIndex] + shift <= eventTimes[firstEventIndex - 1]) return false;
   for (size_t j = firstEventIndex; j < eventTimes.size(); ++j) {

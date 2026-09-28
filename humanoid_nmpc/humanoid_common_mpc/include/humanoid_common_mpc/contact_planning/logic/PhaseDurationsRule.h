@@ -34,13 +34,15 @@ namespace ocs2::humanoid {
  * nodes from the start of the phase including the time spent before the planning instant; a foot may not lift in the
  * last minSwingNodes - 1 nodes of the horizon (a swing that cannot reach its minimum before the horizon ends is
  * deferred to the next plan); and the maximum contact duration yields to the rules that can make lifting impossible
- * (no flight, the double-support hold, the other foot being overdue too). Written for a biped.
+ * (no flight, the double-support hold, the other foot being overdue too). Because those exceptions depend on the other
+ * foot, an overdue lift is only fixed on a partial assignment once the other foot's binaries through that node are
+ * fixed; the complete-assignment semantics are unaffected by that. Written for a biped.
  */
 class PhaseDurationsRule final : public ContactLogicRule {
  public:
   std::string describe() const override;
   void configure(const ContactPlanningConfig& config) override;
-  bool propagate(const ContactLogicState& state, const ContactLogicScan& scan, MiqpAssignment& a, bool& changed) const override;
+  bool propagate(const ContactLogicState& state, MiqpAssignment& a, bool& changed) const override;
 
  private:
   GaitLimits limits_;

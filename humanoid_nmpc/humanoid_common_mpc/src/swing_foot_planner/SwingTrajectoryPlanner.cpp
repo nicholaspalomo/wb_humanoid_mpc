@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_core/misc/Numerics.h>
 
 #include <algorithm>
+#include <functional>
 
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 
@@ -55,7 +56,7 @@ SwingTrajectoryPlanner::SwingTrajectoryPlanner(Config config, size_t numFeet) : 
 /******************************************************************************************************/
 
 scalar_t SwingTrajectoryPlanner::getZaccelerationConstraint(size_t leg, scalar_t time) const {
-  const auto index = lookup::findIndexInTimeArray(feetHeightTrajectoriesEvents_[leg], time);
+  const int index = lookup::findIndexInTimeArray(feetHeightTrajectoriesEvents_[leg], time);
   if (isSearching(swingWindows_[leg][index], time)) return 0.0;
   return feetHeightTrajectories_[leg][index].acceleration(time);
 }
@@ -65,7 +66,7 @@ scalar_t SwingTrajectoryPlanner::getZaccelerationConstraint(size_t leg, scalar_t
 /******************************************************************************************************/
 
 scalar_t SwingTrajectoryPlanner::getZvelocityConstraint(size_t leg, scalar_t time) const {
-  const auto index = lookup::findIndexInTimeArray(feetHeightTrajectoriesEvents_[leg], time);
+  const int index = lookup::findIndexInTimeArray(feetHeightTrajectoriesEvents_[leg], time);
   const SwingWindow& window = swingWindows_[leg][index];
   if (isSearching(window, time)) return -window.descentVelocity;
   return feetHeightTrajectories_[leg][index].velocity(time);
@@ -75,7 +76,7 @@ scalar_t SwingTrajectoryPlanner::getZvelocityConstraint(size_t leg, scalar_t tim
 /******************************************************************************************************/
 /******************************************************************************************************/
 scalar_t SwingTrajectoryPlanner::getZpositionConstraint(size_t leg, scalar_t time) const {
-  const auto index = lookup::findIndexInTimeArray(feetHeightTrajectoriesEvents_[leg], time);
+  const int index = lookup::findIndexInTimeArray(feetHeightTrajectoriesEvents_[leg], time);
   const SwingWindow& window = swingWindows_[leg][index];
   if (isSearching(window, time)) return window.descentStartHeight - window.descentVelocity * (time - window.finalTime);
   return feetHeightTrajectories_[leg][index].position(time);
@@ -86,7 +87,7 @@ scalar_t SwingTrajectoryPlanner::getZpositionConstraint(size_t leg, scalar_t tim
 /******************************************************************************************************/
 
 scalar_t SwingTrajectoryPlanner::getImpactProximityFactor(size_t leg, scalar_t time) const {
-  const auto index = lookup::findIndexInTimeArray(feetHeightTrajectoriesEvents_[leg], time);
+  const int index = lookup::findIndexInTimeArray(feetHeightTrajectoriesEvents_[leg], time);
   const SwingWindow& window = swingWindows_[leg][index];
   // A foot searching for the ground holds the factor of its planned touch-down.
   if (isSearching(window, time)) return impactProximityTrajectories_[leg][index].position(window.finalTime);
@@ -102,7 +103,7 @@ scalar_t SwingTrajectoryPlanner::swingPitchProfile(scalar_t tau) const {
   // fractions sum to more than one, in which case the profile simply never reaches its peak.
   const scalar_t rise = std::clamp(config_.swingPitchRiseFraction, 0.0, 1.0);
   const scalar_t fall = std::clamp(config_.swingPitchFallFraction, 0.0, 1.0 - rise);
-  const auto smoothStep = [](scalar_t u) { return u * u * (3.0 - 2.0 * u); };
+  const std::function<scalar_t(scalar_t)> smoothStep = [](scalar_t u) { return u * u * (3.0 - 2.0 * u); };
 
   if (tau <= 0.0 || tau >= 1.0) return 0.0;
   if (rise > 0.0 && tau < rise) return smoothStep(tau / rise);
@@ -115,9 +116,9 @@ scalar_t SwingTrajectoryPlanner::swingPitchProfile(scalar_t tau) const {
 /******************************************************************************************************/
 
 scalar_t SwingTrajectoryPlanner::getSwingPitchAngle(size_t leg, scalar_t time) const {
-  if (numerics::almost_eq(config_.swingPitchAngle, 0.0) || swingWindows_[leg].empty()) return 0.0;
+  if (numerics::almost_eq(config_.swingPitchAngle, /*y=*/0.0) || swingWindows_[leg].empty()) return 0.0;
 
-  const auto index = lookup::findIndexInTimeArray(feetHeightTrajectoriesEvents_[leg], time);
+  const int index = lookup::findIndexInTimeArray(feetHeightTrajectoriesEvents_[leg], time);
   const SwingWindow& window = swingWindows_[leg][index];
   if (!window.isSwing) return 0.0;
 
@@ -162,10 +163,10 @@ void SwingTrajectoryPlanner::update(const ModeSchedule& modeSchedule,
                                     const feet_array_t<scalar_array_t>& touchDownHeightSequence,
                                     const feet_array_t<std::optional<GroundSearch>>& groundSearches) {
   constexpr scalar_t kSwingTimeTolerance = 1e-6;  // [s] event times that identify the same swing
-  const auto& modeSequence = modeSchedule.modeSequence;
-  const auto& eventTimes = modeSchedule.eventTimes;
+  const std::vector<size_t>& modeSequence = modeSchedule.modeSequence;
+  const std::vector<scalar_t>& eventTimes = modeSchedule.eventTimes;
 
-  const auto eesContactFlagStocks = extractContactFlags(modeSequence);
+  const feet_array_t<std::vector<bool>> eesContactFlagStocks = extractContactFlags(modeSequence);
 
   feet_array_t<std::vector<int>> startTimesIndices;
   feet_array_t<std::vector<int>> finalTimesIndices;
@@ -305,7 +306,7 @@ feet_array_t<std::vector<bool>> SwingTrajectoryPlanner::extractContactFlags(cons
   std::fill(contactFlagStock.begin(), contactFlagStock.end(), std::vector<bool>(numPhases));
 
   for (size_t i = 0; i < numPhases; i++) {
-    const auto contactFlag = modeNumber2StanceLeg(phaseIDsStock[i]);
+    const contact_flag_t contactFlag = modeNumber2StanceLeg(phaseIDsStock[i]);
     for (size_t j = 0; j < numFeet_; j++) {
       contactFlagStock[j][i] = contactFlag[j];
     }

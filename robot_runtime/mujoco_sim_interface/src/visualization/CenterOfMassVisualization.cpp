@@ -40,9 +40,9 @@ void CenterOfMassVisualization::addSceneGeoms(const VisualizationFrame& frame) {
   if (!state.valid) return;
   const MarkerColor blue{0.2f, 0.5f, 1.0f, 0.9f};
   const MarkerColor shadow{0.2f, 0.5f, 1.0f, 0.5f};
-  addSphereGeom(frame.scene, state.com, 0.03, blue);
-  addVerticalLineGeom(frame.scene, state.com, 0.0, 0.004, shadow);
-  addGroundDiscGeom(frame.scene, state.com[0], state.com[1], 0.03, shadow);
+  addSphereGeom(frame.scene, state.com, /*radius=*/0.03, blue);
+  addVerticalLineGeom(frame.scene, state.com, /*groundHeight=*/0.0, /*width=*/0.004, shadow);
+  addGroundDiscGeom(frame.scene, state.com[0], state.com[1], /*radius=*/0.03, shadow);
 }
 
 }  // namespace robot::mujoco_sim_interface

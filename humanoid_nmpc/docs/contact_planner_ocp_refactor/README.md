@@ -14,7 +14,7 @@ heuristics of the reference manager (phase resetting, DCM step adjustment, caden
 same treatment, so that the problem the planner solves and the corrections applied around it can be read off one
 configuration file and changed at runtime.
 
-The refactor is behaviour preserving by construction: the shipped DRC Atlas configuration must produce, term for term
+The refactor is behavior preserving by construction: the shipped DRC Atlas configuration must produce, term for term
 and bit for bit, the QP and the propagation the planner builds today. Section 5 describes how that is verified.
 
 ---
@@ -34,7 +34,7 @@ Goals
    on every plan anyway.
 4. The heuristics around the planner become named, individually selectable pipeline stages with their own parameter
    blocks: the search stages inside the planner (warm start, diving, event-shift local search, heading
-   re-linearisation) and the execution rules in the reference manager (phase resetting, cadence modulation, DCM step
+   re-linearization) and the execution rules in the reference manager (phase resetting, cadence modulation, DCM step
    adjustment, planned heading override).
 5. The assembled formulation is printed at start-up and on every structural reload: the variable layout, every term with
    a one-line description of its math, and the row count per stage.
@@ -43,8 +43,8 @@ Non-goals
 
 * No change to the mathematics of any existing term, rule or heuristic. New capability that falls out of the structure
   (per-term slack penalties, a term switched off that is on today) ships disabled or at today's values.
-* No generalisation of the biped-specific terms to `N_CONTACTS > 2`. The terms that assume two feet keep a
-  `static_assert(N_CONTACTS == 2)`; the structure makes a later generalisation local to those terms.
+* No generalization of the biped-specific terms to `N_CONTACTS > 2`. The terms that assume two feet keep a
+  `static_assert(N_CONTACTS == 2)`; the structure makes a later generalization local to those terms.
 * No change to `MixedIntegerOcpQp` and `OcpQpHpipmSolver`: the branch-and-bound only rewrites the binaries' box bounds
   of the problem it is given, and stays unaware of terms.
 * No change to the NMPC side: `ContactPlan`, `mergeModeSchedules`, `getSwingFootReference`, the target contact poses and
@@ -62,7 +62,7 @@ Non-goals
 | Heading double integrator, foot yaw integrators | `addRunningNodeTerms`, `makeLayout` | `useAcomDynamics` |
 | Input boxes (foot displacement `±bigM`, binaries `[0, 1]`, yaw torque, foot yaw delta) | `addRunningNodeTerms` | always / `useAcomDynamics` |
 | Costs at every node: velocity tracking, step width, previous-foothold consistency, heading rate / heading / foot yaw tracking | `buildProblem` loop | weight `> 0` |
-| Running costs: ZMP regularisation, foothold regularisation, yaw torque and foot yaw regularisation | `addRunningNodeTerms` | weight `> 0` |
+| Running costs: ZMP regularization, foothold regularization, yaw torque and foot yaw regularization | `addRunningNodeTerms` | weight `> 0` |
 | Terminal DCM capturability (on the last running node, needs `zmp_{N-1}`) | `addRunningNodeTerms`, `k == N - 1` | weight `> 0` |
 | Hard rows: no flight, foot motion only in swing, yaw torque budget, foot yaw pinned in contact | `addRunningNodeTerms`, `RowBuilder` | always / `useAcomDynamics` |
 | Soft rows: ZMP support region (single and double support), reachability, foot separation, hip yaw range | `addRunningNodeTerms`, `addStateConstraintRows` | always / `useAcomDynamics` |
@@ -70,11 +70,11 @@ Non-goals
 | Yaw-aligned constraint frame per node and its first-order heading term | `constraintAxes`, `frameTerm` | `useAcomDynamics` |
 | Contact logic: phase durations, swing-fits-in-horizon, max-contact yielding, no flight, minimum double support, alternation | `propagate()` (one fixpoint loop, ~200 lines) | config values, `enforceAlternatingFeet` |
 | Assignment costs: contact switch, plan consistency | `assignmentCost()` | weight `> 0` |
-| Search: warm start from the previous plan, diving, event-shift local search, heading re-linearisation | `plan()`, `warmStartAssignment`, `localSearch`, `MiqpSettings::useDivingHeuristic` | limits `> 0`; diving is not configurable |
+| Search: warm start from the previous plan, diving, event-shift local search, heading re-linearization | `plan()`, `warmStartAssignment`, `localSearch`, `MiqpSettings::useDivingHeuristic` | limits `> 0`; diving is not configurable |
 | Solver settings for the relaxations | `relaxationQpSettings` | `maxQpIterations` only |
 
 Sizes: 8 states, 8 inputs and 27 general rows per running stage without the heading model; 12 / 12 / 37 with it. The
-problem is built once per plan (plus once per re-linearisation pass), the branch-and-bound only changes bounds.
+problem is built once per plan (plus once per re-linearization pass), the branch-and-bound only changes bounds.
 
 ### 2.2 The execution layer
 
@@ -121,12 +121,12 @@ Steps 1, 4, 6 and 8 are the core of the manager. Steps 3, 5 and 7 are heuristics
 | `StateInputCost`, `StateCost`, `finalCost` | `addQuadraticResidual` calls | `LipCost` terms with a node set (running, terminal, all nodes, last running node) |
 | soft `StateInputConstraint` + penalty | `RowBuilder::add(..., soft = true)` | `LipConstraint` terms with `Softness::SOFT` and their own slack penalty (default: today's global one) |
 | hard equality / inequality constraints | `RowBuilder::add(..., soft = false)` | `LipConstraint` terms with `Softness::HARD` |
-| (no analogue: the binaries are not part of the NMPC) | `propagate()`, `assignmentCost()` | `ContactLogicRule` and `AssignmentCost` terms over a shared `ContactLogicState` |
+| (no analog: the binaries are not part of the NMPC) | `propagate()`, `assignmentCost()` | `ContactLogicRule` and `AssignmentCost` terms over a shared `ContactLogicState` |
 | `PreComputation` | `constraintAxes`, `frameTerm`, `previousPlanShift`, `yawInertia` | `ContactPlanningContext`, computed once per plan |
 | `MpcFormulationTasks` and its YAML lists | none | `ContactPlanningFormulation`: term lists and per-term parameter blocks |
 | `HumanoidCostConstraintFactory` | none | `ContactPlanningTermFactory` |
 | `MpcParameterUpdaterModule` calling `get<T>(name).setWeights()` | `setConfig(wholeStruct)` | `ContactPlanningProblem::setParameters(name, block)` by term name, plus structural re-assembly when a list changed |
-| SQP settings | inline in `plan()` | `SearchStage` pipeline: `warm_start_previous_plan`, `diving`, `event_shift_local_search`, `heading_relinearisation` |
+| SQP settings | inline in `plan()` | `SearchStage` pipeline: `warm_start_previous_plan`, `diving`, `event_shift_local_search`, `heading_relinearization` |
 | reference manager (`SwitchedModelReferenceManager`) | fixed pipeline with flags | `ExecutionRule` pipeline: `phase_resetting`, `energy_cadence_modulation`, `dcm_step_adjustment`, `planned_heading_override` |
 
 ```mermaid
@@ -169,8 +169,8 @@ flowchart LR
 ### 3.2 `ContactPlanningProblem` and the term interfaces
 
 ```cpp
-// Per-plan pre-computation, the analogue of ocs2::PreComputation. Built once in LipContactPlanner::plan() and once per
-// heading re-linearisation pass; every term reads from it and none of them recomputes it.
+// Per-plan pre-computation, the analog of ocs2::PreComputation. Built once in LipContactPlanner::plan() and once per
+// heading re-linearization pass; every term reads from it and none of them recomputes it.
 struct ContactPlanningContext {
   const ContactPlannerInput& input;
   const Layout& layout;
@@ -278,7 +278,7 @@ integers afterwards, so `assemble()` costs what `buildProblem()` costs now.
 ### 3.4 Costs and constraints, term by term
 
 The default formulation is the exact inventory of section 2.1. Names are snake_case in YAML and matched with the same
-normalisation as `stringToMpcCostType` (case-insensitive, separators ignored).
+normalization as `stringToMpcCostType` (case-insensitive, separators ignored).
 
 Costs
 
@@ -295,7 +295,7 @@ Costs
 | `foot_yaw_tracking` | all | `footYawTrackingWeight` | `w Σ_i (ψ_i,k − θ_nom,k)²` |
 | `yaw_torque_regularization` | running | `yawTorqueWeight` | `w Σ_i τ_i,k²` |
 | `foot_yaw_regularization` | running | `footYawRegularizationWeight` | `w Σ_i dψ_i,k²` |
-| `regularization` | all | (constants 1e-8 / 1e-6 today) | diagonal `Q` / `R` regularisation; becomes a named term so that it is visible and tunable |
+| `regularization` | all | (constants 1e-8 / 1e-6 today) | diagonal `Q` / `R` regularization; becomes a named term so that it is visible and tunable |
 
 Soft constraints (slack penalty: per term, default = today's `constraintSlackWeight` / `constraintSlackLinearWeight`)
 
@@ -315,12 +315,12 @@ Hard constraints
 | `yaw_torque_budget` | running | model-derived `torsionalFrictionTorque`, `doubleSupportYawCouple` | 2 per foot |
 | `foot_yaw_pinned_in_contact` | running | none | 2 per foot |
 
-`bigM` is shared by two terms and by `ContactPlanningConfig::validate()` (`bigM > maxStepLength`); it stays a
+`bigM` is shared by two terms and by `ContactPlanningConfig::validateStatus()` (`bigM > maxStepLength`); it stays a
 formulation-level parameter (section 3.8), not a per-term one.
 
 ### 3.5 Contact logic rules and assignment costs
 
-This is the part where a naive split would change behaviour. Today's `propagate()` is one fixpoint loop in which the
+This is the part where a naive split would change behavior. Today's `propagate()` is one fixpoint loop in which the
 duration rule reads state that the double-support rule produces (`heldByDoubleSupport`, the contact ages, the state
 before a node), so that an overdue foot yields to a double support or to the other foot. The proposal keeps that
 coupling explicit and shared:
@@ -331,7 +331,7 @@ coupling explicit and shared:
   along the fixed prefix: `kappa`, `tauMin` / `tauMax`, contact age, `heldByDoubleSupport`, the touch-down nodes) is
   recomputed at the start of every fixpoint pass, exactly where `computeDoubleSupportHold()` runs today.
 * The rules are run in today's order inside the same driver loop (`for pass < 4N: recompute scan; for rule: propagate;
-  until no change`):
+  until no change`). (As built, the scan was later dropped in favor of reading the live assignment; see section 9.)
 
 | Rule | Today's code | Parameters |
 | --- | --- | --- |
@@ -362,7 +362,7 @@ configured `SearchStage`s in order on the incumbent:
 | `warm_start_previous_plan` | `warmStartAssignment()` and the `previousAssignment_` bookkeeping | none |
 | `diving` | `MiqpSettings::useDivingHeuristic`, always on, `maxDiveIterations` not exposed | `maxDiveIterations` |
 | `event_shift_local_search` | `localSearch()` | `iterations`, `maxTime` |
-| `heading_relinearisation` | the re-linearisation loop at the end of `plan()` | `passes` (requires the heading block) |
+| `heading_relinearization` | the re-linearization loop at the end of `plan()` | `passes` (requires the heading block) |
 
 `warm_start_previous_plan` and `diving` are inputs to `MixedIntegerOcpQp::solve()` rather than post-passes; the stage
 interface has a `beforeSearch()` hook for them and an `afterSearch()` hook for the other two, so that the pipeline stays
@@ -419,7 +419,7 @@ contact_planning:
 
   shared:                        # parameters read by more than one term
     gravity: 9.81
-    comHeight: 0.85              # 0 = from the model
+    comHeight: 0                 # 0 = from the model (both shipped robots); positive: an explicit override
     bigM: 1.5                    # must exceed foot_separation.maxStepLength
     slack_penalty: { quadratic: 10000.0, linear: 100.0 }   # default of every soft constraint
     gait_limits:                 # logic rules, cadence modulation, node conversions
@@ -474,7 +474,7 @@ contact_planning:
     - warm_start_previous_plan
     - diving
     - event_shift_local_search
-    - heading_relinearisation
+    - heading_relinearization
 
   execution:                     # each changes the closed loop: list only what is validated
     - phase_resetting            # was enablePhaseResetting: true
@@ -502,7 +502,7 @@ contact_planning:
   plan_consistency:           { cost: 0.5 }
   diving:                     { maxDiveIterations: 64 }
   event_shift_local_search:   { iterations: 10, maxTime: 0.05 }
-  heading_relinearisation:    { passes: 1 }
+  heading_relinearization:    { passes: 1 }
   phase_resetting:
     earlyTouchdownMinSwingRatio: 0.25
     earlyTouchdownMinContactDuration: 0.02
@@ -520,7 +520,7 @@ load and on every hot reload, as it does on the struct today.
 The loader, `loadContactPlanningFormulation(yamlFile)`, returns a `ContactPlanningFormulation` (planner settings, the
 shared block, the lists, a `name -> TermParameters` map) and validates it: unknown term names are an error listing the
 supported ones (as `stringToMpcCostType` does), a term whose required block is missing is an error, a parameter block
-for a term that is not listed is a warning. A legacy flat block (today's keys, no lists) is recognised and translated
+for a term that is not listed is a warning. A legacy flat block (today's keys, no lists) is recognized and translated
 into the default formulation with a one-time deprecation warning, so that nothing breaks while the files are migrated;
 the translation table is the migration of the Atlas file itself and is deleted once no flat file is left.
 
@@ -534,7 +534,7 @@ microseconds of index arithmetic per node, so a change of the formulation is che
   applies it between plans, as today: for every term in the map, `problem.setParameters(name, block)`; the reference
   manager does the same for its rules. Every `setParameters` validates its own block and throws, and the module rejects
   the whole reload on the first error, so that a bad edit never leaves the problem half updated (today's `validate()`
-  behaviour).
+  behavior).
 * Structural reload: when a term list differs from the assembled problem, the worker re-assembles the problem through
   the factory. The warm start survives unless the grid or the layout changed (today's rule in
   `LipContactPlanner::setConfig`), which is a property of the `dynamics` list and the `planner` block only.
@@ -555,7 +555,7 @@ structural reload, in the style of the verbose block of `loadMpcFormulationTasks
 [ContactPlanner] soft constraints (4, 16 rows running / 8 terminal): zmp_support_region ... slack (1e4, 100) ...
 [ContactPlanner] hard constraints (4, 21 rows running): no_flight  1 ≤ c_L + c_R ≤ 2 ...
 [ContactPlanner] logic rules (4): phase_durations  swing 3..5 nodes, contact ≥ 1 node ...
-[ContactPlanner] search (4): warm_start_previous_plan, diving (64), event_shift_local_search (10 rounds, 0.05 s), heading_relinearisation (1 pass)
+[ContactPlanner] search (4): warm_start_previous_plan, diving (64), event_shift_local_search (10 rounds, 0.05 s), heading_relinearization (1 pass)
 [ContactPlanningReferenceManager] execution (2): phase_resetting (...), planned_heading_override
 ```
 
@@ -573,10 +573,10 @@ humanoid_common_mpc/include/humanoid_common_mpc/contact_planning/
   constraint/    ZmpSupportRegionConstraint.h  ReachabilityConstraint.h  FootSeparationConstraint.h  HipYawRangeConstraint.h
                  NoFlightConstraint.h  FootMotionInSwingConstraint.h  YawTorqueBudgetConstraint.h  FootYawPinConstraint.h
   logic/         ContactLogicState.h  PhaseDurationRule.h  NoFlightRule.h  MinimumDoubleSupportRule.h  AlternatingFeetRule.h  AssignmentCosts.h
-  search/        SearchStage.h  WarmStartStage.h  DivingStage.h  EventShiftLocalSearch.h  HeadingRelinearisation.h
+  search/        SearchStage.h  WarmStartStage.h  DivingStage.h  EventShiftLocalSearch.h  HeadingRelinearization.h
   execution/     ExecutionRule.h  ExecutionContext.h  PhaseResettingRule.h  EnergyCadenceRule.h  DcmStepAdjustmentRule.h  PlannedHeadingOverride.h
   ContactPlanningFormulation.h      (settings, shared block, lists, parameter map, loader, legacy translation)
-  ContactPlanningTermFactory.h      (name -> term, the analogue of HumanoidCostConstraintFactory)
+  ContactPlanningTermFactory.h      (name -> term, the analog of HumanoidCostConstraintFactory)
   LipContactPlanner.h               (owns the problem and the search pipeline; the public test hooks stay as thin forwards)
   ContactPlannerModule.h  ContactPlanningReferenceManager.h  ContactScheduleAdaptation.h  ContactPlan.h  TargetContactPose.h
   MixedIntegerOcpQp.h  OcpQpHpipm.h  ContactPlanningModelParameters.h   (unchanged)
@@ -589,7 +589,7 @@ manager and the execution rules stay in `humanoid_common_mpc`.
 
 ---
 
-## 5. Behaviour preservation
+## 5. Behavior preservation
 
 The refactor has no value if it changes a plan. Three tests make equivalence a checked property at every step of the
 migration, and the old builder is kept, unchanged, as their reference until the last step:
@@ -611,21 +611,21 @@ migration, and the old builder is kept, unchanged, as their reference until the 
 
 The default-off rule of this repository applies to everything the structure makes newly possible: the shipped Atlas
 formulation lists exactly today's terms with today's values, `regularization` carries today's constants, per-term slack
-penalties default to the shared pair, and `diving` keeps its `maxDiveIterations = 64`. A change of behaviour, if any is
+penalties default to the shared pair, and `diving` keeps its `maxDiveIterations = 64`. A change of behavior, if any is
 wanted, is a separate change with its own validation in MuJoCo.
 
 ---
 
 ## 6. Migration plan
 
-Each step is one reviewable change that leaves every test green and the Atlas behaviour identical. The order is a
+Each step is one reviewable change that leaves every test green and the Atlas behavior identical. The order is a
 strangler pattern: `buildProblem()` delegates to terms one by one and shrinks until it is the legacy reference only.
 
 | Step | Scope | Exit criterion |
 | --- | --- | --- |
 | 0. Reference and harness | Copy `buildProblem()` / `propagate()` / `assignmentCost()` into `LegacyLipProblemBuilder` (test only); add the three equivalence tests against the planner itself (they pass trivially). | Tests in place, no production change. |
 | 1. Context and accumulators | Extract `ContactPlanningContext` (axes per node, frame term, previous-plan shift, inertia), `StageAccumulator`, `RowBuilder` into `problem/`; `buildProblem()` uses them. | Problem equivalence passes. |
-| 2. Problem and term interfaces, first costs | Add `ContactPlanningProblem`, `Terms.h`, `Layout`; port the costs (one small change per group: tracking, regularisation, terminal DCM, previous foothold) with `buildProblem()` delegating. | Problem equivalence passes after each group. |
+| 2. Problem and term interfaces, first costs | Add `ContactPlanningProblem`, `Terms.h`, `Layout`; port the costs (one small change per group: tracking, regularization, terminal DCM, previous foothold) with `buildProblem()` delegating. | Problem equivalence passes after each group. |
 | 3. Constraints | Port the soft and hard constraint terms; per-term slack penalty with the shared default. | Problem equivalence passes; row order identical. |
 | 4. Model blocks | Port the LIP, foothold and heading blocks; `Layout` composed from the blocks; `useAcomDynamics` mapped to the block. `decode()` moves into the blocks. | Problem and plan equivalence pass; `StateIndex` enums unchanged. |
 | 5. Logic | `ContactLogicState`, the four rules, the two assignment costs, the fixpoint driver. | Logic equivalence passes over the full grid. |
@@ -649,10 +649,10 @@ the planner usable on the robot after every step.
 | Floating-point accumulation order changes `Q` / `R` in the last bits and the branch-and-bound breaks a tie differently | steps 2-4 | default term order = today's accumulation order; matrix equality to 1e-12; plan equivalence on the receding-horizon walks |
 | Hot reload applies a half-valid formulation | step 7 | every `setParameters` validates first; the module applies a reload all-or-nothing, on the worker between plans, as today |
 | Warm start dropped on every reload (the regression fixed in `LipContactPlanner::setConfig`) | step 7 | the structural-reload rule is the same predicate (grid and layout) |
-| A shared parameter (`bigM`, `gait_limits`) edited in one place but read in another | step 7 | shared block with one owner; terms reference it in `setParameters`; `validate()` checks the cross-term conditions (`bigM > maxStepLength`, `commitNodes < numNodes`) |
+| A shared parameter (`bigM`, `gait_limits`) edited in one place but read in another | step 7 | shared block with one owner; terms reference it in `setParameters`; `validateStatus()` checks the cross-term conditions (`bigM > maxStepLength`, `commitNodes < numNodes`) |
 | Execution rules see a different latch state than the single loop did | step 8 | rule order early, cadence, late; `ContactEventTest` unchanged |
 | GUI or updater silently ignores the new layout | steps 7, 9 | the loader rejects unknown keys at the top of the block; the translation warns once; the GUI shows the lists |
-| Term names drift between YAML, factory and docs | all | one table in `ContactPlanningTermFactory.cpp` guarded by `LINT.IfChange` to the Atlas file and the docs |
+| Term names drift between YAML, factory and docs | all | the YAML spellings are the constants of ContactPlanningFormulation.h (LINT term_names) and the registry is knownTermNames() (LINT known_term_names); both are tied to the term factory, to both robots' contact_planning.yaml tail blocks and to the docs table |
 
 ---
 
@@ -687,22 +687,24 @@ throughout. What exists:
   `StageAccumulator`, `RowBuilder`, `InputBoundsBuilder`, `Layout` / `LayoutBuilder` / `LipIndices`. One class per
   header and source throughout (`model/`, `cost/`, `constraint/`, `logic/`, `search/`, `execution/`), in the layout of
   the whole-body MPC packages; the shared base classes (`LipWeightedCost`, `LipConstraintBase`) have their own headers.
-* `ContactPlanningFormulation` (the term lists, name normalisation, validation with the required-block and
+* `ContactPlanningFormulation` (the term lists, name normalization, validation with the required-block and
   execution-order rules, `setHeadingModel()`), `ContactPlanningTermFactory`, and `ContactPlanningConfig` restructured
   into `planner`, `shared`, the formulation and one typed block per term. The loader reads the structured layout; a
   file with keys of the previous flat layout is rejected with a message that says how to migrate it.
 * `LipContactPlanner` owns the assembled problem and the `SearchStage` pipeline (`warm_start_previous_plan`, `diving`
-  with its `maxDiveIterations` exposed, `event_shift_local_search`, `heading_relinearisation`) and prints the
+  with its `maxDiveIterations` exposed, `event_shift_local_search`, `heading_relinearization`, and the later
+  `cadence_stretch`) and prints the
   formulation (`getFormulationSummary()`); `ContactPlannerModule` logs it at construction and after every structural
   reload, and re-assembles on a changed list with the warm-start rule of section 3.9.
 * `ContactPlanningReferenceManager` runs the `ExecutionRule` pipeline (`phase_resetting`, `energy_cadence_modulation`,
-  `dcm_step_adjustment`, `planned_heading_override`); `adaptScheduleToContactEvents()` stays as the entry point of the
-  rule tests and runs the same pipeline.
+  `dcm_step_adjustment`, `planned_heading_override`, and the later `planned_com_override`);
+  `adaptScheduleToContactEvents()` stays as the entry point of the rule tests and runs the same pipeline.
 * Bazel: `contact_planning_core` (everything without a robot model, with `humanoid_common_mpc_types` for the shared
   headers); the planner tests build against it.
 * The DRC Atlas `contact_planning.yaml` migrated one-to-one; the tuning GUI renders the structured block generically
-  (term lists read-only, one slider group per parameter block) and keeps the fixed groups for a flat file;
-  `humanoid_nmpc/docs/README.md` section 2 updated, with a new section 2.10 on the formulation file.
+  (term lists read-only, one slider group per parameter block); it has no special handling of a flat file, which the
+  loader rejects with its migration hint (see the deviations below); `humanoid_nmpc/docs/README.md` section 2 updated,
+  with a new section 2.10 on the formulation file.
 * Tests: `testContactPlanningFormulation` (names, validation, the file layout and the rejection of the flat one),
   `testContactPlanningTerms` (layout, row counts, node sets, required blocks, factory errors, hot reload by term name,
   structural reload and the warm-start rule, search stage lists, execution rules), `testContactPlanningRegression`
@@ -725,7 +727,13 @@ Deviations from the plan:
 * `adaptScheduleToContactEvents()` was kept (as a wrapper over the pipeline) instead of being dissolved, so that the
   thirty `ContactEventTest` cases pin the rules down without change.
 * Step 10 is done: the legacy planner copy and the flat-layout translation are deleted, the equivalence tests replaced
-  by the fixture-based regression tests. A flat file is rejected at load time with a migration hint; the tuning GUI
-  shows the same hint instead of rendering it.
-* `ContactLogicState` / `ContactLogicScan` carry the shared per-pass scan as designed; the `phase_durations` rule keeps
-  the swing-fits-in-horizon and max-contact yielding logic inside it, as section 3.5 anticipated.
+  by the fixture-based regression tests. A flat file is rejected at load time, at start-up and on every hot reload,
+  with a migration hint; the tuning GUI renders whatever the block holds and does not check the layout itself.
+* `ContactLogicState` carries the shared pre-computation as designed, and the `phase_durations` rule keeps the
+  swing-fits-in-horizon and max-contact yielding logic inside it, as section 3.5 anticipated. The per-pass prefix scan
+  of section 3.5 (`ContactLogicScan`) was built and later removed. A snapshot taken before a pass misses what the pass
+  itself fixes: the max-contact yielding read the double-support hold from it, forced an overdue foot up inside a hold
+  that the same pass had just created, and pruned subtrees that had feasible completions, while the search still
+  reported `optimal`. Every rule now reads the live assignment (`stateBefore`, `contactAge`, `latestTouchDownNode`),
+  and on a partial assignment a rule fixes only what every completion that satisfies it shares (`ContactLogicRule`);
+  `testContactPlanningRegression` checks that over every partial assignment the search can reach on a short horizon.

@@ -129,6 +129,29 @@ std::vector<VECTOR3_T<SCALAR_T>> getFramePositions(const PinocchioInterfaceTpl<S
                                                    std::vector<std::string> frameNames);
 
 ///
+/// @brief The pendulum length of the robot: its whole-body center of mass above the mean height of its contact frames.
+///
+/// The one definition of the linear inverted pendulum's height in this repository. Every consumer that needs a nominal
+/// pendulum length evaluates it at the task file's `initialState` - the contact planner's `shared.comHeight` and the DCM
+/// terminal cost's `dcm_terminal_cost.comHeight` when they are 0 (CentroidalMpcInterface::getNominalComHeight), and the
+/// locomotion heuristics' nominal CoM height - so that they cannot disagree; the capture-point heuristic also measures
+/// it at every solve. tools/locomotion_heuristics/derive_parameters.py computes the same quantity the same way.
+///
+/// Above the mean foot height rather than above the world origin, so that it is the same number on a robot standing on
+/// a box as on one standing on the floor. The contact frames are the sole centers (createPinocchioModel adds them).
+/// Updates the center of mass and the frame placements of `pinocchioInterface`'s data.
+///
+/// @param q Generalized coordinates (MpcRobotModelBase::getGeneralizedCoordinates of a state).
+/// @param pinocchioInterface Pinocchio interface of the MPC model.
+/// @param mpcRobotModel The MPC robot model, which names the contact frames.
+///
+/// @return [m] the center of mass height above the mean height of the contact frames.
+
+scalar_t computeComHeightAboveFeet(const vector_t& q,
+                                   PinocchioInterface& pinocchioInterface,
+                                   const MpcRobotModelBase<scalar_t>& mpcRobotModel);
+
+///
 /// @brief Gets the estimated ground height using the feet in contact for a pinocchio model with updated frame placements.
 ///
 /// @tparam SCALAR_T Scalar type [scalar_t/ad_scalar_t].
@@ -163,7 +186,7 @@ scalar_t computeGroundHeightEstimate(PinocchioInterfaceTpl<scalar_t>& pinocchioI
 
 inline size_t numberOfLegsInContacts(const contact_flag_t& contactFlags) {
   size_t numStanceLegs = 0;
-  for (auto legInContact : contactFlags) {
+  for (bool legInContact : contactFlags) {
     if (legInContact) {
       ++numStanceLegs;
     }
@@ -175,17 +198,27 @@ inline size_t numberOfLegsInContacts(const contact_flag_t& contactFlags) {
 /******************************************************************************************************/
 /******************************************************************************************************/
 
+///
+/// @brief The weight of the robot that `pinocchioInterface` models [N]: its total mass times standard gravity.
+///
+/// Evaluated per call rather than cached in a function-static: a static is initialized by the first model that reaches
+/// it and then answers for every other model in the process (the test binaries hold several robots at once).
+///
+inline scalar_t computeRobotWeight(const PinocchioInterface& pinocchioInterface) {
+  return computeTotalMass(pinocchioInterface.getModel()) * 9.81;
+}
+
 inline vector_t weightCompensatingInput(const PinocchioInterface& pinocchioInterface,
                                         const contact_flag_t& contactFlags,
                                         const MpcRobotModelBase<scalar_t>& mpcRobotModel) {
-  const static scalar_t totalGravitationalForce = computeTotalMass(pinocchioInterface.getModel()) * 9.81;
-  const auto numStanceLegs = numberOfLegsInContacts(contactFlags);
+  const scalar_t weight = computeRobotWeight(pinocchioInterface);
+  const size_t numStanceLegs = numberOfLegsInContacts(contactFlags);
   vector_t input = vector_t::Zero(mpcRobotModel.getInputDim());
   if (numStanceLegs > 0) {
     // NOTE: uses the input-only setter, i.e. the force is written in the frame of the input parameterization
     // (world frame for wrench-space models, local contact frame for basis-vector inputs). For a flat foot the
     // vertical force is identical in both frames. Prefer the state-aware overload below when a state is available.
-    const vector3_t forceInInertialFrame(0.0, 0.0, totalGravitationalForce / numStanceLegs);
+    const vector3_t forceInInertialFrame(0.0, 0.0, weight / numStanceLegs);
     for (size_t i = 0; i < contactFlags.size(); i++) {
       if (contactFlags[i]) {
         mpcRobotModel.setContactForce(input, forceInInertialFrame, i);
@@ -232,11 +265,11 @@ inline vector_t weightCompensatingInput(const PinocchioInterface& pinocchioInter
                                         const contact_flag_t& contactFlags,
                                         const MpcRobotModelBase<scalar_t>& mpcRobotModel,
                                         const vector_t& state) {
-  const static scalar_t totalGravitationalForce = computeTotalMass(pinocchioInterface.getModel()) * 9.81;
-  const auto numStanceLegs = numberOfLegsInContacts(contactFlags);
+  const scalar_t weight = computeRobotWeight(pinocchioInterface);
+  const size_t numStanceLegs = numberOfLegsInContacts(contactFlags);
   vector_t input = vector_t::Zero(mpcRobotModel.getInputDim());
   if (numStanceLegs > 0) {
-    const vector3_t forceInInertialFrame(0.0, 0.0, totalGravitationalForce / numStanceLegs);
+    const vector3_t forceInInertialFrame(0.0, 0.0, weight / numStanceLegs);
     for (size_t i = 0; i < contactFlags.size(); i++) {
       if (contactFlags[i]) {
         mpcRobotModel.setContactForceInWorldFrame(state, input, forceInInertialFrame, i);
@@ -293,12 +326,12 @@ inline VECTOR3_T<SCALAR_T> computeContactCoP(const VECTOR_T<SCALAR_T> input,
                                              const PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface,
                                              size_t contactIndex,
                                              const MpcRobotModelBase<scalar_t>& mpcRobotModel) {
-  const auto localContactWrench =
+  const VECTOR6_T<SCALAR_T> localContactWrench =
       rotateVectorWorldToLocal<SCALAR_T>(mpcRobotModel.getContactWrench(input, contactIndex), pinocchioInterface.getData(),
                                          getContactFrameIndex(pinocchioInterface, mpcRobotModel, contactIndex));
   SCALAR_T copX = -localContactWrench[4] / localContactWrench[2];
   SCALAR_T copY = localContactWrench[3] / localContactWrench[2];
-  VECTOR3_T<SCALAR_T> copInLocalFrame(copX, copY, 0.0);
+  VECTOR3_T<SCALAR_T> copInLocalFrame(copX, copY, /*z=*/0.0);
   return transformPointLocalToWorld(copInLocalFrame, pinocchioInterface.getData(),
                                     getContactFrameIndex(pinocchioInterface, mpcRobotModel, contactIndex));
 }
@@ -327,7 +360,7 @@ inline VECTOR3_T<SCALAR_T> computeContactCoP(const VECTOR_T<SCALAR_T>& state,
       mpcRobotModel.getContactWrenchInWorldFrame(state, input, contactIndex), pinocchioInterface.getData(), frameIndex);
   SCALAR_T copX = -localContactWrench[4] / localContactWrench[2];
   SCALAR_T copY = localContactWrench[3] / localContactWrench[2];
-  VECTOR3_T<SCALAR_T> copInLocalFrame(copX, copY, 0.0);
+  VECTOR3_T<SCALAR_T> copInLocalFrame(copX, copY, /*z=*/0.0);
   return transformPointLocalToWorld(copInLocalFrame, pinocchioInterface.getData(), frameIndex);
 }
 
@@ -433,12 +466,25 @@ VECTOR6_T<SCALAR_T> computeBaseAcceleration(const MATRIX_T<SCALAR_T>& M,
                                             const VECTOR_T<SCALAR_T>& externalForcesInJointSpace);
 
 ///
+/// @brief Floating-base inverse dynamics: the joint torques that produce the joint accelerations `qdd_joints` while the
+/// feet push on the ground with `footWrenches`, the base being free.
 ///
-/// @param q Generalized coordinates
-/// @param v Generalized velocities
-/// @param a Generalized accelerations
-/// @param footWrenches [W_left, W_right]
-/// @param pinocchioInterface
+/// The unactuated base rows of M qdd + nle = S^T tau + J^T W fix the base acceleration those wrenches produce
+/// (computeBaseAcceleration), and the joint rows then return tau_j = M_jb a_b + M_jj qdd_j + nle_j - (J^T W)_j: the joint
+/// rows of pinocchio::rnea() at that base acceleration and with those external forces. It used to multiply the joint rows
+/// of crba()'s upper-triangular M and so left out the base coupling M_jb a_b (and the lower triangle of M_jj);
+/// testJointTorqueInverseDynamics pins it against RNEA.
+///
+/// With no wrench at all the base is in free fall and gravity loads no joint; for a robot whose base is held from outside
+/// (the gantry) use computeBaseHeldJointTorques.
+///
+/// Updates M, nle and the frame Jacobians in `pinocchioInterface`'s data.
+///
+/// @param q Generalized coordinates [base pose (6), joint angles].
+/// @param qd Generalized velocities.
+/// @param qdd_joints Joint accelerations.
+/// @param footWrenches [W_left, W_right], world frame, at the sole frames foot_l_contact and foot_r_contact.
+/// @param pinocchioInterface Pinocchio interface of the MPC model.
 ///
 /// @return joint torques of same dimension as qdd_joints
 
@@ -448,6 +494,31 @@ VECTOR_T<SCALAR_T> computeJointTorques(const VECTOR_T<SCALAR_T>& q,
                                        const VECTOR_T<SCALAR_T>& qdd_joints,
                                        const std::array<VECTOR6_T<SCALAR_T>, 2>& footWrenches,
                                        PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface);
+
+///
+/// @brief Inverse dynamics of a robot whose base is held still from outside (the gantry): the joint rows of
+/// M qdd + nle = S^T tau + J^T W at zero base acceleration, tau_j = M_jj qdd_j + nle_j - (J^T W)_j.
+///
+/// The base rows are not balanced - whatever holds the base supplies them. With no wrench this is the gravity and
+/// Coriolis torque of the free legs, and with the weight on the feet it is g_j(q) - J_j^T W, the static feedforward that
+/// holds a posture. For qdd_j = 0 it is exactly what computeJointTorques returned before it included the base coupling.
+///
+/// Updates M, nle and the frame Jacobians in `pinocchioInterface`'s data.
+///
+/// @param q Generalized coordinates [base pose (6), joint angles].
+/// @param qd Generalized velocities.
+/// @param qdd_joints Joint accelerations.
+/// @param footWrenches [W_left, W_right], world frame, at the sole frames foot_l_contact and foot_r_contact.
+/// @param pinocchioInterface Pinocchio interface of the MPC model.
+///
+/// @return joint torques of same dimension as qdd_joints
+
+template <typename SCALAR_T>
+VECTOR_T<SCALAR_T> computeBaseHeldJointTorques(const VECTOR_T<SCALAR_T>& q,
+                                               const VECTOR_T<SCALAR_T>& qd,
+                                               const VECTOR_T<SCALAR_T>& qdd_joints,
+                                               const std::array<VECTOR6_T<SCALAR_T>, 2>& footWrenches,
+                                               PinocchioInterfaceTpl<SCALAR_T>& pinocchioInterface);
 
 ///
 /// @brief WARNING!!!!!! This formualtion currently does not work! Since pinocchio is not aware of the custom 6 dof base joint the results

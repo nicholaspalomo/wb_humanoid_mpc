@@ -31,7 +31,7 @@ namespace ocs2::humanoid {
 
 /**
  * `energy_cadence_modulation`: the touch-down of the swing in flight is moved by the LIP orbital energy error between
- * the measured centre of mass and the NMPC's prediction, relative to its nominal touch-down and within the swing
+ * the measured center of mass and the NMPC's prediction, relative to its nominal touch-down and within the swing
  * duration limits; later events move with it. Must be listed after `phase_resetting` when both are on: an early
  * touch-down ends a swing before the cadence rule may re-time it.
  */

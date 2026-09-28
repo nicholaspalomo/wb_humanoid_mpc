@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <pinocchio/fwd.hpp>  // forward declarations must be included first.
 
 #include <array>
+#include <memory>
 #include <string>
 
 #include <pinocchio/multibody/fwd.hpp>
@@ -39,6 +40,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_centroidal_model/CentroidalModelInfo.h>
 #include <ocs2_core/dynamics/SystemDynamicsBaseAD.h>
 #include <ocs2_pinocchio_interface/PinocchioInterface.h>
+
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/common/Types.h"
@@ -63,23 +67,35 @@ namespace ocs2::humanoid {
  * approximation captures both ∂f/∂λ and the additional ∂f/∂x contribution that
  * stems from the configuration-dependent rotation.
  *
- * The generated CppAD model name encodes the basis dimension and a hash of the
- * basis matrices, so cached libraries are never reused for a different basis.
+ * The generated CppAD model name carries basisInputsLibraryKey() of the basis, so the DYNAMICS library is never
+ * reused for a different basis. The other taped terms built on the basis-vector input (their domain and, for some,
+ * their body depend on it too) are protected the same way because CentroidalMpcInterface keys the whole CppAD model
+ * folder by that key (CentroidalMpcInterface::keyCppAdModelFolder).
  */
 class CentroidalDynamicsBasisInputsAD final : public SystemDynamicsBaseAD {
  public:
   /**
+   * Validates the arguments, then builds (and, unless cached, compiles) the CppAD model. Configuration errors are an
+   * InvalidArgumentError naming the task-file key to change.
+   *
    * @param pinocchioInterface The pinocchio model interface.
    * @param info               CentroidalModelInfo with the *original* wrench-based inputDim.
    * @param modelName          Base name for the CppAD model.
    * @param modelSettings      Build settings (CppAD model folder, recompile flags, contact names, etc.).
    * @param localBasisMatrices Per-contact basis matrices B_i (6 × numBasisPerFoot) in the local contact frame.
    */
-  CentroidalDynamicsBasisInputsAD(const PinocchioInterface& pinocchioInterface,
-                                  const CentroidalModelInfo& info,
-                                  const std::string& modelName,
-                                  const ModelSettings& modelSettings,
-                                  const std::array<matrix_t, N_CONTACTS>& localBasisMatrices);
+  static absl::StatusOr<std::unique_ptr<CentroidalDynamicsBasisInputsAD>> Create(
+      const PinocchioInterface& pinocchioInterface,
+      const CentroidalModelInfo& info,
+      const std::string& modelName,
+      const ModelSettings& modelSettings,
+      const std::array<matrix_t, N_CONTACTS>& localBasisMatrices);
+
+  /** The checks Create() runs before it builds anything. */
+  static absl::Status validate(const PinocchioInterface& pinocchioInterface,
+                               const CentroidalModelInfo& info,
+                               const ModelSettings& modelSettings,
+                               const std::array<matrix_t, N_CONTACTS>& localBasisMatrices);
 
   ~CentroidalDynamicsBasisInputsAD() override = default;
   CentroidalDynamicsBasisInputsAD* clone() const override { return new CentroidalDynamicsBasisInputsAD(*this); }
@@ -89,8 +105,9 @@ class CentroidalDynamicsBasisInputsAD final : public SystemDynamicsBaseAD {
   const std::array<matrix_t, N_CONTACTS>& getLocalBasisMatrices() const { return B_local_; }
 
   /**
-   * Name of the generated CppAD model: modelName + "_basis<numBasisPerFoot>_<hash of all basis entries>".
-   * Two different bases (dimension, friction coefficient, footprint, ...) therefore never share a cached library.
+   * Name of the generated CppAD model: modelName + "_" + basisInputsLibraryKey(localBasisMatrices), i.e.
+   * modelName + "_basis<numBasisPerFoot>_<16 hex digits of the basis content hash>". Two different bases (generator
+   * set, dimension, friction coefficient, footprint, ...) therefore never share a cached dynamics library.
    */
   static std::string uniqueModelName(const std::string& modelName, const std::array<matrix_t, N_CONTACTS>& localBasisMatrices);
 
@@ -112,6 +129,13 @@ class CentroidalDynamicsBasisInputsAD final : public SystemDynamicsBaseAD {
                             const ad_vector_t& parameters) const override;
 
  private:
+  /** Builds the model from arguments Create() has validated; use Create(). */
+  CentroidalDynamicsBasisInputsAD(const PinocchioInterface& pinocchioInterface,
+                                  const CentroidalModelInfo& info,
+                                  const std::string& modelName,
+                                  const ModelSettings& modelSettings,
+                                  const std::array<matrix_t, N_CONTACTS>& localBasisMatrices);
+
   CentroidalDynamicsBasisInputsAD(const CentroidalDynamicsBasisInputsAD& rhs);
 
   PinocchioInterfaceCppAd pinocchioInterfaceCppAd_;

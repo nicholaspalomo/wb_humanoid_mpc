@@ -1,0 +1,56 @@
+load("@rules_python//python:defs.bzl", "py_library", "py_test")
+
+# The repository's lint checks that are plain Python, so that `bazel test //...` - and with it CI - exercises them.
+py_library(
+    name = "argument_comments",
+    srcs = ["argument_comments.py"],
+)
+
+py_test(
+    name = "test_argument_comments",
+    size = "small",
+    srcs = ["test_argument_comments.py"],
+    data = ["pre-commit"],
+    deps = [":argument_comments"],
+)
+
+py_library(
+    name = "include_style",
+    srcs = ["include_style.py"],
+)
+
+py_test(
+    name = "test_include_style",
+    size = "small",
+    srcs = ["test_include_style.py"],
+    data = [
+        "lint_code.py",
+        "//:dependencies.txt",
+        "//:docker/Dockerfile",
+    ],
+    deps = [":include_style"],
+)
+
+py_library(
+    name = "american_spelling",
+    srcs = ["american_spelling.py"],
+)
+
+py_test(
+    name = "test_american_spelling",
+    size = "small",
+    srcs = ["test_american_spelling.py"],
+    data = ["lint_code.py"],
+    deps = [":american_spelling"],
+)
+
+# CI's format check runs the formatters the dev container runs, at pinned versions.
+py_test(
+    name = "test_ci_formatter_versions",
+    size = "small",
+    srcs = ["test_ci_formatter_versions.py"],
+    data = [
+        "//:.github/workflows/format_test.yml",
+        "//:docker/Dockerfile",
+    ],
+)

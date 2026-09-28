@@ -27,8 +27,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
-#include <sstream>
-#include <stdexcept>
+
+#include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
 
@@ -38,15 +38,11 @@ constexpr scalar_t kMinRemainingSwing = 0.02;  // [s] a re-timed touch-down stay
 }  // namespace
 
 std::string EnergyCadenceModulationRule::describe() const {
-  std::ostringstream out;
-  out << "touch-down shift = -" << params_.gain << " s/J * (E - E_pred) beyond a " << params_.deadband
-      << " J deadband, within the swing duration limits";
-  return out.str();
+  return absl::StrCat("touch-down shift = -", params_.gain, " s/J * (E - E_pred) beyond a ", params_.deadband,
+                      " J deadband, within the swing duration limits");
 }
 
 void EnergyCadenceModulationRule::configure(const ContactPlanningConfig& config) {
-  if (config.energyCadenceModulation.gain < 0.0) throw std::invalid_argument("[energy_cadence_modulation] gain must be >= 0");
-  if (config.energyCadenceModulation.deadband < 0.0) throw std::invalid_argument("[energy_cadence_modulation] deadband must be >= 0");
   params_ = config.energyCadenceModulation;
   limits_ = config.shared.gaitLimits;
 }
@@ -84,7 +80,7 @@ bool EnergyCadenceModulationRule::adaptSwingingFoot(const ExecutionContext& ctx,
   // Not applied while the swing is being extended past its planned touch-down (late touch-down search).
   if (latch.lateExtension > 0.0) return false;
   const scalar_t time = ctx.time;
-  const auto tdIndex = touchDownEventIndex(schedule, foot, time);
+  const std::optional<size_t> tdIndex = touchDownEventIndex(schedule, foot, time);
   if (!tdIndex.has_value()) return false;
   scalar_t target = latch.nominalTouchDownTime + ctx.cadenceTouchDownShift[foot];
   target = std::clamp(target, liftOff + limits_.minSwingDuration, liftOff + limits_.maxSwingDuration);

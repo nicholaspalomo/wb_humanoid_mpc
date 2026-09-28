@@ -26,8 +26,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/constraint/FootYawPinnedInContactConstraint.h"
 
 #include <cmath>
-#include <sstream>
-#include <stdexcept>
 
 #include "humanoid_common_mpc/contact_planning/model/HeadingDoubleIntegrator.h"
 

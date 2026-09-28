@@ -68,6 +68,9 @@ class SirenACOM:
         in_dim: Number of joints the network takes as input.
         hidden_dim: Width of every sinusoidal layer.
         num_layers: Number of sinusoidal layers, excluding the linear readout.
+            Defaults to 2, the only count the C++ evaluator loads (see
+            train_main._CPP_SUPPORTED_NUM_LAYERS); a 3 here exports a header that
+            fails to compile.
         out_dim: Output dimension, 3 for an orientation offset.
         omega_0: Frequency scaling applied inside every sinusoidal activation.
     """
@@ -76,7 +79,7 @@ class SirenACOM:
         self,
         in_dim: int,
         hidden_dim: int = 64,
-        num_layers: int = 3,
+        num_layers: int = 2,
         out_dim: int = 3,
         omega_0: float = 30.0,
     ):

@@ -74,17 +74,51 @@ ROBOTS: Dict[str, Dict[str, str]] = {
         "urdf": "robot_models/unitree_r1/unitree_r1_description/urdf/R1.urdf",
     },
 }
-# LINT.ThenChange(//humanoid_nmpc/docs/locomotion_heuristics/README.md:derive_parameters_usage)
+# LINT.ThenChange(//humanoid_nmpc/docs/locomotion_heuristics/README.md:derive_parameters_usage, //Makefile:derive_heuristic_parameters_usage, //humanoid_nmpc/humanoid_centroidal_mpc/test/testNominalPendulum.cpp:nominal_pendulum_robots)
 
 GRAVITY = 9.81
 
+# The cost of task.yaml's `costs` list that replaces base-pose tracking with CoM + ACoM tracking, and the retired
+# top-level boolean it replaced. MpcFormulationConfig.cpp normalizes cost names the same way (case, '_', '-' and ' '
+# ignored), so either spelling of the name is recognized here too.
+# LINT.IfChange(com_and_acom_tracking_cost_name)
+COM_AND_ACOM_TRACKING_COST = "com_and_acom_tracking_cost"
+RETIRED_ACOM_KEY = "useComAndAcomTracking"
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/common/MpcFormulationConfig.cpp:com_and_acom_tracking_cost_name)
+
+# The top-level key that names the contact input parameterization, the name whose contact input lives in the local
+# contact frame, and the retired boolean it replaced (which the MPC refuses at start-up, whatever its value).
+# LINT.IfChange(contact_input_parameterization_name)
+CONTACT_INPUT_PARAMETERIZATION_KEY = "contactInputParameterization"
+BASIS_VECTOR_CONTACT_INPUTS = "basis_vectors"
+RETIRED_BASIS_KEY = "useContactBasisVectorInputs"
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/ContactInputParameterization.h:contact_input_parameterization_names)
+
+# The top-level key that names where the mode schedule and the footholds come from, the name of the online contact
+# planner (which supplies the footholds itself, so a foothold heuristic is refused beside it), the name of the gait
+# schedule (the default, and what every robot ships), and the retired boolean the key replaced (which the MPC refuses
+# at start-up, whatever its value).
+# LINT.IfChange(contact_schedule_source_name)
+CONTACT_SCHEDULE_SOURCE_KEY = "contactScheduleSource"
+CONTACT_PLANNER_SCHEDULE_SOURCE = "contact_planner"
+GAIT_SCHEDULE_SOURCE = "gait_schedule"
+RETIRED_CONTACT_PLANNING_KEY = "useContactPlanning"
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/MpcFormulationConfig.h:contact_schedule_source_names)
+
+# The cost of task.yaml's `costs` list that ends the horizon on the DCM (capture point), and the retired top-level
+# boolean it replaced (which the MPC refuses at start-up, whatever its value).
+# LINT.IfChange(retired_formulation_keys)
+DCM_TERMINAL_COST = "dcm_terminal_cost"
+RETIRED_DCM_TERMINAL_COST_KEY = "useDcmTerminalCost"
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/common/MpcFormulationConfig.cpp:retired_formulation_keys)
+
 # ---------------------------------------------------------------------------------------------------------------
 # Assumptions the sized-from-the-command-limits group rests on. They are constants HERE, and printed with the
-# result, rather than buried in the expressions, because they are the only judgement calls in the script and the
+# result, rather than buried in the expressions, because they are the only judgment calls in the script and the
 # first thing anyone should disagree with.
 # ---------------------------------------------------------------------------------------------------------------
 
-#: [rad] How far the base leans into the command at the maximum forward stick. A few degrees carries the centre of
+#: [rad] How far the base leans into the command at the maximum forward stick. A few degrees carries the center of
 #: mass towards the leading edge of the support and keeps the body inside the small-roll-and-pitch approximation the
 #: control model's yaw-only rotation is built on (dissertation section 4.3).
 PITCH_AT_MAX_FORWARD_SPEED = math.radians(2.8)
@@ -116,7 +150,7 @@ class RobotGeometry:
     """What the URDF says, evaluated at the nominal standing posture of the task file's `initialState`."""
 
     total_mass: float  # [kg]
-    com_height: float  # [m] centre of mass above the mean foot height
+    com_height: float  # [m] center of mass above the mean foot height
     hip_offset: List[Tuple[float, float]] = field(
         default_factory=list
     )  # [m] (x, y) per foot, in the base frame
@@ -169,6 +203,12 @@ def eigen_matrix(node: dict, rows: int) -> np.ndarray:
 def derive_geometry(urdf_path: str, task: dict, model_settings: dict) -> RobotGeometry:
     """The C++ deriveLocomotionHeuristicModelParameters(), in Python and against the same nominal state.
 
+    `com_height` is the C++ computeComHeightAboveFeet() at `initialState`: the center of mass above the MEAN height of
+    the contact frames (the sole centers). It is the one pendulum length of this controller - a
+    `dcm_terminal_cost.comHeight` or a contact_planning.yaml `shared.comHeight` of 0 resolves to it at start-up - and
+    humanoid_centroidal_mpc:testNominalPendulum checks that every derived number a task file ships agrees with the C++
+    side of it.
+
     Mirrors it deliberately, including the walk up the kinematic tree to the last joint before the floating base:
     that joint is the hip however the URDF happens to name it, which is why neither this nor the C++ looks for a name.
 
@@ -190,7 +230,7 @@ def derive_geometry(urdf_path: str, task: dict, model_settings: dict) -> RobotGe
     )
     data = model.createData()
 
-    # The nominal posture. `initialState` is [normalised momentum (6), base pose (6), joints], and its joint block is
+    # The nominal posture. `initialState` is [normalized momentum (6), base pose (6), joints], and its joint block is
     # the crouch the robot stands in - not the URDF's neutral, where the legs are straight.
     # names[0] is "universe" and names[1] the floating base, so the MPC joints start at 2.
     mpc_joints: List[str] = list(model.names[2:])
@@ -357,6 +397,27 @@ def largest_double_support_ratio(gaits: dict) -> Tuple[str, float]:
 # ---------------------------------------------------------------------------------------------------------------
 
 
+def friction_coefficient(task: dict) -> Tuple[float, Optional[str]]:
+    """The friction coefficient of the cone the robot's task file actually lists, and the key it came from.
+
+    The robots differ: Atlas and SA01 list `contact_wrench_cone` (contacts.contactWrenchConeSoftConstraint), G1 and R1
+    `friction_force_cone` (contacts.frictionForceConeSoftConstraint, 0.4). Reading one key for all of them handed G1 and
+    R1 the other cone's default. Returns (0.5, None) when neither cone is listed.
+    """
+    listed = task.get("soft_constraints", []) or []
+    contacts = task.get("contacts", {}) or {}
+    for cone, key in (
+        ("contact_wrench_cone", "contactWrenchConeSoftConstraint"),
+        ("friction_force_cone", "frictionForceConeSoftConstraint"),
+    ):
+        if cone in listed and "frictionCoefficient" in (contacts.get(key) or {}):
+            return (
+                float(contacts[key]["frictionCoefficient"]),
+                "contacts.%s.frictionCoefficient" % key,
+            )
+    return 0.5, None
+
+
 def derive_parameters(
     geometry: RobotGeometry,
     cadence: GaitCadence,
@@ -373,11 +434,13 @@ def derive_parameters(
     max_lateral = float(limits.get("maxDisplacementVelocityY", 0.3))
     max_yaw_rate = float(limits.get("maxRotationVelocity", 1.0))
     base_height = float(limits.get("defaultBaseHeight", geometry.com_height))
-    friction = float(
-        task.get("contacts", {})
-        .get("contactWrenchConeSoftConstraint", {})
-        .get("frictionCoefficient", 0.5)
-    )
+    friction, friction_source = friction_coefficient(task)
+    if friction_source is None:
+        notes.append(
+            "WARNING the task file lists neither contact_wrench_cone nor friction_force_cone in soft_constraints, so "
+            "there is no friction coefficient to size the centripetal clamp against; %.2f is assumed."
+            % friction
+        )
     step_width = float(task.get("nominal_foothold", {}).get("stepWidth", 0.0))
     foot_separation = planning.get("contact_planning", {}).get("foot_separation", {})
     # foot_separation.maxStepLength, i.e. the REACHABILITY bound, not hlip.maxStepLength which is the
@@ -391,9 +454,11 @@ def derive_parameters(
     )
 
     # THE PENDULUM LENGTH. Every linear-inverted-pendulum expression in this controller - the DCM terminal cost, the
-    # contact planner, and the two heuristics below - should use ONE length, or they disagree about where the robot is
-    # heading. So the configured one wins over the model's, and a disagreement between them is reported rather than
-    # quietly resolved: it means the controller is reasoning about a pendulum the robot does not have.
+    # contact planner, and the two heuristics below - uses ONE length, or they disagree about where the robot is
+    # heading. A comHeight of 0 in either file (both shipped robots that have the keys) is the model's, computed above
+    # the way the C++ computeComHeightAboveFeet() computes it; a positive value is an explicit override, and wins, and a
+    # disagreement between it and the model is reported rather than quietly resolved: it means the controller is
+    # reasoning about a pendulum the robot does not have.
     configured_lip = float(
         task.get("dcm_terminal_cost", {}).get("comHeight", 0.0)
     ) or float(
@@ -405,7 +470,7 @@ def derive_parameters(
         and abs(configured_lip - geometry.com_height) > 0.05 * geometry.com_height
     ):
         notes.append(
-            "WARNING the configured LIP height (%.4f m, dcm_terminal_cost.comHeight) and the model's centre of mass "
+            "WARNING the configured LIP height (%.4f m, dcm_terminal_cost.comHeight) and the model's center of mass "
             "above the feet (%.4f m at initialState) differ by %.0f%%. The configured one is used below so that the "
             "capture point, the DCM terminal cost and the contact planner agree, but one of the two is wrong."
             % (
@@ -415,6 +480,9 @@ def derive_parameters(
             )
         )
 
+    # The keys below are the C++ loader's, one for one: a key this prints that the loader does not read would be pasted
+    # into a task file and silently ignored.
+    # LINT.IfChange(derived_heuristic_keys)
     # ---- base pose ----
     pitch_per_speed = (
         PITCH_AT_MAX_FORWARD_SPEED / max_forward if max_forward > 0 else 0.0
@@ -544,10 +612,17 @@ def derive_parameters(
             math.sqrt(lip_height / GRAVITY),
         )
     )
-    notes.append(
-        "capture_point.maximumOffset = %.0f%% of foot_separation.maxStepLength %.2f = %.3f m"
-        % (100 * CAPTURE_POINT_STEP_FRACTION, max_step_length, capture_clamp)
-    )
+    if max_step_length > 0:
+        notes.append(
+            "capture_point.maximumOffset = %.0f%% of foot_separation.maxStepLength %.2f = %.3f m"
+            % (100 * CAPTURE_POINT_STEP_FRACTION, max_step_length, capture_clamp)
+        )
+    else:
+        notes.append(
+            "capture_point.maximumOffset = %.3f m, the fallback: there is no contact_planning.yaml with a "
+            "foot_separation.maxStepLength to take %.0f%% of"
+            % (capture_clamp, 100 * CAPTURE_POINT_STEP_FRACTION)
+        )
     if step_width > 0 and outward_room < capture_clamp:
         notes.append(
             "WARNING the lateral room is asymmetric: the %.2f m nominal stance leaves %.3f m outward to maxStepWidth "
@@ -556,40 +631,47 @@ def derive_parameters(
             % (step_width, outward_room, max_step_width, inward_room, min_step_width)
         )
 
-    # Raibert's half-stance rule, composed with the anchor rather than duplicating it: the anchor is the stance foot
-    # carried forward by the commanded velocity over the time remaining until touch-down, so at mid-swing it supplies
-    # half a step and this supplies the other half - putting the target one step length ahead of the stance foot.
-    half_step = cadence.step_duration / 2.0
+    # Raibert's rule: the foot lands half a stance of travel ahead of the hip it lands under. The foothold anchor is the
+    # base PREDICTED at touch-down (SwitchedModelReferenceManager::nominalFoothold), i.e. the hip at the moment of
+    # landing, so the lead is a1 = T_stance / 2. Expressed per unit of the stance the foot is about to begin - the
+    # stance fraction, 1/2 - rather than as a constant, because the gait scheduler changes the stance duration with the
+    # commanded speed (slow_walk ... run) and one constant is right in only one of those bands. Bledt's constant a1 is
+    # left at zero.
+    stance = cadence.duty_factor * cadence.stride_duration
     out["translational_stepping"] = {
-        "forwardPerForwardVelocity": round(half_step, 3),
+        "forwardPerForwardVelocity": 0.0,
+        "forwardStanceFraction": 0.5,
         "forwardOffset": 0.0,
-        "lateralPerLateralVelocity": round(half_step, 3),
+        "lateralPerLateralVelocity": 0.0,
+        "lateralStanceFraction": 0.5,
         "lateralOffset": 0.0,
     }
     notes.append(
-        "translational_stepping = half the step period of `%s` (stride %.2f s, step %.2f s) = %.3f s  "
-        "-- RESCALE WITH THE GAIT"
-        % (cadence.name, cadence.stride_duration, cadence.step_duration, half_step)
+        "translational_stepping stance fraction = 1/2 (Raibert): a1 = T_stance / 2, e.g. %.3f s on `%s` "
+        "(stance %.2f s of a %.2f s stride), and it follows the gait the scheduler selects"
+        % (stance / 2.0, cadence.name, stance, cadence.stride_duration)
     )
 
-    # The same half-stance rule applied to the speed the HIP travels at rather than the body: a foot half the stance
-    # width from the centre moves at (stance/2) * psidot under a body yaw rate.
+    # The same half-stance rule applied to the speed the HIP travels at rather than the body: a foot at lever arm r
+    # from the center moves at r * psidot under a body yaw rate, so the lead is r * psidot * T_stance / 2, i.e. a
+    # stance lever of r / 2 per unit of stance duration.
     turn_radius = step_width / 2.0 if step_width > 0 else geometry.hip_half_width
     out["in_place_turning"] = {
-        "forwardPerYawRate": round(turn_radius * half_step, 4),
+        "forwardPerYawRate": 0.0,
+        "forwardStanceLever": round(turn_radius / 2.0, 4),
         "forwardOffset": 0.0,
         "lateralPerYawRate": 0.0,
         "lateralOffset": 0.0,
     }
     notes.append(
-        "in_place_turning.forwardPerYawRate = (stance/2 = %.3f m) * (half step = %.3f s) = %.4f m s/rad, "
-        "i.e. %.3f m per foot at the %.2f rad/s stick"
+        "in_place_turning.forwardStanceLever = (lever r = %.3f m) / 2 = %.4f m/rad per second of stance, i.e. %.3f m per "
+        "foot at the %.2f rad/s stick on `%s`"
         % (
             turn_radius,
-            half_step,
-            turn_radius * half_step,
-            turn_radius * half_step * max_yaw_rate,
+            turn_radius / 2.0,
+            turn_radius / 2.0 * stance * max_yaw_rate,
             max_yaw_rate,
+            cadence.name,
         )
     )
 
@@ -643,17 +725,19 @@ def derive_parameters(
         "maximumForceRatioOfWeight": round(CENTRIPETAL_FRICTION_FRACTION * friction, 3),
     }
     notes.append(
-        "centripetal_acceleration.maximumForceRatioOfWeight = %.0f%% of the mu = %.2f friction budget = %.3f W "
+        "centripetal_acceleration.maximumForceRatioOfWeight = %.0f%% of the mu = %.2f friction budget (%s) = %.3f W "
         "(%.0f N); the largest legitimate demand is m*v*psidot = %.0f N = %.3f W"
         % (
             100 * CENTRIPETAL_FRICTION_FRACTION,
             friction,
+            friction_source or "assumed",
             CENTRIPETAL_FRICTION_FRACTION * friction,
             CENTRIPETAL_FRICTION_FRACTION * friction * geometry.total_weight,
             needed * geometry.total_weight,
             needed,
         )
     )
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/locomotion_heuristics/LocomotionHeuristicConfig.cpp:locomotion_heuristic_keys, //tools/locomotion_heuristics/test_derive_parameters.py:expected_heuristic_names)
     return out, notes
 
 
@@ -670,10 +754,102 @@ def format_block(parameters: Dict[str, Dict[str, float]]) -> str:
         width = max(len(key) for key in values)
         for key, value in values.items():
             # Integers are printed with a decimal point so that a YAML reader keeps them as floats, and so that a
-            # coefficient of exactly 1 does not read as a count.
-            text = ("%g" % value) if value != int(value) else ("%.1f" % value)
+            # coefficient of exactly 1 does not read as a count. Ten significant digits, so that a printed block
+            # pasted into the task file reads back as exactly the derived value and `--check` finds no difference
+            # (%g kept six, and turned 2*pi into a false positive).
+            text = ("%.10g" % value) if value != int(value) else ("%.1f" % value)
             lines.append("    %s %s" % ((key + ":").ljust(width + 2), text))
     return "\n".join(lines)
+
+
+def _normalized_cost_name(name: str) -> str:
+    """A cost name as MpcFormulationConfig.cpp compares it: lower case, without '_', '-' or ' '."""
+    return "".join(c for c in name.lower() if c not in "_- ")
+
+
+def lists_com_and_acom_tracking(task: dict) -> bool:
+    """Whether the task file's `costs` list names the CoM + ACoM tracking cost (which zeroes Q's base-pose block)."""
+    costs = task.get("costs") or []
+    wanted = _normalized_cost_name(COM_AND_ACOM_TRACKING_COST)
+    return any(
+        isinstance(cost, str) and _normalized_cost_name(cost) == wanted
+        for cost in costs
+    )
+
+
+def formulation_warnings(task: dict) -> List[str]:
+    """The report lines about formulation settings that decide whether the heuristics reach the solver at all.
+
+    Each is a list of lines ready to print. They are reported because the failure is silent: the block is read and the
+    layer is built either way.
+    """
+    lines: List[str] = []
+    if RETIRED_ACOM_KEY in task:
+        lines.append(
+            "# ERROR   %s is a retired key: the MPC refuses this task file at start-up. List %s under costs"
+            % (RETIRED_ACOM_KEY, COM_AND_ACOM_TRACKING_COST)
+        )
+        lines.append("#         instead where it was true, and delete the key.")
+    if lists_com_and_acom_tracking(task):
+        lines.append(
+            "# WARNING costs lists %s, so the cost factory zeroes Q's base-pose block and the three"
+            % COM_AND_ACOM_TRACKING_COST
+        )
+        lines.append(
+            "#         base_pose heuristics are INERT on this robot as shipped."
+        )
+    if RETIRED_CONTACT_PLANNING_KEY in task:
+        lines.append(
+            "# ERROR   %s is a retired key: the MPC refuses this task file at start-up. Write"
+            % RETIRED_CONTACT_PLANNING_KEY
+        )
+        lines.append(
+            "#         %s: %s where it was true, and delete the key."
+            % (CONTACT_SCHEDULE_SOURCE_KEY, CONTACT_PLANNER_SCHEDULE_SOURCE)
+        )
+    if task.get(CONTACT_SCHEDULE_SOURCE_KEY) == CONTACT_PLANNER_SCHEDULE_SOURCE:
+        lines.append(
+            "# WARNING %s is %s, so the foothold heuristics are REJECTED at start-up: the planner"
+            % (CONTACT_SCHEDULE_SOURCE_KEY, CONTACT_PLANNER_SCHEDULE_SOURCE)
+        )
+        lines.append("#         supplies footholds itself.")
+    if RETIRED_DCM_TERMINAL_COST_KEY in task:
+        lines.append(
+            "# ERROR   %s is a retired key: the MPC refuses this task file at start-up. List %s under costs"
+            % (RETIRED_DCM_TERMINAL_COST_KEY, DCM_TERMINAL_COST)
+        )
+        lines.append(
+            "#         in place of terminal_cost where it was true, and delete the key."
+        )
+    if RETIRED_BASIS_KEY in task:
+        lines.append(
+            "# ERROR   %s is a retired key: the MPC refuses this task file at start-up. Write"
+            % RETIRED_BASIS_KEY
+        )
+        lines.append(
+            "#         %s: %s where it was true, and delete the key."
+            % (CONTACT_INPUT_PARAMETERIZATION_KEY, BASIS_VECTOR_CONTACT_INPUTS)
+        )
+    if task.get(CONTACT_INPUT_PARAMETERIZATION_KEY) == BASIS_VECTOR_CONTACT_INPUTS:
+        lines.append(
+            "# NOTE    %s is %s, so centripetal_acceleration - the one heuristic whose"
+            % (CONTACT_INPUT_PARAMETERIZATION_KEY, BASIS_VECTOR_CONTACT_INPUTS)
+        )
+        lines.append(
+            "#         force is horizontal - puts the contact-force reference on the forward-kinematics path."
+        )
+    weights = task.get("task_space_foot_cost_weights", {})
+    if (
+        float(weights.get("pos_x", 0.0)) == 0.0
+        and float(weights.get("pos_y", 0.0)) == 0.0
+    ):
+        lines.append(
+            "# NOTE    task_space_foot_cost_weights.pos_x and pos_y are both 0, so a foothold heuristic's landing"
+        )
+        lines.append(
+            "#         target is computed and then multiplied by zero. Raise them before sweeping one."
+        )
+    return lines
 
 
 def shipped_parameters(task: dict) -> Dict[str, Dict[str, float]]:
@@ -706,7 +882,7 @@ def compare(
                 differences += 1
             elif abs(current - value) > 1e-6:
                 print(
-                    "  %-28s %-26s shipped %-10g derived %g"
+                    "  %-28s %-26s shipped %-14.10g derived %.10g"
                     % (name, key, current, value)
                 )
                 differences += 1
@@ -825,36 +1001,9 @@ def main() -> int:
         print("# %s" % note)
     print("#")
 
-    # The two formulation toggles that decide whether any of this reaches the solver. Reported because the failure is
-    # silent: the block is read and the layer is built either way.
-    if task.get("useComAndAcomTracking"):
-        print(
-            "# WARNING useComAndAcomTracking is true, so the cost factory zeroes Q's base-pose block and the three"
-        )
-        print("#         base_pose heuristics are INERT on this robot as shipped.")
-    if task.get("useContactPlanning"):
-        print(
-            "# WARNING useContactPlanning is true, so the foothold heuristics are REJECTED at start-up: the planner"
-        )
-        print("#         supplies footholds itself.")
-    if task.get("useContactBasisVectorInputs"):
-        print(
-            "# NOTE    useContactBasisVectorInputs is true, so centripetal_acceleration - the one heuristic whose"
-        )
-        print(
-            "#         force is horizontal - puts the contact-force reference on the forward-kinematics path."
-        )
-    weights = task.get("task_space_foot_cost_weights", {})
-    if (
-        float(weights.get("pos_x", 0.0)) == 0.0
-        and float(weights.get("pos_y", 0.0)) == 0.0
-    ):
-        print(
-            "# NOTE    task_space_foot_cost_weights.pos_x and pos_y are both 0, so a foothold heuristic's landing"
-        )
-        print(
-            "#         target is computed and then multiplied by zero. Raise them before sweeping one."
-        )
+    # The formulation settings that decide whether any of this reaches the solver.
+    for line in formulation_warnings(task):
+        print(line)
 
     if args.check:
         print()

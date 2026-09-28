@@ -27,6 +27,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <string>
 
+#include "absl/status/status.h"
+
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
 
@@ -54,8 +56,11 @@ class ContactPlannerInterface {
    */
   virtual ContactPlan plan(const ContactPlannerInput& input) = 0;
 
-  /** Replaces the configuration. Called between plans, never during one. */
-  virtual void setConfig(const ContactPlanningConfig& config) = 0;
+  /**
+   * Replaces the configuration. Called between plans, never during one. A configuration the planner cannot run is
+   * refused with an InvalidArgument naming the key (ContactPlanningConfig::validateStatus()), and the running one kept.
+   */
+  virtual absl::Status setConfig(const ContactPlanningConfig& config) = 0;
 
   /** Drops whatever the planner carries over between plans (a warm start, the previous plan). */
   virtual void reset() = 0;

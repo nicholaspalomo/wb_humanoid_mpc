@@ -31,6 +31,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/command/TargetTrajectoriesCalculatorBase.h"
 
 #include <algorithm>  // For std::clamp
+#include <functional>
+#include <mutex>
+#include <utility>
 
 #include <ocs2_core/misc/LoadData.h>
 
@@ -55,7 +58,8 @@ void TargetTrajectoriesCalculatorBase::reloadCommandLimits(const std::string& re
   // loadData takes a reference to the value it writes, which an atomic cannot provide, so each is loaded into a local
   // seeded with the current value: a key that is absent from the file then leaves its limit where it was, exactly as
   // it does at construction.
-  const auto load = [&referenceFile](const std::string& key, std::atomic<scalar_t>& target) {
+  const std::function<void(const std::string&, std::atomic<scalar_t>&)> load = [&referenceFile](const std::string& key,
+                                                                                                std::atomic<scalar_t>& target) {
     scalar_t value = target.load();
     loadData::loadCppDataType(referenceFile, key, value);
     target.store(value);
@@ -69,6 +73,34 @@ void TargetTrajectoriesCalculatorBase::reloadCommandLimits(const std::string& re
   load("maxDeltaPelvisHeight", maxDeltaPelvisHeight_);
   load("maxRotationVelocity", maxRotationVelocity_);
   // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_ros2/src/ros_comm/VelocityCommandKeyboardPublisher.cpp:keyboard_command_limits)
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+void TargetTrajectoriesCalculatorBase::reset() {
+  filteredVelocityCommand_.setZero();
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+void TargetTrajectoriesCalculatorBase::setTerrainHeightSource(std::function<scalar_t()> terrainHeightSource) {
+  std::lock_guard<std::mutex> lock(terrainHeightSourceMutex_);
+  terrainHeightSource_ = std::move(terrainHeightSource);
+}
+
+scalar_t TargetTrajectoriesCalculatorBase::getTerrainHeight() const {
+  std::lock_guard<std::mutex> lock(terrainHeightSourceMutex_);
+  return terrainHeightSource_ ? terrainHeightSource_() : mpcRobotModelPtr_->modelSettings.terrainHeight;
+}
+
+scalar_t TargetTrajectoriesCalculatorBase::commandedBaseHeight(scalar_t commandedPelvisHeight) const {
+  const scalar_t heightAboveGround =
+      commandedPelvisHeight > kMinCommandedPelvisHeight ? commandedPelvisHeight : scalar_t(defaultBaseHeight_);
+  return getTerrainHeight() + heightAboveGround;
 }
 
 /******************************************************************************************************/
@@ -99,10 +131,10 @@ vector6_t TargetTrajectoriesCalculatorBase::getDeltaBaseTarget(const vector4_t& 
   // base p_x, p_y are relative to current state
   target(0) = currentPoseTarget(0) + globalFrameDeltaX;
   target(1) = currentPoseTarget(1) + globalFrameDeltaY;
-  // base z relative to the default height
+  // base z relative to the default height above the ground
   const scalar_t maxDeltaPelvisHeight = maxDeltaPelvisHeight_;
-  scalar_t deltaPelvisHeight = std::clamp(commadLinePoseTarget(2), -maxDeltaPelvisHeight, maxDeltaPelvisHeight);
-  target(2) = defaultBaseHeight_ + deltaPelvisHeight;
+  const scalar_t deltaPelvisHeight = std::clamp(commadLinePoseTarget(2), -maxDeltaPelvisHeight, maxDeltaPelvisHeight);
+  target(2) = getTerrainHeight() + defaultBaseHeight_ + deltaPelvisHeight;
   // theta_z relative to current
   target(3) = currentPoseTarget(3) + commadLinePoseTarget(3) * M_PI / 180.0;
   target(4) = 0.0;
@@ -147,13 +179,15 @@ vector4_t TargetTrajectoriesCalculatorBase::filterAndTransformVelCommandToLocal(
 
 vector6_t TargetTrajectoriesCalculatorBase::integrateTargetBasePose(const vector6_t& currentPose,
                                                                     const vector3_t& averageVel,
-                                                                    scalar_t deltaPelvisHeight,
+                                                                    scalar_t baseHeight,
                                                                     scalar_t deltaT) const {
   vector6_t targetPose = currentPose;
 
   targetPose[0] += averageVel[0] * deltaT;
   targetPose[1] += averageVel[1] * deltaT;
-  targetPose[2] = (deltaPelvisHeight > 0.1) ? deltaPelvisHeight : scalar_t(defaultBaseHeight_);
+  // A world height already, ground included (commandedBaseHeight()). The pelvis-height fallback is not applied to it a
+  // second time, as it used to be: on ground below z = 0.1 m a correct world height would read as "no command".
+  targetPose[2] = baseHeight;
   targetPose[3] += averageVel[2] * deltaT;
   targetPose[4] = 0.0;
   targetPose[5] = 0.0;

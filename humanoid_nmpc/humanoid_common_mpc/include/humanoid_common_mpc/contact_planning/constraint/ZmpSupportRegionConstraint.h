@@ -51,10 +51,10 @@ namespace ocs2::humanoid {
  * This is not repaired here, and the reason is worth stating rather than leaving as a TODO. Cutting the two missing
  * hull edges needs the row n'(zmp - p) <= r with n normal to (p_L - p_R); the foot positions are DECISION VARIABLES,
  * so that row is bilinear and cannot be expressed by LipConstraintBase, which emits affine rows only. It would have
- * to be linearised about a nominal foot separation, which is a modelling choice that changes the feasible set of a
+ * to be linearized about a nominal foot separation, which is a modeling choice that changes the feasible set of a
  * SOFT constraint the whole-body MPC re-solves anyway against the true wrench cone. That makes it a conservatism
  * decision to be validated in simulation, not a repair to be folded into a correctness pass - so it belongs behind
- * its own configuration key, defaulting to the present behaviour, rather than being switched on here.
+ * its own configuration key, defaulting to the present behavior, rather than being switched on here.
  */
 class ZmpSupportRegionConstraint final : public LipConstraintBase {
  public:

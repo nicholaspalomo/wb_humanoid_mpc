@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <functional>
 #include <string>
 
 #include "mujoco_sim_interface/MujocoSimInterface.h"
@@ -67,7 +68,8 @@ int textWidth(const char* text, const mjrContext* con) {
 
 void drawLabel(int left, int bottom, int width, int height, const char* text, const mjrContext* con) {
   if (width <= 0 || height <= 0) return;
-  mjr_label(mjrRect{left, bottom, width, height}, mjFONT_NORMAL, text, 0.0f, 0.0f, 0.0f, 0.0f, kText.r, kText.g, kText.b, con);
+  mjr_label(mjrRect{left, bottom, width, height}, mjFONT_NORMAL, text, /*r=*/0.0f, /*g=*/0.0f, /*b=*/0.0f, /*a=*/0.0f, kText.r, kText.g,
+            kText.b, con);
 }
 
 /// Combined state of one contact point in one sample: bit 0 physics touching, bit 1 plan contact, bit 2 plan known.
@@ -115,7 +117,7 @@ void ContactTimelineVisualization::renderOverlay(const VisualizationFrame& frame
   if (stripW < 120 || panelH > viewport.height / 2) return;
   fillRect(panelL, panelB, panelW, panelH, kPanelBackground);
 
-  const auto xOf = [&](double time) {
+  const std::function<int(double)> xOf = [&](double time) {
     const double fraction = std::clamp((time - start) / window, 0.0, 1.0);
     return x0 + static_cast<int>(std::lround(fraction * stripW));
   };
@@ -126,7 +128,7 @@ void ContactTimelineVisualization::renderOverlay(const VisualizationFrame& frame
   drawLabel(panelL + pad, headerB, std::max(nameW + tagW, textWidth(title, con) + 8), headerH, title, con);
   {
     int lx = x0;
-    const auto legend = [&](const Rgba& color, const char* text) {
+    const std::function<void(const Rgba&, const char*)> legend = [&](const Rgba& color, const char* text) {
       const int textW = textWidth(text, con) + 8;
       if (lx + 18 + textW > x1) return;  // no room: the rest of the legend is dropped
       fillRect(lx, headerB + 4, fontH - 4, headerH - 8, color);
@@ -185,7 +187,7 @@ void ContactTimelineVisualization::renderOverlay(const VisualizationFrame& frame
   const int ticksH = stripsTop - (axisB + axisH);
   for (int secondsAgo = 0; secondsAgo <= static_cast<int>(window); ++secondsAgo) {
     const int x = xOf(now - secondsAgo);
-    fillRect(x, axisB + axisH, 1, ticksH, kTick);
+    fillRect(x, axisB + axisH, /*width=*/1, ticksH, kTick);
     char text[16];
     if (secondsAgo == 0) {
       std::snprintf(text, sizeof(text), "now");

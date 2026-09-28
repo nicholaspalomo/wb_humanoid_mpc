@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <functional>
 #include <limits>
 
 namespace robot::mujoco_sim_interface {
@@ -51,7 +52,7 @@ struct Bounds {
 
 Bounds boundsOf(const ContactPatchCorners& corners) {
   Bounds b;
-  for (const auto& corner : corners) {
+  for (const std::array<double, 2>& corner : corners) {
     b.xMin = std::min(b.xMin, corner[0]);
     b.xMax = std::max(b.xMax, corner[0]);
     b.yMin = std::min(b.yMin, corner[1]);
@@ -71,7 +72,7 @@ std::vector<std::array<double, 3>> contactPatchWorldCorners(const TargetContactP
   const double c = std::cos(patch.yaw), s = std::sin(patch.yaw);
   std::vector<std::array<double, 3>> world;
   world.reserve(corners.size());
-  for (const auto& corner : corners) {
+  for (const std::array<double, 2>& corner : corners) {
     world.push_back({patch.x + c * corner[0] - s * corner[1], patch.y + s * corner[0] + c * corner[1], patch.z + heightOffset});
   }
   return world;
@@ -89,7 +90,7 @@ int addContactPatchGeoms(mjvScene* scene,
   const double c = std::cos(patch.yaw), s = std::sin(patch.yaw);
   const mjtNum mat[9] = {c, -s, 0.0, s, c, 0.0, 0.0, 0.0, 1.0};  // row-major rotation about z by the yaw
   // mjv_initGeom leaves the object fields alone, so every geom is cleared and marked as a free decoration first.
-  const auto nextGeom = [scene]() {
+  const std::function<mjvGeom*()> nextGeom = [scene]() {
     mjvGeom* geom = &scene->geoms[scene->ngeom++];
     std::memset(geom, 0, sizeof(mjvGeom));
     geom->objtype = mjOBJ_UNKNOWN;
@@ -99,14 +100,14 @@ int addContactPatchGeoms(mjvScene* scene,
     geom->segid = -1;
     return geom;
   };
-  const auto finish = [&style](mjvGeom* geom) {
+  const std::function<void(mjvGeom*)> finish = [&style](mjvGeom* geom) {
     geom->category = mjCAT_DECOR;
     geom->emission = style.emission;
   };
   const Bounds bounds = boundsOf(corners);
 
   if (style.fill) {
-    // A thin box centred on the bounds of the corners, rotated by the yaw: exactly the patch for a rectangle.
+    // A thin box centered on the bounds of the corners, rotated by the yaw: exactly the patch for a rectangle.
     const double cx = 0.5 * (bounds.xMin + bounds.xMax), cy = 0.5 * (bounds.yMin + bounds.yMax);
     const mjtNum size[3] = {0.5 * (bounds.xMax - bounds.xMin), 0.5 * (bounds.yMax - bounds.yMin), kSlabHalfThickness};
     const mjtNum pos[3] = {patch.x + c * cx - s * cy, patch.y + s * cx + c * cy, patch.z + kSlabHalfThickness};
@@ -124,7 +125,7 @@ int addContactPatchGeoms(mjvScene* scene,
     const mjtNum from[3] = {a[0], a[1], a[2]};
     const mjtNum to[3] = {b[0], b[1], b[2]};
     mjvGeom* edge = nextGeom();
-    mjv_initGeom(edge, mjGEOM_CAPSULE, nullptr, nullptr, nullptr, rgba);
+    mjv_initGeom(edge, mjGEOM_CAPSULE, /*size=*/nullptr, /*pos=*/nullptr, /*mat=*/nullptr, rgba);
     mjv_connector(edge, mjGEOM_CAPSULE, kOutlineRadius, from, to);
     finish(edge);
   }
@@ -134,7 +135,7 @@ int addContactPatchGeoms(mjvScene* scene,
     const mjtNum from[3] = {patch.x, patch.y, patch.z + lineHeight};
     const mjtNum to[3] = {patch.x + length * c, patch.y + length * s, patch.z + lineHeight};
     mjvGeom* arrow = nextGeom();
-    mjv_initGeom(arrow, mjGEOM_ARROW, nullptr, nullptr, nullptr, rgba);
+    mjv_initGeom(arrow, mjGEOM_ARROW, /*size=*/nullptr, /*pos=*/nullptr, /*mat=*/nullptr, rgba);
     mjv_connector(arrow, mjGEOM_ARROW, kArrowWidth, from, to);
     finish(arrow);
   }

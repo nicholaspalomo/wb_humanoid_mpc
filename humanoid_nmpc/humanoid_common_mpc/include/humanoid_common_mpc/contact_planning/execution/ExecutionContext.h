@@ -33,7 +33,7 @@ namespace ocs2::humanoid {
 
 /**
  * What the execution rules of the reference manager read at one solver cycle: the measured contact state, the active
- * plan, the measured and predicted centre of mass, and the per-foot touch-down shifts the cadence rule computes for
+ * plan, the measured and predicted center of mass, and the per-foot touch-down shifts the cadence rule computes for
  * the schedule adaptation. Filled by ContactPlanningReferenceManager::modifyReferences() (and, for the tests, by
  * adaptScheduleToContactEvents()).
  */
@@ -45,7 +45,7 @@ struct ExecutionContext {
   bool hasPredictedComState = false;
   vector2_t com = vector2_t::Zero();  // measured CoM position / velocity at this cycle
   vector2_t comVelocity = vector2_t::Zero();
-  // Measured base position at this cycle. A rule that wants to command a centre-of-mass motion has to write it into a
+  // Measured base position at this cycle. A rule that wants to command a center-of-mass motion has to write it into a
   // reference state that carries the base pose, and com - basePosition is the horizontal offset between the two.
   vector2_t basePosition = vector2_t::Zero();
   vector2_t predictedCom = vector2_t::Zero();  // the NMPC's own prediction for this cycle

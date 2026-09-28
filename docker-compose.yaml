@@ -21,6 +21,15 @@ services:
     user: "${CONTAINER_USER:-ubuntu}"
     privileged: true
 
+    # Memory cap, and no swap beyond it, so an overcommitted build or simulation is ended by the OOM killer INSIDE the
+    # container within seconds instead of pushing the host into swap until it has to be power-cycled. The value is
+    # written to .env by tools/resource_limits/set_container_memory_limit.sh (85% of the host's RAM), which
+    # devcontainer.json runs before every start; unset, it is 0 and the container is unlimited.
+    # LINT.IfChange(container_memory_limit)
+    mem_limit: ${WB_CONTAINER_MEMORY_LIMIT:-0}
+    memswap_limit: ${WB_CONTAINER_MEMORY_LIMIT:-0}
+    # LINT.ThenChange(//tools/resource_limits/set_container_memory_limit.sh, //tools/resource_limits/test_resource_limits.py:container_memory_limit)
+
     # Run tini as PID 1 so that orphaned processes are reaped. Without it PID 1 is the `sleep infinity` below, which
     # never calls wait(), so every process orphaned into it (the Xvfb / x11vnc / websockify trio that `make start-vnc`
     # restarts, ros2 nodes, bazel workers) stays in the process table as a zombie for the life of the container. A
@@ -57,7 +66,9 @@ services:
       # NVIDIA GPU environment for JAX / MJX acceleration
       NVIDIA_VISIBLE_DEVICES: "all"
       NVIDIA_DRIVER_CAPABILITIES: "all"
-      # Tell bash to source our shell init on interactive shells
+      # Every NON-interactive bash (Makefile recipes, `docker exec ... bash -c`, bash scripts) sources this file, which
+      # gives it the ROS 2 + Bazel environment; interactive shells get it from ~/.bashrc. Anything it runs therefore
+      # runs in every script: it loads tab completion (which calls `bazel`) in interactive shells only.
       BASH_ENV: /etc/profile.d/wb_humanoid_mpc.sh
       # LINT.IfChange(vnc_resolution)
       # VNC virtual framebuffer resolution (auto-detected from host or override)

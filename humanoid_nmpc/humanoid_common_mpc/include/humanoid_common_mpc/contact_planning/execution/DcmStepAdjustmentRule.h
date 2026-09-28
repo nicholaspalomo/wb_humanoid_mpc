@@ -31,7 +31,7 @@ namespace ocs2::humanoid {
 
 /**
  * `dcm_step_adjustment`: the planned landing spot of every swing in flight is shifted by the DCM (capture point) error
- * between the measured centre of mass and the NMPC's prediction, propagated to touch-down and clipped to the planner's
+ * between the measured center of mass and the NMPC's prediction, propagated to touch-down and clipped to the planner's
  * reachable region.
  */
 class DcmStepAdjustmentRule final : public ExecutionRule {

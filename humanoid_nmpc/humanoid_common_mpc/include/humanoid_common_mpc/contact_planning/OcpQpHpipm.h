@@ -47,7 +47,7 @@ constexpr scalar_t kOcpQpInfiniteBound = 1.0e6;
  * State box constraints:                      lbx <= x[idxbx] <= ubx
  * General constraints:                        lg <= C x + D u <= ug
  * Soft general constraints:                   rows listed in softGeneralIndices get slacks s_l, s_u >= 0 that relax the
- *                                             lower/upper bound and are penalised by 0.5 Z s^2 + z s.
+ *                                             lower/upper bound and are penalized by 0.5 Z s^2 + z s.
  *
  * All matrices are Eigen column-major, which is the layout HPIPM expects.
  */
@@ -84,7 +84,7 @@ struct OcpQpStage {
   int numInputs() const { return static_cast<int>(R.rows()); }
   int numGeneralConstraints() const { return static_cast<int>(C.rows()); }
 
-  /** Allocates zero-initialised data for the given sizes (no constraints). */
+  /** Allocates zero-initialized data for the given sizes (no constraints). */
   static OcpQpStage Zero(int nx, int nu, bool hasDynamics);
 };
 

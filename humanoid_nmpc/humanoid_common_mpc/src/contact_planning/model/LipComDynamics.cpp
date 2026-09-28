@@ -26,23 +26,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/model/LipComDynamics.h"
 
 #include <cmath>
-#include <sstream>
 #include <stdexcept>
 
+#include "absl/strings/str_cat.h"
 #include "humanoid_common_mpc/contact_planning/model/LipBlockIndices.h"
 
 namespace ocs2::humanoid {
 
 std::string LipComDynamics::describe() const {
-  std::ostringstream out;
-  out << "c_{k+1} = LIP(c_k, v_k, zmp_k), zero-order hold, omega = " << omega_ << " 1/s (comHeight " << comHeight_ << " m)";
-  return out.str();
+  return absl::StrCat("c_{k+1} = LIP(c_k, v_k, zmp_k), zero-order hold, omega = ", omega_, " 1/s (comHeight ", comHeight_, " m)");
 }
 
 void LipComDynamics::configure(const ContactPlanningConfig& config) {
-  if (config.shared.comHeight <= 0.0 || config.shared.gravity <= 0.0) {
-    throw std::invalid_argument("[lip_com] comHeight and gravity must be positive");
-  }
   comHeight_ = config.shared.comHeight;
   omega_ = config.omega();
 }

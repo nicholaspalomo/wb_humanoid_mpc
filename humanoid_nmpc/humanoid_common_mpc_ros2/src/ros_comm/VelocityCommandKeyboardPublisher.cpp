@@ -53,7 +53,7 @@ VelocityCommandKeyboardPublisher::VelocityCommandKeyboardPublisher(rclcpp::Node:
   assert(targetCommandLimits_.size() == 4);
   // Target publisher
   commandPublisherPtr_ =
-      node_->create_publisher<humanoid_mpc_msgs::msg::WalkingVelocityCommand>(topicPrefix + "/walking_velocity_command", 1);
+      node_->create_publisher<humanoid_mpc_msgs::msg::WalkingVelocityCommand>(topicPrefix + "/walking_velocity_command", /*qos=*/1);
 }
 
 /******************************************************************************************************/
@@ -103,7 +103,7 @@ void VelocityCommandKeyboardPublisher::reloadCommandLimits() {
 /******************************************************************************************************/
 vector4_t VelocityCommandKeyboardPublisher::getCommandLine() {
   // get command line as one long string
-  auto shouldTerminate = []() { return !rclcpp::ok(); };
+  bool (*shouldTerminate)() = []() { return !rclcpp::ok(); };
   const std::string line = getCommandLineString(shouldTerminate);
 
   // a line to words

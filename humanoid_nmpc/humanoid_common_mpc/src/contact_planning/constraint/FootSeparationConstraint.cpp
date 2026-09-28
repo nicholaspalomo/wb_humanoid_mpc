@@ -26,27 +26,21 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/constraint/FootSeparationConstraint.h"
 
 #include <cmath>
-#include <sstream>
-#include <stdexcept>
+
+#include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
 
 static_assert(N_CONTACTS == 2, "the separation rows are written for a biped");
 
 std::string FootSeparationConstraint::describe() const {
-  std::ostringstream out;
-  out << "|e_x . (p_L - p_R)| <= " << params_.maxStepLength << " m, " << params_.minStepWidth
-      << " <= e_y . (p_L - p_R) <= " << params_.maxStepWidth << " m at every node (first-order in the heading), " << penaltyText();
-  return out.str();
+  return absl::StrCat("|e_x . (p_L - p_R)| <= ", params_.maxStepLength, " m, ", params_.minStepWidth,
+                      " <= e_y . (p_L - p_R) <= ", params_.maxStepWidth, " m at every node (first-order in the heading), ", penaltyText());
 }
 
 void FootSeparationConstraint::configure(const ContactPlanningConfig& config) {
-  if (config.footSeparation.minStepWidth <= 0.0 || config.footSeparation.maxStepWidth < config.footSeparation.minStepWidth) {
-    throw std::invalid_argument("[foot_separation] need 0 < minStepWidth <= maxStepWidth");
-  }
-  if (config.footSeparation.maxStepLength <= 0.0) throw std::invalid_argument("[foot_separation] maxStepLength must be positive");
   params_ = config.footSeparation;
-  configurePenalty(config, config.footSeparation.slack, "foot_separation");
+  configurePenalty(config, config.footSeparation.slack);
 }
 
 void FootSeparationConstraint::addRows(const ContactPlanningContext& ctx, int node, RowBuilder& rows) const {
@@ -60,7 +54,9 @@ void FootSeparationConstraint::addRows(const ContactPlanningContext& ctx, int no
     const vector2_t dNominal =
         ctx.hasHeading() ? vector2_t(ctx.nominal->feet[static_cast<size_t>(node)][0] - ctx.nominal->feet[static_cast<size_t>(node)][1])
                          : vector2_t(vector2_t::Zero());
-    const auto [g, offset] = ctx.frameTerm(node, axis, dNominal);
+    const std::pair<scalar_t, scalar_t> frameTerm = ctx.frameTerm(node, axis, dNominal);
+    const scalar_t g = frameTerm.first;
+    const scalar_t offset = frameTerm.second;
     if (ctx.hasHeading()) xc.push_back({idx_.heading, g});
     if (axis == 0) {
       rows.addSoft(xc, {}, -params_.maxStepLength - offset, params_.maxStepLength - offset, penalty_);

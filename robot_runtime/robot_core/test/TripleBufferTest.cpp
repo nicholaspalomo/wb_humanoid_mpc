@@ -22,7 +22,7 @@ struct TestData {
 
 TEST(TripleBufferTest, DefaultConstructed_ReadsDefaultValue) {
   TripleBuffer<TestData> buf;
-  const auto& data = buf.readSlot();
+  const TestData& data = buf.readSlot();
   EXPECT_EQ(data.value, 0);
   EXPECT_DOUBLE_EQ(data.extra, 0.0);
 }
@@ -30,7 +30,7 @@ TEST(TripleBufferTest, DefaultConstructed_ReadsDefaultValue) {
 TEST(TripleBufferTest, InitialValue_AllSlotsInitialized) {
   TestData init{42, 3.14};
   TripleBuffer<TestData> buf(init);
-  const auto& data = buf.readSlot();
+  const TestData& data = buf.readSlot();
   EXPECT_EQ(data.value, 42);
   EXPECT_DOUBLE_EQ(data.extra, 3.14);
 }
@@ -119,7 +119,7 @@ TEST(TripleBufferTest, ConcurrentSPSC_ReaderSeesMonotonicallyIncreasingValues) {
       buf.writeSlot() = i;
       buf.publishWrite();
     }
-    done.store(true, std::memory_order_release);
+    done.store(true, std::memory_order_release);  // NOLINT(argument-comment): libstdc++ names atomic::store's value parameter __i
   });
 
   // Consumer thread: read values, verify monotonically increasing
@@ -157,13 +157,13 @@ TEST(TripleBufferTest, ConcurrentSPSC_NoDataRace_ConsistentStruct) {
 
     void fill(int val) {
       header = val;
-      for (auto& p : payload) p = val;
+      for (int& p : payload) p = val;
       footer = val;
     }
 
     bool isConsistent() const {
       if (header != footer) return false;
-      for (const auto& p : payload) {
+      for (const int& p : payload) {
         if (p != header) return false;
       }
       return true;
@@ -179,7 +179,7 @@ TEST(TripleBufferTest, ConcurrentSPSC_NoDataRace_ConsistentStruct) {
       buf.writeSlot().fill(i);
       buf.publishWrite();
     }
-    done.store(true, std::memory_order_release);
+    done.store(true, std::memory_order_release);  // NOLINT(argument-comment): libstdc++ names atomic::store's value parameter __i
   });
 
   int readCount = 0;
@@ -208,13 +208,13 @@ TEST(TripleBufferTest, ReaderNeverBlocks_BoundedLatency) {
   constexpr int kNumReads = 10000;
 
   // Measure reader latency without any writer
-  auto start = std::chrono::steady_clock::now();
+  const std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
   for (int i = 0; i < kNumReads; ++i) {
     buf.acquireRead();
     (void)buf.readSlot();
   }
-  auto elapsed = std::chrono::steady_clock::now() - start;
-  auto avgNs = std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count() / kNumReads;
+  const std::chrono::steady_clock::duration elapsed = std::chrono::steady_clock::now() - start;
+  const std::chrono::nanoseconds::rep avgNs = std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count() / kNumReads;
 
   // Reader should never block — avg latency should be well under 1µs
   EXPECT_LT(avgNs, 1000) << "Average read latency " << avgNs << "ns exceeds 1µs";

@@ -44,7 +44,11 @@ ForceWeightedSlipConstraint::ForceWeightedSlipConstraint(const EndEffectorKinema
       normalForceRow_(normalContactForceRow(mpcRobotModel, contactPointIndex)) {
   CHECK_EQ(endEffectorKinematicsPtr_->getIds().size(), 1U)
       << "[ForceWeightedSlipConstraint] expects exactly one end-effector, the contact frame of this foot";
-  CHECK_GT(forceReference, 0.0) << "[ForceWeightedSlipConstraint] contact_implicit.forceReference must be positive";
+  // The last line of defense, not the check an operator should meet: validateContactImplicitConfig() is the
+  // Status-returning check of the same task-file values, for the caller to run before it builds any term. The force
+  // reference is not a task-file key at all.
+  CHECK_GT(forceReference, 0.0) << "[ForceWeightedSlipConstraint] the force reference must be positive; it is the robot's weight, "
+                                   "robotMass * g, taken from the URDF rather than configured";
   CHECK_GT(velocityReference, 0.0) << "[ForceWeightedSlipConstraint] contact_implicit.velocityReference must be positive";
   CHECK_GT(angularVelocityReference, 0.0) << "[ForceWeightedSlipConstraint] contact_implicit.angularVelocityReference must be positive";
 }

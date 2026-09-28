@@ -25,19 +25,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/logic/DoubleSupportPenaltyCost.h"
 
-#include <sstream>
-#include <stdexcept>
+#include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
 
 std::string DoubleSupportPenaltyCost::describe() const {
-  std::ostringstream out;
-  out << cost_ << " per decided node with every foot in contact (prices standing as well as the weight transfer)";
-  return out.str();
+  return absl::StrCat(cost_, " per decided node with every foot in contact (prices standing as well as the weight transfer)");
 }
 
 void DoubleSupportPenaltyCost::configure(const ContactPlanningConfig& config) {
-  if (config.doubleSupportPenalty.cost < 0.0) throw std::invalid_argument("[double_support_penalty] cost must be non-negative");
   cost_ = config.doubleSupportPenalty.cost;
 }
 

@@ -26,22 +26,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/model/HeadingDoubleIntegrator.h"
 
 #include <algorithm>
-#include <sstream>
-#include <stdexcept>
+
+#include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
 
 std::string HeadingDoubleIntegrator::describe() const {
-  std::ostringstream out;
-  out << "theta'' = (tau_L + tau_R) / I_zz (I_zz from the model at every plan), psi_{i,k+1} = psi_{i,k} + dpsi_{i,k}, |tau_i| <= "
-      << torqueBound_ << " N m, |dpsi_i| <= 2 pi";
-  return out.str();
+  return absl::StrCat(
+      "theta'' = (tau_L + tau_R) / I_zz (I_zz from the model at every plan), psi_{i,k+1} = psi_{i,k} + dpsi_{i,k}, |tau_i| <= ",
+      torqueBound_, " N m, |dpsi_i| <= 2 pi");
 }
 
 void HeadingDoubleIntegrator::configure(const ContactPlanningConfig& config) {
   const scalar_t torsion = config.yawTorqueBudget.torsionalFrictionTorque;
   const scalar_t couple = config.yawTorqueBudget.doubleSupportYawCouple;
-  if (torsion < 0.0 || couple < 0.0) throw std::invalid_argument("[heading_double_integrator] yaw torque limits must be >= 0");
   // No foot ever carries more than the whole weight's torsion alone or half of the double-support budget.
   torqueBound_ = std::max(torsion, 0.5 * (torsion + couple));
 }

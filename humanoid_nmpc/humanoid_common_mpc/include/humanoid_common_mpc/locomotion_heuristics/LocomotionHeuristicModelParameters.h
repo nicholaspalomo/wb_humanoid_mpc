@@ -52,7 +52,7 @@ struct LocomotionHeuristicModelParameters {
   scalar_t totalMass = 0.0;    // [kg]
   scalar_t gravity = 9.81;     // [m/s^2]
   scalar_t totalWeight = 0.0;  // [N] totalMass * gravity, precomputed because every wrench heuristic divides by it
-  /** [m] centre of mass above the mean foot height in the nominal standing posture: the pendulum length. */
+  /** [m] center of mass above the mean foot height in the nominal standing posture: the pendulum length. */
   scalar_t nominalComHeight = 0.0;
   /**
    * [m] position of each leg's hip in the BASE frame, at the nominal posture, with the vertical component dropped.

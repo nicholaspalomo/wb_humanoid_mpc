@@ -56,10 +56,25 @@ VECTOR_T<SCALAR_T> computeStateDerivative(const VECTOR_T<SCALAR_T>& state,
                                           const PinocchioInterfaceTpl<SCALAR_T>& pinInterface,
                                           WBAccelMpcRobotModel<SCALAR_T>& mpcRobotModel);
 
+/**
+ * Floating-base inverse dynamics of the whole-body MPC's state and input: computeJointTorques of
+ * humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h with the input's joint accelerations and world-frame
+ * contact wrenches. The base acceleration it carries is the one the whole-body dynamics above integrate.
+ */
 template <typename SCALAR_T>
 VECTOR_T<SCALAR_T> computeJointTorques(const VECTOR_T<SCALAR_T>& state,
                                        const VECTOR_T<SCALAR_T>& input,
                                        PinocchioInterfaceTpl<SCALAR_T>& pinInterface,
                                        WBAccelMpcRobotModel<SCALAR_T>& mpcRobotModel);
+
+/**
+ * The same for a base held still from outside (the gantry): computeBaseHeldJointTorques of
+ * humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h. Instantiated for scalar_t.
+ */
+template <typename SCALAR_T>
+VECTOR_T<SCALAR_T> computeBaseHeldJointTorques(const VECTOR_T<SCALAR_T>& state,
+                                               const VECTOR_T<SCALAR_T>& input,
+                                               PinocchioInterfaceTpl<SCALAR_T>& pinInterface,
+                                               WBAccelMpcRobotModel<SCALAR_T>& mpcRobotModel);
 
 }  // namespace ocs2::humanoid

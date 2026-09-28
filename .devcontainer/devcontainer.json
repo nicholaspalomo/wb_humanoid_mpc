@@ -100,5 +100,7 @@
     }
   },
   // LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_ports, //docker-compose.yaml:vnc_ports, //.devcontainer/README.md:vnc_ports, //Makefile:vnc_ports)
+  // Runs on the HOST before the container starts: caps its memory with no swap beyond the cap (docker-compose.yaml).
+  "initializeCommand": "bash ${localWorkspaceFolder}/tools/resource_limits/set_container_memory_limit.sh",
   "postCreateCommand": "bash -c 'chmod +x ${containerWorkspaceFolder}/.devcontainer/post_create.sh && ${containerWorkspaceFolder}/.devcontainer/post_create.sh'"
 }

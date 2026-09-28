@@ -52,7 +52,8 @@ GaitKeyboardPublisher::GaitKeyboardPublisher(rclcpp::Node::SharedPtr& nodeHandle
   LOG(INFO) << (robotName + "_mpc_mode_schedule node is setting up ...");
   loadData::loadStdVector(gaitFile, "list", gaitList_, verbose);
 
-  modeSequenceTemplatePublisher_ = nodeHandle->create_publisher<ocs2_ros2_msgs::msg::ModeSchedule>(robotName + "_mpc_mode_schedule", 1);
+  modeSequenceTemplatePublisher_ =
+      nodeHandle->create_publisher<ocs2_ros2_msgs::msg::ModeSchedule>(robotName + "_mpc_mode_schedule", /*qos=*/1);
 
   gaitMap_ = getGaitMap(gaitFile);
   LOG(INFO) << (robotName + "_mpc_mode_schedule command node is ready.");
@@ -65,8 +66,8 @@ void GaitKeyboardPublisher::getKeyboardCommand() {
   const std::string commadMsg = "Enter the desired gait, for the list of available gait enter \"list\"";
   LOG(INFO) << commadMsg << ": ";
 
-  auto shouldTerminate = []() { return !rclcpp::ok(); };
-  const auto commandLine = stringToWords(getCommandLineString(shouldTerminate));
+  bool (*shouldTerminate)() = []() { return !rclcpp::ok(); };
+  const std::vector<std::string> commandLine = stringToWords(getCommandLineString(shouldTerminate));
 
   if (commandLine.empty()) {
     return;
@@ -78,7 +79,7 @@ void GaitKeyboardPublisher::getKeyboardCommand() {
   }
 
   // lower case transform
-  auto gaitCommand = commandLine.front();
+  std::string gaitCommand = commandLine.front();
   std::transform(gaitCommand.begin(), gaitCommand.end(), gaitCommand.begin(), ::tolower);
 
   if (gaitCommand == "list") {
@@ -101,7 +102,7 @@ void GaitKeyboardPublisher::getKeyboardCommand() {
 void GaitKeyboardPublisher::printGaitList(const std::vector<std::string>& gaitList) const {
   LOG(INFO) << "List of available gaits:\n";
   size_t itr = 0;
-  for (const auto& s : gaitList) {
+  for (const std::string& s : gaitList) {
     LOG(INFO) << "[" << itr++ << "]: " << s << "\n";
   }
   LOG(INFO);

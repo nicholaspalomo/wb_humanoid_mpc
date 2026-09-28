@@ -85,13 +85,15 @@ TEST(VisualizationRegistry, DefaultSetIsTheHistoricalViewer) {
 
 TEST(VisualizationRegistry, ListedNamesAreCreatedEnabledInRegistryOrder) {
   std::vector<std::string> errors;
-  const auto visualizations = createVisualizations({"target_contact_patches", "metrics", "mj_com"}, &errors);
+  const std::vector<std::unique_ptr<MujocoVisualization>> visualizations =
+      createVisualizations({"target_contact_patches", "metrics", "mj_com"}, &errors);
   EXPECT_TRUE(errors.empty());
   ASSERT_EQ(visualizations.size(), 3u);
   EXPECT_EQ(visualizations[0]->name(), "metrics") << "drawing order is the registry's, not the list's";
   EXPECT_EQ(visualizations[1]->name(), "target_contact_patches");
   EXPECT_EQ(visualizations[2]->name(), "mj_com");
-  for (const auto& visualization : visualizations) EXPECT_TRUE(visualization->enabled()) << visualization->name();
+  for (const std::unique_ptr<MujocoVisualization>& visualization : visualizations)
+    EXPECT_TRUE(visualization->enabled()) << visualization->name();
 
   EXPECT_TRUE(createVisualizations({}, &errors).empty());
   EXPECT_TRUE(errors.empty());
@@ -99,7 +101,8 @@ TEST(VisualizationRegistry, ListedNamesAreCreatedEnabledInRegistryOrder) {
 
 TEST(VisualizationRegistry, UnknownAndRepeatedNamesAreReportedAndSkipped) {
   std::vector<std::string> errors;
-  const auto visualizations = createVisualizations({"metrics", "contact_barcode", "metrics"}, &errors);
+  const std::vector<std::unique_ptr<MujocoVisualization>> visualizations =
+      createVisualizations({"metrics", "contact_barcode", "metrics"}, &errors);
   ASSERT_EQ(visualizations.size(), 1u);
   EXPECT_EQ(visualizations[0]->name(), "metrics");
   ASSERT_EQ(errors.size(), 2u);
@@ -107,7 +110,7 @@ TEST(VisualizationRegistry, UnknownAndRepeatedNamesAreReportedAndSkipped) {
   EXPECT_NE(errors[0].find("contact_timeline"), std::string::npos) << "the message lists the available names";
   EXPECT_NE(errors[1].find("more than once"), std::string::npos);
   // No error sink: still skipped, no crash.
-  EXPECT_EQ(createVisualizations({"contact_barcode"}, nullptr).size(), 0u);
+  EXPECT_EQ(createVisualizations({"contact_barcode"}, /*errors=*/nullptr).size(), 0u);
 }
 
 TEST(VisualizationRegistry, ToggleAndEnable) {

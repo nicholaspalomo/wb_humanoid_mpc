@@ -101,7 +101,7 @@ inline geometry_msgs::msg::Accel toAccelMsg(const vector3_t& linAccel, const vec
 
 template <typename Derived>
 inline geometry_msgs::msg::Wrench toWrenchMsg(const Eigen::MatrixBase<Derived>& wrenchVec) {
-  EIGEN_STATIC_ASSERT_VECTOR_SPECIFIC_SIZE(Derived, 6);
+  EIGEN_STATIC_ASSERT_VECTOR_SPECIFIC_SIZE(Derived, /*SIZE=*/6);
   geometry_msgs::msg::Wrench msg;
   msg.force.x = wrenchVec[WRENCH_FORCE_X_INDEX];
   msg.force.y = wrenchVec[WRENCH_FORCE_Y_INDEX];

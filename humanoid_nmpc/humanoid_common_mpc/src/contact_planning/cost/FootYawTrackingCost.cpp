@@ -27,7 +27,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
-#include <sstream>
 
 namespace ocs2::humanoid {
 
@@ -36,7 +35,6 @@ std::string FootYawTrackingCost::describe() const {
 }
 
 void FootYawTrackingCost::configure(const ContactPlanningConfig& config) {
-  checkWeight("foot_yaw_tracking", config.footYawTracking.weight);
   weight_ = config.footYawTracking.weight;
 }
 

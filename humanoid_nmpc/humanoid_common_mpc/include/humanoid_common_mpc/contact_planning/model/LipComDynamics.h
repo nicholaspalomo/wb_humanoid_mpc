@@ -31,7 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
- * `lip_com`: the LIP centre of mass, states c_xy, v_xy, input zmp_xy, with the exact zero-order-hold discretisation of
+ * `lip_com`: the LIP center of mass, states c_xy, v_xy, input zmp_xy, with the exact zero-order-hold discretization of
  * the LIP with constant ZMP per interval:
  *   [c_{k+1}; v_{k+1}] = [cosh(w dt), sinh(w dt)/w; w sinh(w dt), cosh(w dt)] [c_k; v_k] + [1 - cosh(w dt); -w sinh(w dt)] zmp_k.
  */

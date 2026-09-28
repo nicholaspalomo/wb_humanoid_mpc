@@ -51,14 +51,15 @@ import xml.etree.ElementTree as ET
 import numpy as np
 import yaml
 
-
-# Decay fraction below which SAFETY commands true zero torque. Matches kSafetyDecayCutoff in
-# CentroidalMpcMrtJointController.h; with a time constant of a quarter of the window this is reached at the end of it.
+# Decay fraction below which SAFETY commands true zero torque. Matches safety_decay::kCutoff in
+# humanoid_common_mpc/mrt/SafetyDecay.h, the law both MRT joint controllers use; with a time constant of a quarter of
+# the window this is reached at the end of it.
 # LINT.IfChange(safety_decay_cutoff)
 SAFETY_DECAY_CUTOFF = 0.02
-# LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/include/humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h:safety_decay_cutoff)
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/mrt/SafetyDecay.h:safety_decay_cutoff)
 
 
+# LINT.IfChange(control_mode_names)
 class ControlMode(str, Enum):
     """Whole-body humanoid control modes."""
 
@@ -67,6 +68,19 @@ class ControlMode(str, Enum):
     GRAVITY_COMP = "GRAVITY_COMP"
     WB_MPC = "WB_MPC"
     SAFETY = "SAFETY"
+
+
+#: The modes whose action is computed without the MPC (control_mode::isPassive in ControlMode.h). The remote control
+#: re-centers its joysticks on every transition into one of them (fsm_state.should_recenter).
+PASSIVE_MODES = frozenset(
+    {
+        ControlMode.ZERO_TORQUE.value,
+        ControlMode.JOINT_PD.value,
+        ControlMode.GRAVITY_COMP.value,
+        ControlMode.SAFETY.value,
+    }
+)
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/mrt/ControlMode.h:control_mode_names, //humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/mrt/ControlMode.h:control_mode_families)
 
 
 # UI Presentation metadata for dashboard badges
@@ -798,7 +812,7 @@ class HumanoidFSM:
                 # Coriolis and centrifugal terms included, evaluated at the live velocity. Feeding that forward does
                 # not compensate gravity, it cancels the robot's own velocity-dependent coupling as well, and this is
                 # the one mode whose whole purpose is for an operator to push the limbs around by hand: v is large
-                # exactly when the error is. The cancelled term grows with v^2, so the limb gets lighter the faster it
+                # exactly when the error is. The canceled term grows with v^2, so the limb gets lighter the faster it
                 # is already moving, which is negative damping wearing a feedforward's clothes and is precisely the
                 # "residual drift" the 0.15 * kd term below was added to paper over.
                 #

@@ -40,6 +40,9 @@ namespace ocs2::humanoid {
  * ACoM evaluator the reference base yaw is set so that the reference ACoM heading equals the planned heading (the
  * ACoM cost compares the ACoM of the state with the ACoM of the reference state). Lives with the reference manager,
  * which owns the robot model and the evaluator it needs.
+ *
+ * Only the knots inside the plan's horizon are rewritten (planCoversTime): past the plan's end the plan's heading
+ * lookup clamps to its last node, which froze the yaw reference there instead of leaving the operator's.
  */
 class PlannedHeadingOverride final : public ExecutionRule {
  public:

@@ -95,10 +95,11 @@ class BasisScalingNonNegativityConstraintTest : public ::testing::Test {
     ModeSchedule doubleStanceModeSchedule({0.0, 1.0}, {kModeDoubleStance});
     ModeSequenceTemplate doubleStanceModeSequenceTemplate({0.5, 0.5}, {kModeDoubleStance, kModeDoubleStance});
     std::shared_ptr<GaitSchedule> gaitSchedule =
-        std::make_shared<GaitSchedule>(doubleStanceModeSchedule, doubleStanceModeSequenceTemplate, 0.0);
+        std::make_shared<GaitSchedule>(doubleStanceModeSchedule, doubleStanceModeSequenceTemplate, /*phaseTransitionStanceTime=*/0.0);
 
-    referenceManager_ = std::make_unique<SwitchedModelReferenceManager>(
-        gaitSchedule, nullptr, testingModelInterface_->getPinocchioInterface(), testingModelInterface_->getMpcRobotModel());
+    referenceManager_ = std::make_unique<SwitchedModelReferenceManager>(gaitSchedule, /*swingTrajectoryPtr=*/nullptr,
+                                                                        testingModelInterface_->getPinocchioInterface(),
+                                                                        testingModelInterface_->getMpcRobotModel());
 
     // Create constraints for left and right feet.
     leftFootConstraint_ = std::make_unique<BasisScalingNonNegativityConstraint>(*referenceManager_, kLeftFootIndex, kLeftLambdaStart,

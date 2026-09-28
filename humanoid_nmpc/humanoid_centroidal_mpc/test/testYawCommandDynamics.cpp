@@ -82,9 +82,9 @@ class YawCommandDynamicsTest : public ::testing::Test {
     referenceFile_ = configDir + "/config/command/reference.yaml";
     urdfFile_ = descriptionDir + "/urdf/atlas.urdf";
 
-    modelSettings_ = std::make_unique<ModelSettings>(taskFile_, urdfFile_, "testYawCommandDynamics", false);
-    pinocchioInterface_ =
-        std::make_unique<PinocchioInterface>(createCustomPinocchioInterface(taskFile_, urdfFile_, *modelSettings_, false));
+    modelSettings_ = std::make_unique<ModelSettings>(taskFile_, urdfFile_, "testYawCommandDynamics", /*verbose=*/false);
+    pinocchioInterface_ = std::make_unique<PinocchioInterface>(
+        createCustomPinocchioInterface(taskFile_, urdfFile_, *modelSettings_, /*scaleTotalMass=*/false));
     info_ = centroidal_model::createCentroidalModelInfo(
         *pinocchioInterface_, centroidal_model::loadCentroidalType(taskFile_),
         centroidal_model::loadDefaultJointState(pinocchioInterface_->getModel().nq - 6, referenceFile_), modelSettings_->contactNames3DoF,
@@ -116,8 +116,12 @@ class YawCommandDynamicsTest : public ::testing::Test {
   }
 
   /** A contact-planning reference manager with the heading model, built the way the interface builds it. */
-  std::unique_ptr<ContactPlanningReferenceManager> makeHeadingReferenceManager() {
-    ContactPlanningConfig config = loadContactPlanningConfig(resolveContactPlanningConfigFile(taskFile_), "contact_planning.", false);
+  std::shared_ptr<ContactPlanningReferenceManager> makeHeadingReferenceManager() {
+    absl::StatusOr<ContactPlanningConfig> loaded = loadContactPlanningConfigStatus(
+        resolveContactPlanningConfigFile(taskFile_), "contact_planning.", /*verbose=*/false, /*validate=*/false);
+    EXPECT_TRUE(loaded.ok()) << loaded.status();
+    if (!loaded.ok()) return nullptr;
+    ContactPlanningConfig config = *loaded;
     config.setHeadingModel(true);
     ContactPlanningGroundParameters ground;
     ground.frictionCoefficient = 0.5;
@@ -126,14 +130,18 @@ class YawCommandDynamicsTest : public ::testing::Test {
     deriveContactPlanningModelParameters(pinocchioForDerivation, *robotModel_, initialState_, modelSettings_->contactParentJointNames,
                                          ground, config.shared.gravity, config.stepWidth.nominalStepWidth)
         .applyTo(config);
-    config.validate();
     std::unique_ptr<SwingTrajectoryPlanner> swingPlanner(
-        new SwingTrajectoryPlanner(loadSwingTrajectorySettings(taskFile_, "swing_trajectory_config", false), N_CONTACTS));
-    auto gaitSchedule = GaitSchedule::loadGaitSchedule(referenceFile_, *modelSettings_, false);
-    auto referenceManager = std::make_unique<ContactPlanningReferenceManager>(std::move(gaitSchedule), std::move(swingPlanner),
-                                                                              *pinocchioInterface_, *robotModel_, config);
-    referenceManager->setAngularCenterOfMass(AngularCenterOfMass::createForRobot(modelSettings_->robotName));
-    return referenceManager;
+        new SwingTrajectoryPlanner(loadSwingTrajectorySettings(taskFile_, "swing_trajectory_config", /*verbose=*/false), N_CONTACTS));
+    absl::StatusOr<std::shared_ptr<ContactPlanningReferenceManager>> referenceManager =
+        ContactPlanningReferenceManager::Create(GaitSchedule::loadGaitSchedule(referenceFile_, *modelSettings_, /*verbose=*/false),
+                                                std::move(swingPlanner), *pinocchioInterface_, *robotModel_, config);
+    EXPECT_TRUE(referenceManager.ok()) << referenceManager.status();
+    if (!referenceManager.ok()) return nullptr;
+    absl::StatusOr<std::unique_ptr<AngularCenterOfMass>> acom =
+        AngularCenterOfMass::Create(modelSettings_->robotName, modelSettings_->mpcModelJointNames);
+    EXPECT_TRUE(acom.ok()) << acom.status();
+    if (acom.ok()) (*referenceManager)->setAngularCenterOfMass(std::shared_ptr<AngularCenterOfMass>(*std::move(acom)));
+    return *referenceManager;
   }
 
   /** Whole-body (locked) inertia about the CoM in the world frame, from Pinocchio's composite rigid body algorithm. */
@@ -151,7 +159,7 @@ class YawCommandDynamicsTest : public ::testing::Test {
   vector3_t comFromBase(const vector_t& state) {
     PinocchioInterface pinocchio(*pinocchioInterface_);
     const vector_t q = robotModel_->getGeneralizedCoordinates(state);
-    pinocchio::centerOfMass(pinocchio.getModel(), pinocchio.getData(), q, false);
+    pinocchio::centerOfMass(pinocchio.getModel(), pinocchio.getData(), q, /*computeSubtreeComs=*/false);
     return vector3_t(pinocchio.getData().com[0] - q.head<3>());
   }
 
@@ -204,7 +212,7 @@ TEST_F(YawCommandDynamicsTest, YawRateCommandMapsToWholeBodyAngularMomentum) {
  *     that of a point of the same rigid body: v_base = v_com + omega x (p_base - p_com), yaw rate = yaw_rate.
  * Both are computed from Pinocchio, not from the code under test.
  */
-TEST_F(YawCommandDynamicsTest, MomentumTargetIsARigidSpinAboutTheCentreOfMass) {
+TEST_F(YawCommandDynamicsTest, MomentumTargetIsARigidSpinAboutTheCenterOfMass) {
   const scalar_t yawRate = 0.3;
   const scalar_t forwardVelocity = 0.5;
   const vector6_t h = settledMomentumTarget(vector4_t(forwardVelocity, 0.0, 0.0, yawRate), initialState_);
@@ -231,7 +239,7 @@ TEST_F(YawCommandDynamicsTest, MomentumTargetIsARigidSpinAboutTheCentreOfMass) {
   EXPECT_NEAR(twist(3), yawRate, 1e-6) << "recovered yaw rate";
   EXPECT_NEAR(twist(4), 0.0, 1e-6) << "pitch rate";
   EXPECT_NEAR(twist(5), 0.0, 1e-6) << "roll rate";
-  // And the sideways component is not a rounding artefact: the pelvis really is offset from the CoM.
+  // And the sideways component is not a rounding artifact: the pelvis really is offset from the CoM.
   EXPECT_GT(r.norm(), 1e-3);
 }
 
@@ -239,7 +247,7 @@ TEST_F(YawCommandDynamicsTest, MomentumTargetIsARigidSpinAboutTheCentreOfMass) {
  * The linear entries are the CoM velocity, so a velocity command must land in them unscaled. Guards against the
  * inertia fix being applied to the wrong entries.
  */
-TEST_F(YawCommandDynamicsTest, LinearVelocityCommandIsCentreOfMassVelocity) {
+TEST_F(YawCommandDynamicsTest, LinearVelocityCommandIsCenterOfMassVelocity) {
   const vector6_t h = settledMomentumTarget(vector4_t(0.7, -0.2, 0.0, 0.0), initialState_);
   EXPECT_NEAR(h(0), 0.7, 1e-6);
   EXPECT_NEAR(h(1), -0.2, 1e-6);
@@ -284,13 +292,17 @@ TEST_F(YawCommandDynamicsTest, YawInertiaMatchesTheCentroidalMomentumMatrix) {
 
 /**
  * The ACoM-LIP heading model is fed from the whole-body state by the reference manager: the heading is the yaw of the
- * angular centre of mass, its rate is the normalized angular momentum about the vertical scaled by mass over the locked
+ * angular center of mass, its rate is the normalized angular momentum about the vertical scaled by mass over the locked
  * yaw inertia, and the foot yaws are the contact frames' yaws unwrapped near the heading. Each is checked against an
  * independent evaluation of the same quantity from the robot model.
  */
 TEST_F(YawCommandDynamicsTest, PlannerInputCarriesTheAcomHeadingAndItsRateFromAngularMomentum) {
-  std::unique_ptr<ContactPlanningReferenceManager> referenceManager = makeHeadingReferenceManager();
-  std::shared_ptr<AngularCenterOfMass> acom = AngularCenterOfMass::createForRobot(modelSettings_->robotName);
+  const std::shared_ptr<ContactPlanningReferenceManager> referenceManager = makeHeadingReferenceManager();
+  ASSERT_NE(referenceManager, nullptr);
+  absl::StatusOr<std::unique_ptr<AngularCenterOfMass>> created =
+      AngularCenterOfMass::Create(modelSettings_->robotName, modelSettings_->mpcModelJointNames);
+  ASSERT_TRUE(created.ok()) << created.status();
+  const std::shared_ptr<AngularCenterOfMass> acom = *std::move(created);
 
   // A turned base spinning about the vertical at a known rate, expressed as the normalized angular momentum the state carries.
   const scalar_t yawRate = 0.3;
@@ -299,7 +311,7 @@ TEST_F(YawCommandDynamicsTest, PlannerInputCarriesTheAcomHeadingAndItsRateFromAn
   const matrix3_t Ig = lockedInertia(state);
   state.segment<3>(3) = Ig.col(2) * (yawRate / mass_);  // L / m for a rigid spin about the vertical
 
-  const ContactPlannerInput input = referenceManager->makePlannerInput(0.0, state, vector2_t::Zero());
+  const ContactPlannerInput input = referenceManager->makePlannerInput(/*initTime=*/0.0, state, vector2_t::Zero());
 
   // Heading: the ACoM yaw of the state (base yaw plus the learned joint offset), and the planning frame is the heading.
   const vector_t q = robotModel_->getGeneralizedCoordinates(state);
@@ -318,7 +330,7 @@ TEST_F(YawCommandDynamicsTest, PlannerInputCarriesTheAcomHeadingAndItsRateFromAn
   pinocchio::forwardKinematics(pinocchio.getModel(), pinocchio.getData(), q);
   pinocchio::updateFramePlacements(pinocchio.getModel(), pinocchio.getData());
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-    const auto frameId = pinocchio.getModel().getFrameId(modelSettings_->contactNames6DoF[foot]);
+    const pinocchio::FrameIndex frameId = pinocchio.getModel().getFrameId(modelSettings_->contactNames6DoF[foot]);
     const matrix3_t R = pinocchio.getData().oMf[frameId].rotation();
     const scalar_t frameYaw = std::atan2(R(1, 0), R(0, 0));
     EXPECT_NEAR(std::remainder(input.footYaws[foot] - frameYaw, 2.0 * M_PI), 0.0, 1e-9) << "foot " << foot;
@@ -333,7 +345,8 @@ TEST_F(YawCommandDynamicsTest, PlannerInputCarriesTheAcomHeadingAndItsRateFromAn
  * 0.5 rad/s was planned at 0.25 rad/s, and a robot that under-tracked its turn was asked for less and less.
  */
 TEST_F(YawCommandDynamicsTest, PlannerYawRateCommandIsTheOperatorsNotTheBlendedTargetYaw) {
-  std::unique_ptr<ContactPlanningReferenceManager> referenceManager = makeHeadingReferenceManager();
+  const std::shared_ptr<ContactPlanningReferenceManager> referenceManager = makeHeadingReferenceManager();
+  ASSERT_NE(referenceManager, nullptr);
   const scalar_t yawRate = 0.5;
   const scalar_t horizon = 1.0;
   const TargetTrajectories target = settledTarget(vector4_t(0.0, 0.0, 0.0, yawRate), initialState_);
@@ -344,9 +357,9 @@ TEST_F(YawCommandDynamicsTest, PlannerYawRateCommandIsTheOperatorsNotTheBlendedT
   EXPECT_NEAR((yaw1 - yaw0) / 0.2, 0.5 * yawRate, 1e-6) << "the blended ramp is why the base yaw is not the command source";
 
   referenceManager->setTargetTrajectories(target);
-  referenceManager->preSolverRun(0.0, horizon, initialState_, ModeNumber::STANCE);
+  referenceManager->preSolverRun(/*initTime=*/0.0, horizon, initialState_, ModeNumber::STANCE);
   EXPECT_NEAR(referenceManager->commandedYawRate(), yawRate, 1e-6);
-  const ContactPlannerInput input = referenceManager->makePlannerInput(0.0, initialState_, vector2_t::Zero());
+  const ContactPlannerInput input = referenceManager->makePlannerInput(/*initTime=*/0.0, initialState_, vector2_t::Zero());
   EXPECT_NEAR(input.headingRateCommand, yawRate, 1e-6);
 
   // The same command read with the robot already turning at the commanded rate, and with a turned base: the momentum
@@ -355,16 +368,16 @@ TEST_F(YawCommandDynamicsTest, PlannerYawRateCommandIsTheOperatorsNotTheBlendedT
   robotModel_->setBaseOrientationEulerZYX(turning, vector3_t(1.1, 0.0, 0.0));
   turning.segment<3>(3) = lockedInertia(turning).col(2) * (yawRate / mass_);
   referenceManager->setTargetTrajectories(settledTarget(vector4_t(0.0, 0.0, 0.0, yawRate), turning));
-  referenceManager->preSolverRun(0.02, 0.02 + horizon, turning, ModeNumber::STANCE);
+  referenceManager->preSolverRun(/*initTime=*/0.02, 0.02 + horizon, turning, ModeNumber::STANCE);
   EXPECT_NEAR(referenceManager->commandedYawRate(), yawRate, 1e-6);
 
   // No yaw command, or a linear command only: no yaw rate is asked of the planner.
   referenceManager->setTargetTrajectories(settledTarget(vector4_t(0.5, 0.1, 0.0, 0.0), initialState_));
-  referenceManager->preSolverRun(0.04, 0.04 + horizon, initialState_, ModeNumber::STANCE);
+  referenceManager->preSolverRun(/*initTime=*/0.04, 0.04 + horizon, initialState_, ModeNumber::STANCE);
   EXPECT_NEAR(referenceManager->commandedYawRate(), 0.0, 1e-9);
   // An empty target leaves nothing to command.
   referenceManager->setTargetTrajectories(TargetTrajectories());
-  referenceManager->preSolverRun(0.06, 0.06 + horizon, initialState_, ModeNumber::STANCE);
+  referenceManager->preSolverRun(/*initTime=*/0.06, 0.06 + horizon, initialState_, ModeNumber::STANCE);
   EXPECT_NEAR(referenceManager->commandedYawRate(), 0.0, 1e-9);
 }
 

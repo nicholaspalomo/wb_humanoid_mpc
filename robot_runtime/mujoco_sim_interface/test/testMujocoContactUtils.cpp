@@ -90,7 +90,7 @@ constexpr const char* kUrdf = R"(
   <link name="l_toe"/>
   <link name="r_foot"/>
   <link name="foot_r_contact"/>
-  <link name="unmodelled_link"/>
+  <link name="unmodeled_link"/>
   <joint name="l_ankle" type="revolute">
     <parent link="pelvis"/><child link="l_foot"/><axis xyz="1 0 0"/><limit lower="-1" upper="1" effort="1" velocity="1"/>
   </joint>
@@ -102,8 +102,8 @@ constexpr const char* kUrdf = R"(
     <parent link="pelvis"/><child link="r_foot"/><axis xyz="1 0 0"/><limit lower="-1" upper="1" effort="1" velocity="1"/>
   </joint>
   <joint name="foot_r_contact_joint" type="fixed"><parent link="r_foot"/><child link="foot_r_contact"/></joint>
-  <joint name="unmodelled_joint" type="revolute">
-    <parent link="pelvis"/><child link="unmodelled_link"/><axis xyz="1 0 0"/><limit lower="-1" upper="1" effort="1" velocity="1"/>
+  <joint name="unmodeled_joint" type="revolute">
+    <parent link="pelvis"/><child link="unmodeled_link"/><axis xyz="1 0 0"/><limit lower="-1" upper="1" effort="1" velocity="1"/>
   </joint>
 </robot>
 )";
@@ -118,7 +118,7 @@ std::string writeTempFile(const std::string& name, const char* content) {
 struct Scene {
   Scene() {
     char error[1000] = "";
-    model = mj_loadXML(writeTempFile("contact_scene.xml", kScene).c_str(), nullptr, error, sizeof(error));
+    model = mj_loadXML(writeTempFile("contact_scene.xml", kScene).c_str(), /*vfs=*/nullptr, error, sizeof(error));
     if (model == nullptr) throw std::runtime_error(std::string("mj_loadXML: ") + error);
     data = mj_makeData(model);
     mj_forward(model, data);
@@ -141,21 +141,22 @@ TEST(MujocoContactUtils, GroundTruthMaskFollowsTheContactForcesOfTheSubtree) {
   ASSERT_GE(feet[1], 0);
 
   // Only the left toe touches the floor: it belongs to the left foot's subtree, so the left foot counts as touching.
-  EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, feet, 1.0), 0b01u);
+  EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, feet, /*forceThreshold=*/1.0), 0b01u);
   // The threshold is a normal-force threshold.
-  EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, feet, 1e9), 0u);
+  EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, feet, /*forceThreshold=*/1e9), 0u);
 
   // Bring the right sole down to the same 2 mm penetration as the left toe (the body offset is changed in the model).
   // Both contacts then ask for the same separation and share the load; a much deeper contact on one side would drive
   // the common upward acceleration alone and leave the shallower one force-free, which is physics, not detection.
   scene.model->body_pos[3 * feet[1] + 2] = -0.452;  // right sole bottom at z = 0.5 - 0.452 - 0.05 = -0.002
   mj_forward(scene.model, scene.data);
-  EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, feet, 1.0), 0b11u);
+  EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, feet, /*forceThreshold=*/1.0), 0b11u);
 
   // An unresolved contact point (-1) never reports contact and does not disturb the others.
-  EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, {-1, feet[1]}, 1.0), 0b10u);
+  EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, {-1, feet[1]}, /*forceThreshold=*/1.0), 0b10u);
   // The crate rests on the floor too, but it is nobody's contact point.
-  EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, {scene.body("pelvis")}, 1.0), 0b1u) << "the pelvis subtree contains both feet";
+  EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, {scene.body("pelvis")}, /*forceThreshold=*/1.0), 0b1u)
+      << "the pelvis subtree contains both feet";
 }
 
 TEST(MujocoContactUtils, ContactWithAForeignBodyCountsAndSelfContactDoesNot) {
@@ -172,7 +173,7 @@ TEST(MujocoContactUtils, ContactWithAForeignBodyCountsAndSelfContactDoesNot) {
     selfContactSeen = selfContactSeen || (((b1 == feet[0] && b2 == feet[1]) || (b1 == feet[1] && b2 == feet[0])) && force[0] > 1.0);
   }
   ASSERT_TRUE(selfContactSeen) << "the scene must contain a self-contact between the feet for this test to mean anything";
-  EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, feet, 1.0), 0b01u) << "self-contact is not ground contact";
+  EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, feet, /*forceThreshold=*/1.0), 0b01u) << "self-contact is not ground contact";
 
   // Slide the crate under the right foot so that it penetrates the sole from below by 2 mm: a foreign free body counts
   // as ground truth just like the floor.
@@ -182,7 +183,7 @@ TEST(MujocoContactUtils, ContactWithAForeignBodyCountsAndSelfContactDoesNot) {
   scene.data->qpos[crateQpos + 1] = -0.2;
   scene.data->qpos[crateQpos + 2] = 0.25 - 0.05 + 0.002;
   mj_forward(scene.model, scene.data);
-  EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, feet, 1.0), 0b11u);
+  EXPECT_EQ(groundTruthContactMask(scene.model, scene.data, feet, /*forceThreshold=*/1.0), 0b11u);
 }
 
 TEST(MujocoContactUtils, ResolvesContactFramesThroughFixedJointsOnly) {
@@ -190,7 +191,7 @@ TEST(MujocoContactUtils, ResolvesContactFramesThroughFixedJointsOnly) {
   const std::string urdf = writeTempFile("contact_robot.urdf", kUrdf);
   std::vector<std::string> errors;
   const std::vector<int> ids = resolveContactBodies(
-      scene.model, urdf, {"foot_l_contact", "foot_r_contact", "l_foot", "unmodelled_link", "no_such_frame"}, {}, &errors);
+      scene.model, urdf, {"foot_l_contact", "foot_r_contact", "l_foot", "unmodeled_link", "no_such_frame"}, {}, &errors);
   ASSERT_EQ(ids.size(), 5u);
   EXPECT_EQ(ids[0], scene.body("l_foot")) << "a fixed-joint child frame resolves to its parent body";
   EXPECT_EQ(ids[1], scene.body("r_foot"));
@@ -198,8 +199,8 @@ TEST(MujocoContactUtils, ResolvesContactFramesThroughFixedJointsOnly) {
   EXPECT_EQ(ids[3], -1) << "a link on a movable joint that is not a MuJoCo body is an error, not a guess";
   EXPECT_EQ(ids[4], -1);
   ASSERT_EQ(errors.size(), 2u);
-  EXPECT_NE(errors[0].find("unmodelled_link"), std::string::npos);
-  EXPECT_NE(errors[0].find("unmodelled_joint"), std::string::npos);
+  EXPECT_NE(errors[0].find("unmodeled_link"), std::string::npos);
+  EXPECT_NE(errors[0].find("unmodeled_joint"), std::string::npos);
   EXPECT_NE(errors[1].find("no_such_frame"), std::string::npos);
 
   // Without a readable URDF only direct body names resolve.
@@ -243,8 +244,8 @@ TEST(MujocoContactUtils, SubtreeMembership) {
   EXPECT_FALSE(isInBodySubtree(scene.model, scene.body("l_foot"), scene.body("l_toe")));
   EXPECT_FALSE(isInBodySubtree(scene.model, scene.body("r_foot"), scene.body("l_foot")));
   EXPECT_FALSE(isInBodySubtree(scene.model, scene.body("crate"), scene.body("pelvis")));
-  EXPECT_TRUE(isInBodySubtree(scene.model, scene.body("crate"), 0)) << "everything hangs under the world body";
-  EXPECT_FALSE(isInBodySubtree(scene.model, -1, scene.body("pelvis")));
+  EXPECT_TRUE(isInBodySubtree(scene.model, scene.body("crate"), /*ancestorId=*/0)) << "everything hangs under the world body";
+  EXPECT_FALSE(isInBodySubtree(scene.model, /*bodyId=*/-1, scene.body("pelvis")));
 }
 
 TEST(MujocoContactUtils, TimelineKeepsAWindowAndClearsOnReset) {
@@ -276,7 +277,7 @@ TEST(MujocoContactUtils, TimelineKeepsAWindowAndClearsOnReset) {
 
 /*============================================ centroidal markers ==========================================*/
 
-TEST(MujocoContactUtils, CentroidalStateIsTheRootSubtreesCentreOfMassAndVelocity) {
+TEST(MujocoContactUtils, CentroidalStateIsTheRootSubtreesCenterOfMassAndVelocity) {
   Scene scene;
   const int pelvis = scene.body("pelvis");
   ASSERT_GE(pelvis, 0);
@@ -289,7 +290,7 @@ TEST(MujocoContactUtils, CentroidalStateIsTheRootSubtreesCentreOfMassAndVelocity
     EXPECT_NEAR(resting.com[axis], scene.data->subtree_com[3 * pelvis + axis], 1e-12);
     EXPECT_NEAR(resting.comVelocity[axis], 0.0, 1e-12);
   }
-  // The whole robot translating at 1 m/s along x: so does its centre of mass.
+  // The whole robot translating at 1 m/s along x: so does its center of mass.
   scene.data->qvel[0] = 1.0;
   mj_forward(scene.model, scene.data);
   const RobotCentroidalState moving = robotCentroidalState(scene.model, scene.data);
@@ -297,17 +298,17 @@ TEST(MujocoContactUtils, CentroidalStateIsTheRootSubtreesCentreOfMassAndVelocity
   EXPECT_NEAR(moving.comVelocity[0], 1.0, 1e-9);
   EXPECT_NEAR(moving.comVelocity[1], 0.0, 1e-9);
   EXPECT_NEAR(moving.comVelocity[2], 0.0, 1e-9);
-  EXPECT_FALSE(robotCentroidalState(nullptr, scene.data).valid);
+  EXPECT_FALSE(robotCentroidalState(/*model=*/nullptr, scene.data).valid);
 }
 
 TEST(MujocoContactUtils, GroundReactionZmpSitsUnderTheOnlyGroundContact) {
   Scene scene;
   const int pelvis = scene.body("pelvis");
   // Only the left toe touches the floor; the strut-sole self-contact carries force but is not a ground reaction.
-  const GroundReaction reaction = groundReaction(scene.model, scene.data, pelvis, 0.0);
+  const GroundReaction reaction = groundReaction(scene.model, scene.data, pelvis, /*minNormalForce=*/0.0);
   ASSERT_TRUE(reaction.valid);
   EXPECT_GT(reaction.force[2], 0.0) << "the floor pushes the robot up";
-  // The centre of pressure lies in the convex hull of the ground contact points (the corners of the toe box).
+  // The center of pressure lies in the convex hull of the ground contact points (the corners of the toe box).
   double lo[2] = {1e9, 1e9};
   double hi[2] = {-1e9, -1e9};
   int groundContacts = 0;
@@ -331,18 +332,18 @@ TEST(MujocoContactUtils, GroundReactionZmpSitsUnderTheOnlyGroundContact) {
   EXPECT_NEAR(reaction.zmp[1], 0.2, 0.06) << "under the toe";
   // A threshold above the reaction hides the marker (the robot on the gantry).
   EXPECT_FALSE(groundReaction(scene.model, scene.data, pelvis, reaction.force[2] + 1.0).valid);
-  EXPECT_FALSE(groundReaction(scene.model, scene.data, -1, 0.0).valid);
+  EXPECT_FALSE(groundReaction(scene.model, scene.data, /*rootBodyId=*/-1, /*minNormalForce=*/0.0).valid);
 }
 
 TEST(MujocoContactUtils, DivergentComponentOfMotionIsTheComPlusVelocityOverOmega) {
   const double com[3] = {1.0, 2.0, 0.85};
   const double velocity[3] = {0.34, -0.17, 0.5};
   double dcm[2];
-  divergentComponentOfMotion(com, velocity, com[2], 9.81, dcm);
+  divergentComponentOfMotion(com, velocity, com[2], /*gravity=*/9.81, dcm);
   const double omega = std::sqrt(9.81 / 0.85);
   EXPECT_NEAR(dcm[0], 1.0 + 0.34 / omega, 1e-12);
   EXPECT_NEAR(dcm[1], 2.0 - 0.17 / omega, 1e-12);
   // The height is clamped so that a CoM on the ground does not blow the DCM up.
-  divergentComponentOfMotion(com, velocity, 0.0, 9.81, dcm);
+  divergentComponentOfMotion(com, velocity, /*height=*/0.0, /*gravity=*/9.81, dcm);
   EXPECT_NEAR(dcm[0], 1.0 + 0.34 / std::sqrt(9.81 / 0.05), 1e-12);
 }

@@ -155,7 +155,7 @@ struct RobotCentroidalState {
 };
 
 /**
- * Centre of mass and its velocity of the robot: the subtree of the first body on a free joint. Requires a state on which
+ * Center of mass and its velocity of the robot: the subtree of the first body on a free joint. Requires a state on which
  * mj_forward() has run. `valid` is false without such a body or with zero mass.
  */
 RobotCentroidalState robotCentroidalState(const mjModel* model, const mjData* data);
@@ -172,8 +172,11 @@ struct GroundReaction {
  * Sums the active contact forces between the root subtree of `rootBodyId` and anything outside it (the ground, obstacles)
  * and returns the zero moment point on the plane z = 0: zmp_x = -M_y / F_z, zmp_y = M_x / F_z. Requires the constraint
  * forces of the current state (after mj_step() or mj_forward()). `valid` is false while F_z <= minNormalForce.
+ *
+ * Contacts with `ignoreBodyId` are left out, as groundTruthContactMask leaves them out: a thrown ball striking the
+ * robot is not a ground reaction, and at 25 m/s its contact force alone exceeds the robot's weight.
  */
-GroundReaction groundReaction(const mjModel* model, const mjData* data, int rootBodyId, double minNormalForce);
+GroundReaction groundReaction(const mjModel* model, const mjData* data, int rootBodyId, double minNormalForce, int ignoreBodyId = -1);
 
 /**
  * Divergent component of motion (capture point) of a linear inverted pendulum of natural frequency sqrt(gravity / height)

@@ -47,7 +47,11 @@ namespace {
 /// [m/s^2] Gravity the dodgeball's flight was computed under. It matches the default the GUI uses
 /// (remote_control/tk_app/dodgeball.py GRAVITY) rather than mjModel::opt.gravity, because the two have to agree for
 /// the impact velocity to be the one the GUI aimed with, and the GUI cannot see the model.
+// LINT.IfChange(dodgeball_gravity)
 constexpr double kGravity = 9.81;
+// LINT.ThenChange(//humanoid_nmpc/remote_control/remote_control/tk_app/dodgeball.py:dodgeball_gravity)
+/// [N s/m] Joint damping in the zero-torque ragdoll mode, applied to the robot's joints and never to the ball's.
+constexpr double kRagdollJointDamping = 20.0;
 }  // namespace
 
 namespace {
@@ -132,7 +136,7 @@ MujocoSimInterface::MujocoSimInterface(const MujocoSimConfig& config, const std:
     mujocoModel_ = mj_loadXML(config.scenePath.c_str(), NULL, errstr, errstr_sz);
     if (!mujocoModel_) {
       LOG(ERROR) << "Could not load MuJoCo model: " << config.scenePath << ". Error: " << errstr;
-      throw std::runtime_error("Could not load MuJoCo: " + std::string(errstr));
+      throw std::runtime_error(absl::StrCat("Could not load MuJoCo: ", errstr));
     }
   } else {
     const absl::StatusOr<Projectile> projectile = projectileFromName(config_.projectile);
@@ -144,7 +148,7 @@ MujocoSimInterface::MujocoSimInterface(const MujocoSimConfig& config, const std:
     mjSpec* spec = mj_parseXML(config.scenePath.c_str(), NULL, errstr, errstr_sz);
     if (spec == nullptr) {
       LOG(ERROR) << "Could not parse MuJoCo model: " << config.scenePath << ". Error: " << errstr;
-      throw std::runtime_error("Could not parse MuJoCo: " + std::string(errstr));
+      throw std::runtime_error(absl::StrCat("Could not parse MuJoCo: ", errstr));
     }
     const absl::Status added = addProjectileToSpec(spec, projectile_, kProjectileBodyName);
     if (!added.ok()) {
@@ -152,12 +156,12 @@ MujocoSimInterface::MujocoSimInterface(const MujocoSimConfig& config, const std:
       LOG(ERROR) << added.message();
       throw std::runtime_error(std::string(added.message()));
     }
-    mujocoModel_ = mj_compile(spec, nullptr);
+    mujocoModel_ = mj_compile(spec, /*vfs=*/nullptr);
     if (mujocoModel_ == nullptr) {
       const std::string compileError(mjs_getError(spec));
       mj_deleteSpec(spec);
       LOG(ERROR) << "Could not compile MuJoCo model with the '" << projectile_.name << "' projectile: " << compileError;
-      throw std::runtime_error("Could not compile MuJoCo: " + compileError);
+      throw std::runtime_error(absl::StrCat("Could not compile MuJoCo: ", compileError));
     }
     mj_deleteSpec(spec);
   }
@@ -180,11 +184,9 @@ MujocoSimInterface::MujocoSimInterface(const MujocoSimConfig& config, const std:
                  << "the model; throws will fall back to applying its impulse to the base.";
     } else {
       parkProjectile();
-      // What the compiled model actually carries, so the first throw at the slider's default mass is free.
-      appliedProjectileMass_ = mujocoModel_->body_mass[dodgeballBodyId_];
-      LOG(INFO) << "Projectile '" << projectile_.name << "' ready: " << 2.0 * projectile_.radius << " m across, " << appliedProjectileMass_
-                << " kg, restitution " << projectile_.restitution << ", mass adjustable from " << kMinProjectileMass << " to "
-                << kMaxProjectileMass << " kg per throw.";
+      LOG(INFO) << "Projectile '" << projectile_.name << "' ready: " << 2.0 * projectile_.radius << " m across, "
+                << mujocoModel_->body_mass[dodgeballBodyId_] << " kg, restitution " << projectile_.restitution << ", mass adjustable from "
+                << kMinProjectileMass << " to " << kMaxProjectileMass << " kg per throw.";
     }
   }
 
@@ -198,6 +200,11 @@ MujocoSimInterface::MujocoSimInterface(const MujocoSimConfig& config, const std:
   // assert(nActiveJoints_ == neo_definitions::FULL_NEO_JOINT_DIM);
 
   mujocoModel_->opt.timestep = config_.dt;
+  // MuJoCo's automatic reset on a numerically bad state calls mj_resetData, which rewinds the clock to zero and puts the
+  // robot back without the controller being told - its plans are then timestamped hundreds of seconds in the future, and
+  // every later solve fails. The simulator detects the bad state itself (stepWentUnstable) and recovers without
+  // rewinding the clock (resetAndCatch).
+  mujocoModel_->opt.disableflags |= mjDSBL_AUTORESET;
 
   timeStepMicro_ = static_cast<size_t>(config_.dt * 1000000);
 
@@ -205,7 +212,7 @@ MujocoSimInterface::MujocoSimInterface(const MujocoSimConfig& config, const std:
 
   setupJointIndexMaps();
 
-  model::RobotState initRobotState(getRobotDescription(), 2);
+  model::RobotState initRobotState(getRobotDescription(), /*contactSize=*/2);
 
   if (config_.initStatePtr_ != nullptr) {
     initRobotState = *config.initStatePtr_;
@@ -219,11 +226,11 @@ MujocoSimInterface::MujocoSimInterface(const MujocoSimConfig& config, const std:
   scalar_t defaultJointDamping = 10.0;
 
   for (int i = 6; i < mujocoModel_->nv; ++i) {
-    if (isProjectileDof(i)) continue;  // the ball's free joint is not one of the robot's actuated joints
+    if (isProjectileDof(mujocoModel_, dodgeballBodyId_, i)) continue;  // the ball's free joint is not a robot joint
     std::string mjJointName(&mujocoModel_->names[mujocoModel_->name_jntadr[mujocoModel_->dof_jntid[i]]]);
     LOG(INFO) << "mjJointName: " << mjJointName;
-    mujocoModel_->dof_damping[i] = defaultJointDamping;
   }
+  setRobotJointDamping(mujocoModel_, dodgeballBodyId_, defaultJointDamping);
 
   for (int i = 0; i < mujocoModel_->nsensor; i++) {
     std::string sensorName(&mujocoModel_->names[mujocoModel_->name_sensoradr[i]]);
@@ -289,10 +296,8 @@ MujocoSimInterface::MujocoSimInterface(const MujocoSimConfig& config, const std:
 
   // Save original dof_damping and boost for zero-torque ragdoll mode at startup.
   originalDofDamping_.assign(mujocoModel_->dof_damping, mujocoModel_->dof_damping + mujocoModel_->nv);
-  // Boost damping for smooth ragdoll settling (skip root 6 DOFs)
-  for (int i = 6; i < mujocoModel_->nv; ++i) {
-    mujocoModel_->dof_damping[i] = 20.0;
-  }
+  // Boost damping for smooth ragdoll settling. Robot joints only: the root's six dofs and the ball's are skipped.
+  setRobotJointDamping(mujocoModel_, dodgeballBodyId_, kRagdollJointDamping);
 
   // Initialize lock-free triple buffer for sim→render state transfer.
   // Each slot holds an MjState with its own mjData copy.
@@ -327,10 +332,7 @@ void MujocoSimInterface::disableTorques() {
   if (originalDofDamping_.empty()) {
     originalDofDamping_.assign(mujocoModel_->dof_damping, mujocoModel_->dof_damping + mujocoModel_->nv);
   }
-  for (int i = 6; i < mujocoModel_->nv; ++i) {
-    if (isProjectileDof(i)) continue;  // the thrown ball is not a joint to be settled; damping it makes it fall in syrup
-    mujocoModel_->dof_damping[i] = 20.0;
-  }
+  setRobotJointDamping(mujocoModel_, dodgeballBodyId_, kRagdollJointDamping);
   zeroTorqueMode_ = true;
 }
 
@@ -355,26 +357,56 @@ MujocoSimInterface::~MujocoSimInterface() {
 /******************************************************************************************************/
 
 void MujocoSimInterface::reset() {
+  // mj_resetData clears everything a bad step can leave behind - accelerations, the solver's warm start, activations,
+  // applied forces - but also rewinds the clock, which is put back: see the header.
+  const mjtNum time = mujocoData_->time;
+  mj_resetData(mujocoModel_, mujocoData_);
+  mujocoData_->time = time;
   memcpy(mujocoData_->qpos, qpos_init_, mujocoModel_->nq * sizeof(mjtNum));
   memcpy(mujocoData_->qvel, qvel_init_, mujocoModel_->nv * sizeof(mjtNum));
+  mj_forward(mujocoModel_, mujocoData_);
+  lastBadStateWarnings_ = 0;
+  gantryWeldAnchored_ = false;
+  resetEpoch_.fetch_add(1);
 
-  // Any dodgeball in flight is cancelled with the rest of the state. A reset is how the gantry catches a fallen
-  // robot, and an impulse scheduled before the fall arriving on the freshly caught robot would look exactly like the
-  // recovery having failed - a disturbance nobody threw at the robot that is now standing there.
-  {
-    std::lock_guard<std::mutex> lock(dodgeballMutex_);
-    pendingDodgeball_.reset();
+  // Any dodgeball in play is canceled with the rest of the state: a ball still bouncing around the robot that has
+  // just been put back on its feet, or an impulse scheduled before the reset landing after it, is a disturbance
+  // nobody threw at the robot now standing there. (A reset is the auto-reset when the base drops below 0.2 m; the
+  // gantry catch on excessive tilt goes through lockGantry(), which cancels the same way.)
+  cancelDodgeball();
+}
+
+void MujocoSimInterface::resetAndCatch(absl::string_view reason) {
+  LOG(WARNING) << "Resetting the simulation because " << reason
+               << ". The robot is put back in its initial state and caught on the gantry; the simulation clock keeps "
+                  "running (reset epoch "
+               << resetEpoch_.load() + 1 << ").";
+  reset();
+  for (int i = 0; i < mujocoModel_->nu; ++i) mujocoData_->ctrl[i] = 0.0;
+  lockGantry();
+}
+
+bool MujocoSimInterface::stepWentUnstable() {
+  // With mjDSBL_AUTORESET set MuJoCo still detects a bad position, velocity or acceleration; it counts a warning and
+  // leaves the state as it is. A new warning since the previous step, or a state that is not finite, is a bad step.
+  const int warnings = mujocoData_->warning[mjWARN_BADQPOS].number + mujocoData_->warning[mjWARN_BADQVEL].number +
+                       mujocoData_->warning[mjWARN_BADQACC].number;
+  const bool newWarning = warnings != lastBadStateWarnings_;
+  lastBadStateWarnings_ = warnings;
+  if (newWarning) return true;
+  for (int i = 0; i < mujocoModel_->nq; ++i) {
+    if (!std::isfinite(mujocoData_->qpos[i])) return true;
   }
-  scheduledImpactTime_ = -1.0;
-  // A ball in flight is put back in its box too: reset() is how the gantry catches a fallen robot, and a ball still
-  // bouncing around the freshly caught robot is a disturbance nobody threw at it.
-  parkProjectile();
-  if (dodgeballImpulseApplied_ && robotRootBodyId() >= 0) {
-    for (int axis = 0; axis < 3; ++axis) {
-      mujocoData_->xfrc_applied[6 * robotRootBodyId() + axis] = 0.0;
-    }
+  for (int i = 0; i < mujocoModel_->nv; ++i) {
+    if (!std::isfinite(mujocoData_->qvel[i])) return true;
   }
-  dodgeballImpulseApplied_ = false;
+  return false;
+}
+
+void MujocoSimInterface::setBaseStateForTesting(const std::array<double, 7>& basePose, const std::array<double, 6>& baseVelocity) {
+  for (int i = 0; i < 7; ++i) mujocoData_->qpos[i] = basePose[i];
+  for (int i = 0; i < 6; ++i) mujocoData_->qvel[i] = baseVelocity[i];
+  mj_forward(mujocoModel_, mujocoData_);
 }
 
 /******************************************************************************************************/
@@ -590,8 +622,8 @@ void MujocoSimInterface::updateMetrics() {
 
   metrics_.fpsSim = simFps_.fps();
 
-  auto nowRealTime = std::chrono::steady_clock::now();
-  auto realElapsedTime = std::chrono::duration<double>(nowRealTime - lastRealTime_).count();
+  const std::chrono::steady_clock::time_point nowRealTime = std::chrono::steady_clock::now();
+  const double realElapsedTime = std::chrono::duration<double>(nowRealTime - lastRealTime_).count();
   lastRealTime_ = nowRealTime;
 
   metrics_.driftTick = config_.dt - realElapsedTime;
@@ -649,10 +681,14 @@ void MujocoSimInterface::simulationStep() {
     applyGantryHold();
   }
 
-  // A dodgeball in flight lands as a one-step external force on the base. Free when none is in flight.
+  // Launches a staged throw, parks a finished ball, and - only when no ball is compiled in - applies the fallback
+  // impulse. Free when nothing is in play.
   applyDodgeball();
 
   mj_step(mujocoModel_, mujocoData_);
+  if (stepWentUnstable()) {
+    resetAndCatch(absl::StrCat("the simulation became numerically unstable at t = ", mujocoData_->time, " s"));
+  }
   updateGroundTruthContacts();
   updateThreadSafeRobotState();
   updateMetrics();
@@ -670,7 +706,7 @@ void MujocoSimInterface::simulationStep() {
 
   // Auto reset logic.
   if (mujocoData_->qpos[2] < 0.2) {
-    reset();
+    resetAndCatch(absl::StrCat("the base dropped to ", mujocoData_->qpos[2], " m, below the 0.2 m floor limit"));
     for (size_t i = 0; i < nActuators_; ++i) {
       mujocoData_->ctrl[i] = 0.0;
     }
@@ -678,7 +714,7 @@ void MujocoSimInterface::simulationStep() {
     updateThreadSafeRobotState();
     simFps_.reset();
     metrics_.reset();
-    auto resetNow = std::chrono::steady_clock::now();
+    const std::chrono::steady_clock::time_point resetNow = std::chrono::steady_clock::now();
     lastRealTime_ = resetNow;
     loopStartTime_ = resetNow;
     simTimeAtLoopStart_ = mujocoData_->time;
@@ -705,25 +741,25 @@ void MujocoSimInterface::simulationStep() {
 void MujocoSimInterface::simulationLoop() {
   simFps_.reset();
   metrics_.reset();
-  auto now = std::chrono::steady_clock::now();
+  const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
   lastRealTime_ = now;
   loopStartTime_ = now;
   simTimeAtLoopStart_ = mujocoData_->time;
-  auto nextWakeup = now;
+  std::chrono::steady_clock::time_point nextWakeup = now;
   while (!terminate_.load()) {
     simulationStep();
 
     // Advance the wakeup target by one sim timestep.
     nextWakeup += std::chrono::microseconds(timeStepMicro_);
 
-    auto now = std::chrono::steady_clock::now();
+    const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
     // Allow up to 10ms of catchup budget for minor OS scheduling jitter.
     // If we fell behind by more than 10ms (e.g. auto-reset sleep), rebase nextWakeup.
     if (now - nextWakeup > std::chrono::milliseconds(10)) {
       nextWakeup = now;
     } else if (nextWakeup > now) {
       // Sleep until 50µs before target, then busy-spin for sub-microsecond precision.
-      auto spinThreshold = nextWakeup - std::chrono::microseconds(50);
+      const std::chrono::steady_clock::time_point spinThreshold = nextWakeup - std::chrono::microseconds(50);
       if (std::chrono::steady_clock::now() < spinThreshold) {
         std::this_thread::sleep_until(spinThreshold);
       }
@@ -793,8 +829,25 @@ void MujocoSimInterface::applyGantryHold() {
   if (gantryHold_ == GantryHold::kWeldConstraint) {
     // A real constraint: mj_step solves it, so the base is supported DURING the integration rather than corrected
     // afterwards. The height is carried in the weld's relpose, which the operator can move while the sim runs.
+    mjtNum* weld = mujocoModel_->eq_data + mjNEQDATA * gantryWeldEqId_;
+    if (!locked) {
+      gantryWeldAnchored_ = false;
+    } else if (!gantryWeldAnchored_) {
+      // Anchored where the robot is caught: its horizontal position, and its heading with the roll and pitch taken
+      // out, so the catch lifts it upright in place instead of dragging it to the scene's anchor and turning it to
+      // face +x. The height stays the operator's gantry height below.
+      const mjtNum* base = mujocoData_->qpos;
+      const double yaw = std::atan2(2.0 * (base[3] * base[6] + base[4] * base[5]), 1.0 - 2.0 * (base[5] * base[5] + base[6] * base[6]));
+      weld[kWeldRelposeZOffset - 2] = base[0];
+      weld[kWeldRelposeZOffset - 1] = base[1];
+      weld[kWeldRelposeZOffset + 1] = std::cos(0.5 * yaw);
+      weld[kWeldRelposeZOffset + 2] = 0.0;
+      weld[kWeldRelposeZOffset + 3] = 0.0;
+      weld[kWeldRelposeZOffset + 4] = std::sin(0.5 * yaw);
+      gantryWeldAnchored_ = true;
+    }
     mujocoData_->eq_active[gantryWeldEqId_] = static_cast<mjtByte>(locked);
-    mujocoModel_->eq_data[mjNEQDATA * gantryWeldEqId_ + kWeldRelposeZOffset] = gantryHeight_.load();
+    weld[kWeldRelposeZOffset] = gantryHeight_.load();
     return;
   }
 
@@ -862,14 +915,29 @@ void MujocoSimInterface::throwDodgeball(const DodgeballThrow& throwCommand) {
   pendingDodgeball_ = throwCommand;
 }
 
-bool MujocoSimInterface::hasDodgeballInFlight() const {
-  std::lock_guard<std::mutex> lock(dodgeballMutex_);
-  return pendingDodgeball_.has_value() || scheduledImpactTime_ >= 0.0;
+void MujocoSimInterface::cancelDodgeball() {
+  {
+    std::lock_guard<std::mutex> lock(dodgeballMutex_);
+    pendingDodgeball_.reset();
+  }
+  scheduledImpactTime_ = -1.0;
+  parkProjectile();
+  if (dodgeballImpulseApplied_ && robotRootBodyId() >= 0) {
+    for (int axis = 0; axis < 3; ++axis) {
+      mujocoData_->xfrc_applied[6 * robotRootBodyId() + axis] = 0.0;
+    }
+  }
+  dodgeballImpulseApplied_ = false;
 }
 
 void MujocoSimInterface::applyDodgeball() {
   // Simulation thread only. mjData has no lock - this thread owns it - so everything that touches qpos, qvel or
   // xfrc_applied happens here rather than in the ROS callback that staged the command.
+
+  if (cancelDodgeballRequested_.exchange(false)) {
+    cancelDodgeball();
+    LOG(INFO) << "Dodgeball canceled: the robot was caught on the gantry.";
+  }
 
   // The impulse from the previous step has done its work; take it off again, or one throw would become a constant
   // force. Only the no-ball fallback path below ever sets it.
@@ -890,8 +958,15 @@ void MujocoSimInterface::applyDodgeball() {
   }
 
   if (staged.has_value()) {
+    // Clamped once, for both paths: a topic can be published by hand, and a ball and an impulse built from the same
+    // message must weigh the same.
+    const double mass = clampProjectileMass(staged->mass);
     // The base pose is read HERE rather than when the command was staged: the ball is thrown at the robot as it
     // stands at the moment of the throw, and a robot that turns during the flight does not drag the ball with it.
+    // Forward kinematics first, because the base position and every geom pose clearProjectileLaunch measures against
+    // come from mjData's derived quantities, and before the first mj_step - a throw staged while the simulator starts -
+    // nothing has computed them yet. It only reads qpos, which the next mj_step recomputes from anyway.
+    mj_kinematics(mujocoModel_, mujocoData_);
     const int baseBody = robotRootBodyId();
     const double yaw = baseYaw();
     const double cosYaw = std::cos(yaw);
@@ -900,35 +975,49 @@ void MujocoSimInterface::applyDodgeball() {
 
     // The GUI computed the whole throw in the robot's own yaw frame, so rotating it into the world is all that is
     // left to do here - see remote_control/tk_app/dodgeball.py, which owns the geometry.
-    const double offsetWorld[3] = {cosYaw * staged->spawnOffset[0] - sinYaw * staged->spawnOffset[1],
-                                   sinYaw * staged->spawnOffset[0] + cosYaw * staged->spawnOffset[1], staged->spawnOffset[2]};
-    const double velocityWorld[3] = {cosYaw * staged->launchVelocity[0] - sinYaw * staged->launchVelocity[1],
-                                     sinYaw * staged->launchVelocity[0] + cosYaw * staged->launchVelocity[1], staged->launchVelocity[2]};
+    const std::array<double, 3> offsetWorld{{cosYaw * staged->spawnOffset[0] - sinYaw * staged->spawnOffset[1],
+                                             sinYaw * staged->spawnOffset[0] + cosYaw * staged->spawnOffset[1], staged->spawnOffset[2]}};
+    const std::array<double, 3> velocityWorld{{cosYaw * staged->launchVelocity[0] - sinYaw * staged->launchVelocity[1],
+                                               sinYaw * staged->launchVelocity[0] + cosYaw * staged->launchVelocity[1],
+                                               staged->launchVelocity[2]}};
 
     if (hasProjectile() && baseBody >= 0) {
-      // A REAL BALL. Put it at the spawn point with the launch velocity and let MuJoCo fly it: the flight, the
-      // impact and the bounce are then the physics rather than a model of it, which is the whole point of having a
-      // body in the scene at all.
-      //
-      // The operator's mass first, and ONLY when it has changed: retuning it rebuilds the model's mass-derived
-      // constants, which costs about twenty simulation steps. A sweep that varies the direction and leaves the mass
-      // alone pays nothing.
-      const double requestedMass = std::clamp(staged->mass, kMinProjectileMass, kMaxProjectileMass);
-      if (std::abs(requestedMass - appliedProjectileMass_) > 1e-9) {
-        const absl::Status retuned = setProjectileMass(mujocoModel_, dodgeballBodyId_, requestedMass, projectile_.radius);
-        if (retuned.ok()) {
-          appliedProjectileMass_ = requestedMass;
-        } else {
-          // The throw still happens, at whatever mass the ball already had. Saying so is the point: a disturbance
-          // that silently weighed something other than what the slider said would invalidate the whole experiment.
-          LOG(ERROR) << "Could not retune the dodgeball to " << requestedMass << " kg (" << retuned.message() << "); throwing it at "
-                     << appliedProjectileMass_ << " kg instead.";
-        }
+      // A REAL BALL. Retune it to the operator's mass - a few stores, so every throw does it - then place it at the
+      // spawn point with the launch velocity and let MuJoCo fly it: the flight, the impact and the bounce are then
+      // the physics rather than a model of it, which is the whole point of having a body in the scene at all.
+      const absl::Status retuned = setProjectileMass(mujocoModel_, dodgeballBodyId_, mass);
+      if (!retuned.ok()) {
+        // The throw still happens, at whatever mass the ball already had. Saying so is the point: a disturbance that
+        // silently weighed something other than what the slider said would invalidate the whole experiment.
+        LOG(ERROR) << "Could not retune the dodgeball to " << mass << " kg (" << retuned.message() << "); throwing it at "
+                   << mujocoModel_->body_mass[dodgeballBodyId_] << " kg instead.";
       }
 
+      ProjectileLaunch requested;
       const double* basePosition = &mujocoData_->xpos[3 * baseBody];
       for (int axis = 0; axis < 3; ++axis) {
-        mujocoData_->qpos[dodgeballQposAdr_ + axis] = basePosition[axis] + offsetWorld[axis];
+        requested.position[axis] = basePosition[axis] + offsetWorld[axis];
+        requested.velocity[axis] = velocityWorld[axis];
+      }
+      requested.flightTime = flight;
+      // A spawn point inside the robot or under the floor is slid along the ball's own path until it is clear, which
+      // keeps the aim; see clearProjectileLaunch. The ball is still parked here, so measuring cannot hit it.
+      const absl::StatusOr<ProjectileLaunch> launch =
+          clearProjectileLaunch(mujocoModel_, mujocoData_, dodgeballBodyId_, requested, kGravity);
+      if (!launch.ok()) {
+        LOG(WARNING) << "Dodgeball not thrown: " << launch.status().message();
+        return;
+      }
+      const double shift = requested.flightTime - launch->flightTime;
+      if (std::abs(shift) > 1e-12) {
+        LOG(WARNING) << "The dodgeball's spawn point was inside the robot or the floor, so it starts " << std::abs(shift) << " s "
+                     << (shift < 0.0 ? "earlier" : "later") << " along the same path instead.";
+      }
+
+      for (int axis = 0; axis < 3; ++axis) {
+        mujocoData_->qpos[dodgeballQposAdr_ + axis] = launch->position[axis];
+        mujocoData_->qvel[dodgeballDofAdr_ + axis] = launch->velocity[axis];
+        mujocoData_->qvel[dodgeballDofAdr_ + 3 + axis] = 0.0;  // no spin: the GUI does not aim one
       }
       // Identity orientation. A sphere has no preferred one, and leaving whatever the last throw ended at would make
       // a re-thrown ball's spin depend on where the previous one came to rest.
@@ -936,36 +1025,36 @@ void MujocoSimInterface::applyDodgeball() {
       mujocoData_->qpos[dodgeballQposAdr_ + 4] = 0.0;
       mujocoData_->qpos[dodgeballQposAdr_ + 5] = 0.0;
       mujocoData_->qpos[dodgeballQposAdr_ + 6] = 0.0;
-      for (int axis = 0; axis < 3; ++axis) {
-        mujocoData_->qvel[dodgeballDofAdr_ + axis] = velocityWorld[axis];
-        mujocoData_->qvel[dodgeballDofAdr_ + 3 + axis] = 0.0;  // no spin: the GUI does not aim one
-      }
       setProjectileArmed(true);
-      LOG(INFO) << "Dodgeball thrown: " << appliedProjectileMass_ << " kg, " << 2.0 * projectile_.radius << " m across, arriving in "
-                << flight << " s with " << appliedProjectileMass_ * std::hypot(velocityWorld[0], velocityWorld[1], velocityWorld[2])
-                << " N s.";
+      const double appliedMass = mujocoModel_->body_mass[dodgeballBodyId_];
+      LOG(INFO) << "Dodgeball thrown: " << appliedMass << " kg, " << 2.0 * projectile_.radius << " m across, arriving in "
+                << launch->flightTime << " s with "
+                << appliedMass * std::hypot(launch->velocity[0], launch->velocity[1], launch->velocity[2] - kGravity * launch->flightTime)
+                << " N s of momentum.";
       return;
     }
 
     // NO BALL IN THE SCENE, because the task file named no projectile. The flight is ballistic and known in closed
-    // form, so the momentum it would have delivered is scheduled as a one-step force on the base instead. Nothing to
-    // look at, but the disturbance is the same one. v_impact = v_launch - (0, 0, g t), because the launch was lifted
-    // by g t / 2 to beat the drop.
+    // form, so the momentum the ball carries on arrival is scheduled as a one-step force on the base instead.
+    const std::array<double, 3> impulse = projectileArrivalMomentum(velocityWorld, flight, mass, kGravity);
     for (int axis = 0; axis < 3; ++axis) {
-      scheduledImpulseWorld_[axis] = staged->mass * velocityWorld[axis];
+      scheduledImpulseWorld_[axis] = impulse[axis];
     }
-    scheduledImpulseWorld_[2] -= staged->mass * kGravity * flight;
     scheduledImpactTime_ = mujocoData_->time + flight;
-    LOG(INFO) << "Dodgeball thrown (no projectile compiled into this scene, so its impulse is simulated instead): " << staged->mass
-              << " kg arriving in " << flight << " s with an impulse of (" << scheduledImpulseWorld_[0] << ", " << scheduledImpulseWorld_[1]
-              << ", " << scheduledImpulseWorld_[2] << ") N s.";
+    LOG(INFO) << "Dodgeball thrown (no projectile compiled into this scene, so its impulse is applied instead): " << mass
+              << " kg arriving in " << flight << " s with an impulse of (" << impulse[0] << ", " << impulse[1] << ", " << impulse[2]
+              << ") N s.";
   }
 
-  // A ball that has come to rest is parked again, so that it stops being something the robot can trip over and the
-  // next throw starts from a clean state rather than from wherever the last one rolled to.
-  if (projectileArmed_ && projectileAtRest()) {
-    parkProjectile();
-    return;
+  // A ball that has finished is parked again, so that it stops being something the robot can trip over and the next
+  // throw starts from a clean state rather than from wherever the last one rolled to.
+  if (projectileArmed_ && hasProjectile()) {
+    const double speed = std::hypot(mujocoData_->qvel[dodgeballDofAdr_ + 0], mujocoData_->qvel[dodgeballDofAdr_ + 1],
+                                    mujocoData_->qvel[dodgeballDofAdr_ + 2]);
+    if (projectileRestMonitor_.update(speed, mujocoModel_->opt.timestep)) {
+      parkProjectile();
+      return;
+    }
   }
 
   if (scheduledImpactTime_ < 0.0 || mujocoData_->time < scheduledImpactTime_) return;
@@ -990,41 +1079,24 @@ bool MujocoSimInterface::hasProjectile() const {
   return dodgeballBodyId_ >= 0 && dodgeballQposAdr_ >= 0 && dodgeballDofAdr_ >= 0;
 }
 
-bool MujocoSimInterface::isProjectileDof(int dof) const {
-  return dodgeballDofAdr_ >= 0 && dof >= dodgeballDofAdr_ && dof < dodgeballDofAdr_ + 6;
-}
-
 void MujocoSimInterface::setProjectileArmed(bool armed) {
   if (!hasProjectile()) return;
-  // Armed: it collides, and gravity acts on it. Parked: neither, so a ball nobody has thrown can neither be hit nor
-  // fall for the whole session accumulating the velocity MuJoCo eventually warns about.
+  // Armed: it collides, and gravity acts on it. Parked: neither. The gravity half only works because the ball was
+  // compiled with gravcomp - see addProjectileToSpec - so that mjModel::ngravcomp counts it.
   setProjectileCollisionEnabled(mujocoModel_, dodgeballBodyId_, armed);
   if (mujocoModel_->body_gravcomp != nullptr) {
     mujocoModel_->body_gravcomp[dodgeballBodyId_] = armed ? 0.0 : 1.0;
   }
   projectileArmed_ = armed;
-  projectileRestSteps_ = 0;
-}
-
-bool MujocoSimInterface::projectileAtRest() {
-  if (!hasProjectile()) return false;
-  // "At rest" is a slow ball for a while, not a stationary one: a ball lying on the floor is never exactly still,
-  // and one balanced on a foot for an instant on its way past must not be parked out from under the robot.
-  double speedSquared = 0.0;
-  for (int axis = 0; axis < 3; ++axis) {
-    const double component = mujocoData_->qvel[dodgeballDofAdr_ + axis];
-    speedSquared += component * component;
-  }
-  projectileRestSteps_ = (speedSquared < kProjectileRestSpeed * kProjectileRestSpeed) ? projectileRestSteps_ + 1 : 0;
-  return projectileRestSteps_ >= kProjectileRestSteps;
+  if (armed) projectileRestMonitor_.start();
 }
 
 void MujocoSimInterface::parkProjectile() {
   if (!hasProjectile()) return;
   setProjectileArmed(false);
-  mujocoData_->qpos[dodgeballQposAdr_ + 0] = 0.0;
-  mujocoData_->qpos[dodgeballQposAdr_ + 1] = 0.0;
-  mujocoData_->qpos[dodgeballQposAdr_ + 2] = kProjectileParkHeight;
+  for (int axis = 0; axis < 3; ++axis) {
+    mujocoData_->qpos[dodgeballQposAdr_ + axis] = kProjectileParkPosition[axis];
+  }
   mujocoData_->qpos[dodgeballQposAdr_ + 3] = 1.0;
   for (int index = 4; index < 7; ++index) mujocoData_->qpos[dodgeballQposAdr_ + index] = 0.0;
   for (int dof = 0; dof < 6; ++dof) mujocoData_->qvel[dodgeballDofAdr_ + dof] = 0.0;
@@ -1032,7 +1104,7 @@ void MujocoSimInterface::parkProjectile() {
 
 int MujocoSimInterface::robotRootBodyId() const {
   // The FIRST body carrying a free joint, which is the convention MujocoContactUtils::robotCentroidalState already
-  // relies on for the centre of mass and the viewer's camera.
+  // relies on for the center of mass and the viewer's camera.
   for (int body = 1; body < mujocoModel_->nbody; ++body) {
     if (mujocoModel_->body_jntnum[body] > 0 && mujocoModel_->jnt_type[mujocoModel_->body_jntadr[body]] == mjJNT_FREE) {
       return body;

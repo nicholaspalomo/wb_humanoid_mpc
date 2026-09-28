@@ -43,13 +43,13 @@ namespace ocs2::humanoid {
  *
  * Analytic, and the companion of the `high_speed_turning` foot placement: one says where to put the foot for a turn
  * at speed, the other says which way to push once it is there. With omega = psidot e_z and a horizontal velocity the
- * cross product is (-psidot v_y, psidot v_x, 0), a force pointing towards the centre of the turn.
+ * cross product is (-psidot v_y, psidot v_x, 0), a force pointing towards the center of the turn.
  *
  * TWO THINGS TO KNOW BEFORE LISTING IT.
  *
  * First, it is the only heuristic of the ten whose force is horizontal, so it is the only one whose expression
- * depends on the foot's orientation. Under `useContactBasisVectorInputs: true` the input is parameterized in the
- * local contact frame, so the layer has to route the whole reference through the state-aware
+ * depends on the foot's orientation. Under `contactInputParameterization: basis_vectors` the input is parameterized in
+ * the local contact frame, so the layer has to route the whole reference through the state-aware
  * setContactForceInWorldFrame() and pay a forward-kinematics pass per shooting node. The layer switches paths by
  * itself when this is listed; the cost is real and is the reason the other nine do not pay it.
  *

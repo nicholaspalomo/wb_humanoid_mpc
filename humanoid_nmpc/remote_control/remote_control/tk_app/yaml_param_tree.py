@@ -129,7 +129,7 @@ def label_for(key: str, comment: Optional[str]) -> str:
 def tunables(
     file_path: str, root: Optional[dict] = None, prefix: Optional[List[str]] = None
 ) -> List[Tunable]:
-    """Every numeric leaf of a configuration file, in file order, labelled from its trailing comment.
+    """Every numeric leaf of a configuration file, in file order, labeled from its trailing comment.
 
     Booleans are left out: a slider would write a float back into a bool key and break the next reload. Strings and
     lists are left out because a slider cannot express them.

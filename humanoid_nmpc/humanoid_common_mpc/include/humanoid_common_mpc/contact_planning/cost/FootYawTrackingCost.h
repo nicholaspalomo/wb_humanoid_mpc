@@ -32,7 +32,7 @@ namespace ocs2::humanoid {
 
 /**
  * `foot_yaw_tracking`: w (psi_{i,k} - theta_nom,k)^2 at every node. The foot yaw is measured against the nominal
- * heading (the linearisation point), not against the heading state: a stance foot's yaw is pinned, so a penalty on
+ * heading (the linearization point), not against the heading state: a stance foot's yaw is pinned, so a penalty on
  * (psi_i - theta) would pull the heading back towards the stance feet.
  */
 class FootYawTrackingCost final : public LipWeightedCost {

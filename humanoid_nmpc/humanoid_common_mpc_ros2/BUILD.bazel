@@ -19,6 +19,8 @@ cc_library(
         "src/ros_comm/JointTargetSubscriber.cpp",
         "src/benchmarks/SqpBenchmarksPublisher.cpp",
         "src/benchmarks/DdpBenchmarksPublisher.cpp",
+        "src/fsm/DodgeballThrowParser.cpp",
+        "src/fsm/SimFallRecovery.cpp",
         "src/fsm/SimFsmBridge.cpp",
         "src/telemetry/HumanoidTelemetryPublisher.cpp",
         "src/telemetry/PinocchioTelemetryPublisher.cpp",
@@ -45,9 +47,11 @@ cc_library(
         "//lib/ocs2:ocs2_ros2_interfaces",
         "//lib/ocs2:ocs2_ros2_msgs",
         "//lib/ocs2:ocs2_sqp",
+        "@abseil-cpp//absl/container:flat_hash_map",
         "@abseil-cpp//absl/log:log",
         "@abseil-cpp//absl/log:globals",
         "@abseil-cpp//absl/log:initialize",
+        "@abseil-cpp//absl/strings",
         "@eigen",
         "@boost",
         "@pinocchio",
@@ -78,11 +82,69 @@ cc_binary(
 )
 
 cc_test(
+    name = "testDodgeballThrowParser",
+    size = "small",
+    srcs = ["test/testDodgeballThrowParser.cpp"],
+    # The payload the GUI publishes, captured from remote_control's throw_payload; the Python tests check that the GUI
+    # still produces exactly these keys, so a key renamed on either side fails a test on that side.
+    data = ["test/data/dodgeball_payload.yaml"],
+    deps = [
+        ":humanoid_common_mpc_ros2",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The /humanoid/fsm_state message: the mode, the gantry and the controller resets the remote control re-centers its
+# joysticks on (remote_control/test/test_fsm_state.py pins the parser on the same strings).
+cc_test(
+    name = "testFsmStateMessage",
+    size = "small",
+    srcs = ["test/testFsmStateMessage.cpp"],
+    deps = [
+        ":humanoid_common_mpc_ros2",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
     name = "testBaseTiltAngle",
     size = "small",
     srcs = ["test/testBaseTiltAngle.cpp"],
     deps = [
         ":humanoid_common_mpc_ros2",
         "@googletest//:gtest_main",
+    ],
+)
+
+# GaitScheduleUpdaterRos2 fed through its topic, in a ROS context of the test's own: a received gait is inserted before
+# the next solve, and one received before an MPC reset is dropped with it.
+cc_test(
+    name = "testGaitScheduleUpdaterRos2",
+    size = "small",
+    srcs = ["test/testGaitScheduleUpdaterRos2.cpp"],
+    deps = [
+        ":humanoid_common_mpc_ros2",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The fall recovery of the MuJoCo sims against the real simulator, headless, on the DRC Atlas scene: every simulator
+# reset and every catch is one discontinuity, and a caught robot settles on the gantry before WB_MPC is accepted.
+cc_test(
+    name = "testSimFallRecovery",
+    size = "medium",
+    srcs = ["test/testSimFallRecovery.cpp"],
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":humanoid_common_mpc_ros2",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+        "@yaml_cpp",
     ],
 )

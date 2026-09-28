@@ -25,19 +25,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/search/DivingStage.h"
 
-#include <sstream>
-#include <stdexcept>
+#include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
 
 std::string DivingStage::describe() const {
-  std::ostringstream out;
-  out << "dive from the root relaxation for an early incumbent, at most " << maxDiveIterations_ << " iterations";
-  return out.str();
+  return absl::StrCat("dive from the root relaxation for an early incumbent, at most ", maxDiveIterations_, " iterations");
 }
 
 void DivingStage::configure(const ContactPlanningConfig& config) {
-  if (config.diving.maxDiveIterations < 1) throw std::invalid_argument("[diving] maxDiveIterations must be at least 1");
   maxDiveIterations_ = config.diving.maxDiveIterations;
 }
 

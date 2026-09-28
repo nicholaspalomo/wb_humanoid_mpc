@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <atomic>
 
 #include <functional>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -44,6 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <humanoid_common_mpc/gait/ModeSequenceTemplate.h>
 
 #include <ocs2_oc/synchronized_module/SolverSynchronizedModule.h>
+#include "absl/status/statusor.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/reference_manager/BreakFrequencyAlphaFilter.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
@@ -71,6 +73,10 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
    * @param [in] gaitFile: The file path that contains the different gait patterns.
    * @param [in] referenceFile: The file path containing the default references and velocity limits.
    * @param [in] velocityTargetToTargetTrajectories: A function which transforms the commanded velocities to TargetTrajectories.
+   *             It runs every solve, right after the reference manager's own pre-solve hook, so a target calculator
+   *             behind it must build on SwitchedModelReferenceManager::getAppliedTerrainHeight
+   *             (TargetTrajectoriesCalculatorBase::setTerrainHeightSource): the commanded base height then stands on
+   *             the ground this solve applied, and follows a hot reload of `terrainHeight`.
    * @param [in] switchedModelReferenceManagerPtr: A pointer to the switched model reference manager used to update gait and references
    */
   ProceduralMpcMotionManager(const std::string& gaitFile,
@@ -101,6 +107,27 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
    */
   void postSolverRun(const PrimalSolution& primalSolution) override {};
 
+  /**
+   * Returns the gait logic and the command state to their state after construction: the gait is "stance" again (the
+   * reference manager's reset restarts the gait schedule in stance) and the gait-change hold-off, the command filter
+   * and the acceleration ramp start afresh. The operator's current command is kept - it is an input,
+   * not state - and so are the limits. Then the reset hook runs (setResetHook), which is where the owner of the target
+   * calculator behind the VelocityTargetToTargetTrajectories function resets it. Solver thread, between solves.
+   *
+   * The MRT joint controllers reset the MPC when their observation clock runs backwards (MpcResetSupervisor); without a
+   * reset, preSolverRun() still restarts the ramp and lifts the gait-change hold-off on a clock that went backwards.
+   */
+  void reset() override;
+
+  /**
+   * A function reset() runs last. The nodes pass one that resets the TargetTrajectoriesCalculatorBase their
+   * VelocityTargetToTargetTrajectories function calls, whose filters are state of the same command path.
+   */
+  void setResetHook(std::function<void()> resetHook) { resetHook_ = std::move(resetHook); }
+
+  /** The gait the manager is in, by name of the gait file ("stance", "walk", ...). Solver thread. */
+  const std::string& getCurrentGaitCommand() const { return currentGaitCommand_; }
+
   virtual void setAndScaleVelocityCommand(const WalkingVelocityCommand& rawVelocityCommand);
 
   static bool transitionToFasterGait(const vector4_t& velCommandVec, const vector6_t& baseVelocity, const GaitModeStateConfig& cfg);
@@ -116,16 +143,38 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
   void setVelocityCommandAccelerationLimits(scalar_t maxLinearAcceleration, scalar_t maxAngularAcceleration);
 
   /**
-   * Re-reads the command limits and the command ramps from `referenceFile` (hot reload).
+   * Re-reads the command limits, the command ramps and the command filter from `referenceFile` (hot reload).
    *
    * Called by the parameter updater from the solver thread while the command path scales a raw command on the
-   * subscription thread, so the limits are atomics; see TargetTrajectoriesCalculatorBase::reloadCommandLimits.
+   * subscription thread, so the limits are atomics; see TargetTrajectoriesCalculatorBase::reloadCommandLimits. The ramps
+   * and the filter are only read by preSolverRun(), on the solver thread. Throws std::invalid_argument naming the key of
+   * an invalid ramp or filter value (the parameter updater logs it and goes on with the previous values).
    */
   void reloadCommandLimits(const std::string& referenceFile);
   scalar_t getMaxLinearAcceleration() const { return maxLinearAcceleration_; }
   scalar_t getMaxAngularAcceleration() const { return maxAngularAcceleration_; }
   /** The rate-limited reference of the last solve, [v_x, v_y, pelvis height, yaw rate]. */
   const vector4_t& getRampedVelocityCommand() const { return rampedVelocityCommand_; }
+
+  // LINT.IfChange(velocity_command_filter_key)
+  /**
+   * The reference.yaml key of the break frequency [Hz] of the first-order low-pass filter on the operator's velocity
+   * command (BreakFrequencyAlphaFilter), which runs on the solver time before the acceleration ramps. 0 switches the
+   * filter off - the command passes through unchanged - and is what an absent key means. Every robot ships it at 0.
+   */
+  static constexpr char kVelocityCommandFilterBreakFrequencyKey[] = "velocityCommandFilterBreakFrequency";
+  // clang-format off
+  // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.yaml:velocity_command_filter, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/command/reference.yaml:velocity_command_filter, //robot_models/unitree_g1/g1_centroidal_mpc/config/command/reference.yaml:velocity_command_filter, //robot_models/unitree_g1/g1_wb_mpc/config/command/reference.yaml:velocity_command_filter, //robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/command/reference.yaml:velocity_command_filter)
+  // clang-format on
+
+  /**
+   * The break frequency of the command filter in `referenceFile` (kVelocityCommandFilterBreakFrequencyKey), 0 when the
+   * key is absent. InvalidArgument naming the key when the value is not a number, is negative or is not finite.
+   */
+  static absl::StatusOr<scalar_t> loadVelocityCommandFilterBreakFrequency(const std::string& referenceFile);
+
+  /** [Hz] The break frequency of the command filter; 0: off. */
+  scalar_t getVelocityCommandFilterBreakFrequency() const { return velocityCommandFilter_.getBreakFrequency(); }
 
   /**
    * Moves `current` toward `target` by at most maxLinearAcceleration * dt in the (v_x, v_y) plane (as a vector, so the
@@ -169,7 +218,8 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
   std::atomic<scalar_t> maxDeltaPelvisHeight_{0.3};
   std::atomic<scalar_t> maxRotationVelocity_{0.6};
 
-  BreakFrequencyAlphaFilter velocityCommandFilter;
+  // The operator's command filtered on the solver time; off unless reference.yaml sets a break frequency.
+  BreakFrequencyAlphaFilter velocityCommandFilter_{vector4_t::Zero()};
   WalkingVelocityCommand velocityCommand_;
 
   // Acceleration-limited velocity reference (setVelocityCommandAccelerationLimits)
@@ -177,11 +227,16 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
   scalar_t maxAngularAcceleration_ = 0.0;  // [rad/s^2] <= 0: off
   vector4_t rampedVelocityCommand_ = vector4_t::Zero();
   scalar_t lastRampTime_ = 0.0;
-  bool rampInitialised_ = false;
+  bool rampInitialized_ = false;
 
   std::string currentGaitCommand_{"stance"};
   std::string lastGaitCommand_{"stance"};
-  scalar_t lastGaitChangeTime_{0.0};
+  // Solver time of the last gait change; gait changes are held off for kGaitChangeHoldOff after it. Lowest until the
+  // first change, so that the first solve can change the gait whatever the clock reads.
+  scalar_t lastGaitChangeTime_{std::numeric_limits<scalar_t>::lowest()};
+  static constexpr scalar_t kGaitChangeHoldOff = 0.2;  // [s]
+
+  std::function<void()> resetHook_;
 };
 
 }  // namespace ocs2::humanoid

@@ -2,8 +2,13 @@
 
 #include <cstddef>
 #include <cstdlib>
+#include <iterator>
 #include <memory>
 #include <stdexcept>
+#include <string>
+#include <vector>
+
+#include "absl/status/statusor.h"
 
 #include "humanoid_common_mpc/acom/AcomSirenWeightsAtlas.h"
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
@@ -23,7 +28,11 @@ class AngularCenterOfMassTest : public ::testing::Test {
  protected:
   void SetUp() override {
     std::srand(kRandomSeed);
-    acomPtr_ = AngularCenterOfMass::createForRobot("atlas");
+    const std::vector<std::string> jointNames(std::begin(acom::AcomSirenWeightsAtlas::joint_names),
+                                              std::end(acom::AcomSirenWeightsAtlas::joint_names));
+    absl::StatusOr<std::unique_ptr<AngularCenterOfMass>> acom = AngularCenterOfMass::Create("atlas", jointNames);
+    ASSERT_TRUE(acom.ok()) << acom.status();
+    acomPtr_ = *std::move(acom);
   }
 
   std::unique_ptr<AngularCenterOfMass> acomPtr_;

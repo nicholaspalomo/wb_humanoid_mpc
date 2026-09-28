@@ -69,7 +69,7 @@ class ContactMomentXYConstraintCppAd final : public StateInputConstraintCppAd {
    * Whether this term is gated on the mode schedule's contact flag.
    *
    * False is the contact-implicit formulation, which removes the hard `zero_wrench` constraint that used to make the
-   * gate sound. Unlike the friction and wrench cones, the four centre-of-pressure rows are homogeneous in the wrench,
+   * gate sound. Unlike the friction and wrench cones, the four center-of-pressure rows are homogeneous in the wrench,
    * so the zero wrench already satisfies them exactly and nothing about the rows has to change when the gate goes;
    * only the penalty does, because a relaxed log barrier has a large negative derivative at zero slack and would pay
    * a foot in flight to leave the origin. See humanoid_nmpc/docs/contact_implicit_mpc/README.md.
@@ -93,7 +93,7 @@ class ContactMomentXYConstraintCppAd final : public StateInputConstraintCppAd {
   const static size_t numConstraints_ = 4;
   bool isActive_ = true;
   // Fixed by the formulation at load time rather than tuned, so it is const and the parallel solve reads it without
-  // synchronisation. It has to survive the copy the SQP solver makes of the whole problem per worker thread.
+  // synchronization. It has to survive the copy the SQP solver makes of the whole problem per worker thread.
   const bool scheduleGated_;
 };
 

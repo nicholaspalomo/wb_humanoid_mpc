@@ -27,17 +27,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <stdexcept>
 
+#include "absl/strings/str_cat.h"
+
 namespace ocs2::humanoid {
 
 int LayoutBuilder::addState(const std::string& name) {
-  if (layout_.hasState(name)) throw std::invalid_argument("[Layout] state '" + name + "' declared twice");
+  if (layout_.hasState(name)) throw std::invalid_argument(absl::StrCat("[Layout] state '", name, "' declared twice"));
   layout_.stateNames.push_back(name);
   layout_.nx = static_cast<int>(layout_.stateNames.size());
   return layout_.nx - 1;
 }
 
 int LayoutBuilder::addInput(const std::string& name) {
-  if (layout_.hasInput(name)) throw std::invalid_argument("[Layout] input '" + name + "' declared twice");
+  if (layout_.hasInput(name)) throw std::invalid_argument(absl::StrCat("[Layout] input '", name, "' declared twice"));
   layout_.inputNames.push_back(name);
   layout_.nu = static_cast<int>(layout_.inputNames.size());
   return layout_.nu - 1;

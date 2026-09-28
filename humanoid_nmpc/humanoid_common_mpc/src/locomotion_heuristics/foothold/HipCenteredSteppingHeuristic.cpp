@@ -45,22 +45,21 @@ absl::Status HipCenteredSteppingHeuristic::configure(const LocomotionHeuristicCo
 }
 
 vector2_t HipCenteredSteppingHeuristic::offset(const FootholdHeuristicContext& context) const {
-  // H_r(Theta) = PTP(R(Theta) r_hip): the hip's position in the base frame, rotated into the world by the measured
-  // base yaw and dropped onto the ground. R(Theta) is the full body rotation in the dissertation and R_z(yaw) here,
+  // H_r(Theta) = PTP(R(Theta) r_hip): the hip's position in the base frame, rotated into the world by the base yaw
+  // predicted at the touch-down and dropped onto the ground. R(Theta) is the full body rotation in the dissertation and R_z(yaw) here,
   // which is the same simplification the control model itself makes for its orientation dynamics (section 3.2.1):
   // the roll and pitch of a walking base are small, and PTP() would flatten their contribution anyway.
   const vector2_t hip = hipPositionInBaseFrame_[context.contactIndex];
   const scalar_t longitudinal = parameters_.longitudinalScale * hip.x();
   const scalar_t lateral = parameters_.lateralScale * hip.y();
-  const scalar_t cosYaw = std::cos(context.measuredBaseYaw);
-  const scalar_t sinYaw = std::sin(context.measuredBaseYaw);
-  const vector2_t hipInWorld(context.measuredBasePosition.x() + cosYaw * longitudinal - sinYaw * lateral,
-                             context.measuredBasePosition.y() + sinYaw * longitudinal + cosYaw * lateral);
-  // This heuristic returns the offset that MOVES THE ANCHOR, so the caller subtracts the anchor it would otherwise
-  // have used - see LocomotionHeuristicLayer::footholdOffset(), which is what supplies that anchor through the
-  // context's measured base position. Everything here is expressed relative to the measured base, so the difference
-  // the caller needs is exactly the hip position relative to it.
-  return vector2_t(hipInWorld - context.measuredBasePosition);
+  const scalar_t cosYaw = std::cos(context.baseYaw);
+  const scalar_t sinYaw = std::sin(context.baseYaw);
+  const vector2_t hipInWorld(context.basePosition.x() + cosYaw * longitudinal - sinYaw * lateral,
+                             context.basePosition.y() + sinYaw * longitudinal + cosYaw * lateral);
+  // This heuristic MOVES THE ANCHOR: SwitchedModelReferenceManager::nominalFoothold() adds the offsets of a list that
+  // contains it to the predicted base rather than to the stance-foot anchor. Everything here is expressed relative to
+  // that predicted base, so what it has to return is exactly the hip position relative to it.
+  return vector2_t(hipInWorld - context.basePosition);
 }
 
 std::string HipCenteredSteppingHeuristic::describe() const {

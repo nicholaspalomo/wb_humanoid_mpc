@@ -66,12 +66,12 @@ vector2_t HighSpeedTurningHeuristic::offset(const FootholdHeuristicContext& cont
   // Evaluated in the BASE frame, so that "forward" and "lateral" below mean the robot's own, and the whole offset is
   // rotated into the world afterwards. This is the term that vanishes at zero speed however fast the robot spins,
   // which is what distinguishes it from in_place_turning.
-  const vector2_t commandedInBaseFrame = toWorld(context.commandedVelocity, -context.measuredBaseYaw);
+  const vector2_t commandedInBaseFrame = toWorld(context.commandedVelocity, -context.baseYaw);
   const scalar_t crossForward = commandedInBaseFrame.y() * context.commandedYawRate;
   const scalar_t crossLateral = -commandedInBaseFrame.x() * context.commandedYawRate;
   const vector2_t offsetInBaseFrame(parameters_.forwardPerCrossTerm * crossForward + parameters_.forwardOffset,
                                     parameters_.lateralPerCrossTerm * crossLateral + context.side * parameters_.lateralOffset);
-  return toWorld(offsetInBaseFrame, context.measuredBaseYaw);
+  return toWorld(offsetInBaseFrame, context.baseYaw);
 }
 
 std::string HighSpeedTurningHeuristic::describe() const {

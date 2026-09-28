@@ -28,16 +28,81 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact/FootprintCornerHeights.h"
 
 #include <cmath>
+#include <cstdint>
 #include <utility>
 
 #include <pinocchio/multibody/data.hpp>
 #include <pinocchio/multibody/model.hpp>
 
 #include "absl/log/check.h"
+#include "absl/strings/str_cat.h"
 
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 
 namespace ocs2::humanoid {
+
+namespace {
+
+/** [1/m], [1/rad]: the geometry is fingerprinted to a nanometre and a nanoradian, far below any edit that matters. */
+constexpr double kFingerprintResolution = 1.0e9;
+
+/** FNV-1a, 64 bit. Deterministic across processes and builds, which absl::Hash deliberately is not. */
+class Fnv1a64 {
+ public:
+  void add(int64_t value) {
+    for (int byte = 0; byte < 8; ++byte) {
+      hash_ ^= static_cast<uint64_t>(value >> (8 * byte)) & 0xffU;
+      hash_ *= 0x100000001b3ULL;
+    }
+  }
+  void add(double value) { add(static_cast<int64_t>(std::llround(value * kFingerprintResolution))); }
+  void add(const std::string& text) {
+    for (const char character : text) {
+      hash_ ^= static_cast<uint64_t>(static_cast<unsigned char>(character));
+      hash_ *= 0x100000001b3ULL;
+    }
+    add(static_cast<int64_t>(text.size()));
+  }
+  void add(const pinocchio::SE3& placement) {
+    for (int row = 0; row < 3; ++row) {
+      add(placement.translation()(row));
+      for (int col = 0; col < 3; ++col) {
+        add(placement.rotation()(row, col));
+      }
+    }
+  }
+  uint64_t value() const { return hash_; }
+
+ private:
+  uint64_t hash_ = 0xcbf29ce484222325ULL;
+};
+
+/**
+ * A fingerprint of everything the taped heights depend on: each frame's placement on its parent joint - which is where
+ * `contact_rectangle` and `contact_frame_translation` end up - and every joint placement and joint type on the chain
+ * from that joint to the root, plus the state and coordinate dimensions the tape is laid out in.
+ */
+uint64_t geometryFingerprint(const pinocchio::Model& model,
+                             const std::vector<size_t>& frameIds,
+                             size_t stateDim,
+                             size_t generalizedCoordinatesDim) {
+  Fnv1a64 hash;
+  hash.add(static_cast<int64_t>(stateDim));
+  hash.add(static_cast<int64_t>(generalizedCoordinatesDim));
+  for (const size_t frameId : frameIds) {
+    const pinocchio::Frame& frame = model.frames[frameId];
+    hash.add(frame.name);
+    hash.add(frame.placement);
+    for (pinocchio::JointIndex joint = frame.parentJoint; joint > 0; joint = model.parents[joint]) {
+      hash.add(model.names[joint]);
+      hash.add(model.joints[joint].shortname());
+      hash.add(model.jointPlacements[joint]);
+    }
+  }
+  return hash.value();
+}
+
+}  // namespace
 
 FootprintCornerHeights::FootprintCornerHeights(const PinocchioInterface& pinocchioInterface,
                                                const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
@@ -59,6 +124,13 @@ FootprintCornerHeights::FootprintCornerHeights(const PinocchioInterface& pinocch
            "configured.";
     frameIds_.push_back(pinocchioInterfaceCppAd_.getModel().getFrameId(frameName));
   }
+  // The library name is the cache key, and the corner placements are baked into the tape as constants: with
+  // recompileLibrariesCppAd: false - how every robot ships - a library of the old geometry would otherwise be loaded
+  // after an edit to the footprint, and both contact-implicit terms would keep evaluating the old corners.
+  modelName_ = absl::StrCat(modelName_, "_",
+                            absl::Hex(geometryFingerprint(pinocchioInterface.getModel(), frameIds_, mpcRobotModelAdPtr_->getStateDim(),
+                                                          mpcRobotModelAdPtr_->getGenCoordinatesDim()),
+                                      absl::kZeroPad16));
   createAdInterface(modelSettings.recompileLibrariesCppAd);
 }
 

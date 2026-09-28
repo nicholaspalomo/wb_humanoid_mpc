@@ -45,6 +45,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 /**
+ * The facts about the REST of the controller's configuration that decide whether a listed heuristic can work at all,
+ * or would be silently inert. Create() refuses the combinations that cannot work and warns about the ones that would
+ * do nothing, naming the key to change in each case, so that nobody tunes a dead channel.
+ */
+struct LocomotionHeuristicEnvironment {
+  /// `contactScheduleSource: contact_planner`: the planner supplies the landing targets and never consults the foothold
+  /// seam.
+  bool usesContactPlanning = false;
+  /// `contactInputParameterization: basis_vectors`: a horizontal force has to be rotated into the local contact frame.
+  bool usesContactBasisVectorInputs = false;
+  /// [m] `model_settings.nominal_foothold.stepWidth`: the lateral separation the foothold anchor keeps.
+  scalar_t nominalStepWidth = 0.0;
+  /// `com_and_acom_tracking_cost` listed in `costs`: the cost factory zeroes Q's and Q_final's base-pose blocks.
+  bool listsComAndAcomTrackingCost = false;
+  /// `task_space_foot_cost_weights.pos_x` and `pos_y` both zero, or the foot cost not listed: nothing tracks a foothold.
+  bool footPositionIsUntracked = false;
+};
+
+/**
  * The assembled reference-shaping layer: the heuristics a task file listed, held by kind, summed on demand.
  *
  * This is the object SwitchedModelReferenceManager holds and the three seams call into. It is the only thing in the
@@ -62,14 +81,14 @@ class LocomotionHeuristicLayer {
    * Builds the layer from a validated configuration and the model constants, and configures every listed heuristic.
    *
    * Fails on a configuration validate() rejects, on a name no factory can build, and on the two combinations that
-   * cannot work: a foothold heuristic under an online contact planner, and `centripetal_acceleration` under the
-   * basis-vector input parameterization without a way to rotate its force. The warnings that are not errors are
-   * emitted here, once, with LOG(WARNING).
+   * cannot work: a foothold heuristic under an online contact planner, and a foothold list with neither a positive
+   * nominal step width nor `hip_centered_stepping` to keep the feet apart. Warns, once, with LOG(WARNING), about what
+   * would work but be inert or expensive: base-pose heuristics under ACoM tracking, foothold heuristics with the foot
+   * cost's xy weights at zero, and a horizontal-force wrench heuristic under basis-vector inputs.
    */
   static absl::StatusOr<std::unique_ptr<LocomotionHeuristicLayer>> Create(const LocomotionHeuristicConfig& config,
                                                                           const LocomotionHeuristicModelParameters& model,
-                                                                          bool usesContactPlanning,
-                                                                          bool usesContactBasisVectorInputs,
+                                                                          const LocomotionHeuristicEnvironment& environment,
                                                                           bool verbose = false);
 
   /**
@@ -115,12 +134,17 @@ class LocomotionHeuristicLayer {
   vector3_t wrenchOffset(const WrenchHeuristicContext& context, size_t contactIndex) const;
 
   /**
-   * Re-reads every listed heuristic's coefficients from a freshly loaded configuration, IN PLACE.
+   * Re-reads every listed heuristic's coefficients from a freshly loaded configuration - all of them or none.
+   *
+   * The new coefficients are validated and configured into fresh heuristics first, and swapped in only if every one of
+   * them succeeds, so a reload that fails half way leaves the running controller exactly as it was rather than half
+   * retuned.
    *
    * The formulation itself is not re-read: which heuristics are listed is a structural choice that decides how the
    * reference manager and the two input costs are wired, and changing it under a running solver would be a different
-   * controller rather than a retuned one. A task file whose lists have changed is reported and otherwise ignored, so
-   * that a slider drag on a coefficient does not silently pick up an edit to a list made an hour earlier.
+   * controller rather than a retuned one. A task file whose lists have changed is reported - once per distinct edit,
+   * not on every later reload - and otherwise ignored, so that a slider drag on a coefficient does not silently pick up
+   * an edit to a list made an hour earlier.
    *
    * Called from the solver thread's pre-solve hook only; see the class comment.
    */
@@ -137,6 +161,8 @@ class LocomotionHeuristicLayer {
   std::vector<std::unique_ptr<WrenchHeuristic>> wrench_;
   bool footholdMovesAnchor_ = false;
   bool wrenchNeedsWorldFrame_ = false;
+  /// The on-disk lists the last "list has changed" warning was about, so the same edit is reported once.
+  LocomotionHeuristicFormulation reportedFormulation_;
 };
 
 }  // namespace ocs2::humanoid

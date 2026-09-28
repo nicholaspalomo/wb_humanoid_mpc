@@ -77,5 +77,13 @@ notebooks/.ipynb_checkpoints/
 
 MUJOCO_LOG.TXT
 
+# LINT.IfChange(robot_file_excludes)
 *.bak
 *.live*
+# LINT.ThenChange(//bazel/robot_files.bzl:robot_file_excludes)
+
+# Local Bazel overrides (see .bazelrc, e.g. a higher --jobs on a machine with more RAM)
+user.bazelrc
+
+# The lock tools/bazel takes so that the builds of every container on the machine take turns
+.bazel_machine.lock

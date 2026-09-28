@@ -5,6 +5,15 @@ maxDisplacementVelocityX: 2.0
 maxDisplacementVelocityY: 1.0
 maxDeltaPelvisHeight: 0.3
 maxRotationVelocity: 1.0
+# First-order low-pass filter on the operator's velocity command, run on the solver time ahead of the acceleration
+# ramps: break frequency f_c [Hz], time constant 1 / (2 pi f_c). 0 switches it off and the command passes through
+# unchanged, which is what every robot has effectively run so far: the "5 Hz" filter this key replaces never updated
+# its state and scaled the command by t / (t + 0.032 s), t the wall-clock time since start-up - within 3% of the
+# identity after a second. A filter lags every command, a stop included, by about its time constant: try e.g. 2.0
+# (80 ms) in simulation before a robot. Reloaded with the limits above while the controller runs.
+# LINT.IfChange(velocity_command_filter)
+velocityCommandFilterBreakFrequency: 0.0  # [Hz] command low-pass filter, 0 = off
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h:velocity_command_filter_key)
 targetJointStateInterpolationTimeConstant: 0.5
 
 defaultBaseHeight: 0.7405

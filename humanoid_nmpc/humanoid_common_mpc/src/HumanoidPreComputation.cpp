@@ -30,6 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <pinocchio/fwd.hpp>
 
+#include <functional>
+
 #include <pinocchio/algorithm/frames.hpp>
 #include <pinocchio/algorithm/jacobian.hpp>
 #include <pinocchio/algorithm/kinematics.hpp>
@@ -105,13 +107,13 @@ void HumanoidPreComputation::request(RequestSet request, scalar_t t, const vecto
   updatePinocchioModelKinematics(mpcRobotModelPtr_->getGeneralizedCoordinates(x));
 
   // lambda to set config for normal velocity constraints
-  auto eeNormalVelConConfig = [&](size_t footIndex) {
+  const std::function<EndEffectorKinematicsLinearVelConstraint::Config(size_t)> eeNormalVelConConfig = [&](size_t footIndex) {
     EndEffectorKinematicsLinearVelConstraint::Config config;
     config.b = (vector_t(1) << -swingTrajectoryPlannerPtr_->getZvelocityConstraint(footIndex, t)).finished();
     config.Av = (matrix_t(1, 3) << 0.0, 0.0, 1.0).finished();
     // The gain comes from this object, not from the shared ModelSettings, so that the parameter updater can retune it
     // per worker thread while the controller runs; see setNormalVelocityPositionErrorGain.
-    if (!numerics::almost_eq(positionErrorGainZ_, 0.0)) {
+    if (!numerics::almost_eq(positionErrorGainZ_, /*y=*/0.0)) {
       config.b(0) -= positionErrorGainZ_ * swingTrajectoryPlannerPtr_->getZpositionConstraint(footIndex, t);
       config.Ax = (matrix_t(1, 3) << 0.0, 0.0, positionErrorGainZ_).finished();
     }

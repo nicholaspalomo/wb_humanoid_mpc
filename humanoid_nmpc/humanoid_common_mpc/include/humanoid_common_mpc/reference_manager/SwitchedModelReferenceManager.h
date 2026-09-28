@@ -30,6 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <atomic>
 #include <optional>
 
 #include <ocs2_core/thread_support/Synchronized.h>
@@ -69,13 +70,50 @@ class SwitchedModelReferenceManager : public ReferenceManager {
   SwitchedModelReferenceManager& operator=(SwitchedModelReferenceManager&&) = delete;
   SwitchedModelReferenceManager(SwitchedModelReferenceManager&&) = delete;
 
+  /**
+   * Returns the manager to its state after construction, keeping its configuration (the ground, the locomotion
+   * heuristics, the arm swing): the gait schedule restarts from its initial STANCE schedule (GaitSchedule::reset()),
+   * and every measurement latched at an earlier solve - the lift-off positions of the feet, the measured base, CoM and
+   * yaw inertia - is forgotten, so that nothing measured before a reset is used after it. The swing trajectories are
+   * rebuilt from the schedule at every solve and carry nothing over. See ReferenceManagerInterface::reset().
+   */
+  void reset() override;
+
   contact_flag_t getContactFlags(scalar_t time) const;
 
   bool isInStancePhase(scalar_t time) const { return (getContactFlags(time)[0] && getContactFlags(time)[1]); }
 
   bool isInContact(scalar_t time, size_t contactIndex) const { return getContactFlags(time)[contactIndex]; };
 
+  /**
+   * Switches the procedural arm swing of getDesiredState() on or off. Off by default. The MPC interfaces switch it on
+   * for a robot that names model_settings.armJointNames, except the centroidal MPC under com_and_acom_tracking_cost,
+   * where the arm motion emerges from the ACoM cost and a generator driving the same joints would fight it.
+   */
   void setArmSwingReferenceActive(bool armSwingReferenceActive) { armSwingReferenceActive_ = armSwingReferenceActive; }
+  bool isArmSwingReferenceActive() const { return armSwingReferenceActive_; }
+
+  /**
+   * [m] Moves the ground: the height the swing trajectories lift off from and touch down on, the landing targets stand
+   * on (ContactPlanningReferenceManager) and the commanded base height stands on. This manager owns the ground; it
+   * starts at ModelSettings::terrainHeight, the task file's top-level `terrainHeight`, and the parameter updater moves
+   * it here on a hot reload. The base-height reference follows it: see adaptToCurrentGroundHeight().
+   *
+   * Takes effect at the next preSolverRun(), which rebuilds the references on it; until then getAppliedTerrainHeight()
+   * still returns the ground the references in use were built on. Thread-safe.
+   */
+  void setTerrainHeight(scalar_t terrainHeight) { terrainHeight_.store(terrainHeight); }
+
+  /** [m] The ground as last set: what the next preSolverRun() builds the references on. */
+  scalar_t getTerrainHeight() const { return terrainHeight_.load(); }
+
+  /**
+   * [m] The ground the references of the last preSolverRun() were built on - the swing trajectories and the landing
+   * targets the solver is tracking right now - or the configured one before the first run. The
+   * contact-implicit terms follow this value rather than getTerrainHeight(), so that they and the references the
+   * solver tracks never describe two different grounds, not even for the one solve after a hot reload. Thread-safe.
+   */
+  scalar_t getAppliedTerrainHeight() const { return appliedTerrainHeight_.load(); }
 
   const std::shared_ptr<GaitSchedule>& getGaitSchedule() const { return gaitSchedulePtr_; }
 
@@ -87,36 +125,46 @@ class SwitchedModelReferenceManager : public ReferenceManager {
   virtual bool usesContactPlanning() const { return false; }
 
   /**
-   * Task-space reference for a foot that is in swing at `time`, when a contact planner provides one. The default (gait
-   * schedule based) reference manager has no foothold targets and returns an empty optional.
-   */
-  /**
-   * Task-space reference of a foot in swing at `time`, or empty when nothing has an opinion about where it lands.
+   * Task-space reference of a foot in swing at `time`, or empty when nothing has an opinion about where it lands: a
+   * cubic sweep from where the foot actually lifted off to nominalFoothold() at its touch-down.
    *
-   * The default is the nominal foothold of `model_settings.nominal_foothold.stepWidth`: the foot placed that far to
-   * its own side of the reference base pose, swept from where that puts it at lift-off to where it puts it at
-   * touch-down, so forward placement follows the commanded motion and only the lateral offset is stated. It is empty
-   * when that width is zero, which is the default and which leaves the foot cost's xy position weights switched off
-   * exactly as before.
-   *
-   * It exists for one configuration: the contact-implicit formulation without a contact planner. That formulation
-   * removes the stance constraint that used to pin each foot where it landed, and without a planner nothing else
-   * places the feet horizontally, so they drift together. A contact planner overrides this with its planned footholds
-   * (ContactPlanningReferenceManager), which is the arrangement that needs no heuristic at all.
+   * Present when `model_settings.nominal_foothold.stepWidth` is positive, or when any foothold heuristic is listed;
+   * empty otherwise - the default, which leaves the foot cost's xy position weights switched off exactly as before. A
+   * contact planner overrides this with its planned footholds (ContactPlanningReferenceManager), and never calls
+   * nominalFoothold(), which is why the foothold heuristics are rejected under one.
    */
   virtual std::optional<SwingFootReference> getSwingFootReference(size_t contactIndex, scalar_t time) const;
 
   /**
-   * The nominal foothold of a foot at `time`: a whole step width to its own side of the **other, stance** foot,
-   * carried forward at the operator's commanded velocity.
+   * Where a foot touching down at `time` should land, or empty when nothing has an opinion. A LANDMARK: it does not
+   * move while the foot swings, however many times the solver re-evaluates it - which it does at every solve, with
+   * the latest measurement - because a target that slides through the swing is a target the foot never reaches.
    *
-   * Measured from the stance foot, which is the only landmark that holds still while this foot swings. Not from the
-   * reference base, which is where the operator asked the robot to be rather than where it is - an offset between the
-   * two walks the robot after its own foot targets, and a yaw error between them turns the lateral offset into a
-   * longitudinal one, which is a turn. And not from the measured base either: in single support that sits roughly over
-   * the stance foot, so offsets taken from it give half the intended separation and the feet converge.
+   * With no foothold heuristic listed, the nominal step: a whole step width to this foot's side of the **other,
+   * stance** foot, carried forward at the commanded velocity over one step, from the stance foot's own touch-down to
+   * this one. Measured from the stance foot because it is the one landmark that holds still while this foot swings;
+   * over one step because that is how far the body travels between the two landings, which makes this the steady-state
+   * Raibert target without a coefficient to tune.
+   *
+   * With foothold heuristics listed, Bledt's H_r: the hip at touch-down, plus the heuristics' offsets. The anchor is
+   * the base PREDICTED at touch-down - measured at the solve and carried forward by the command - at the heading
+   * predicted for then. Along that heading it is where the base will be; across it, the stance foot plus a step width,
+   * so that the feet keep their separation (a stepWidth of zero is rejected at start-up unless hip_centered_stepping is
+   * listed, which supplies the separation from the hips instead). With hip_centered_stepping listed the anchor is the
+   * predicted base itself. Either way the heuristics' leads - translational_stepping's a1 v above all - are measured
+   * from the hip at the moment of landing, as in the dissertation, and mean the same thing on both paths.
    */
   std::optional<vector2_t> nominalFoothold(size_t contactIndex, scalar_t time) const;
+
+  /**
+   * `xNominal` with only the locomotion heuristics' base-pose offsets applied: roll, pitch and height, at `time`.
+   *
+   * The single definition of the shaped base pose, used by every cost that regularizes the base pose - the running
+   * state costs through getDesiredState(), the terminal cost and the torso task-space cost - so that none of them pulls
+   * towards the unshaped pose while the others pull towards the shaped one. Returns `xNominal` untouched, bit for bit,
+   * when no base-pose heuristic is listed.
+   */
+  vector_t shapeBasePose(scalar_t time, const vector_t& xNominal) const;
 
   /**
    * Task-space velocity reference for a foot that is in swing at `time`. The default reference manager returns the
@@ -185,7 +233,7 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    * functions of the turn rate and one of his force heuristics is a function of the turn rate and the speed together.
    *
    * The recovery is an inversion rather than a read, because the channel does not carry the rate. The target
-   * calculator writes the momentum of the whole body turning about the vertical through its centre of mass,
+   * calculator writes the momentum of the whole body turning about the vertical through its center of mass,
    * h_z = I_zz * psidot / m, so the rate comes back out as m * h_z / I_zz with the same composite inertia - which is
    * why the yaw inertia is latched once per solve alongside the other measurements rather than being a constant.
    *
@@ -195,16 +243,26 @@ class SwitchedModelReferenceManager : public ReferenceManager {
    */
   virtual scalar_t getCommandedYawRate(scalar_t time) const;
 
+  /** The divergent component of motion of a reduced-order plan, and the pendulum it belongs to. */
+  struct PlannedDcm {
+    vector2_t dcm = vector2_t::Zero();  // [m] xi = c + v / omega of the plan's center of mass
+    scalar_t omega = 0.0;               // [1/s] the natural frequency of the pendulum the plan was made on
+  };
+
   /**
-   * The divergent component of motion the reduced-order plan asks for at `time`, when a plan is active.
+   * The divergent component of motion the reduced-order plan asks for at `time`, when a plan is active, with the omega
+   * of the pendulum the plan was made on.
    *
-   * The terminal DCM cost otherwise references the centre of the terminal support, i.e. "come to rest over the feet".
+   * The terminal DCM cost otherwise references the center of the terminal support, i.e. "come to rest over the feet".
    * That is the right reference for a gait whose footholds are decided elsewhere, and the wrong one under a
    * reduced-order plan: the H-LIP's lateral orbit puts the DCM *beyond* the stance foot, towards the next foothold,
    * and a cost pulling it back onto the foot fights the very footholds the planner is placing. Empty when no plan is
-   * active, and the support-centre reference then stands as before.
+   * active, and the support-center reference then stands as before.
+   *
+   * The omega travels with the DCM so that the cost can measure the robot's DCM on the same pendulum: a DCM of the
+   * plan's center of mass taken with any other omega is not the plan's DCM (DcmTerminalCost::getParameters).
    */
-  virtual std::optional<vector2_t> getPlannedDcm(scalar_t /*time*/, scalar_t /*omega*/) const { return std::nullopt; }
+  virtual std::optional<PlannedDcm> getPlannedDcm(scalar_t /*time*/) const { return std::nullopt; }
 
  protected:
   virtual void modifyReferences(scalar_t initTime,
@@ -214,9 +272,32 @@ class SwitchedModelReferenceManager : public ReferenceManager {
                                 TargetTrajectories& targetTrajectories,
                                 ModeSchedule& modeSchedule) override;
 
-  // Adjusts the height of the target trajectories to current terrain height and returns that height.
+  /**
+   * Reads the ground (getTerrainHeight()), records it as the applied ground (getAppliedTerrainHeight()) and returns it:
+   * the height the swing trajectories and the landing targets of this preSolverRun() are built on.
+   *
+   * It also moves the base height of the target trajectories in use by the CHANGE of the ground since the last run, so
+   * a hot reload of the ground moves the base reference once. Targets are world poses: a base height taken from the
+   * measured state is a world height, and a commanded one is written above the ground by the target calculator
+   * (TargetTrajectoriesCalculatorBase::commandedBaseHeight), which in the MPC reads getAppliedTerrainHeight() - the
+   * ground this run applied - so a target built after the change already stands on the new ground and the next run
+   * does not move it again.
+   */
   scalar_t adaptToCurrentGroundHeight(TargetTrajectories& targetTrajectories, const vector_t& initState, size_t initMode);
-  scalar_t previousGroundHeightEstimate_{0.0};
+
+  /**
+   * Drops everything this manager carries from one solve to the next - the gait schedule, the latched measurements - but
+   * not its configuration and not the references buffered in ReferenceManager: the part of reset() a derived manager
+   * with state of its own extends (it overrides this and calls it).
+   */
+  virtual void resetRuntimeState();
+  /// [m] The ground the target in use stands on: the task file's until the first run, the applied ground after it. It
+  /// used to start at 0 whatever the task file said, so the first run lifted a target that was already a world pose -
+  /// the initial and the reset targets, taken from the measured state - by the whole terrain height.
+  scalar_t targetTerrainHeight_{0.0};
+  /// [m] The ground, as set (setTerrainHeight) and as applied by the last preSolverRun(); both start at the task file's.
+  std::atomic<scalar_t> terrainHeight_{0.0};
+  std::atomic<scalar_t> appliedTerrainHeight_{0.0};
 
   PinocchioInterface pinocchioInterface_;
   const MpcRobotModelBase<scalar_t>* mpcRobotModelPtr_;
@@ -238,19 +319,19 @@ class SwitchedModelReferenceManager : public ReferenceManager {
   /// plan; filled only while a foothold heuristic is listed.
   vector2_t measuredComVelocity_{vector2_t::Zero()};
   scalar_t measuredComHeight_{0.0};
-  /// [kg] the robot's mass, and [kg m^2] the yaw component of its composite inertia about the centre of mass at the
+  /// [kg] the robot's mass, and [kg m^2] the yaw component of its composite inertia about the center of mass at the
   /// last solve. Together they invert the target's angular-momentum channel back into a commanded yaw rate.
   scalar_t totalMass_{0.0};
   scalar_t yawInertia_{0.0};
-  /// [s] The window every per-node stance duty factor is measured over: the solver's own time horizon, latched in
-  /// modifyReferences(). Fixed rather than "whatever is left until the last scheduled event", so that beta is a
-  /// property of the gait and not of where in the horizon it is asked. 1 s until the first solve says otherwise.
-  scalar_t dutyFactorWindow_{1.0};
-
   /** True while anything downstream needs captureMeasuredState() to do its work; see that function. */
   bool needsMeasuredState() const;
-  /** The context the foothold heuristics are evaluated with, built from the last latched measurement. */
+  /**
+   * The context the foothold heuristics are evaluated with for a touch-down at `time`: the base predicted for then
+   * from the last latched measurement, the commands at `time`, and the stance the foot is about to begin.
+   */
   FootholdHeuristicContext footholdContext(size_t contactIndex, scalar_t time) const;
+  /** [m], [rad] The base position and yaw predicted at `time`: the last measurement carried forward by the command. */
+  std::pair<vector2_t, scalar_t> predictedBaseAt(scalar_t time) const;
 
   /**
    * The reference-shaping layer of Bledt's heuristics. Empty - and therefore an exact no-op - until

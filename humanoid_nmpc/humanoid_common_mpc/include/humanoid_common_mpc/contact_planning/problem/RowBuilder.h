@@ -40,12 +40,12 @@ class RowBuilder {
 
   /** A hard row lower <= C x + D u <= upper. */
   void addHard(const Coefficients& xCoefficients, const Coefficients& uCoefficients, scalar_t lower, scalar_t upper) {
-    add(xCoefficients, uCoefficients, lower, upper, false, SlackPenalty{});
+    add(xCoefficients, uCoefficients, lower, upper, /*soft=*/false, SlackPenalty{});
   }
-  /** A soft row: the same, relaxed by slacks penalised with `penalty`. */
+  /** A soft row: the same, relaxed by slacks penalized with `penalty`. */
   void addSoft(
       const Coefficients& xCoefficients, const Coefficients& uCoefficients, scalar_t lower, scalar_t upper, const SlackPenalty& penalty) {
-    add(xCoefficients, uCoefficients, lower, upper, true, penalty);
+    add(xCoefficients, uCoefficients, lower, upper, /*soft=*/true, penalty);
   }
 
   int numRows() const { return static_cast<int>(cRows_.size()); }

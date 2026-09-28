@@ -26,7 +26,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include "humanoid_common_mpc/contact_planning/MixedIntegerOcpQp.h"
-#include "humanoid_common_mpc/contact_planning/logic/ContactLogicScan.h"
 #include "humanoid_common_mpc/contact_planning/logic/ContactLogicState.h"
 #include "humanoid_common_mpc/contact_planning/problem/ContactPlanningTerm.h"
 
@@ -35,12 +34,21 @@ namespace ocs2::humanoid {
 /**
  * A logical rule on the contact binaries, enforced outside the QP by propagation: one pass over the fixed prefix of a
  * partial assignment that fixes implied values and rejects contradictions. The problem runs the listed rules in order
- * to a fixpoint (ContactPlanningProblem::propagate), recomputing the shared scan of the prefix before every pass.
+ * to a fixpoint (ContactPlanningProblem::propagate); every rule reads the assignment as it is at the time of the read,
+ * including what an earlier rule, or this one earlier in the same pass, has just fixed.
+ *
+ * The contract is the one MiqpPropagateFn states, and it is what makes the branch-and-bound exact:
+ *  - on a COMPLETE assignment a rule decides feasibility (true or false) and fixes nothing;
+ *  - on a PARTIAL assignment it may only return false when no completion satisfies it, and may only fix a binary to a
+ *    value that every completion satisfying it shares. A preference (which foot should go first, which gait is
+ *    nicer) is never a reason to fix anything: it belongs in the objective. A rule that fixes more than is implied
+ *    prunes feasible subtrees silently - MixedIntegerOcpQp still reports `optimal` - and no test on complete
+ *    assignments can see it (testContactPlanningRegression enumerates the partial assignments the search reaches).
  */
 class ContactLogicRule : public ContactPlanningTerm {
  public:
   /** Returns false on a contradiction. `changed` is set when a value was fixed. */
-  virtual bool propagate(const ContactLogicState& state, const ContactLogicScan& scan, MiqpAssignment& assignment, bool& changed) const = 0;
+  virtual bool propagate(const ContactLogicState& state, MiqpAssignment& assignment, bool& changed) const = 0;
 };
 
 }  // namespace ocs2::humanoid

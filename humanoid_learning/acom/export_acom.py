@@ -30,7 +30,7 @@ C++ header files for real-time inference in MPC and whole-body controllers.
 """
 
 import json
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -64,6 +64,7 @@ def export_to_cpp_header(
     class_name: str = "AcomSirenWeights",
     omega_0: float = 30.0,
     joint_names: Optional[List[str]] = None,
+    provenance: Optional[Dict[str, object]] = None,
 ):
     """Generates a standalone C++ header file containing SIREN weights and biases.
 
@@ -75,8 +76,11 @@ def export_to_cpp_header(
         class_name: Name of the generated struct.
         omega_0: Frequency scaling baked into the sinusoidal activations.
         joint_names: Joint names, in the order the network expects them. Recorded
-            in the header so the joint ordering the network was trained on can be
-            checked against the Pinocchio model at runtime.
+            in the header as `joint_names[]`, which AngularCenterOfMass::Create
+            compares name by name with the MPC model's joints at start-up.
+        provenance: How the network was made (robot, dataset size, epochs, seeds,
+            ...), written into the header's banner one `key: value` line each, so
+            a header records its own recipe.
 
     Raises:
         ValueError: If `joint_names` does not have one entry per network input.
@@ -92,21 +96,32 @@ def export_to_cpp_header(
         "/******************************************************************************",
         " * Auto-generated Angular Center of Mass (aCOM) SIREN Model Parameters",
         " * Generated from JAX training pipeline. Do not edit by hand.",
-        " ******************************************************************************/",
-        "",
-        "#pragma once",
-        "",
-        "#include <cstddef>",
-        "",
-        "namespace ocs2::humanoid::acom {",
-        "",
-        f"struct {class_name} {{",
-        f"  static constexpr double omega_0 = {omega_0};",
-        f"  static constexpr std::size_t num_layers = {len(params)};",
-        f"  static constexpr std::size_t input_dim = {input_dim};",
-        f"  static constexpr std::size_t output_dim = {params[-1][0].shape[0]};",
-        "",
     ]
+    if provenance:
+        lines.append(" *")
+        lines.append(" * Trained with:")
+        for key, value in provenance.items():
+            # A value must not be able to end the comment early.
+            text = f"{key}: {value}".replace("*/", "* /")
+            lines.append(f" *   {text}")
+    lines.extend(
+        [
+            " ******************************************************************************/",
+            "",
+            "#pragma once",
+            "",
+            "#include <cstddef>",
+            "",
+            "namespace ocs2::humanoid::acom {",
+            "",
+            f"struct {class_name} {{",
+            f"  static constexpr double omega_0 = {omega_0};",
+            f"  static constexpr std::size_t num_layers = {len(params)};",
+            f"  static constexpr std::size_t input_dim = {input_dim};",
+            f"  static constexpr std::size_t output_dim = {params[-1][0].shape[0]};",
+            "",
+        ]
+    )
 
     if joint_names is not None:
         lines.append("  // Joint ordering the network was trained on. Must match the")

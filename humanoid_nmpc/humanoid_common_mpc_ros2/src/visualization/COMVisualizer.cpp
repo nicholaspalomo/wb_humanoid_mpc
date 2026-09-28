@@ -71,10 +71,10 @@ COMVisualizer::COMVisualizer() : Node("COMVisualizer") {
 
   // Subscribe to joint states
   joint_state_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(
-      "joint_states", 10, std::bind(&COMVisualizer::updateJointPositions, this, std::placeholders::_1));
+      "joint_states", /*qos=*/10, std::bind(&COMVisualizer::updateJointPositions, this, std::placeholders::_1));
 
   // Create publisher for COM marker
-  com_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("humanoid/com_markers", 10);
+  com_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("humanoid/com_markers", /*qos=*/10);
 
   // Timer to publish COM periodically
   timer_ = this->create_wall_timer(std::chrono::milliseconds(100), std::bind(&COMVisualizer::publishCOM, this));
@@ -98,7 +98,7 @@ void COMVisualizer::printJointInfo() {
   RCLCPP_INFO(this->get_logger(), "Number of degrees of freedom: %d", static_cast<int>(pinocchio_model_.nq));
 
   for (int i = 0; i < pinocchio_model_.njoints; i++) {
-    const auto& joint = pinocchio_model_.joints[i];
+    const pinocchio::JointModel& joint = pinocchio_model_.joints[i];
     RCLCPP_INFO(this->get_logger(), "Joint %d: %s (nq: %d, nv: %d)", i, pinocchio_model_.names[i].c_str(), static_cast<int>(joint.nq()),
                 static_cast<int>(joint.nv()));
   }
@@ -191,7 +191,7 @@ Eigen::Vector3d COMVisualizer::calculateCOM() {
 
 void COMVisualizer::updateJointPositions(const sensor_msgs::msg::JointState::SharedPtr msg) {
   for (size_t i = 0; i < msg->name.size(); i++) {
-    auto it = joint_name_to_index_.find(msg->name[i]);
+    const std::unordered_map<std::string, int>::const_iterator it = joint_name_to_index_.find(msg->name[i]);
     if (it != joint_name_to_index_.end()) {
       int idx = it->second;
       if (idx > 0 && idx < joint_positions_.size()) {
@@ -200,7 +200,8 @@ void COMVisualizer::updateJointPositions(const sensor_msgs::msg::JointState::Sha
         // RCLCPP_WARN(this->get_logger(), "Joint index out of range for joint %s: %d", msg->name[i].c_str(), idx);
       }
     } else {
-      RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000, "Joint %s not found in the model", msg->name[i].c_str());
+      RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), /*duration=*/5000, "Joint %s not found in the model",
+                           msg->name[i].c_str());
     }
   }
 }

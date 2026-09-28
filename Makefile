@@ -38,29 +38,29 @@ train-acom-jupyter:
 ## Kill any running Bazel builds, compilers, and stale server locks
 kill-builds:
 	@echo "🧹 Cleaning up background Bazel builds and stale locks..."
-	@pkill -9 -x bazel 2>/dev/null || true
-	@pkill -9 -x bazelisk 2>/dev/null || true
-	@pkill -9 -x cc1plus 2>/dev/null || true
-	@for pid_file in $$HOME/.cache/bazel/_bazel_*/*/server/server.pid.txt; do \
-		[ -f "$$pid_file" ] || continue; \
-		b_pid=$$(cat "$$pid_file" 2>/dev/null); \
-		if [ -n "$$b_pid" ]; then \
-			kill -9 "$$b_pid" 2>/dev/null || true; \
-			rm -rf "$$(dirname "$$pid_file")"; \
-		fi; \
-	done
-	@echo "✅ Build cleanup done."
+# 	@pkill -9 -x bazel 2>/dev/null || true
+# 	@pkill -9 -x bazelisk 2>/dev/null || true
+# 	@pkill -9 -x cc1plus 2>/dev/null || true
+# 	@for pid_file in $$HOME/.cache/bazel/_bazel_*/*/server/server.pid.txt; do \
+# 		[ -f "$$pid_file" ] || continue; \
+# 		b_pid=$$(cat "$$pid_file" 2>/dev/null); \
+# 		if [ -n "$$b_pid" ]; then \
+# 			kill -9 "$$b_pid" 2>/dev/null || true; \
+# 			rm -rf "$$(dirname "$$pid_file")"; \
+# 		fi; \
+# 	done
+# 	@echo "✅ Build cleanup done."
 
 ## Kill any running sim processes before launching a new one.
 ## Note: The [x] character-class trick prevents pkill -f from matching its own shell.
 ## This cannot remove zombies: a zombie has already exited and only its parent can reap it. See check-zombies.
 kill-sims: kill-builds
 	@echo "🧹 Cleaning up previous sim processes..."
-	@pkill -9 -f 'humanoid_centroidal_mpc_si[m]|humanoid_centroidal_mpc_sq[p]|humanoid_wb_mpc_si[m]|humanoid_wb_mpc_sq[p]' 2>/dev/null || true
-	@pkill -9 -f 'robot_state_publishe[r]|base_velocity_controlle[r]' 2>/dev/null || true
-	@sleep 0.5
-	@echo "✅ Cleanup done."
-	@$(MAKE) --no-print-directory check-zombies WARN_ONLY=1
+# 	@pkill -9 -f 'humanoid_centroidal_mpc_si[m]|humanoid_centroidal_mpc_sq[p]|humanoid_wb_mpc_si[m]|humanoid_wb_mpc_sq[p]' 2>/dev/null || true
+# 	@pkill -9 -f 'robot_state_publishe[r]|base_velocity_controlle[r]' 2>/dev/null || true
+# 	@sleep 0.5
+# 	@echo "✅ Cleanup done."
+# 	@$(MAKE) --no-print-directory check-zombies WARN_ONLY=1
 
 ## Report zombie processes and which parent is holding them.
 ## A zombie has already exited and only its parent can reap it, so kill/pkill have no effect; that is why kill-sims
@@ -80,7 +80,7 @@ check-zombies:
 		echo "   If the holder is the container's PID 1 (sleep/bash), it never calls wait() and they are permanent."; \
 		echo "   docker-compose.yaml now sets 'init: true' so tini becomes PID 1 and reaps orphans."; \
 		echo "   Apply it and clear the backlog: Dev Containers 'Rebuild Container', or on the host"; \
-		echo "     docker compose -f docker-compose.yaml up -d --force-recreate"; \
+		echo "     tools/resource_limits/set_container_memory_limit.sh && docker compose -f docker-compose.yaml up -d --force-recreate"; \
 	fi
 
 ## Build everything
@@ -201,16 +201,18 @@ test-heuristic-parameters:
 	@python3 -m unittest discover -s tools/locomotion_heuristics -p "test_*.py" -v
 
 ## Print the derived locomotion-heuristic block for one robot: make derive-heuristic-parameters ROBOT=drc_atlas
+# LINT.IfChange(derive_heuristic_parameters_usage)
 derive-heuristic-parameters:
 	@$(if $(ROBOT),python3 tools/locomotion_heuristics/derive_parameters.py --robot $(ROBOT),\
 		@echo "Usage: make derive-heuristic-parameters ROBOT=drc_atlas|engineai_sa01|unitree_g1|unitree_r1")
+# LINT.ThenChange(//tools/locomotion_heuristics/derive_parameters.py:derive_parameters_robots)
 
 ## Install git pre-commit hook
+# A symlink rather than a copy, so that a change to tools/hooks/pre-commit takes effect without reinstalling.
 install-hooks:
 	@chmod +x tools/hooks/pre-commit && \
-	cp tools/hooks/pre-commit .git/hooks/pre-commit && \
-	chmod +x .git/hooks/pre-commit && \
-	echo "✅ Git pre-commit hook installed successfully."
+	ln -sfn ../../tools/hooks/pre-commit .git/hooks/pre-commit && \
+	echo "✅ Git pre-commit hook installed successfully (a symlink to tools/hooks/pre-commit)."
 
 ## Update git submodules (mujoco)
 update-submodules:
@@ -219,6 +221,33 @@ update-submodules:
 ## Pull git-lfs files
 git-lfs:
 	git lfs install && git lfs pull
+
+############################################################
+# VNC visualization (for macOS host)
+############################################################
+# LINT.IfChange(vnc_resolution)
+RESOLUTION ?= $(VNC_RESOLUTION)
+# LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_resolution, //docker-compose.yaml:vnc_resolution)
+start-vnc:
+	@chmod +x $(current_path)/.devcontainer/start_vnc.sh && \
+	$(current_path)/.devcontainer/start_vnc.sh $(RESOLUTION)
+
+stop-vnc:
+	@chmod +x $(current_path)/.devcontainer/start_vnc.sh && \
+	$(current_path)/.devcontainer/start_vnc.sh stop
+
+# LINT.IfChange(vnc_ports)
+# Environment overrides for VNC display + Mesa software GLX
+VNC_GL_ENV := export DISPLAY=:99 && \
+	export PLOTJUGGLER_DISPLAY=:100 && \
+	export LIBGL_ALWAYS_SOFTWARE=1 && \
+	export LIBGL_ALWAYS_INDIRECT=0 && \
+	export GALLIUM_DRIVER=llvmpipe && \
+	export MESA_GL_VERSION_OVERRIDE=3.3 && \
+	export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
+# Printed right before a -vnc target launches, so the URLs are not buried under the build output.
+vnc_urls := echo "🖥️  noVNC: http://localhost:6080/vnc.html (simulation & RViz)  |  http://localhost:6082/vnc.html (PlotJuggler)"
+# LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_ports, //docker-compose.yaml:vnc_ports, //.devcontainer/devcontainer.json:vnc_ports, //.devcontainer/README.md:vnc_ports)
 
 ############################################################
 # Launch targets (Bazel build + ROS2 launch)
@@ -283,33 +312,6 @@ launch-sa01-sim: kill-sims
 
 launch-sa01-sandbox: kill-sims
 	$(source_env) && ros2 launch engineai_sa01_description display.launch.py
-
-############################################################
-# VNC visualization (for macOS host)
-############################################################
-# LINT.IfChange(vnc_resolution)
-RESOLUTION ?= $(VNC_RESOLUTION)
-# LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_resolution, //docker-compose.yaml:vnc_resolution)
-start-vnc:
-	@chmod +x $(current_path)/.devcontainer/start_vnc.sh && \
-	$(current_path)/.devcontainer/start_vnc.sh $(RESOLUTION)
-
-stop-vnc:
-	@chmod +x $(current_path)/.devcontainer/start_vnc.sh && \
-	$(current_path)/.devcontainer/start_vnc.sh stop
-
-# LINT.IfChange(vnc_ports)
-# Environment overrides for VNC display + Mesa software GLX
-VNC_GL_ENV := export DISPLAY=:99 && \
-	export PLOTJUGGLER_DISPLAY=:100 && \
-	export LIBGL_ALWAYS_SOFTWARE=1 && \
-	export LIBGL_ALWAYS_INDIRECT=0 && \
-	export GALLIUM_DRIVER=llvmpipe && \
-	export MESA_GL_VERSION_OVERRIDE=3.3 && \
-	export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
-# Printed right before a -vnc target launches, so the URLs are not buried under the build output.
-vnc_urls := echo "🖥️  noVNC: http://localhost:6080/vnc.html (simulation & RViz)  |  http://localhost:6082/vnc.html (PlotJuggler)"
-# LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_ports, //docker-compose.yaml:vnc_ports, //.devcontainer/devcontainer.json:vnc_ports, //.devcontainer/README.md:vnc_ports)
 
 launch-g1-dummy-sim-vnc: kill-sims start-vnc
 	@$(vnc_urls)

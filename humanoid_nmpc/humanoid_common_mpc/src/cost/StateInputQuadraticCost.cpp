@@ -73,7 +73,7 @@ std::pair<vector_t, vector_t> StateInputQuadraticCost::getStateInputDeviation(sc
   // spreading the weight over ALL feet makes the nominal force on the foot that should be in the air half the body
   // weight, and the complementarity penalty's curvature on that foot's height is
   // complementarityWeight * (f_n/f_ref)^2 / heightReference^2 - about 1950 at half body weight, against the swing
-  // height reference's 150. The foot then rises a few millimetres and stops, which is what was observed on hardware-like
+  // height reference's 150. The foot then rises a few millimeters and stops, which is what was observed on hardware-like
   // simulation when this was tried. The contact flags it rests on are now read inside getDesiredInput() rather than
   // here, which is the only change: the reference is still derived from the mode schedule, node by node.
   vector_t xNominal = referenceManagerPtr_->getDesiredState(targetTrajectories, state, time);

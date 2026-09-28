@@ -31,44 +31,93 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/ContactPlanningModelParameters.h"
 
+#include <algorithm>
 #include <cmath>
-#include <sstream>
+#include <optional>
+#include <string>
 
 #include <pinocchio/algorithm/center-of-mass.hpp>
+#include <pinocchio/algorithm/joint-configuration.hpp>
+#include <pinocchio/algorithm/kinematics.hpp>
 #include <pinocchio/multibody/joint/joint-generic.hpp>
 
+#include "absl/strings/str_cat.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 
 namespace ocs2::humanoid {
 
 namespace {
 
-/** True for a revolute joint whose axis is the vertical of its parent frame (RZ, or an unaligned axis close to +-z). */
-bool isRevoluteAboutVertical(const pinocchio::Model& model, pinocchio::JointIndex joint) {
+/**
+ * The rotation axis of a revolute joint in the joint's own frame, or empty for any other kind of joint.
+ *
+ * An unaligned revolute joint carries its axis on the joint model itself, so the axis has to be read from the
+ * alternative the variant actually holds. JointModelRevoluteUnaligned and JointModelRevoluteUnboundedUnaligned are two
+ * UNRELATED alternatives of pinocchio's JointModelVariant - the unbounded one is not a subclass of the bounded one, it
+ * merely carries a Vector3 axis of its own - so a single boost::get cannot serve both. Asking only for the bounded
+ * alternative, which an earlier version did while admitting both shortnames, made the second name dead code: for a
+ * continuous off-axis joint the pointer came back null, the walk up the kinematic tree ran past the hip yaw all the
+ * way to the root, and the leg silently got the symmetric fallback bounds while summary() reported "no hip yaw joint
+ * found" for a joint that was right there.
+ */
+std::optional<vector3_t> revoluteAxis(const PinocchioInterface::Model& model, pinocchio::JointIndex joint) {
   const std::string name = model.joints[joint].shortname();
-  if (name == "JointModelRZ" || name == "JointModelRUBZ") return true;
-  // An unaligned revolute joint carries its axis on the joint model itself, so the axis has to be read from the
-  // alternative the variant actually holds. JointModelRevoluteUnaligned and JointModelRevoluteUnboundedUnaligned are
-  // two UNRELATED alternatives of pinocchio's JointModelVariant - the unbounded one is not a subclass of the bounded
-  // one, it merely carries a Vector3 axis of its own - so a single boost::get cannot serve both. Asking only for the
-  // bounded alternative, which is what this function did while admitting both shortnames, made the second name dead
-  // code: for a continuous off-axis joint the pointer came back null, the function returned false, the walk up the
-  // kinematic tree ran past the hip yaw all the way to the root, and the leg silently got the symmetric fallback
-  // bounds while summary() reported "no hip yaw joint found" for a joint that was right there.
+  if (name == "JointModelRX" || name == "JointModelRUBX") return vector3_t::UnitX();
+  if (name == "JointModelRY" || name == "JointModelRUBY") return vector3_t::UnitY();
+  if (name == "JointModelRZ" || name == "JointModelRUBZ") return vector3_t::UnitZ();
   if (name == "JointModelRevoluteUnaligned") {
     const pinocchio::JointModelRevoluteUnaligned* unaligned =
         boost::get<pinocchio::JointModelRevoluteUnaligned>(&model.joints[joint].toVariant());
-    if (unaligned != nullptr) return std::abs(unaligned->axis(2)) > 0.9;
+    if (unaligned != nullptr) return vector3_t(unaligned->axis);
   }
   if (name == "JointModelRevoluteUnboundedUnaligned") {
     const pinocchio::JointModelRevoluteUnboundedUnaligned* unbounded =
         boost::get<pinocchio::JointModelRevoluteUnboundedUnaligned>(&model.joints[joint].toVariant());
-    if (unbounded != nullptr) return std::abs(unbounded->axis(2)) > 0.9;
+    if (unbounded != nullptr) return vector3_t(unbounded->axis);
   }
-  return false;
+  return std::nullopt;
 }
 
 }  // namespace
+
+HipYawRange deriveHipYawRange(const PinocchioInterface::Model& model, const std::string& contactParentJointName) {
+  HipYawRange range;
+  if (!model.existJointName(contactParentJointName)) return range;
+  // The joint frames in the world at the neutral configuration: what the URDF's joint placements compose to.
+  PinocchioInterface::Data data(model);
+  pinocchio::forwardKinematics(model, data, pinocchio::neutral(model));
+  pinocchio::JointIndex joint = model.getJointId(contactParentJointName);
+  scalar_t verticalComponent = 0.0;  // the world z component of the hip yaw axis: +1 up, -1 down
+  for (; joint > 0; joint = model.parents[joint]) {
+    const std::optional<vector3_t> axis = revoluteAxis(model, joint);
+    if (!axis.has_value()) continue;
+    verticalComponent = (data.oMi[joint].rotation() * axis->normalized())(2);
+    if (std::abs(verticalComponent) > 0.9) break;
+  }
+  if (joint == 0) return range;
+  if (model.joints[joint].nq() > 1) {
+    // The position limits are only angles when the joint stores an angle, i.e. when nq == 1. An unbounded
+    // ("continuous" in URDF) revolute joint has nq == 2 and stores (cos q, sin q), and pinocchio's URDF parser fills
+    // both of those entries of lower/upperPositionLimit with +-1.01. Reading them at idx_q as if they were angles
+    // bounded the foot yaw of a joint that has no limit at all to +-1.01 rad, a number that comes from the unit-circle
+    // representation and means nothing here. An unbounded joint turns all the way round, so its honest range is the
+    // full circle, which the heading model clips to [-pi, pi] regardless.
+    range.lower = -M_PI;
+    range.upper = M_PI;
+    range.joint = model.names[joint];
+    return range;
+  }
+  const int idx = model.joints[joint].idx_q();
+  const scalar_t jointLower = std::max(model.lowerPositionLimit(idx), -M_PI);
+  const scalar_t jointUpper = std::min(model.upperPositionLimit(idx), M_PI);
+  if (!(jointLower < 0.0 && jointUpper > 0.0)) return range;
+  // The foot yaw is +q about an upward axis and -q about a downward one, which mirrors the range.
+  const bool pointsDown = verticalComponent < 0.0;
+  range.lower = pointsDown ? -jointUpper : jointLower;
+  range.upper = pointsDown ? -jointLower : jointUpper;
+  range.joint = model.names[joint];
+  return range;
+}
 
 void ContactPlanningModelParameters::applyTo(ContactPlanningConfig& config) const {
   config.yawTorqueBudget.torsionalFrictionTorque = torsionalFrictionTorque;
@@ -81,16 +130,16 @@ void ContactPlanningModelParameters::applyTo(ContactPlanningConfig& config) cons
 }
 
 std::string ContactPlanningModelParameters::summary() const {
-  std::ostringstream out;
-  out << "mass " << totalMass << " kg, comHeight " << comHeight << " m, footprint half extents " << zmpHalfWidthX << " x " << zmpHalfWidthY
-      << " m, torsionalFrictionTorque " << torsionalFrictionTorque << " N m, doubleSupportYawCouple " << doubleSupportYawCouple
-      << " N m, foot yaw bounds";
+  std::string out = absl::StrCat("mass ", totalMass, " kg, comHeight ", comHeight, " m, footprint half extents ", zmpHalfWidthX, " x ",
+                                 zmpHalfWidthY, " m, torsionalFrictionTorque ", torsionalFrictionTorque, " N m, doubleSupportYawCouple ",
+                                 doubleSupportYawCouple, " N m, foot yaw bounds");
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-    out << " [" << footYawOffsetLower[foot] << ", " << footYawOffsetUpper[foot] << "]";
-    if (foot < hipYawJoints.size())
-      out << " (" << (hipYawJoints[foot].empty() ? "no hip yaw joint found, fallback" : hipYawJoints[foot]) << ")";
+    absl::StrAppend(&out, " [", footYawOffsetLower[foot], ", ", footYawOffsetUpper[foot], "]");
+    if (foot < hipYawJoints.size()) {
+      absl::StrAppend(&out, " (", hipYawJoints[foot].empty() ? "no hip yaw joint found, fallback" : hipYawJoints[foot], ")");
+    }
   }
-  return out.str();
+  return out;
 }
 
 ContactPlanningModelParameters deriveContactPlanningModelParameters(PinocchioInterface& pinocchioInterface,
@@ -101,20 +150,12 @@ ContactPlanningModelParameters deriveContactPlanningModelParameters(PinocchioInt
                                                                     scalar_t gravity,
                                                                     scalar_t nominalStepWidth) {
   ContactPlanningModelParameters derived;
-  const auto& model = pinocchioInterface.getModel();
-  auto& data = pinocchioInterface.getData();
+  const PinocchioInterface::Model& model = pinocchioInterface.getModel();
   derived.totalMass = pinocchio::computeTotalMass(model);
   const scalar_t weight = derived.totalMass * gravity;
 
-  {
-    const vector_t q = mpcRobotModel.getGeneralizedCoordinates(nominalState);
-    pinocchio::centerOfMass(model, data, q, false);
-    const scalar_t comZ = data.com[0](2);
-    const std::vector<vector3_t> feet = computeContactPositions<scalar_t>(q, pinocchioInterface, mpcRobotModel);
-    scalar_t meanFootZ = 0.0;
-    for (const vector3_t& foot : feet) meanFootZ += foot(2) / static_cast<scalar_t>(feet.size());
-    derived.comHeight = comZ - meanFootZ;
-  }
+  // The pendulum length every LIP consumer shares (computeComHeightAboveFeet), at the nominal posture.
+  derived.comHeight = computeComHeightAboveFeet(mpcRobotModel.getGeneralizedCoordinates(nominalState), pinocchioInterface, mpcRobotModel);
   derived.zmpHalfWidthX = ground.footprintHalfLengthX;
   derived.zmpHalfWidthY = ground.footprintHalfWidthY;
   derived.torsionalFrictionTorque = ground.torsionalFrictionCoefficient * weight;
@@ -122,39 +163,11 @@ ContactPlanningModelParameters deriveContactPlanningModelParameters(PinocchioInt
 
   derived.hipYawJoints.assign(N_CONTACTS, "");
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-    pinocchio::JointIndex joint = 0;
-    if (foot < contactParentJointNames.size() && model.existJointName(contactParentJointNames[foot])) {
-      joint = model.getJointId(contactParentJointNames[foot]);
-    }
-    // Walk up from the joint that carries the contact frame to the first revolute joint about the vertical: the hip yaw.
-    while (joint > 0 && !isRevoluteAboutVertical(model, joint)) joint = model.parents[joint];
-    scalar_t lower = -ContactPlanningConfig::kDefaultFootYawOffset;
-    scalar_t upper = ContactPlanningConfig::kDefaultFootYawOffset;
-    if (joint > 0) {
-      // The position limits are only angles when the joint stores an angle, i.e. when nq == 1. An unbounded
-      // ("continuous" in URDF) revolute joint has nq == 2 and stores (cos q, sin q), and pinocchio's URDF parser fills
-      // both of those entries of lower/upperPositionLimit with +-1.01. Reading them at idx_q as if they were angles -
-      // which is what this did for every joint, including the JointModelRUBZ that the vertical-axis test above has
-      // always accepted - bounded the foot yaw of a joint that has no limit at all to +-1.01 rad, a number that comes
-      // from the unit-circle representation and means nothing here. An unbounded joint turns all the way round, so its
-      // honest range is the full circle, which the heading model clips to [-pi, pi] regardless.
-      if (model.joints[joint].nq() > 1) {
-        lower = -M_PI;
-        upper = M_PI;
-        derived.hipYawJoints[foot] = model.names[joint];
-      } else {
-        const int idx = model.joints[joint].idx_q();
-        const scalar_t jointLower = std::max(model.lowerPositionLimit(idx), -M_PI);
-        const scalar_t jointUpper = std::min(model.upperPositionLimit(idx), M_PI);
-        if (jointLower < 0.0 && jointUpper > 0.0) {
-          lower = jointLower;
-          upper = jointUpper;
-          derived.hipYawJoints[foot] = model.names[joint];
-        }
-      }
-    }
-    derived.footYawOffsetLower[foot] = lower;
-    derived.footYawOffsetUpper[foot] = upper;
+    const HipYawRange range =
+        foot < contactParentJointNames.size() ? deriveHipYawRange(model, contactParentJointNames[foot]) : HipYawRange();
+    derived.footYawOffsetLower[foot] = range.lower;
+    derived.footYawOffsetUpper[foot] = range.upper;
+    derived.hipYawJoints[foot] = range.joint;
   }
   return derived;
 }

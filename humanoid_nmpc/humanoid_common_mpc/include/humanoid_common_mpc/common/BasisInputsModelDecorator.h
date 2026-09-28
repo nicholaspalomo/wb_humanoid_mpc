@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <array>
 #include <cassert>
 #include <memory>
+#include <type_traits>
 
 #include <Eigen/Core>
 
@@ -49,11 +50,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/pinocchio_model/PinocchioFrameConversions.h"
 
 namespace ocs2::humanoid {
-
-// Spatial wrench/force/moment dimensions.
-static constexpr size_t kWrenchDim = 6;
-static constexpr size_t kForceDim = 3;
-static constexpr size_t kMomentDim = 3;
 
 /**
  * A decorator that wraps any MpcRobotModelBase and re-parameterizes the contact
@@ -83,6 +79,11 @@ template <typename SCALAR_T>
 class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
  public:
   using Base = MpcRobotModelBase<SCALAR_T>;
+
+  // Spatial wrench/force/moment dimensions.
+  static constexpr size_t kWrenchDim = 6;
+  static constexpr size_t kForceDim = 3;
+  static constexpr size_t kMomentDim = 3;
 
   /**
    * @param wrappedModel       The model to decorate (ownership transferred).
@@ -244,22 +245,29 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
   }
 
   /**
-   * Sets a *local-frame* wrench by computing λ = max(0, B⁺ * W_local) and writing it into the input vector.
-   * The pseudoinverse gives the minimum-norm λ, but it can produce negative scalings
-   * (e.g., torsion rays canceling each other for a pure vertical force). We clamp to
-   * zero to maintain the λ ≥ 0 structural constraint. The resulting wrench W' = B * λ'
-   * is an approximation of the requested wrench, but is always inside the friction cone.
-   * The MPC solver refines from this feasible starting point.
+   * Sets a *local-frame* wrench by writing non-negative scalings λ with B * λ as close to W_local as the cone allows.
+   *
+   * For SCALAR_T = scalar_t the scalings come from solveNonNegativeBasisScalings: the minimum-norm B⁺ * W_local when it
+   * is already non-negative (it spreads the load over every generator), and a non-negative least-squares solve
+   * otherwise. Every wrench inside the cone of B is therefore reproduced EXACTLY, including those whose minimum-norm
+   * scalings have negative entries - for example the weight of the robot seen from a pitched or rolled stance foot,
+   * which the weight-compensation warm start and the MRT's fallback torques pass through here. A wrench outside the
+   * cone is replaced by the closest one inside it.
+   *
+   * For the AD scalar the active-set solve cannot be taped, so the scalings are max(0, B⁺ * W_local): exact only when
+   * B⁺ * W_local is already non-negative. No taped path calls a setter.
    *
    * Use setContactWrenchInWorldFrame(state, input, W_world, i) for a world-frame wrench.
    */
   void setContactWrench(VECTOR_T<SCALAR_T>& input, const VECTOR6_T<SCALAR_T>& wrench, size_t contactIndex) const override {
     assert(input.size() == this->input_dim);
-    VECTOR_T<SCALAR_T> lambda = B_pinv_local_[contactIndex].template cast<SCALAR_T>() * wrench;
-    // Clamp negative scalings to zero — the pseudoinverse does not guarantee
-    // non-negativity, but the basis-vector formulation requires λ ≥ 0.
-    lambda = lambda.cwiseMax(static_cast<SCALAR_T>(0));
-    input.segment(getContactWrenchStartIndices(contactIndex), numBasisPerFoot_) = lambda;
+    if constexpr (std::is_same_v<SCALAR_T, scalar_t>) {
+      input.segment(getContactWrenchStartIndices(contactIndex), numBasisPerFoot_) =
+          solveNonNegativeBasisScalings(B_local_[contactIndex], B_pinv_local_[contactIndex], wrench);
+    } else {
+      const VECTOR_T<SCALAR_T> lambda = B_pinv_local_[contactIndex].template cast<SCALAR_T>() * wrench;
+      input.segment(getContactWrenchStartIndices(contactIndex), numBasisPerFoot_) = lambda.cwiseMax(static_cast<SCALAR_T>(0));
+    }
   }
 
   void setContactForce(VECTOR_T<SCALAR_T>& input, const VECTOR3_T<SCALAR_T>& force, size_t contactIndex) const override {
@@ -281,7 +289,7 @@ class BasisInputsModelDecorator : public MpcRobotModelBase<SCALAR_T> {
    * configuration contained in the given state.
    */
   MATRIX3_T<SCALAR_T> getContactFrameRotationLocalToWorld(const VECTOR_T<SCALAR_T>& state, size_t contactIndex) const {
-    const auto& model = pinocchioInterface_.getModel();
+    const pinocchio::ModelTpl<SCALAR_T>& model = pinocchioInterface_.getModel();
     // Local copy keeps this method const and safe to call from multiple threads.
     pinocchio::DataTpl<SCALAR_T> data = pinocchioInterface_.getData();
     updateFramePlacements(wrappedModel_->getGeneralizedCoordinates(state), model, data);

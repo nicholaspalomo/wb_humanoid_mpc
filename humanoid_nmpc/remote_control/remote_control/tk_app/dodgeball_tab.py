@@ -29,6 +29,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """The Dodgeball tab: throw a ball at the robot and watch what the controller does about it."""
 
+import math
 import tkinter as tk
 from tkinter import ttk
 from typing import Optional
@@ -45,6 +46,9 @@ from remote_control.tk_app.dodgeball import (
     DodgeballThrow,
     flight_time,
     impact_momentum,
+    launch_speed,
+    minimum_launch_speed,
+    arrival_velocity,
     sample_random_angles,
     throw_payload,
 )
@@ -56,7 +60,7 @@ class DodgeballTab(ttk.Frame):
 
     A disturbance is the one thing a locomotion controller is hardest to evaluate without, and until now the only way
     to push this robot in simulation was to reach into MuJoCo by hand. The five sliders say where the ball comes from,
-    how fast and how heavy it is, the checkbox randomises the direction so that a sweep is not unconsciously always
+    how fast and how heavy it is, the checkbox randomizes the direction so that a sweep is not unconsciously always
     thrown from the same side, and the button throws it. The ball is always aimed at the base - there is no aiming error to tune,
     because a disturbance the operator can miss with is a disturbance that cannot be repeated.
 
@@ -66,9 +70,11 @@ class DodgeballTab(ttk.Frame):
     Tk, which the tests in this package do not exercise.
     """
 
+    # The topic the GUI publishes throws on (base_velocity_controller_gui.py creates its publisher from this constant)
+    # and the simulator's bridge subscribes to.
     # LINT.IfChange(dodgeball_topic_name)
     TOPIC_NAME = "/humanoid/dodgeball_throw"
-    # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_ros2/include/humanoid_common_mpc_ros2/fsm/SimFsmBridge.h:dodgeball_topic_name)
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_ros2/src/fsm/SimFsmBridge.cpp:dodgeball_topic_name)
 
     def __init__(
         self,
@@ -99,7 +105,7 @@ class DodgeballTab(ttk.Frame):
         body = ttk.Frame(self)
         body.pack(fill="x", padx=10, pady=(4, 4))
 
-        # The two ANGLES, which the randomise checkbox drives, and the three magnitudes the operator always owns. Kept
+        # The two ANGLES, which the randomize checkbox drives, and the three magnitudes the operator always owns. Kept
         # in that order so that the pair the checkbox disables is contiguous on screen.
         self.azimuth_row = SliderRow(
             body,
@@ -110,6 +116,7 @@ class DodgeballTab(ttk.Frame):
             unit="deg",
             on_change=self._on_slider_change,
             label_width=22,
+            clamp_to_range=True,
         )
         self.azimuth_row.pack(fill="x", pady=2)
 
@@ -122,6 +129,7 @@ class DodgeballTab(ttk.Frame):
             unit="deg",
             on_change=self._on_slider_change,
             label_width=22,
+            clamp_to_range=True,
         )
         self.elevation_row.pack(fill="x", pady=2)
 
@@ -134,6 +142,7 @@ class DodgeballTab(ttk.Frame):
             unit="m",
             on_change=self._on_slider_change,
             label_width=22,
+            clamp_to_range=True,
         )
         self.distance_row.pack(fill="x", pady=2)
 
@@ -146,6 +155,7 @@ class DodgeballTab(ttk.Frame):
             unit="m/s",
             on_change=self._on_slider_change,
             label_width=22,
+            clamp_to_range=True,
         )
         self.speed_row.pack(fill="x", pady=2)
 
@@ -158,19 +168,20 @@ class DodgeballTab(ttk.Frame):
             unit="kg",
             on_change=self._on_slider_change,
             label_width=22,
+            clamp_to_range=True,
         )
         self.mass_row.pack(fill="x", pady=2)
 
         controls = ttk.Frame(self)
         controls.pack(fill="x", padx=10, pady=(8, 4))
 
-        # Randomises the two ANGLES only. The distance, the speed and the mass stay where the operator put them
-        # because those three are what makes one throw comparable with the next: randomising them as well would turn
+        # Randomizes the two ANGLES only. The distance, the speed and the mass stay where the operator put them
+        # because those three are what makes one throw comparable with the next: randomizing them as well would turn
         # a sweep into anecdotes.
         self.randomize_var = tk.BooleanVar(value=False)
         self.randomize_check = ttk.Checkbutton(
             controls,
-            text="Randomise direction on every throw (azimuth and elevation)",
+            text="Randomize direction on every throw (azimuth and elevation)",
             variable=self.randomize_var,
             command=self._on_randomize_toggle,
         )
@@ -219,7 +230,7 @@ class DodgeballTab(ttk.Frame):
         self._update_preview()
 
     def _on_randomize_toggle(self) -> None:
-        """Greys the two angle sliders out while they are being randomised, so the display cannot lie.
+        """Grays the two angle sliders out while they are being randomized, so the display cannot lie.
 
         Without this the sliders would keep showing whatever they were last left at while every throw came from
         somewhere else, which is the kind of small dishonesty that costs an afternoon.
@@ -230,20 +241,36 @@ class DodgeballTab(ttk.Frame):
         self._update_preview()
 
     def _update_preview(self) -> None:
-        throw = self.current_throw()
+        self.preview_var.set(self.preview_text(self.current_throw()))
+
+    def preview_text(self, throw: DodgeballThrow) -> str:
+        """What the current sliders will actually do: the launch speed, the flight, and the momentum on arrival.
+
+        Those decide whether a throw is a nudge or a knockdown, and none of them is the number on a slider: the launch
+        speed is raised when the slider's is too slow to reach the base, and the ball arrives faster or slower than it
+        left depending on whether it was thrown from above or below.
+        """
         direction = (
-            "randomised each throw"
+            "direction randomized"
             if self.randomize_var.get()
-            else "azimuth %+.0f deg, elevation %+.0f deg"
-            % (throw.azimuth_deg, throw.elevation_deg)
+            else "%+.0f / %+.0f deg" % (throw.azimuth_deg, throw.elevation_deg)
         )
-        self.preview_var.set(
-            "%s  |  %.2f s of flight  |  %.2f kg x %.1f m/s = %.2f N s of momentum"
+        speed = launch_speed(throw)
+        raised = (
+            " (raised from %.1f: too slow to reach the base)" % throw.speed_mps
+            if speed > throw.speed_mps + 1e-9
+            else ""
+        )
+        arrival = math.hypot(*arrival_velocity(throw))
+        return (
+            "%s  |  %.1f m/s launch%s  |  %.2f s  |  %.2f kg x %.1f m/s = %.2f N s"
             % (
                 direction,
+                speed,
+                raised,
                 flight_time(throw),
                 throw.mass_kg,
-                throw.speed_mps,
+                arrival,
                 impact_momentum(throw),
             )
         )
@@ -286,12 +313,13 @@ class DodgeballTab(ttk.Frame):
             return payload
 
         self._show_status(
-            "Thrown from %+.0f deg / %+.0f deg at %.1f m, %.1f m/s - impact in %.2f s."
+            "Thrown: %.2f kg from %+.0f / %+.0f deg at %.1f m, launched at %.1f m/s - arrives in %.2f s."
             % (
+                throw.mass_kg,
                 throw.azimuth_deg,
                 throw.elevation_deg,
                 throw.distance_m,
-                throw.speed_mps,
+                launch_speed(throw),
                 flight_time(throw),
             )
         )
@@ -299,6 +327,9 @@ class DodgeballTab(ttk.Frame):
         return payload
 
     def _show_status(self, msg: str, error: bool = False) -> None:
+        # Through the label's textvariable, not configure(text=...): a ttk label bound to a variable copies the
+        # variable back over any text set directly, so that message would vanish before it was ever drawn.
         color = "#e74c3c" if error else "#27ae60"
-        self.status_label.configure(text=msg, foreground=color)
-        self.after(5000, lambda: self.status_label.configure(text=""))
+        self.status_label.configure(foreground=color)
+        self.status_var.set(msg)
+        self.after(5000, lambda: self.status_var.set(""))

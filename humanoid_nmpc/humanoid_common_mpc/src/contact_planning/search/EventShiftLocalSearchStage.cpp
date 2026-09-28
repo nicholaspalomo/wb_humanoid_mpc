@@ -25,40 +25,37 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/search/EventShiftLocalSearchStage.h"
 
-#include <iostream>
+#include <chrono>
+#include <functional>
 #include <set>
-#include <sstream>
-#include <stdexcept>
-
-#include "humanoid_common_mpc/contact_planning/logic/ContactLogicState.h"
 
 #include "absl/log/log.h"
+#include "absl/strings/str_cat.h"
+#include "humanoid_common_mpc/contact_planning/logic/ContactLogicState.h"
+#include "humanoid_common_mpc/contact_planning/search/CadenceStretchStage.h"
 
 namespace ocs2::humanoid {
 
 std::string EventShiftLocalSearchStage::describe() const {
-  std::ostringstream out;
-  out << "shift every contact event of the incumbent by one node while it improves, " << params_.iterations << " rounds, "
-      << params_.maxTime << " s";
-  return out.str();
+  return absl::StrCat("shift every contact event of the incumbent by one node while it improves, ", params_.iterations, " rounds, ",
+                      params_.maxTime, " s");
 }
 
 void EventShiftLocalSearchStage::configure(const ContactPlanningConfig& config) {
-  if (config.eventShiftLocalSearch.iterations < 0 || config.eventShiftLocalSearch.maxTime < 0.0) {
-    throw std::invalid_argument("[event_shift_local_search] invalid local search limits");
-  }
   params_ = config.eventShiftLocalSearch;
 }
 
 void EventShiftLocalSearchStage::afterSearch(SearchRun& run) const {
-  const auto start = SearchRun::Clock::now();
-  const auto elapsed = [&]() { return std::chrono::duration<scalar_t>(SearchRun::Clock::now() - start).count(); };
+  const SearchRun::Clock::time_point start = SearchRun::Clock::now();
+  const std::function<scalar_t()> elapsed = [&start]() { return std::chrono::duration<scalar_t>(SearchRun::Clock::now() - start).count(); };
   MiqpResult& result = *run.result;
   SearchStatistics& statistics = *run.statistics;
   const scalar_t timeBudget = params_.maxTime;
   if (!result.hasIncumbent || params_.iterations <= 0 || timeBudget <= 0.0) return;
   const int N = run.config->planner.numNodes;
   const MiqpAssignment& initial = *run.initialAssignment;
+  // The grid the incumbent is on: planner.dt unless a stage listed before this one re-timed it (cadence_stretch).
+  const scalar_t stretch = run.chosenDt > 0.0 ? run.chosenDt / run.config->planner.dt : 1.0;
 
   std::set<MiqpAssignment> evaluated;
   evaluated.insert(result.assignment);
@@ -82,6 +79,14 @@ void EventShiftLocalSearchStage::afterSearch(SearchRun& run) const {
             candidate[index] = base[previousIndex];
           }
           if (!(*run.propagate)(candidate)) continue;
+          // The propagation checks the gait limits on the planner.dt grid, but after a cadence_stretch listed earlier
+          // the problem being searched - and the plan to be emitted - is on the stretched grid, where a phase lasts
+          // chosenDt per node. A candidate that moves a touch-down one node later is then legal in nodes and too long
+          // in seconds (a five-node swing at dt 0.1 against a 0.5 s maximum passes propagation and executes for
+          // 0.625 s at a stretch of 1.25), so the candidate has to admit the stretch the incumbent was emitted with.
+          if (stretch > 1.0 && CadenceStretchStage::admissibleStretch(*run.config, candidate, N, stretch, run.input) < stretch - 1e-9) {
+            continue;
+          }
           if (!evaluated.insert(candidate).second) continue;
           if (elapsed() > timeBudget) break;
           OcpQpSolution solution;

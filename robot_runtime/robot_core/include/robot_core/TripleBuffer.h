@@ -21,10 +21,11 @@ template <typename T>
 class TripleBuffer {
  public:
   /// Construct with default-constructed slots.
-  TripleBuffer() : state_(encodeState(0, 1, 2, false)) {}
+  TripleBuffer() : state_(encodeState(/*write=*/0, /*clean=*/1, /*read=*/2, /*newData=*/false)) {}
 
   /// Construct with initial value copied into all three slots.
-  explicit TripleBuffer(const T& initial) : slots_{initial, initial, initial}, state_(encodeState(0, 1, 2, false)) {}
+  explicit TripleBuffer(const T& initial)
+      : slots_{initial, initial, initial}, state_(encodeState(/*write=*/0, /*clean=*/1, /*read=*/2, /*newData=*/false)) {}
 
   /// Non-copyable, non-movable (contains atomics).
   TripleBuffer(const TripleBuffer&) = delete;
@@ -47,7 +48,7 @@ class TripleBuffer {
       uint8_t w = decodeWrite(expected);
       uint8_t c = decodeClean(expected);
       uint8_t r = decodeRead(expected);
-      desired = encodeState(c, w, r, true);  // write becomes clean, clean becomes write
+      desired = encodeState(c, w, r, /*newData=*/true);  // write becomes clean, clean becomes write
     } while (!state_.compare_exchange_weak(expected, desired, std::memory_order_acq_rel, std::memory_order_acquire));
   }
 
@@ -70,7 +71,7 @@ class TripleBuffer {
       uint8_t w = decodeWrite(expected);
       uint8_t c = decodeClean(expected);
       uint8_t r = decodeRead(expected);
-      desired = encodeState(w, r, c, false);  // read becomes clean, clean becomes read, clear newData
+      desired = encodeState(w, r, c, /*newData=*/false);  // read becomes clean, clean becomes read, clear newData
     } while (!state_.compare_exchange_weak(expected, desired, std::memory_order_acq_rel, std::memory_order_acquire));
     return true;
   }

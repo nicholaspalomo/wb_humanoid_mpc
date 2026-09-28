@@ -31,6 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_mpc/MPC_BASE.h>
 
+#include "absl/log/log.h"
+
 namespace ocs2 {
 
 /******************************************************************************************************/
@@ -42,6 +44,17 @@ MPC_BASE::MPC_BASE(mpc::Settings mpcSettings) : mpcSettings_(std::move(mpcSettin
 /******************************************************************************************************/
 /******************************************************************************************************/
 void MPC_BASE::reset() {
+  // The references and the synchronized modules first: they carry the schedules, the latched measurements and the
+  // command state that the solver's own reset() does not know about, and that a reset has to clear as surely as the
+  // warm start (see ReferenceManagerInterface::reset()).
+  getSolverPtr()->resetReferenceManagerAndModules();
+  resetSolver();
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+void MPC_BASE::resetSolver() {
   initRun_ = true;
   mpcTimer_.reset();
   getSolverPtr()->reset();
@@ -53,8 +66,9 @@ void MPC_BASE::reset() {
 bool MPC_BASE::run(scalar_t currentTime, const vector_t& currentState, size_t currentMode) {
   // check if the current time exceeds the solver final limit
   if (!initRun_ && currentTime >= getSolverPtr()->getFinalTime()) {
-    std::cerr << "WARNING: The MPC time-horizon is smaller than the MPC starting time.\n";
-    std::cerr << "currentTime: " << currentTime << "\t Controller finalTime: " << getSolverPtr()->getFinalTime() << '\n';
+    LOG_EVERY_N_SEC(WARNING, 1.0) << "The MPC time horizon is smaller than the MPC starting time: currentTime " << currentTime
+                                  << " is past the final time " << getSolverPtr()->getFinalTime()
+                                  << " of the previous solution. The MPC has to be reset.";
     return false;
   }
 
@@ -62,12 +76,12 @@ bool MPC_BASE::run(scalar_t currentTime, const vector_t& currentState, size_t cu
 
   // display
   if (mpcSettings_.debugPrint_) {
-    std::cerr << "\n#####################################################";
-    std::cerr << "\n#####################################################";
-    std::cerr << "\n#####################################################";
-    std::cerr << "\n### MPC is called at time:  " << currentTime << " [s].";
-    std::cerr << "\n### MPC final Time:         " << finalTime << " [s].";
-    std::cerr << "\n### MPC time horizon:       " << mpcSettings_.timeHorizon_ << " [s].\n";
+    LOG(INFO) << "\n#####################################################"
+              << "\n#####################################################"
+              << "\n#####################################################"
+              << "\n### MPC is called at time:  " << currentTime << " [s]."
+              << "\n### MPC final Time:         " << finalTime << " [s]."
+              << "\n### MPC time horizon:       " << mpcSettings_.timeHorizon_ << " [s].";
     mpcTimer_.startTimer();
   }
 
@@ -80,10 +94,10 @@ bool MPC_BASE::run(scalar_t currentTime, const vector_t& currentState, size_t cu
   // display
   if (mpcSettings_.debugPrint_) {
     mpcTimer_.endTimer();
-    std::cerr << "\n### MPC Benchmarking";
-    std::cerr << "\n###   Maximum : " << mpcTimer_.getMaxIntervalInMilliseconds() << "[ms].";
-    std::cerr << "\n###   Average : " << mpcTimer_.getAverageInMilliseconds() << "[ms].";
-    std::cerr << "\n###   Latest  : " << mpcTimer_.getLastIntervalInMilliseconds() << "[ms]." << std::endl;
+    LOG(INFO) << "\n### MPC Benchmarking"
+              << "\n###   Maximum : " << mpcTimer_.getMaxIntervalInMilliseconds() << "[ms]."
+              << "\n###   Average : " << mpcTimer_.getAverageInMilliseconds() << "[ms]."
+              << "\n###   Latest  : " << mpcTimer_.getLastIntervalInMilliseconds() << "[ms].";
   }
 
   return true;

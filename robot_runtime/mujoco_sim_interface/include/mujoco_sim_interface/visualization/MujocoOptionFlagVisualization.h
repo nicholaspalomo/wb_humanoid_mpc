@@ -37,7 +37,7 @@ namespace robot::mujoco_sim_interface {
 
 /**
  * A visualization MuJoCo draws itself, switched by a flag of mjvOption (contact points, its contact force arrows, the
- * centres of mass, the inertia ellipsoids, the convex hulls) or, for the transparency, by the alpha of the model's
+ * centers of mass, the inertia ellipsoids, the convex hulls) or, for the transparency, by the alpha of the model's
  * geoms. The flag follows the enabled state every frame, so disabling the visualization clears it again.
  */
 class MujocoOptionFlagVisualization final : public MujocoVisualization {

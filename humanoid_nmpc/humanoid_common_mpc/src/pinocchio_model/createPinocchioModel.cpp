@@ -35,7 +35,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <pinocchio/multibody/model.hpp>
 #include <pinocchio/parsers/urdf.hpp>
 
+#include <algorithm>
 #include <cmath>
+#include <memory>
+#include <stdexcept>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "absl/strings/str_cat.h"
 
 #include <pinocchio/parsers/urdf.hpp>
 
@@ -48,6 +56,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <humanoid_common_mpc/pinocchio_model/pinocchioUtils.h>
 #include "humanoid_common_mpc/common/ModelSettings.h"
+#include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/contact/ContactPolygon.h"
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
 
@@ -141,15 +150,16 @@ PinocchioInterface createDefaultPinocchioInterface(const std::string& urdfFilePa
 /******************************************************************************************************/
 /******************************************************************************************************/
 
-PinocchioInterface createCustomPinocchioInterface(const std::string& taskFilePath,
-                                                  const std::string& urdfFilePath,
-                                                  const ModelSettings& modelSettings,
-                                                  bool scaleTotalMass,
-                                                  scalar_t totalMass,
-                                                  bool verbose) {
+absl::StatusOr<PinocchioInterface> loadCustomPinocchioInterface(const std::string& taskFilePath,
+                                                                const std::string& urdfFilePath,
+                                                                const ModelSettings& modelSettings,
+                                                                bool scaleTotalMass,
+                                                                scalar_t totalMass,
+                                                                bool verbose) {
   urdf::ModelInterfaceSharedPtr urdfTree = urdf::parseURDFFile(urdfFilePath);
   if (urdfTree == nullptr) {
-    throw std::invalid_argument("The file " + urdfFilePath + " does not contain a valid URDF model!");
+    return absl::InvalidArgumentError(
+        absl::StrCat("[loadCustomPinocchioInterface] the file '", urdfFilePath, "' does not contain a valid URDF model."));
   }
 
   using joint_pair_t = std::pair<const std::string, std::shared_ptr<urdf::Joint>>;
@@ -172,13 +182,30 @@ PinocchioInterface createCustomPinocchioInterface(const std::string& taskFilePat
   }
 
   if (scaleTotalMass) {
-    scalePinocchioModelInertia(model, totalMass, true);
+    scalePinocchioModelInertia(model, totalMass, /*verbose=*/true);
   }
 
   PinocchioInterface pinocchioInterface(model, urdfTree);
-  checkPinocchioJointNaming(pinocchioInterface, modelSettings);
-
+  RETURN_IF_ERROR(checkPinocchioJointNaming(pinocchioInterface, modelSettings, verbose));
   return pinocchioInterface;
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+
+PinocchioInterface createCustomPinocchioInterface(const std::string& taskFilePath,
+                                                  const std::string& urdfFilePath,
+                                                  const ModelSettings& modelSettings,
+                                                  bool scaleTotalMass,
+                                                  scalar_t totalMass,
+                                                  bool verbose) {
+  absl::StatusOr<PinocchioInterface> pinocchioInterface =
+      loadCustomPinocchioInterface(taskFilePath, urdfFilePath, modelSettings, scaleTotalMass, totalMass, verbose);
+  if (!pinocchioInterface.ok()) {
+    throw std::invalid_argument(std::string(pinocchioInterface.status().message()));
+  }
+  return *std::move(pinocchioInterface);
 }
 
 }  // namespace ocs2::humanoid

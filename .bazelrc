@@ -1,5 +1,7 @@
 # Put symlinks inside hidden .bazel/ dir so colcon ignores them
+# LINT.IfChange(symlink_prefix)
 build --symlink_prefix=.bazel/
+# LINT.ThenChange(//setup_env.sh:symlink_prefix)
 
 # --- C++ Standard & Compiler Flags ---
 build --cxxopt=-std=c++20
@@ -12,10 +14,17 @@ build --copt=-DPINOCCHIO_URDFDOM_TYPEDEF_SHARED_PTR
 build --copt=-DPINOCCHIO_URDFDOM_USE_STD_SHARED_PTR
 
 # --- Parallelism & Resource Limits ---
-# Prevent OOM kills: C++ compilations can use 1-2GB each.
-# Limit concurrent jobs so peak RAM stays within system capacity.
-# On heavy C++ template builds (Eigen, Pinocchio, Boost, CppAd), cap parallel jobs to 12.
-build --jobs=12
+# Parallelism is bounded by MEMORY, not by cores. A translation unit that includes Pinocchio, CppAD and OCS2 peaks at
+# 2-3 GB, so a fixed job count that suits one machine overcommits the next: the old `--jobs=12` put twelve of them next
+# to the simulator, RViz and the tests' own CppAD code generation on a 32 GB workstation, which went into swap and had
+# to be power-cycled. One action per 4 GB of RAM (HOST_RAM is in MB): 7 on 32 GB, 3 on a 16 GB CI runner. Tests get
+# half of that, because a test that tapes a CppAD model runs a compiler of its own.
+# LINT.IfChange(bazel_memory_bound)
+build --jobs=HOST_RAM*.00025
+test --local_test_jobs=HOST_RAM*.000125
+# LINT.ThenChange(//tools/resource_limits/test_resource_limits.py:bazel_memory_bound, //AGENTS.md:build_memory, //tools/ci_local.sh:runner_jobs)
+# A machine with more headroom can raise it in a git-ignored user.bazelrc, e.g. `build --jobs=HOST_RAM*.0004`.
+try-import %workspace%/user.bazelrc
 
 # --- Default Compilation Mode (Release) ---
 # Override with: bazel build -c dbg //...

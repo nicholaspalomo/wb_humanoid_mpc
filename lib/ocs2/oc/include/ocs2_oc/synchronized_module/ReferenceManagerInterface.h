@@ -59,7 +59,17 @@ class ReferenceManagerInterface {
    * @param [in] finalTime : Final time of the optimization horizon.
    * @param [in] initState : State at the start of the optimization horizon.
    */
-  virtual void preSolverRun(scalar_t initTime, scalar_t finalTime, const vector_t& initState, size_t initMode){};
+  virtual void preSolverRun(scalar_t initTime, scalar_t finalTime, const vector_t& initState, size_t initMode) {};
+
+  /**
+   * Returns the manager to the state it had right after construction, keeping only its configuration: everything it
+   * latched or carried over from earlier solves (schedules, measurements, plans) is dropped, so that the next
+   * preSolverRun() behaves exactly as the first one of a freshly constructed manager would.
+   *
+   * Called by MPC_BASE::reset() on the thread that runs the solver, between two solves, before the solver itself is
+   * reset. A derived class that holds state must override it and call its base class's reset().
+   */
+  virtual void reset() {}
 
   /** Returns a const reference to the active ModeSchedule. */
   virtual const ModeSchedule& getModeSchedule() const = 0;

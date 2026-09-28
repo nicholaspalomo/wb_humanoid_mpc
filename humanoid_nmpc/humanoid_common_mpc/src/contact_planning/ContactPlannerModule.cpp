@@ -25,24 +25,38 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/ContactPlannerModule.h"
 
-#include <iostream>
-
 #include "absl/log/log.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerFactory.h"
 
 namespace ocs2::humanoid {
 
-ContactPlannerModule::ContactPlannerModule(std::shared_ptr<ContactPlanningReferenceManager> referenceManagerPtr,
-                                           ContactPlanningConfig config)
-    : referenceManagerPtr_(std::move(referenceManagerPtr)), config_(std::move(config)) {
-  if (referenceManagerPtr_ == nullptr) {
-    throw std::invalid_argument("[ContactPlannerModule] reference manager must not be null");
+absl::StatusOr<std::shared_ptr<ContactPlannerModule>> ContactPlannerModule::Create(
+    std::shared_ptr<ContactPlanningReferenceManager> referenceManagerPtr,
+    ContactPlanningConfig config,
+    std::optional<ContactPlanningModelParameters> modelParameters) {
+  if (referenceManagerPtr == nullptr) {
+    return absl::InvalidArgumentError("[ContactPlannerModule] the reference manager must not be null");
   }
-  absl::StatusOr<std::unique_ptr<ContactPlannerInterface>> planner = makeContactPlanner(config_);
-  if (!planner.ok()) throw std::invalid_argument(std::string(planner.status().message()));
-  planner_ = *std::move(planner);
-  plannerType_ = config_.planner.type;
-  referenceManagerPtr_->setConfig(config_);
+  if (modelParameters.has_value()) modelParameters->applyTo(config);
+  // makeContactPlanner validates first and returns the rejection that names the key.
+  ASSIGN_OR_RETURN(std::unique_ptr<ContactPlannerInterface> planner, makeContactPlanner(config));
+  RETURN_IF_ERROR(referenceManagerPtr->setConfigStatus(config));
+  return std::shared_ptr<ContactPlannerModule>(
+      new ContactPlannerModule(std::move(referenceManagerPtr), std::move(config), std::move(modelParameters), std::move(planner)));
+}
+
+ContactPlannerModule::ContactPlannerModule(std::shared_ptr<ContactPlanningReferenceManager> referenceManagerPtr,
+                                           ContactPlanningConfig config,
+                                           std::optional<ContactPlanningModelParameters> modelParameters,
+                                           std::unique_ptr<ContactPlannerInterface> planner)
+    : referenceManagerPtr_(std::move(referenceManagerPtr)),
+      config_(std::move(config)),
+      modelParameters_(std::move(modelParameters)),
+      planner_(std::move(planner)),
+      plannerType_(config_.planner.type) {
   logPlans_.store(config_.planner.logPlans);
   LOG(INFO) << "[ContactPlannerModule] contact planner formulation:\n" << planner_->getFormulationSummary();
   if (config_.planner.runInBackgroundThread) {
@@ -85,20 +99,16 @@ void ContactPlannerModule::stopWorker() {
   }
 }
 
-void ContactPlannerModule::setModelParameters(const ContactPlanningModelParameters& parameters) {
-  modelParameters_ = parameters;
-  setConfig(getConfig());
-}
-
-void ContactPlannerModule::setConfig(const ContactPlanningConfig& configIn) {
+absl::Status ContactPlannerModule::setConfig(const ContactPlanningConfig& configIn) {
   ContactPlanningConfig config = configIn;
   if (modelParameters_.has_value()) modelParameters_->applyTo(config);
-  config.validate();
-  referenceManagerPtr_->setConfig(config);
+  // The reference manager validates it and builds its rules before replacing anything; a rejection leaves both as they
+  // were.
+  RETURN_IF_ERROR(referenceManagerPtr_->setConfigStatus(config));
 
   bool startWorkerThread = false;
   bool stopWorkerThread = false;
-  bool structuralChange = false;
+  ContactPlanningConfig previous;
 
   {
     std::lock_guard<std::mutex> lock(configMutex_);
@@ -109,16 +119,14 @@ void ContactPlannerModule::setConfig(const ContactPlanningConfig& configIn) {
         stopWorkerThread = true;
       }
     }
-    structuralChange = config_.formulation != config.formulation || config_.planner.numNodes != config.planner.numNodes ||
-                       config_.planner.dt != config.planner.dt || config_.planner.type != config.planner.type;
+    previous = config_;
     config_ = config;
     configChanged_ = true;
     logPlans_.store(config.planner.logPlans);
   }
-  if (structuralChange) {
-    const absl::StatusOr<std::string> summary = contactPlannerSummary(config);
-    LOG(INFO) << "[ContactPlannerModule] contact planner formulation reloaded:\n"
-              << (summary.ok() ? *summary : std::string(summary.status().message()));
+  const std::optional<std::string> summary = reloadSummary(previous, config);
+  if (summary.has_value()) {
+    LOG(INFO) << "[ContactPlannerModule] contact planner formulation reloaded:\n" << *summary;
   }
 
   if (startWorkerThread) {
@@ -126,6 +134,20 @@ void ContactPlannerModule::setConfig(const ContactPlanningConfig& configIn) {
   } else if (stopWorkerThread) {
     stopWorker();
   }
+  return absl::OkStatus();
+}
+
+std::optional<std::string> ContactPlannerModule::reloadSummary(const ContactPlanningConfig& previous, const ContactPlanningConfig& next) {
+  const absl::StatusOr<std::string> before = contactPlannerSummary(previous);
+  const absl::StatusOr<std::string> after = contactPlannerSummary(next);
+  const std::string afterText = after.ok() ? *after : std::string(after.status().message());
+  // A change the summary does not print can still change what the planner is assembled from (the term lists of the
+  // mixed-integer formulation), so those always re-print as well.
+  const bool structuralChange = previous.formulation != next.formulation || previous.planner.numNodes != next.planner.numNodes ||
+                                previous.planner.dt != next.planner.dt || previous.planner.type != next.planner.type;
+  const bool summaryChanged = before.ok() != after.ok() || (before.ok() ? *before : std::string(before.status().message())) != afterText;
+  if (!structuralChange && !summaryChanged) return std::nullopt;
+  return afterText;
 }
 
 ContactPlanningConfig ContactPlannerModule::getConfig() const {
@@ -144,7 +166,28 @@ ContactPlannerModule::Statistics ContactPlannerModule::getStatistics() const {
   return statistics;
 }
 
-void ContactPlannerModule::runPlanner(const ContactPlannerInput& input) {
+void ContactPlannerModule::reset() {
+  {
+    std::lock_guard<std::mutex> lock(inputMutex_);
+    pendingInput_.reset();
+    pendingInputUrgent_ = false;
+    throttle_ = SnapshotThrottle{};
+  }
+  // The planner is reset by the thread that plans, at the first snapshot of the new plan epoch (runPlanner()).
+}
+
+void ContactPlannerModule::runPlanner(const ContactPlannerInput& input, uint64_t planEpoch) {
+  // A snapshot taken before an MPC reset describes the robot before it: the reference manager would refuse its plan,
+  // and planning it would leave the planner's warm start and previous plan to the robot before the reset.
+  if (planEpoch != referenceManagerPtr_->planEpoch()) return;
+  // Whatever the planner carried over belongs to the epoch it planned in, and is dropped at the first snapshot of a new
+  // one. Keyed to the epoch rather than to a request that reset() raises: a plan of the old epoch that was already under
+  // way on the worker when the reset came would otherwise consume the request, and leave its own state behind for the
+  // first plan after the reset.
+  if (planEpoch != plannerEpoch_) {
+    planner_->reset();
+    plannerEpoch_ = planEpoch;
+  }
   {
     std::lock_guard<std::mutex> lock(configMutex_);
     if (configChanged_) {
@@ -158,7 +201,12 @@ void ContactPlannerModule::runPlanner(const ContactPlannerInput& input) {
           LOG(ERROR) << "[ContactPlannerModule] keeping the '" << plannerType_ << "' planner: " << rebuilt.status().message();
         }
       }
-      planner_->setConfig(config_);
+      // The configuration was validated by setConfig(); a planner that still cannot run it keeps its previous one, and
+      // this thread - the worker's, when planning in the background - must not throw.
+      const absl::Status applied = planner_->setConfig(config_);
+      if (!applied.ok()) {
+        LOG(ERROR) << "[ContactPlannerModule] the '" << plannerType_ << "' planner keeps its previous configuration: " << applied.message();
+      }
       configChanged_ = false;
     }
   }
@@ -170,8 +218,9 @@ void ContactPlannerModule::runPlanner(const ContactPlannerInput& input) {
     plan.valid = false;
   }
   if (logPlans_.load()) LOG(INFO) << "[ContactPlannerModule] " << plan.describe();
-  if (plan.valid) {
-    referenceManagerPtr_->setContactPlan(plan);
+  // A plan made from a snapshot taken before an MPC reset describes the robot before it: the reference manager refuses
+  // it, and the snapshot waiting for the worker (taken after the reset) is the one to plan from next.
+  if (plan.valid && referenceManagerPtr_->setContactPlan(plan, planEpoch)) {
     // Drop any snapshot taken before this plan is applied: the next plan must start from the schedule that includes it,
     // otherwise its committed window would disagree with the applied schedule and the merge could cut phases short.
     // A snapshot posted after a contact event is the exception: the schedule it was taken from has already been re-timed
@@ -199,16 +248,18 @@ void ContactPlannerModule::runPlanner(const ContactPlannerInput& input) {
 void ContactPlannerModule::workerLoop() {
   while (running_.load()) {
     ContactPlannerInput input;
+    uint64_t planEpoch = 0;
     {
       std::unique_lock<std::mutex> lock(inputMutex_);
       inputCondition_.wait(lock, [this]() { return !running_.load() || pendingInput_.has_value(); });
       if (!running_.load()) return;
       input = std::move(*pendingInput_);
+      planEpoch = pendingInputPlanEpoch_;
       pendingInput_.reset();
       pendingInputUrgent_ = false;
       throttle_.taken();
     }
-    runPlanner(input);
+    runPlanner(input, planEpoch);
   }
 }
 
@@ -227,6 +278,8 @@ void ContactPlannerModule::preSolverRun(scalar_t initTime,
   // whenever planned_com_override is listed, since that rule rewrites exactly that channel with the planned velocity.
   const vector2_t velocityCommand = referenceManagerPtr_->commandedVelocity();
   const ContactPlannerInput input = referenceManagerPtr_->makePlannerInput(initTime, initState, velocityCommand);
+  // Taken on the solver thread, like the reference manager's reset(): the snapshot and its epoch belong together.
+  const uint64_t planEpoch = referenceManagerPtr_->planEpoch();
 
   // A contact event (early / late touch-down) invalidates the timing the last plan was built on: plan again right away
   // instead of waiting for the next planning period.
@@ -234,7 +287,7 @@ void ContactPlannerModule::preSolverRun(scalar_t initTime,
 
   const ContactPlanningConfig config = getConfig();
   if (!config.planner.runInBackgroundThread) {
-    runPlanner(input);
+    runPlanner(input, planEpoch);
     return;
   }
 
@@ -246,14 +299,15 @@ void ContactPlannerModule::preSolverRun(scalar_t initTime,
     return;
   }
 
-  const auto now = std::chrono::steady_clock::now();
+  const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
   const std::chrono::duration<scalar_t> minPeriod(1.0 / config.planner.planningFrequency);
   {
     std::lock_guard<std::mutex> lock(inputMutex_);
     if (!replanRequested && !throttle_.allows(now, minPeriod)) {
       return;
     }
-    pendingInput_ = input;                                         // latest snapshot wins
+    pendingInput_ = input;  // latest snapshot wins
+    pendingInputPlanEpoch_ = planEpoch;
     pendingInputUrgent_ = pendingInputUrgent_ || replanRequested;  // urgency outlives the snapshot that carried it
     throttle_.posted(now);
   }

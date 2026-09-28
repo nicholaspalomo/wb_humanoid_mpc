@@ -73,19 +73,14 @@ absl::StatusOr<LocomotionHeuristicModelParameters> deriveLocomotionHeuristicMode
   derived.totalWeight = derived.totalMass * gravity;
 
   const vector_t q = mpcRobotModel.getGeneralizedCoordinates(nominalState);
-  pinocchio::centerOfMass(model, data, q, false);
-  pinocchio::updateFramePlacements(model, data);
-
-  // The pendulum length of the capture point: the centre of mass above the feet, not above the world origin, so that
-  // it is the same number on a robot standing on a box. Measured at the nominal posture and used only as the fallback
-  // when the per-solve measurement is unavailable or nonsense.
-  const std::vector<vector3_t> feet = computeContactPositions<scalar_t>(q, pinocchioInterface, mpcRobotModel);
+  // The pendulum length of the capture point: the one every LIP consumer shares (computeComHeightAboveFeet), measured
+  // at the nominal posture and used only as the fallback when the per-solve measurement is unavailable or nonsense.
+  // It also leaves the frame placements of the nominal posture in `data`, which the hip walk below reads.
+  derived.nominalComHeight = computeComHeightAboveFeet(q, pinocchioInterface, mpcRobotModel);
+  const std::vector<vector3_t> feet = getContactPositions<scalar_t>(pinocchioInterface, mpcRobotModel);
   if (feet.empty()) {
     return absl::FailedPreconditionError("[LocomotionHeuristicModelParameters] the robot model has no contact frames.");
   }
-  scalar_t meanFootZ = 0.0;
-  for (const vector3_t& foot : feet) meanFootZ += foot(2) / static_cast<scalar_t>(feet.size());
-  derived.nominalComHeight = data.com[0](2) - meanFootZ;
 
   // The landmark hip_centered_stepping places the foot under. Walk up the kinematic tree from the joint that carries
   // this leg's contact frame to the LAST joint before the floating base - that joint is the hip, however the URDF

@@ -88,7 +88,7 @@ const std::vector<std::string>& knownHeuristicNames(HeuristicKind kind) {
                                                  heuristic::kHighSpeedTurning};
   static const std::vector<std::string> wrench{heuristic::kImpulseScaling, heuristic::kCentripetalAcceleration};
   // clang-format off
-  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/locomotion_heuristics/LocomotionHeuristicFactory.cpp:heuristic_factory, //humanoid_nmpc/humanoid_common_mpc/src/locomotion_heuristics/LocomotionHeuristicConfig.cpp:locomotion_heuristic_keys)
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/locomotion_heuristics/LocomotionHeuristicFactory.cpp:heuristic_factory, //humanoid_nmpc/humanoid_common_mpc/src/locomotion_heuristics/LocomotionHeuristicConfig.cpp:locomotion_heuristic_keys, //tools/locomotion_heuristics/derive_parameters.py:derived_heuristic_keys, //tools/locomotion_heuristics/test_derive_parameters.py:expected_heuristic_names, //humanoid_nmpc/docs/locomotion_heuristics/README.md:heuristic_summary_table)
   // clang-format on
   switch (kind) {
     case HeuristicKind::BASE_POSE:
@@ -184,19 +184,17 @@ std::vector<std::string> LocomotionHeuristicFormulation::warnings() const {
   if (hasAnchor && foothold.size() == 1) {
     out.push_back(
         "locomotion_heuristics.foothold lists only 'hip_centered_stepping'. That places each foot under its own hip "
-        "and nowhere else, which is the base case Bledt measures the others against (figure 4-8): it stands and takes "
-        "a few slow steps, and falls as soon as it has any speed, because a foot placed under the hip at lift-off is "
-        "behind the robot by touch-down. It also re-anchors the landing target on the measured base, which "
-        "SwitchedModelReferenceManager documents as giving less foot separation than intended in single support. Add "
-        "'translational_stepping' before drawing conclusions from it.");
+        "at touch-down and nowhere else, which is the base case Bledt measures the others against (figure 4-8): it "
+        "stands and takes a few slow steps, and falls as soon as it has any speed, because a foot placed under the hip "
+        "has no lead on a moving body. Add 'translational_stepping' before drawing conclusions from it.");
   }
   if (!hasAnchor && !foothold.empty()) {
     out.push_back(
         "locomotion_heuristics.foothold does not list 'hip_centered_stepping'. The other foothold heuristics are "
-        "corrections that Bledt sums onto it, and they are being applied here to this controller's own landing target "
-        "instead - a step width to the side of the stance foot. That is a reasonable thing to do and it is why the "
-        "anchor is not mandatory, but it is NOT the formulation of the dissertation, and the coefficients fitted "
-        "there do not transfer to it.");
+        "corrections that Bledt sums onto the hip placement; here they are summed onto the base predicted at touch-down, "
+        "with the lateral separation taken from the stance foot plus model_settings.nominal_foothold.stepWidth instead "
+        "of from the hips. Along the heading that IS the dissertation's anchor, so the leads mean what they mean there; "
+        "across it the stance width is this controller's, not the hips'.");
   }
   return out;
 }

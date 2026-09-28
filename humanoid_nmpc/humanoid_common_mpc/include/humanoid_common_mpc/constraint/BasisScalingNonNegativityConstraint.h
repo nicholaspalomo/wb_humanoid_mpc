@@ -130,7 +130,7 @@ class BasisScalingNonNegativityConstraint final : public StateInputCost {
   size_t lambdaStartIdx_;
   size_t numBasis_;
   // Fixed by the formulation at load time rather than tuned, so it is const and the parallel solve reads it without
-  // synchronisation. It has to survive the copy the SQP solver makes of the whole problem per worker thread.
+  // synchronization. It has to survive the copy the SQP solver makes of the whole problem per worker thread.
   const bool scheduleGated_;
   PieceWisePolynomialBarrierPenalty::Config barrierConfig_;
   std::unique_ptr<PenaltyBase> penaltyPtr_;

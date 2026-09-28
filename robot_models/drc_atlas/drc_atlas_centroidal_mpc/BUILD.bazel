@@ -1,4 +1,5 @@
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("//bazel:robot_files.bzl", "ROBOT_FILE_EXCLUDES")
 # drc_atlas_centroidal_mpc - DRC Atlas robot centroidal MPC configuration and tests
 
 package(default_visibility = ["//visibility:public"])
@@ -9,7 +10,7 @@ filegroup(
     srcs = glob([
         "config/**",
         "launch/**",
-    ], allow_empty = True),
+    ], exclude = ROBOT_FILE_EXCLUDES, allow_empty = True),
 )
 
 # Test executable for Pinocchio model

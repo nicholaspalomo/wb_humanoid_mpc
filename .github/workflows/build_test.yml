@@ -15,7 +15,9 @@ on:
 
 jobs:
   build:
+    # LINT.IfChange(runner)
     runs-on: ubuntu-latest
+    # LINT.ThenChange(//tools/ci_local.sh:runner_resources)
     timeout-minutes: 180
     strategy:
       matrix:
@@ -33,7 +35,7 @@ jobs:
           apt-get update && apt-get install -y --no-install-recommends \
           curl gnupg2 lsb-release software-properties-common \
           locales git gettext-base sudo wget build-essential python3-pip python3-venv
-      # LINT.ThenChange(//dependencies.txt:system_dependencies, //docker/Dockerfile:system_dependencies)
+      # LINT.ThenChange(//dependencies.txt:system_dependencies, //docker/Dockerfile:system_dependencies, //tools/ci_local.sh:ci_base_dependencies)
 
       - name: Install Bazel (via Bazelisk)
         run: |

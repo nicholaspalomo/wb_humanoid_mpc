@@ -28,6 +28,8 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#pragma once
+
 #include <ocs2_mpc/MPC_MRT_Interface.h>
 
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
@@ -36,6 +38,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <robot_model/ContactEstimator.h>
 #include <robot_model/ControllerBase.h>
 #include "humanoid_common_mpc/contact/ContactWrenchGate.h"
+#include "humanoid_common_mpc/mrt/MpcResetSupervisor.h"
+#include "humanoid_common_mpc/mrt/SafetyDecay.h"
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 #include "robot_model/RobotDescription.h"
 
@@ -44,6 +48,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <mutex>
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/string.hpp>
+
+#include "absl/strings/string_view.h"
 
 namespace ocs2::humanoid {
 
@@ -96,45 +102,48 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   void subscribePdGains(rclcpp::Node::SharedPtr node);
 
   /**
-   * @brief Set the active control mode. When set to "JOINT_PD", the controller
-   *        computes Pinocchio-based gravity compensation + PD tracking to nominal positions.
+   * @brief Set the active control mode. The passive modes (ZERO_TORQUE, JOINT_PD, GRAVITY_COMP, SAFETY) compute their
+   *        action here, independent of the MPC; WB_MPC (or MPC_ACTIVE) executes the MPC policy.
+   *
+   * Entering WB_MPC from a passive mode resets the MPC from the observation at that moment (requestMpcResetAndHold()):
+   * the controller keeps the action of the mode it came from (JOINT_PD for ZERO_TORQUE, which holds nothing) until a
+   * policy solved after that reset is active, then ramps into it over mpcEntryBlendTime (0: at once). No policy solved
+   * before the entry reaches the robot. Call it from the thread that runs computeJointControlAction().
    */
-  void setControlMode(std::string_view mode) {
-    std::string newMode(mode);
-    if (newMode != controlMode_) {
-      if (newMode == "SAFETY") {
-        // Arm the decay. The clock origin and the posture to hold are captured on the first control cycle in the mode,
-        // where the observation time and a RobotState are in hand; this setter runs on the FSM callback thread. A
-        // pending hand-over into WB_MPC is abandoned: SAFETY must not be held off waiting for a solver.
-        safetyDecayStartTime_.store(-1.0);
-        safetyDecayComplete_.store(false);
-        awaitingPostResetPolicy_.store(false);
-        entryBlendStartTime_.store(-1.0);
-      }
-      if ((controlMode_ == "ZERO_TORQUE" || controlMode_ == "JOINT_PD" || controlMode_ == "GRAVITY_COMP" || controlMode_ == "SAFETY") &&
-          (newMode == "WB_MPC" || newMode == "MPC_ACTIVE")) {
-        requestMpcReset();
-        transitionCounter_ = 0;  // Reset for transition diagnostics
-        if (mpcEntryBlendTime_ > 0.0) {
-          // Hold the action of the mode we come from until a policy solved after the reset is active, then ramp into
-          // the MPC action. A passive mode without a posture hold (ZERO_TORQUE) is held like JOINT_PD.
-          entryHoldGravityComp_.store(controlMode_ == "GRAVITY_COMP");
-          entryBlendStartTime_.store(-1.0);
-          awaitingPostResetPolicy_.store(true);
-        }
-      }
-      controlMode_ = newMode;
-    }
-  }
+  void setControlMode(absl::string_view mode);
   const std::string& getControlMode() const { return controlMode_; }
 
   /**
-   * @brief Request an asynchronous MPC reset. The solver thread will reset the MPC
-   *        to a stable trajectory from the current observation on its next iteration.
-   *        Use this when external conditions change (e.g. gantry lock/unlock) to
-   *        prevent the solver from using a stale warm-start.
+   * @brief Requests a reset of the MPC, served by the solver thread before its next solve: the solver, the reference
+   *        manager and every synchronized module go back to their state after construction (MPC_BASE::reset()), the
+   *        policy waiting in the MRT buffer is dropped, and the MPC restarts from the observation current when the
+   *        reset is served. Callable from any thread.
+   *
+   * The policy in use is executed until the first policy solved after the reset replaces it, as when the gantry is
+   * unlocked under a robot standing in WB_MPC. Where nothing solved before may reach the robot, use
+   * requestMpcResetAndHold().
    */
-  void requestMpcReset() { resetMpcRequested_.store(true); }
+  void requestMpcReset() {
+    // The policy in use no longer counts as solved after every reset requested (getPlannedContactFlags()).
+    policyActivated_.store(false);
+    resetSupervisor_.requestReset();
+  }
+
+  /**
+   * @brief requestMpcReset(), and WB_MPC holds the robot until a policy solved after the reset is active: with the
+   *        GRAVITY_COMP action when `holdGravityComp`, with the JOINT_PD action otherwise, then it ramps into the MPC
+   *        action over mpcEntryBlendTime. For discontinuities of the plant - a fall caught on the gantry, a reset of
+   *        the simulator, the clock going backwards - and for entering WB_MPC. Call it from the thread that runs
+   *        computeJointControlAction().
+   */
+  void requestMpcResetAndHold(bool holdGravityComp = false);
+
+  /**
+   * False while the MPC solver keeps failing (MpcResetSupervisor): WB_MPC then holds the robot with the JOINT_PD
+   * action, and the solver retries from a full reset with an exponential back-off until a solve succeeds.
+   */
+  bool isMpcHealthy() const { return resetSupervisor_.isHealthy(); }
+  const MpcResetSupervisor& getResetSupervisor() const { return resetSupervisor_; }
 
   /**
    * @brief Set nominal joint positions for JOINT_PD mode.
@@ -144,9 +153,9 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   const ocs2::SystemObservation& getCurrentObservation() const { return currentMpcObservation_; }
 
   /**
-   * Contact flags the MPC policy being executed plans for `time`. Empty until a policy has been activated, and again
-   * after an MPC reset until the next policy arrives. Call from the thread that runs computeJointControlAction(): the
-   * policy is not thread-safe.
+   * Contact flags the MPC policy being executed plans for `time`. Empty until a policy solved after every reset
+   * requested so far is in use (in WB_MPC; the passive modes leave the last answer). Call from the thread that runs
+   * computeJointControlAction(): the policy is not thread-safe.
    */
   std::optional<contact_flag_t> getPlannedContactFlags(scalar_t time) const;
 
@@ -179,12 +188,12 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   bool getUseGravityCompFeedforward() const { return useGravityCompFeedforward_; }
 
   /**
-   * Duration [s] of the hand-over into WB_MPC (task.yaml `mpcEntryBlendTime`, 0 disables and keeps the immediate switch).
-   * When enabled, entering WB_MPC from a passive mode keeps sending that mode's action until the first policy solved after
-   * the entry reset has been activated (the MRT keeps the pre-reset policy until then), and then blends targets, gains
-   * and feedforward torques linearly from the held action to the MPC action over this duration. Without it the
-   * feedforward jumps in one cycle from the gravity term of the passive mode to the inverse dynamics of a policy that
-   * was solved against the pre-reset reference.
+   * Duration [s] of the ramp into WB_MPC (task.yaml `mpcEntryBlendTime`, 0: switch at once). Entering WB_MPC from a
+   * passive mode always keeps sending that mode's action until the first policy solved after the entry reset is active
+   * (see setControlMode()); this duration then blends targets, gains and feedforward torques linearly from the held
+   * action to the MPC action. Without it the feedforward jumps in one cycle from the gravity term of the passive mode
+   * to the inverse dynamics of the MPC. The same ramp follows every hold of requestMpcResetAndHold() and the recovery
+   * of an unhealthy solver.
    */
   void setMpcEntryBlendTime(scalar_t seconds) { mpcEntryBlendTime_ = std::max(0.0, seconds); }
   scalar_t getMpcEntryBlendTime() const { return mpcEntryBlendTime_; }
@@ -196,17 +205,20 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
    *
    * In SAFETY the robot holds the posture it had at mode entry with a joint PD whose gains are both multiplied by
    * alpha(t) = exp(-t / tau), so the commanded torque is alpha * (kp * (q_hold - q) - kd * qd) and decays smoothly to
-   * nothing instead of being cut in one cycle. Once alpha falls below kSafetyDecayCutoff the joints are commanded zero
+   * nothing instead of being cut in one cycle. Once alpha falls below safety_decay::kCutoff the joints are commanded zero
    * gain and zero feedforward, i.e. true zero torque; at the default tau that takes about 4 * tau seconds.
    */
-  void setSafetyDecayTimeConstant(scalar_t seconds) { safetyDecayTimeConstant_ = std::max(kMinSafetyDecayTimeConstant, seconds); }
+  void setSafetyDecayTimeConstant(scalar_t seconds) { safetyDecayTimeConstant_ = std::max(safety_decay::kMinTimeConstant, seconds); }
   scalar_t getSafetyDecayTimeConstant() const { return safetyDecayTimeConstant_; }
   /**
-   * The SAFETY decay factor alpha = exp(-elapsed / tau), snapped to 0 once it falls below kSafetyDecayCutoff so the
-   * mode reaches true zero torque in finite time rather than only approaching it. Pure, and static so that the decay
-   * law can be tested without standing up a controller and its solver thread.
+   * The SAFETY decay factor alpha = exp(-elapsed / tau), snapped to 0 once it falls below safety_decay::kCutoff so the
+   * mode reaches true zero torque in finite time rather than only approaching it (humanoid_common_mpc/mrt/SafetyDecay.h,
+   * shared with the whole-body controller). Pure, and static so that the decay law can be tested without standing up a
+   * controller and its solver thread.
    */
-  static scalar_t safetyDecayFactor(scalar_t elapsedSinceEntry, scalar_t timeConstant);
+  static scalar_t safetyDecayFactor(scalar_t elapsedSinceEntry, scalar_t timeConstant) {
+    return safety_decay::factor(elapsedSinceEntry, timeConstant);
+  }
   /** alpha for the armed decay at the given observation time; 1 when SAFETY has not been entered. */
   scalar_t currentSafetyDecayFactor(scalar_t time) const;
   /** True once the SAFETY decay has reached the cutoff and the joints are commanded zero torque. */
@@ -226,6 +238,18 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
    */
   TargetTrajectories currentObservationToResetTrajectory(const SystemObservation& currentMpcObservation);
 
+  /**
+   * Solver thread: MPC_MRT_Interface::resetMpcNode() (`full`) or resetMpcSolver() from the observation current now.
+   * Logged while the MPC is healthy.
+   */
+  void resetMpcToCurrentObservation(bool full, absl::string_view reason);
+
+  /** Control thread: keeps the elapsed times of the time-keyed actions across a rewind of `rewind` seconds, and holds. */
+  void handleClockRewind(scalar_t rewind);
+
+  /** Arms the hold of requestMpcResetAndHold() without requesting a reset. */
+  void armHold(bool holdGravityComp);
+
   void updateMpcState(vector_t& mpcState, const ::robot::model::RobotState& robotState);
   void updateMpcObservation(ocs2::SystemObservation& mpcObservation, const ::robot::model::RobotState& robotState);
 
@@ -235,6 +259,8 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   void fillGravityCompAction(const ::robot::model::RobotState& robotState, ::robot::model::RobotJointAction& robotJointAction);
   /** The action held while entering WB_MPC: that of the mode the controller came from. */
   void fillEntryHoldAction(const ::robot::model::RobotState& robotState, ::robot::model::RobotJointAction& robotJointAction);
+  /** ZERO_TORQUE action: no gain and no feedforward on any joint. The simulator does not apply it; hardware would get nothing. */
+  void fillZeroTorqueAction(const ::robot::model::RobotState& robotState, ::robot::model::RobotJointAction& robotJointAction);
 
   void fillSafetyAction(const ::robot::model::RobotState& robotState, ::robot::model::RobotJointAction& robotJointAction);
   /** Blends the MPC action in `robotJointAction` with the held action according to the entry ramp, if one is running. */
@@ -242,12 +268,19 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
 
   MPC_MRT_Interface mcpMrtInterface_;
   std::shared_ptr<::robot::model::ContactEstimator> contactEstimator_;
-  contact_flag_t measuredContactFlags_{};     // of the last control cycle, from contactEstimator_
-  ContactWrenchGate contactWrenchGate_;       // advanced with measuredContactFlags_ every cycle
-  std::atomic<bool> policyActivated_{false};  // a policy solved after the last reset has been swapped in
-  // Solves completed by the solver thread since its last reset. resetMpcNode() does not clear the MRT policy buffers, so a
-  // policy swapped in right after a reset may still be the pre-reset one; only a swap after a post-reset solve activates.
-  std::atomic<int> solvesSinceReset_{0};
+  contact_flag_t measuredContactFlags_{};  // of the last control cycle, from contactEstimator_
+  ContactWrenchGate contactWrenchGate_;    // advanced with measuredContactFlags_ every cycle
+  // The policy in use was solved after every reset requested so far (MRT_BASE::isActivePolicyCurrent() and no reset
+  // outstanding). Written by the control thread, read by getPlannedContactFlags().
+  std::atomic<bool> policyActivated_{false};
+  // Reset hand-over with the solver thread, failure back-off and the clock check (see MpcResetSupervisor).
+  MpcResetSupervisor resetSupervisor_;
+  // [s] Observation time of the last reset the divergence check requested; < 0: none. Control thread.
+  scalar_t lastDivergenceResetTime_{-1.0};
+  // LINT.IfChange(divergence_reset_interval)
+  /// [s] The divergence check requests at most one reset per post-reset policy, and at most one per this interval.
+  static constexpr scalar_t kDivergenceResetInterval = 0.5;
+  // LINT.ThenChange(//humanoid_nmpc/docs/mpc_reset/README.md:controller_reset_events)
 
   PinocchioInterface pinocchioInterface_;
   ocs2::SystemObservation currentMpcObservation_;
@@ -263,7 +296,6 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   bool realtime_;  // True if MPC is to be run as fast as possible
 
   std::atomic_bool terminateThread_{false};
-  std::atomic_bool resetMpcRequested_{false};
   std::jthread solver_worker_;
 
   std::shared_ptr<DummyObserver> visualizerPtr_;
@@ -295,11 +327,8 @@ class CentroidalMpcMrtJointController final : public ::robot::model::ControlBase
   std::atomic<bool> entryHoldGravityComp_{false};     ///< the held action is GRAVITY_COMP (else JOINT_PD)
   std::atomic<scalar_t> entryBlendStartTime_{-1.0};   ///< observation time the ramp started at, < 0: no ramp running
 
-  // SAFETY damped decay (setSafetyDecayTimeConstant). Armed by the mode switch, captured and read in the control loop.
-  static constexpr scalar_t kMinSafetyDecayTimeConstant{1e-3};  ///< [s] guards against a divide by zero in alpha(t)
-  // LINT.IfChange(safety_decay_cutoff)
-  static constexpr scalar_t kSafetyDecayCutoff{0.02};  ///< alpha below which the command becomes zero torque
-  // LINT.ThenChange(//humanoid_nmpc/remote_control/remote_control/humanoid_finite_state_machine.py:safety_decay_cutoff)
+  // SAFETY damped decay (setSafetyDecayTimeConstant, law in safety_decay::factor). Armed by the mode switch, captured
+  // and read in the control loop.
   scalar_t safetyDecayTimeConstant_{0.5};             ///< [s] time constant of alpha(t) = exp(-t / tau)
   std::atomic<scalar_t> safetyDecayStartTime_{-1.0};  ///< observation time at entry, < 0: not yet captured
   std::atomic<bool> safetyDecayComplete_{false};      ///< alpha has reached the cutoff, commanding zero torque

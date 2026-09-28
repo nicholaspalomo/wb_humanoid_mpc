@@ -44,8 +44,8 @@ namespace ocs2::humanoid {
  * The result the dissertation is most pleased with, and the best argument for its extraction framework. With both
  * `translational_stepping` and `in_place_turning` in place the robot still fell when asked to do both at once: it
  * "tended to fall outwards along the turning radius as if it were an object slipping off a spinning plate", the outer
- * leading foot running out of workspace with no contact foot left able to stabilise the body. The framework surfaced
- * the cross term v x omega as statistically significant, and only afterwards did Bledt recognise what it was - the
+ * leading foot running out of workspace with no contact foot left able to stabilize the body. The framework surfaced
+ * the cross term v x omega as statistically significant, and only afterwards did Bledt recognize what it was - the
  * foot placement that lines up with the resultant of gravity and the centripetal acceleration, which is what animals
  * visibly do when they corner (section 4.3, equation 4.31, figure 4-11).
  *

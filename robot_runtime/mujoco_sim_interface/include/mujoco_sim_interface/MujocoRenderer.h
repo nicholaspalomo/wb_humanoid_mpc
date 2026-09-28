@@ -89,7 +89,7 @@ class MujocoRenderer {
    *                hotkey and state of every visualization.
    * Every other letter toggles the visualization that declares it as its hotkey (MujocoVisualization::hotkey), e.g.
    * 'b' for the contact timeline, 'g' for the target contact patches, 'c' / 'f' / 'm' / 'i' / 'h' / 't' for MuJoCo's own
-   * contact points, contact forces, centres of mass, inertia ellipsoids, convex hulls and the model transparency.
+   * contact points, contact forces, centers of mass, inertia ellipsoids, convex hulls and the model transparency.
    */
   static void keyboard(GLFWwindow* window, int key, int scancode, int act, int mods);
 

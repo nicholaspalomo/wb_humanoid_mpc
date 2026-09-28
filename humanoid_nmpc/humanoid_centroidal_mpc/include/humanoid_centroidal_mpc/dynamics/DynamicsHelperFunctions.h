@@ -60,9 +60,10 @@ namespace ocs2::humanoid {
 inline vector_t weightCompensatingInput(const CentroidalModelInfoTpl<scalar_t>& info,
                                         const contact_flag_t& contactFlags,
                                         const MpcRobotModelBase<scalar_t>& mpcRobotModel) {
-  // Robot mass stays constant
-  const static scalar_t totalGravitationalForce = info.robotMass * 9.81;
-  const auto numStanceLegs = numberOfLegsInContacts(contactFlags);
+  // The mass of THIS model, read per call: a function-static cache kept the first model's weight for every model in the
+  // process.
+  const scalar_t totalGravitationalForce = info.robotMass * 9.81;
+  const size_t numStanceLegs = numberOfLegsInContacts(contactFlags);
   vector_t input = vector_t::Zero(mpcRobotModel.getInputDim());
   if (numStanceLegs > 0) {
     const vector3_t forceInInertialFrame(0.0, 0.0, totalGravitationalForce / numStanceLegs);
@@ -82,9 +83,10 @@ inline vector_t weightCompensatingInput(const CentroidalModelInfoTpl<scalar_t>& 
                                         const contact_flag_t& contactFlags,
                                         const MpcRobotModelBase<scalar_t>& mpcRobotModel,
                                         const vector_t& state) {
-  // Robot mass stays constant
-  const static scalar_t totalGravitationalForce = info.robotMass * 9.81;
-  const auto numStanceLegs = numberOfLegsInContacts(contactFlags);
+  // The mass of THIS model, read per call: a function-static cache kept the first model's weight for every model in the
+  // process.
+  const scalar_t totalGravitationalForce = info.robotMass * 9.81;
+  const size_t numStanceLegs = numberOfLegsInContacts(contactFlags);
   vector_t input = vector_t::Zero(mpcRobotModel.getInputDim());
   if (numStanceLegs > 0) {
     const vector3_t forceInInertialFrame(0.0, 0.0, totalGravitationalForce / numStanceLegs);

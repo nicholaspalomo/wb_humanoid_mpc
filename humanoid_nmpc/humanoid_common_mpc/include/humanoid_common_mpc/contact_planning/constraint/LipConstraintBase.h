@@ -39,8 +39,8 @@ class LipConstraintBase : public LipConstraint {
   SlackPenalty slackPenalty() const override { return penalty_; }
 
  protected:
-  /** The term's own penalty when given, the shared default otherwise; throws on a negative one. */
-  void configurePenalty(const ContactPlanningConfig& config, const std::optional<SlackPenalty>& own, const char* term);
+  /** The term's own penalty when given, the shared default otherwise (both validated by ContactPlanningConfig). */
+  void configurePenalty(const ContactPlanningConfig& config, const std::optional<SlackPenalty>& own);
   /** "slack (Z, z)" for describe(). */
   std::string penaltyText() const;
   LipIndices idx_;

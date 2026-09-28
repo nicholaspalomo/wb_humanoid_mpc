@@ -39,6 +39,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/log/check.h"
 
 #include <humanoid_centroidal_mpc/command/CentroidalMpcTargetTrajectoriesCalculator.h>
+#include <humanoid_centroidal_mpc/mrt/CentroidalMpcParameterUpdater.h>
 #include <humanoid_centroidal_mpc/mrt/MpcParameterUpdaterModule.h>
 #include "absl/log/globals.h"
 #include "absl/log/initialize.h"
@@ -78,7 +79,7 @@ int main(int argc, char** argv) {
   // Launch MPC ROS node
   rclcpp::Node::SharedPtr nodeHandle = std::make_shared<rclcpp::Node>(robotName + "_mpc");
 
-  auto qos = rclcpp::QoS(1);
+  rclcpp::QoS qos(1);
   qos.best_effort();
 
   // Reference inputs must be laid out like the OCP input: in basis-vector mode that is [λ, joint velocities], so the
@@ -89,6 +90,10 @@ int main(int argc, char** argv) {
   CentroidalMpcTargetTrajectoriesCalculator mpcTargetTrajectoriesCalculator(
       referenceFile, effectiveMpcRobotModel, interface.getPinocchioInterface(), interface.getCentroidalModelInfo(),
       interface.mpcSettings().timeHorizon_);
+  // The commanded base height stands on the ground the reference manager applied in this solve, so it follows a hot
+  // reload of terrainHeight (TargetTrajectoriesCalculatorBase::setTerrainHeightSource).
+  mpcTargetTrajectoriesCalculator.setTerrainHeightSource(
+      [referenceManager = interface.getSwitchedModelReferenceManagerPtr()]() { return referenceManager->getAppliedTerrainHeight(); });
   ProceduralMpcMotionManager::VelocityTargetToTargetTrajectories targetTrajectoriesFunc =
       [&mpcTargetTrajectoriesCalculator](const vector4_t& velocityTarget, scalar_t initTime, scalar_t finalTime,
                                          const vector_t& initState) mutable {
@@ -98,32 +103,28 @@ int main(int argc, char** argv) {
       gaitFile, referenceFile, interface.getSwitchedModelReferenceManagerPtr(), effectiveMpcRobotModel, targetTrajectoriesFunc);
 
   ros2ProceduralMpcMotionManager->subscribe(nodeHandle, qos);
+  // A reset of the MPC (MPC_BASE::reset(): the /mpc_reset service) resets the command path with it: the motion manager
+  // itself, and through this hook the target calculator behind targetTrajectoriesFunc, whose filters are its state.
+  ros2ProceduralMpcMotionManager->setResetHook([&mpcTargetTrajectoriesCalculator]() { mpcTargetTrajectoriesCalculator.reset(); });
 
   mpc.getSolverPtr()->setReferenceManager(interface.getReferenceManagerPtr());
   mpc.getSolverPtr()->addSynchronizedModule(ros2ProceduralMpcMotionManager);
-  // Online contact planning (useContactPlanning: true in task.yaml): the planner module feeds mode schedules and footholds
+  // Online contact planning (contactScheduleSource: contact_planner in task.yaml): the planner module feeds mode schedules and footholds
   // to the reference manager and, like the other synchronized modules, has to run before every solve.
-  if (auto contactPlannerModule = interface.getContactPlannerModulePtr()) {
+  if (const std::shared_ptr<ContactPlannerModule> contactPlannerModule = interface.getContactPlannerModulePtr()) {
     mpc.getSolverPtr()->addSynchronizedModule(contactPlannerModule);
   }
 
-  // Register real-time MPC parameter hot-reloading. The updater is sized to the OCP input and, in basis-vector mode,
-  // transforms the wrench-space R of task.yaml exactly as the OCP factory did.
-  auto mpcParameterUpdater = std::make_shared<MpcParameterUpdaterModule>(
-      &mpc, taskFile, urdfFile, referenceFile, interface.getMpcRobotModel().getStateDim(), effectiveMpcRobotModel.getInputDim(),
-      interface.modelSettings().contactNames, dynamic_cast<const SwitchedModelReferenceManager*>(interface.getReferenceManagerPtr().get()),
-      interface.getBasisInputsCostTransformConfig());
-  mpcParameterUpdater->setContactPlannerModule(interface.getContactPlannerModulePtr());
-  // Without this the locomotion_heuristics coefficients are launch-time only and the tuning GUI's sliders for them
-  // write the file without reaching the running controller.
-  mpcParameterUpdater->setLocomotionHeuristicLayer(interface.getLocomotionHeuristicLayerPtr());
-  // The command limits and ramps come from reference.yaml, which is read once at construction by both of these. With
-  // the reloaders registered, the Command Limits tab of the remote control changes them on the running controller
-  // instead of needing a restart. Both objects outlive the updater: they live in this scope, as it does.
-  mpcParameterUpdater->addReferenceFileReloader(
-      [&mpcTargetTrajectoriesCalculator](const std::string& file) { mpcTargetTrajectoriesCalculator.reloadCommandLimits(file); });
-  mpcParameterUpdater->addReferenceFileReloader(
-      [ros2ProceduralMpcMotionManager](const std::string& file) { ros2ProceduralMpcMotionManager->reloadCommandLimits(file); });
+  // Register real-time MPC parameter hot-reloading, wired by the one function both MPC nodes use: the updater is sized
+  // to the OCP input, reaches the reference manager, the contact planner and the locomotion-heuristic layer, and
+  // reloads the consumers of reference.yaml built above (both outlive the updater: they live in this scope, as it does)
+  // so that the Command Limits tab of the remote control changes them on the running controller.
+  absl::StatusOr<std::shared_ptr<MpcParameterUpdaterModule>> updaterResult = makeCentroidalMpcParameterUpdater(
+      &mpc, interface, taskFile, urdfFile, referenceFile,
+      {[&mpcTargetTrajectoriesCalculator](const std::string& file) { mpcTargetTrajectoriesCalculator.reloadCommandLimits(file); },
+       [ros2ProceduralMpcMotionManager](const std::string& file) { ros2ProceduralMpcMotionManager->reloadCommandLimits(file); }});
+  CHECK(updaterResult.ok()) << "Failed to create the MPC parameter updater: " << updaterResult.status();
+  const std::shared_ptr<MpcParameterUpdaterModule> mpcParameterUpdater = *std::move(updaterResult);
   mpcParameterUpdater->subscribe(nodeHandle);
   mpc.getSolverPtr()->addSynchronizedModule(mpcParameterUpdater);
 

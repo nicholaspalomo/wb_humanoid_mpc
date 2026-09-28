@@ -52,7 +52,7 @@ vector3_t CentripetalAccelerationHeuristic::forceOffset(const WrenchHeuristicCon
   //
   //     omega x v = (0, 0, psidot) x (v_x, v_y, 0) = (-psidot v_y, psidot v_x, 0),
   //
-  // which points towards the centre of the turn and has magnitude m |psidot| |v| - the centripetal force of a body of
+  // which points towards the center of the turn and has magnitude m |psidot| |v| - the centripetal force of a body of
   // mass m on a circle of radius |v| / |psidot|. The feet share it equally, matching how the existing reference
   // shares the weight.
   if (context.numStanceFeet == 0) return vector3_t::Zero();

@@ -85,7 +85,7 @@ TargetTrajectories WBMpcTargetTrajectoriesCalculator::commandedVelocityToTargetT
   // velocity profile.
 
   vector_t currentPoseTarget = getCurrentBasePoseTarget(initState);
-  vector4_t commVelTargetGlobal = filterAndTransformVelCommandToLocal(commandedVelocities, currentPoseTarget(3), 0.8);
+  vector4_t commVelTargetGlobal = filterAndTransformVelCommandToLocal(commandedVelocities, currentPoseTarget(3), /*filterAlpha=*/0.8);
 
   // // Adapt desired base height from velocity command
   // currentPoseTarget[2] = commVelTargetGlobal[2];
@@ -104,7 +104,8 @@ TargetTrajectories WBMpcTargetTrajectoriesCalculator::commandedVelocityToTargetT
   averageVel(1) = (baseVel[1] + commVelTargetGlobal[1]) / 2;
   averageVel(2) = (baseVel[5] + commVelTargetGlobal[3]) / 2;
 
-  scalar_t targetHeight = (commVelTargetGlobal[2] > 0.1) ? commVelTargetGlobal[2] : scalar_t(defaultBaseHeight_);
+  // The commanded pelvis height (or defaultBaseHeight) above the ground the reference manager stands the robot on.
+  const scalar_t targetHeight = commandedBaseHeight(commVelTargetGlobal[2]);
   currentPoseTarget[2] = targetHeight;
   vector6_t intermediateTargetPose = integrateTargetBasePose(currentPoseTarget, averageVel, targetHeight, intermediateTargetTime);
 

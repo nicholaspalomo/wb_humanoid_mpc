@@ -43,12 +43,14 @@ EndEffectorKinematicsQuadraticCost::EndEffectorKinematicsQuadraticCost(EndEffect
                                                                        const EndEffectorKinematics<scalar_t>& endEffectorKinematics,
                                                                        const MpcRobotModelBase<ad_scalar_t>& mpcRobotModelAD,
                                                                        std::string endEffectorName,
-                                                                       const ModelSettings& modelSettings)
+                                                                       const ModelSettings& modelSettings,
+                                                                       const SwitchedModelReferenceManager* referenceManager)
     : StateInputCostGaussNewtonAd(),
       sqrtWeights_(weights.toVector().cwiseSqrt()),
       endEffectorKinematicsPtr_(endEffectorKinematics.clone()),
       pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
-      mpcRobotModelADPtr(mpcRobotModelAD.clone()) {
+      mpcRobotModelADPtr(mpcRobotModelAD.clone()),
+      referenceManagerPtr_(referenceManager) {
   LOG(INFO) << "Initialized EndEffectorKinematicsQuadraticCost with weights: " << weights.toVector().transpose();
   LOG(INFO) << "Frame name: " << endEffectorName;
   frameID_ = pinocchioInterface.getModel().getFrameId(endEffectorName);
@@ -76,7 +78,8 @@ EndEffectorKinematicsQuadraticCost::EndEffectorKinematicsQuadraticCost(const End
       mpcRobotModelADPtr(other.mpcRobotModelADPtr->clone()),
       // isActive_ is copied deliberately: the SQP solver clones the whole problem once per worker thread,
       // and a copy constructor that dropped this flag silently reverted a deactivated term to active.
-      isActive_(other.isActive_) {}
+      isActive_(other.isActive_),
+      referenceManagerPtr_(other.referenceManagerPtr_) {}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -85,8 +88,9 @@ EndEffectorKinematicsQuadraticCost::EndEffectorKinematicsQuadraticCost(const End
 vector_t EndEffectorKinematicsQuadraticCost::getParameters(scalar_t time,
                                                            const TargetTrajectories& targetTrajectories,
                                                            const PreComputation& preComputation) const {
-  // Interpolate reference
-  const vector_t xRef = targetTrajectories.getDesiredState(time);
+  // Interpolate reference, with the base pose shaped the way the base-pose costs shape it when this link follows the base.
+  const vector_t xTarget = targetTrajectories.getDesiredState(time);
+  const vector_t xRef = referenceManagerPtr_ != nullptr ? referenceManagerPtr_->shapeBasePose(time, xTarget) : xTarget;
   const vector_t uRef = targetTrajectories.getDesiredInput(time);
 
   vector_t parameters(n_parameters_);

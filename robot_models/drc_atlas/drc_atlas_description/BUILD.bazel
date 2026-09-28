@@ -1,3 +1,4 @@
+load("//bazel:robot_files.bzl", "ROBOT_FILE_EXCLUDES")
 # drc_atlas_description - URDF, meshes, launch, rviz data files for DRC Atlas
 
 package(default_visibility = ["//visibility:public"])
@@ -10,5 +11,5 @@ filegroup(
         "launch/**",
         "rviz/**",
         "materials/**",
-    ], allow_empty = True),
+    ], exclude = ROBOT_FILE_EXCLUDES, allow_empty = True),
 )

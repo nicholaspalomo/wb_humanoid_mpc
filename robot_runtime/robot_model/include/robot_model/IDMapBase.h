@@ -3,6 +3,7 @@
 #include <Eigen/Dense>
 #include <algorithm>
 #include <concepts>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -36,14 +37,11 @@ class IDMapBase {
 
   const std::optional<T>& operator[](size_t element_id) const { return at(element_id); }
 
-  template <typename It, typename ScalarType>
-  Eigen::Matrix<ScalarType, Eigen::Dynamic, 1> toEigenVector(It begin,
-                                                             It end,
-                                                             IDMapExtractor<T, ScalarType> auto extractor,
-                                                             ScalarType defaultValue) const {
+  template <typename It, typename ScalarType, IDMapExtractor<T, ScalarType> Extractor>
+  Eigen::Matrix<ScalarType, Eigen::Dynamic, 1> toEigenVector(It begin, It end, Extractor extractor, ScalarType defaultValue) const {
     Eigen::Matrix<ScalarType, Eigen::Dynamic, 1> vector(std::distance(begin, end));
     int index = 0;
-    for (const auto& id : std::ranges::subrange(begin, end)) {
+    for (const std::iter_value_t<It>& id : std::ranges::subrange(begin, end)) {
       const std::optional<T>& val = this->at(id);
       if (val.has_value()) {
         vector(index) = extractor(*val);
@@ -133,11 +131,11 @@ class IDMapBase {
     const T& operator*() const { return this->map_->map_elements_[this->it_].value(); }
   };
 
-  iterator begin() { return iterator(this, 0); }
+  iterator begin() { return iterator(this, /*it=*/0); }
   iterator end() { return iterator(this, map_elements_.size()); }
-  const_iterator begin() const { return const_iterator(this, 0); }
+  const_iterator begin() const { return const_iterator(this, /*it=*/0); }
   const_iterator end() const { return const_iterator(this, map_elements_.size()); }
-  const_iterator cbegin() const { return const_iterator(this, 0); }
+  const_iterator cbegin() const { return const_iterator(this, /*it=*/0); }
   const_iterator cend() const { return const_iterator(this, map_elements_.size()); }
 
  protected:

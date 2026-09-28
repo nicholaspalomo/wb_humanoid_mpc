@@ -1,0 +1,29 @@
+load("@rules_python//python:defs.bzl", "py_test")
+
+# The guards against a build exhausting the machine's memory: .bazelrc's RAM-bounded parallelism and the dev
+# container's memory cap (see AGENTS.md, "Builds share one machine's memory"). Also that `make ci-local` runs CI's
+# steps at the resources of GitHub's runner.
+py_test(
+    name = "test_resource_limits",
+    size = "small",
+    srcs = ["test_resource_limits.py"],
+    data = [
+        "set_container_memory_limit.sh",
+        "//:.bazelrc",
+        "//:.devcontainer/devcontainer.json",
+        "//:.github/workflows/build_test.yml",
+        "//:docker-compose.yaml",
+        "//:tools/ci_local.sh",
+    ],
+)
+
+# tools/bazel, the Bazelisk wrapper that makes the builds of every container on the machine take turns.
+py_test(
+    name = "test_bazel_machine_lock",
+    size = "small",
+    srcs = ["test_bazel_machine_lock.py"],
+    data = [
+        "//:.devcontainer/shell_init.sh",
+        "//:tools/bazel",
+    ],
+)

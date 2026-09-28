@@ -73,7 +73,9 @@ CentroidalMpcEndEffectorFootCost::CentroidalMpcEndEffectorFootCost(const Switche
       pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
       mpcRobotModelAdPtr_(mpcRobotModelAD.clone()),
       contactIndex_(contactIndex) {
-  initialize(mpcRobotModelAD.getStateDim(), mpcRobotModelAD.getInputDim(), kNumParameters, costName + "_yawRef",
+  // The library name carries the residual's version, so that a library taped from an earlier residual is never loaded
+  // from the cache in its place (the robots ship recompileLibrariesCppAd: false).
+  initialize(mpcRobotModelAD.getStateDim(), mpcRobotModelAD.getInputDim(), kNumParameters, costName + "_yawRefHalfAngle",
              modelSettings.modelFolderCppAd, modelSettings.recompileLibrariesCppAd);
   LOG(INFO) << "Frame ID: " << frameID_;
   LOG(INFO) << "Initialized CentroidalMpcEndEffectorFootCost (activeInStance=" << (activeInStance_ ? "true" : "false")
@@ -113,15 +115,14 @@ ad_vector_t CentroidalMpcEndEffectorFootCost::costVectorFunction(ad_scalar_t tim
   const ad_scalar_t yawReference = parameters[25];
   const ad_scalar_t hasYawReference = parameters[26];
 
-  const auto& model = pinocchioInterfaceCppAd_.getModel();
-  auto& data = pinocchioInterfaceCppAd_.getData();
+  const PinocchioInterfaceCppAd::Model& model = pinocchioInterfaceCppAd_.getModel();
+  PinocchioInterfaceCppAd::Data& data = pinocchioInterfaceCppAd_.getData();
 
   const ad_vector_t q = mpcRobotModelAdPtr_->getGeneralizedCoordinates(state);
   const ad_vector_t v = mpcRobotModelAdPtr_->getGeneralizedVelocities(state, input);
   pinocchio::forwardKinematics(model, data, q, v);
-  auto frameData = pinocchio::updateFramePlacement(model, data, frameID_);
+  const pinocchio::SE3Tpl<ad_scalar_t>& frameData = pinocchio::updateFramePlacement(model, data, frameID_);
 
-  // auto oMf = data.oMf;
   ad_vector_t position = frameData.translation();
   ad_vector_t linearVelocity = pinocchio::getFrameVelocity(model, data, frameID_, rf).linear();
   ad_matrix3_t orientation = frameData.rotation();
@@ -129,10 +130,10 @@ ad_vector_t CentroidalMpcEndEffectorFootCost::costVectorFunction(ad_scalar_t tim
 
   // Orientation error: the distance to the ground plane (roll, pitch). With a planned foot yaw (contact planner heading
   // model) the third component tracks it, wrapped so that a crossing of +-pi is not a discontinuity; the config weight
-  // orientation_z selects whether that error costs anything.
+  // orientation_z selects whether that error costs anything. footYawError() is finite, value and derivatives, at every
+  // yaw, a yaw of exactly zero included; see there for why the atan2 it replaces was not.
   ad_vector_t orientationError = rotationMatrixDistanceToPlane<ad_scalar_t>(orientation, reference.getPlaneNormal());
-  const ad_scalar_t footYaw = CppAD::atan2(orientation(1, 0), orientation(0, 0));
-  const ad_scalar_t yawError = CppAD::atan2(CppAD::sin(footYaw - yawReference), CppAD::cos(footYaw - yawReference));
+  const ad_scalar_t yawError = footYawError<ad_scalar_t>(orientation, yawReference, hasYawReference);
   orientationError(2) = hasYawReference * yawError + (ad_scalar_t(1.0) - hasYawReference) * orientationError(2);
 
   ad_vector_t errors(12);
@@ -160,7 +161,7 @@ vector_t CentroidalMpcEndEffectorFootCost::getParameters(scalar_t time,
   parameters.head(3) = vector3_t(0.0, 0.0, 0.0);  // Reference position
   // Plane the foot orientation is tracked against. Flat ground unless a toe-up swing pitch is configured, in which case
   // the normal is tilted back along the heading for the swing so that the toe -- half a foot length ahead of the
-  // tracked sole centre -- clears the ground by more than the height reference alone provides.
+  // tracked sole center -- clears the ground by more than the height reference alone provides.
   parameters.segment(3, 3) = referenceManagerPtr_->getSwingFootPlaneNormal(contactIndex_, time);
   parameters.segment(6, 3) = vector3_t(0.0, 0.0, 0.0);  // Reference linear velocity
   parameters.segment(9, 3) = vector3_t(0.0, 0.0, 0.0);  // Reference angular velocity
@@ -187,7 +188,7 @@ vector_t CentroidalMpcEndEffectorFootCost::getParameters(scalar_t time,
 
     // Without a contact planner, provide a heuristic velocity reference to prevent the swing foot from
     // dragging backward relative to the moving body.  The config lin_velocity_x weight is intentionally 0
-    // (to avoid penalising stance), so we temporarily override the sqrt-weight here with a small value.
+    // (to avoid penalizing stance), so we temporarily override the sqrt-weight here with a small value.
     // The impactProximityScaler already ramps this cost to zero near touchdown, which is the profile we want.
     const std::optional<vector2_t> velocityReference = referenceManagerPtr_->getSwingFootVelocityReference(contactIndex_, time);
     if (velocityReference.has_value()) {

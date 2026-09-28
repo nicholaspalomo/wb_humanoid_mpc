@@ -45,7 +45,7 @@ absl::Status CapturePointHeuristic::configure(const LocomotionHeuristicConfig& c
 
 vector2_t CapturePointHeuristic::offset(const FootholdHeuristicContext& context) const {
   // H_r(pdot, Phi) = gain sqrt(p_z / g) (pdot - pdot_d), Bledt Table C.1. sqrt(p_z/g) is 1/omega, the time constant
-  // of a linear inverted pendulum of height p_z, so the offset is "how far the centre of mass will have carried past
+  // of a linear inverted pendulum of height p_z, so the offset is "how far the center of mass will have carried past
   // the foot by the time the pendulum has done its work" - the capture point of Pratt et al. applied to the velocity
   // ERROR rather than to the velocity, which is what makes it silent while the robot is tracking its command.
   //

@@ -26,8 +26,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/logic/MinimumDoubleSupportRule.h"
 
 #include <algorithm>
-#include <sstream>
+#include <array>
 
+#include "absl/strings/str_cat.h"
 #include "humanoid_common_mpc/contact_planning/logic/ContactLogicHelpers.h"
 
 namespace ocs2::humanoid {
@@ -35,20 +36,18 @@ namespace ocs2::humanoid {
 static_assert(N_CONTACTS == 2, "the double support rule is written for a biped");
 
 std::string MinimumDoubleSupportRule::describe() const {
-  std::ostringstream out;
-  out << "after a touch-down the other foot stays down >= " << minDoubleSupportDuration_ << " s (the touch-down node included)";
-  return out.str();
+  return absl::StrCat("after a touch-down the other foot stays down >= ", minDoubleSupportDuration_, " s (the touch-down node included)");
 }
 
 void MinimumDoubleSupportRule::configure(const ContactPlanningConfig& config) {
   minDoubleSupportDuration_ = config.shared.gaitLimits.minDoubleSupportDuration;
 }
 
-bool MinimumDoubleSupportRule::propagate(const ContactLogicState& s,
-                                         const ContactLogicScan& /*scan*/,
-                                         MiqpAssignment& a,
-                                         bool& changed) const {
+bool MinimumDoubleSupportRule::propagate(const ContactLogicState& s, MiqpAssignment& a, bool& changed) const {
   using S = ContactLogicState;
+  // Sound on a partial assignment: the walk stops at the first node that is not fixed for both feet, and at the node it
+  // stops on only a touch-down that is already fixed is counted. A binary still free there can only add a touch-down,
+  // which can only lengthen the hold, so every hold this pass enforces holds in every completion.
   if (s.nDoubleSupportHold <= 0) return true;
   std::array<std::int8_t, N_CONTACTS> kappa{s.input->contacts[0] ? std::int8_t(1) : std::int8_t(0),
                                             s.input->contacts[1] ? std::int8_t(1) : std::int8_t(0)};
@@ -67,7 +66,7 @@ bool MinimumDoubleSupportRule::propagate(const ContactLogicState& s,
       const int index = S::contactBinaryIndex(k, foot);
       if (kappa[foot] == 1 && s.heldAfterTouchDown(k, latestTouchDown) && k >= s.numCommitted) {
         if (a[static_cast<size_t>(index)] == 0) return false;
-        fixBinary(a, index, 1, changed);
+        fixBinary(a, index, /*value=*/1, changed);
       }
       allFixed = allFixed && a[static_cast<size_t>(index)] != kMiqpFree;
     }

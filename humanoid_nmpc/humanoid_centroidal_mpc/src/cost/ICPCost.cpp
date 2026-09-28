@@ -67,7 +67,7 @@ ICPCost::ICPCost(const SwitchedModelReferenceManager& referenceManager,
       sqrtWeights_(weights.cwiseSqrt()),
       pinocchioInterfaceCppAd_(pinocchioInterface.toCppAd()),
       mpcRobotModelAdPtr_(mpcRobotModelAD.clone()) {
-  initialize(mpcRobotModelAD.getStateDim(), mpcRobotModelAD.getInputDim(), 2, costName, modelSettings.modelFolderCppAd,
+  initialize(mpcRobotModelAD.getStateDim(), mpcRobotModelAD.getInputDim(), /*parameterDim=*/2, costName, modelSettings.modelFolderCppAd,
              modelSettings.recompileLibrariesCppAd);
   LOG(INFO) << "Initialized ICPCost with weights: " << weights.transpose();
 }
@@ -97,17 +97,17 @@ ad_vector_t ICPCost::costVectorFunction(ad_scalar_t time,
   const pinocchio::ReferenceFrame rf = pinocchio::ReferenceFrame::LOCAL_WORLD_ALIGNED;
   const ad_vector_t sqrtWeightParams = parameters.head(2);  // EndEffectorKinematicsWeights vector element
 
-  const auto& model = pinocchioInterfaceCppAd_.getModel();
-  auto& data = pinocchioInterfaceCppAd_.getData();
+  const PinocchioInterfaceCppAd::Model& model = pinocchioInterfaceCppAd_.getModel();
+  PinocchioInterfaceCppAd::Data& data = pinocchioInterfaceCppAd_.getData();
   scalar_t omega = std::sqrt(9.81 / 0.7);  // sqrt(g / z_0) This default com height should be added from the config.
 
   const ad_vector_t q = mpcRobotModelAdPtr_->getGeneralizedCoordinates(state);
 
-  pinocchio::centerOfMass(model, data, q, false);
+  pinocchio::centerOfMass(model, data, q, /*computeSubtreeComs=*/false);
   ad_vector2_t com = data.com[0].head(2);
 
   pinocchio::updateFramePlacements(model, data);
-  auto contactPositions = getContactPositions<ad_scalar_t>(pinocchioInterfaceCppAd_, *mpcRobotModelAdPtr_);
+  std::vector<VECTOR3_T<ad_scalar_t>> contactPositions = getContactPositions<ad_scalar_t>(pinocchioInterfaceCppAd_, *mpcRobotModelAdPtr_);
   ad_vector2_t desiredCOMPosition = (contactPositions[0] + contactPositions[1]).head(2) / ad_scalar_t(2.0);
 
   ad_vector_t com_vel(2);

@@ -52,7 +52,7 @@ class SwingTrajectoryPlanner {
     scalar_t impactProximityFactorTouchDownVelocity = 0;  // should be greater or equal to 0
     scalar_t impactProximityFactorMidPointValue = 0.1;    // should be between 0 and 1
 
-    // Toe-up pitch of the swing foot. The foot height reference is tracked at the centre of the sole, so the toe, half a
+    // Toe-up pitch of the swing foot. The foot height reference is tracked at the center of the sole, so the toe, half a
     // foot length ahead of it, reaches the ground before the reference does whenever the foot droops toe-down. Pitching
     // the reference toe-up through the swing lifts the toe by (half foot length) * sin(angle) at no cost in sole
     // clearance. The pitch ramps up over the first swingPitchRiseFraction of the swing, is held, and is back to flat at
@@ -67,7 +67,7 @@ class SwingTrajectoryPlanner {
    * reference of that swing is the planned swing's spline up to the planned touch-down, continued as a straight descent
    * at `descentVelocity` from the planned touch-down height until the extended touch-down of the schedule; the pitch and
    * the impact proximity hold their touch-down values. Re-fitting the spline over the extended swing instead moved its
-   * apex, raised the reference at the current time by several millimetres at every extension step and then drove the
+   * apex, raised the reference at the current time by several millimeters at every extension step and then drove the
    * foot down at the spline's slope (about 0.35 m/s) rather than at the search velocity.
    */
   struct GroundSearch {

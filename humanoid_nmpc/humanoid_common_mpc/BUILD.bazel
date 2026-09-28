@@ -17,8 +17,10 @@ _COMMON_COPTS = [
     "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
 ]
 
-# Headers shared by the planner core and the rest of the library (types and the mode-number conventions, header only).
+# Headers shared by the planner core and the rest of the library (types, the mode-number conventions and the
+# absl::Status propagation macros, header only).
 _COMMON_TYPES_HDRS = [
+    "include/humanoid_common_mpc/common/StatusMacros.h",
     "include/humanoid_common_mpc/common/Types.h",
     "include/humanoid_common_mpc/gait/MotionPhaseDefinition.h",
 ]
@@ -30,6 +32,8 @@ cc_library(
     copts = _COMMON_COPTS,
     deps = [
         "//lib/ocs2:ocs2_core",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
         "@eigen",
     ],
 )
@@ -102,10 +106,14 @@ cc_library(
         ":humanoid_common_mpc_types",
         "//lib/ocs2:ocs2_core",
         "//lib/ocs2:ocs2_robotic_tools",
+        "@abseil-cpp//absl/container:flat_hash_map",
+        "@abseil-cpp//absl/container:flat_hash_set",
+        "@abseil-cpp//absl/log",
         "@abseil-cpp//absl/log:check",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:str_format",
         "@abseil-cpp//absl/strings:string_view",
         "@blasfeo",
         "@hpipm",
@@ -128,6 +136,7 @@ cc_library(
         "src/pinocchio_model/pinocchioUtils.cpp",
         "src/pinocchio_model/createPinocchioModel.cpp",
         "src/pinocchio_model/DynamicsHelperFunctions.cpp",
+        "src/common/ContactInputParameterization.cpp",
         "src/common/ModelSettings.cpp",
         "src/common/MpcFormulationConfig.cpp",
         "src/constraint/JointLimitsSoftConstraint.cpp",
@@ -144,6 +153,7 @@ cc_library(
         "src/constraint/EndEffectorKinematicsLinearVelConstraint.cpp",
         "src/cost/StateInputQuadraticCost.cpp",
         "src/cost/StateQuadraticCost.cpp",
+        "src/cost/BasePoseShapedQuadraticStateCost.cpp",
         "src/cost/ComAndAcomTrackingCost.cpp",
         "src/cost/InputQuadraticCost.cpp",
         "src/cost/EndEffectorKinematicCostHelpers.cpp",
@@ -174,6 +184,7 @@ cc_library(
         "src/locomotion_heuristics/wrench/ImpulseScalingHeuristic.cpp",
         "src/reference_manager/SwitchedModelReferenceManager.cpp",
         "src/reference_manager/ProceduralMpcMotionManager.cpp",
+        "src/mrt/MpcResetSupervisor.cpp",
         "src/HumanoidCostConstraintFactory.cpp",
         "src/HumanoidPreComputation.cpp",
         "src/acom/AngularCenterOfMass.cpp",
@@ -224,6 +235,7 @@ cc_library(
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/types:span",
         "@ros2_rclcpp",
         "@ros2_ament_index_cpp",
         "@yaml_cpp",
@@ -240,16 +252,59 @@ cc_binary(
     ],
 )
 
-cc_binary(
-    name = "test_mpc_formulation_config",
+cc_test(
+    name = "testMpcFormulationConfig",
+    size = "small",
     srcs = ["test/testMpcFormulationConfig.cpp"],
+    copts = _COMMON_COPTS,
+    # Every robot's shipped MPC task file, for the check that the contact-implicit formulation ships switched off.
+    # LINT.IfChange(formulation_shipped_task_files_data)
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+        "//robot_models/unitree_r1/unitree_r1_centroidal_mpc",
+    ],
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/test/testMpcFormulationConfig.cpp:formulation_shipped_task_files)
     deps = [
         ":humanoid_common_mpc",
-        "@abseil-cpp//absl/log:globals",
-        "@abseil-cpp//absl/log:initialize",
+        "//lib/ocs2:ocs2_core",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/types:span",
+        "@boost",
+        "@googletest//:gtest_main",
+        "@yaml_cpp",
+    ],
+)
+
+cc_test(
+    name = "testContactInputParameterization",
+    size = "small",
+    srcs = ["test/testContactInputParameterization.cpp"],
+    copts = _COMMON_COPTS,
+    # Every shipped robot's MPC task file, for the check that each selects the parameterization it ran before the
+    # boolean became a name; the Atlas description for the ModelSettings the bases are built with.
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+        "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+        "//robot_models/unitree_r1/unitree_r1_centroidal_mpc",
+    ],
+    deps = [
+        ":humanoid_common_mpc",
+        "@abseil-cpp//absl/log:scoped_mock_log",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+        "@pinocchio",
     ],
 )
 
@@ -265,10 +320,58 @@ cc_test(
 )
 
 cc_test(
+    name = "testLocomotionHeuristicFormulas",
+    size = "small",
+    srcs = ["test/testLocomotionHeuristicFormulas.cpp"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        "@abseil-cpp//absl/log:scoped_mock_log",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "testShippedLocomotionHeuristicBlocks",
+    size = "small",
+    srcs = ["test/testShippedLocomotionHeuristicBlocks.cpp"],
+    copts = _COMMON_COPTS,
+    # Every robot's shipped task file: the default-off rule and the block's loadability are CI's business, not only a
+    # Python script's that CI never runs.
+    # The whole-body package is here for the check that it has NO locomotion_heuristics block.
+    # LINT.IfChange(shipped_centroidal_task_files_data)
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+        "//robot_models/unitree_r1/unitree_r1_centroidal_mpc",
+    ],
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/test/testShippedLocomotionHeuristicBlocks.cpp:shipped_centroidal_task_files)
+    deps = [
+        ":humanoid_common_mpc",
+        "@googletest//:gtest_main",
+        "@yaml_cpp",
+    ],
+)
+
+cc_test(
     name = "testStanceDutyFactor",
     size = "small",
     srcs = ["test/testStanceDutyFactor.cpp"],
     copts = _COMMON_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "testModeSequenceTemplate",
+    size = "small",
+    srcs = ["test/testModeSequenceTemplate.cpp"],
+    copts = _COMMON_COPTS,
+    data = ["config/command/gait.yaml"],
     deps = [
         ":humanoid_common_mpc",
         "@googletest//:gtest_main",
@@ -282,6 +385,24 @@ cc_test(
     copts = _COMMON_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "testBasisInputsCostTransform",
+    size = "small",
+    srcs = ["test/testBasisInputsCostTransform.cpp"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
     ],
 )
@@ -308,6 +429,46 @@ cc_test(
     ],
 )
 
+# The reset and failure policy of the MRT joint controllers: reset hand-over, back-off, one error, the clock check.
+cc_test(
+    name = "testMpcResetSupervisor",
+    size = "small",
+    srcs = ["test/testMpcResetSupervisor.cpp"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        "@abseil-cpp//absl/log:scoped_mock_log",
+        "@abseil-cpp//absl/status",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The control mode names and their two families, shared by the MRT joint controllers and the sim fall recovery.
+cc_test(
+    name = "testControlMode",
+    size = "small",
+    srcs = ["test/testControlMode.cpp"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The gait schedule and its updater after a reset of the controller and after a clock that ran backwards.
+cc_test(
+    name = "testGaitScheduleReset",
+    size = "small",
+    srcs = ["test/testGaitScheduleReset.cpp"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        "//lib/ocs2:ocs2_oc",
+        "@googletest//:gtest_main",
+    ],
+)
+
 cc_test(
     name = "testVelocityCommandRamp",
     size = "small",
@@ -319,29 +480,85 @@ cc_test(
     ],
 )
 
+# A new gait is tiled over the horizon however late on the clock it is inserted, and the next solve sees what it saw.
+cc_test(
+    name = "testGaitScheduleUpdaterHorizon",
+    size = "small",
+    srcs = ["test/testGaitScheduleUpdaterHorizon.cpp"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The command filter: a first-order low-pass filter on the solver time (step response, time constant, reset), and the
+# reference.yaml key that configures it, shipped off by every robot.
+cc_test(
+    name = "testBreakFrequencyAlphaFilter",
+    size = "small",
+    srcs = ["test/testBreakFrequencyAlphaFilter.cpp"],
+    copts = _COMMON_COPTS,
+    # LINT.IfChange(filter_test_data)
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+        "//robot_models/unitree_r1/unitree_r1_centroidal_mpc",
+    ],
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/test/testBreakFrequencyAlphaFilter.cpp:shipped_reference_files)
+    deps = [
+        ":humanoid_common_mpc",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+    ],
+)
+
 cc_test(
     name = "testAcomAngularVelocityConsistency",
     srcs = ["test/testAcomAngularVelocityConsistency.cpp"],
+    copts = _COMMON_COPTS,
+    # One config and one description package per robot with a compiled-in ACoM network: every network is graded.
+    # LINT.IfChange(acom_acceptance_data)
     data = [
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
         "//robot_models/drc_atlas/drc_atlas_description",
+        "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
+        "//robot_models/engineai_sa01/engineai_sa01_description",
+        "//robot_models/unitree_g1/g1_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_description",
     ],
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/test/testAcomAngularVelocityConsistency.cpp:acom_acceptance_robots)
     deps = [
         ":humanoid_common_mpc",
+        "@abseil-cpp//absl/log:log",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
         "@ros2_ament_index_cpp",
+        "@yaml_cpp",
     ],
 )
 
 cc_test(
     name = "testComAndAcomTrackingCost",
     srcs = ["test/testComAndAcomTrackingCost.cpp"],
+    copts = _COMMON_COPTS,
     data = [
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
         "//robot_models/drc_atlas/drc_atlas_description",
     ],
     deps = [
         ":humanoid_common_mpc",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
         "@ros2_ament_index_cpp",
     ],
@@ -396,6 +613,7 @@ cc_test(
     srcs = ["test/testAngularCenterOfMass.cpp"],
     deps = [
         ":humanoid_common_mpc",
+        "@abseil-cpp//absl/status:statusor",
         "@googletest//:gtest_main",
     ],
 )
@@ -462,6 +680,8 @@ cc_test(
     copts = _COMMON_COPTS,
     deps = [
         ":contact_planning_core",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
     ],
 )
@@ -473,6 +693,7 @@ cc_test(
     copts = _COMMON_COPTS,
     deps = [
         ":contact_planning_core",
+        "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
     ],
 )
@@ -506,6 +727,7 @@ cc_test(
     copts = _COMMON_COPTS,
     deps = [
         ":humanoid_common_mpc",
+        "@abseil-cpp//absl/status:statusor",
         "@googletest//:gtest_main",
     ],
 )
@@ -528,6 +750,9 @@ cc_test(
     copts = _COMMON_COPTS,
     deps = [
         ":contact_planning_core",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
     ],
 )
@@ -552,6 +777,76 @@ cc_test(
     data = glob(["test/data/contact_planning/*.txt"], allow_empty = True),
     deps = [
         ":contact_planning_core",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
     ],
+)
+
+# The floating-base inverse dynamics against Pinocchio's RNEA, and the base solve taped without a comparison.
+cc_test(
+    name = "testFloatingBaseDynamics",
+    size = "small",
+    srcs = ["test/testFloatingBaseDynamics.cpp"],
+    copts = _COMMON_COPTS,
+    data = [
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    deps = [
+        ":humanoid_common_mpc",
+        "//lib/ocs2:ocs2_core",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# computeJointTorques and computeBaseHeldJointTorques against RNEA's joint rows (external forces, base acceleration from
+# RNEA's own base rows), taped as JointTorqueCostCppAd tapes them, and the size of the correction on the shipped Atlas.
+cc_test(
+    name = "testJointTorqueInverseDynamics",
+    size = "small",
+    srcs = ["test/testJointTorqueInverseDynamics.cpp"],
+    copts = _COMMON_COPTS,
+    # LINT.IfChange(joint_torque_test_data)
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/test/testJointTorqueInverseDynamics.cpp:robot_files)
+    deps = [
+        ":humanoid_common_mpc",
+        "//lib/ocs2:ocs2_core",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The Pinocchio model's joint order against ModelSettings, checked in every build.
+cc_test(
+    name = "testPinocchioJointNaming",
+    size = "small",
+    srcs = ["test/testPinocchioJointNaming.cpp"],
+    copts = _COMMON_COPTS,
+    data = [
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    deps = [
+        ":humanoid_common_mpc",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The gait patterns the procedural motion manager selects from, for tests in other packages.
+filegroup(
+    name = "gait_config",
+    srcs = ["config/command/gait.yaml"],
 )

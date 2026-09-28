@@ -80,7 +80,7 @@ void ContactForceVisualization::addSceneGeoms(const VisualizationFrame& frame) {
     const mjtNum from[3] = {contact->pos[0], contact->pos[1], contact->pos[2]};
     const mjtNum to[3] = {contact->pos[0] + scale * (fx / magnitude), contact->pos[1] + scale * (fy / magnitude),
                           contact->pos[2] + scale * (fz / magnitude)};
-    mjv_connector(arrow, mjGEOM_ARROW, 0.015, from, to);
+    mjv_connector(arrow, mjGEOM_ARROW, /*width=*/0.015, from, to);
 
     arrow->rgba[0] = 1.0f;
     arrow->rgba[1] = 0.0f;

@@ -27,6 +27,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ****************************************************************************"""
 
+import functools
 import logging
 import os
 import re
@@ -44,11 +45,10 @@ from remote_control.tk_app.yaml_editor_utils import (
 
 _LOGGER = logging.getLogger(__name__)
 
-# Contact-constraint keys that are baked into the CppAD-compiled constraint at
-# build time. MpcParameterUpdaterModule only hot-reloads the barrier's `mu` and
-# `delta`, so editing these takes effect on the next launch, not immediately.
-# They are still shown so the value can be saved to the task file, but the label
-# says so rather than implying a live control.
+# Contact-constraint keys that are baked into the constraint (or into the basis generators) at build time.
+# MpcParameterUpdaterModule only hot-reloads a barrier's `mu` and `delta`, so editing these takes effect on the next
+# launch, not immediately. numBasisVectors also sets the input dimension under basis-vector contact inputs. They are
+# still shown so the value can be saved to the task file, but the label says so rather than implying a live control.
 # LINT.IfChange(build_time_contact_keys)
 _BUILD_TIME_CONTACT_KEYS = frozenset(
     (
@@ -56,16 +56,63 @@ _BUILD_TIME_CONTACT_KEYS = frozenset(
         "torsionalFrictionCoefficient",
         "minNormalForce",
         "gripperForce",
+        "numBasisVectors",
     )
+)
+# Whole `contacts` sub-blocks that are geometry, read once when the problem is built.
+_BUILD_TIME_CONTACT_BLOCKS = frozenset(
+    ("contact_rectangle", "contact_frame_translation")
 )
 # LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc/src/mrt/MpcParameterUpdaterModule.cpp:hot_reloadable_barrier_keys)
 
+# The contact input parameterization the task file selects, and the `contacts` blocks only one of them reads: the soft
+# wrench cone's barrier (contact_wrench_cone is not built under basis vectors, whose cone is the lambda >= 0 barrier)
+# and the basis-vector blocks (read only under basis vectors).
+# LINT.IfChange(contact_input_parameterization_gui)
+CONTACT_INPUT_PARAMETERIZATION_KEY = "contactInputParameterization"
+WRENCH_CONTACT_INPUTS = "wrench"
+BASIS_VECTOR_CONTACT_INPUTS = "basis_vectors"
+_WRENCH_ONLY_CONTACT_BLOCKS = frozenset(("contactWrenchConeSoftConstraint",))
+_BASIS_ONLY_CONTACT_BLOCKS = frozenset(
+    ("basisNonNegativityBarrier", "basisScalingRegularization")
+)
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/ContactInputParameterization.h:contact_input_parameterization_names)
 
-def _contact_slider_label(prefix: str, key: str) -> str:
-    """Names a contact-constraint slider, flagging the build-time-only keys."""
-    if key in _BUILD_TIME_CONTACT_KEYS:
-        return f"{prefix}_{key} (restart)"
-    return f"{prefix}_{key}"
+
+def contact_slider_annotation(
+    path: List[str], contact_input_parameterization: str
+) -> Optional[str]:
+    """Why a slider under `contacts` does not act on the running MPC, or None when it does.
+
+    "restart" marks a value read only when the problem is built. "not applicable" marks one the selected contact input
+    parameterization does not read at all, which is worse: saving it changes nothing even after a restart. A barrier's
+    mu and delta are live, except in the wrench cone's block under basis-vector inputs, where no such term exists.
+    """
+    if len(path) < 2 or path[0] != "contacts":
+        return None
+    block, key = path[1], path[-1]
+    basis = contact_input_parameterization == BASIS_VECTOR_CONTACT_INPUTS
+    if block in _BUILD_TIME_CONTACT_BLOCKS or key in _BUILD_TIME_CONTACT_KEYS:
+        return "restart"
+    if block in _WRENCH_ONLY_CONTACT_BLOCKS and basis:
+        return "not applicable: %s %s" % (
+            CONTACT_INPUT_PARAMETERIZATION_KEY,
+            BASIS_VECTOR_CONTACT_INPUTS,
+        )
+    if block in _BASIS_ONLY_CONTACT_BLOCKS and not basis:
+        return "not applicable: %s %s" % (
+            CONTACT_INPUT_PARAMETERIZATION_KEY,
+            contact_input_parameterization,
+        )
+    return None
+
+
+def _contact_slider_label(
+    label: str, path: List[str], contact_input_parameterization: str
+) -> str:
+    """Names a slider, flagging the contact keys that do not act live (contact_slider_annotation)."""
+    annotation = contact_slider_annotation(path, contact_input_parameterization)
+    return "%s (%s)" % (label, annotation) if annotation else label
 
 
 class MpcParamsTab(ttk.Frame):
@@ -84,7 +131,7 @@ class MpcParamsTab(ttk.Frame):
 
     # Measured contact state of the controller, selected by name in the task file (robot_model/ContactEstimatorRegistry.h)
     # and hot-reloadable through the parameter topic. The Base Controller tab's checkbox (set_cheater_contact_estimator)
-    # switches between the simulator's ground truth and every contact point touching (the historical behaviour, with
+    # switches between the simulator's ground truth and every contact point touching (the historical behavior, with
     # which phase resetting must stay off).
     # LINT.IfChange(contact_estimator_gui)
     CONTACT_ESTIMATOR_KEY = "contactEstimator"
@@ -362,7 +409,7 @@ class MpcParamsTab(ttk.Frame):
             self.enable_online_tuning = bool(self.raw_data["enable_online_tuning"])
         self.set_online_tuning_enabled(self.enable_online_tuning)
         self._parse_yaml_comments(self.task_file)
-        # Every tunable of both files, labelled from their own trailing comments. This is the whole model the GUI is
+        # Every tunable of both files, labeled from their own trailing comments. This is the whole model the GUI is
         # built from: no parameter is named anywhere in this module.
         self._tunables = read_tunables(self.task_file)
         if self.contact_planning_file:
@@ -463,6 +510,12 @@ class MpcParamsTab(ttk.Frame):
         # Kept so that the older reflow hook and any caller that counted buttons still see one widget per category.
         self.category_buttons = [selector]
 
+    def contact_input_parameterization(self) -> str:
+        """The contact input parameterization of the loaded task file; `wrench` when it names none, as in the MPC."""
+        return str(
+            self.raw_data.get(CONTACT_INPUT_PARAMETERIZATION_KEY, WRENCH_CONTACT_INPUTS)
+        ).strip()
+
     @staticmethod
     def _slider_key(tunable):
         """The dotted path the YAML writer expects: matrix keys are quoted, because that is how the file spells them."""
@@ -522,12 +575,16 @@ class MpcParamsTab(ttk.Frame):
             key = self._slider_key(tunable)
             row = SliderRow(
                 frame,
-                name=tunable.label,
+                name=_contact_slider_label(
+                    tunable.label, tunable.path, self.contact_input_parameterization()
+                ),
                 initial_value=tunable.value,
                 min_val=tunable.minimum,
                 max_val=tunable.maximum,
                 label_width=46,
-                on_change=self._on_any_slider_change,
+                # SliderRow reports its display label, which carries the comment and the annotations; the live values
+                # are keyed by the dotted path the YAML writer splits, so the row's own key is bound here instead.
+                on_change=functools.partial(self._on_slider_row_change, key),
             )
             row.pack(fill="x", padx=4, pady=1)
             self.slider_rows[key] = row
@@ -603,7 +660,7 @@ class MpcParamsTab(ttk.Frame):
                 synced += 1
 
         if synced > 0:
-            self._on_any_slider_change("sync", 0.0)
+            self._schedule_publish()
             self._show_status(f"✓ Synced {synced} Q_final entries from Q")
 
     def reset_all_defaults(self):
@@ -620,14 +677,24 @@ class MpcParamsTab(ttk.Frame):
         self._publish_to_topic()
         self._show_status("All parameters reset to loaded defaults")
 
-    def _on_any_slider_change(self, name: str, value):
+    def _on_slider_row_change(self, key: str, _label: str, value):
+        """A SliderRow's on_change, bound to the row's dotted key path; the label the row reports is for display only."""
+        self._on_any_slider_change(key, value)
+
+    def _on_any_slider_change(self, key: str, value):
         """Called on every slider move (or checkbox toggle, with the selected name); debounces publish to ROS topic.
 
-        The C++ MpcParameterUpdaterModule subscribes to /mpc_parameter_updates
-        for real-time parameter updates without touching the YAML file.
+        `key` is the dotted key path of the value (`Q."(0,0)"`, `contacts.basisNonNegativityBarrier.mu`), which is what
+        _build_yaml_with_slider_values() and save_to_yaml() split to find the line to edit. The C++
+        MpcParameterUpdaterModule subscribes to /mpc_parameter_updates for real-time parameter updates without touching
+        the YAML file.
         """
         # Persist the value so it survives category tab switches
-        self._live_values[name] = value
+        self._live_values[key] = value
+        self._schedule_publish()
+
+    def _schedule_publish(self):
+        """Debounces a publish of every live value to /mpc_parameter_updates."""
         if self._debounce_publish_id is not None:
             self.after_cancel(self._debounce_publish_id)
         self._debounce_publish_id = self.after(300, self._publish_to_topic)

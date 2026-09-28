@@ -6,6 +6,13 @@ This package implements the **Angular Center of Mass (aCOM)** representation for
 > *Yu-Ming Chen, Gabriel Nelson, Robert Griffin, Michael Posa, and Jerry Pratt*
 > *IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), 2023.*
 
+> **Validation status.** Three robots have a trained network compiled in, but only the DRC Atlas network is
+> **validated** for closed-loop use. The Unitree G1 and EngineAI SA01 networks are **NOT VALIDATED**: they miss the
+> acceptance bounds Atlas meets by a wide margin (section 6.3), and both robots ship without `com_and_acom_tracking_cost`
+> in their `costs` list and without `heading_double_integrator` in their contact planner. Do not switch either on until
+> its network has been retrained to Atlas's bounds; `testAcomAngularVelocityConsistency` fails if either is switched on
+> while it is marked unvalidated.
+
 ---
 
 ## 1. Problem Formulation & Theoretical Background
@@ -80,7 +87,7 @@ flowchart TD
     subgraph DataGeneration ["1. Ground Truth CMM Sampling (dataset_generator.py)"]
         XML["Robot MJCF (.xml)"] --> MjModel["MuJoCo Model"]
         URDF["Robot URDF (.urdf)"] --> Perm["Joint permutation from a<br/>kinematic-tree walk<br/>Pinocchio ↔ MuJoCo"]
-        Sampler["Uniform Joint Sampler<br/>q_j ~ U(q_min, q_max)"] --> MjModel
+        Sampler["Uniform Joint Sampler<br/>q_j ~ U(q_min, q_max),<br/>the full joint-limit box"] --> MjModel
         MjModel --> MjFwd["mj_forward (once per configuration)"]
         MjFwd --> MjVel["mj_comVel + mj_subtreeVel<br/>(once per unit-velocity column)"]
         MjVel --> CMM["Extract CMM columns via<br/>unit-velocity evaluation"]
@@ -107,7 +114,7 @@ flowchart TD
     end
 
     subgraph CppInference ["4. C++ Real-Time Inference"]
-        Header --> StaticLoad["AngularCenterOfMass::<br/>createForRobot()"]
+        Header --> StaticLoad["AngularCenterOfMass::Create()<br/>(joint names checked<br/>against the MPC model)"]
         StaticLoad --> Forward["computeJointOrientationOffset(q_j)<br/>→ Δθ ∈ ℝ³ (XYZ)"]
         StaticLoad --> ChainRule["computeJointOffsetJacobian(q_j)<br/>→ J_Δθ ∈ ℝ³ˣⁿʲ (XYZ)"]
     end
@@ -184,7 +191,8 @@ This chain-rule Jacobian is implemented identically in both:
 
 ### 4.1 ComAndAcomTrackingCost
 
-When `useComAndAcomTracking: true` is set in `task.yaml`, the MPC replaces the standard base-pose quadratic cost with a combined **CoM + aCOM** cost:
+CoM + aCOM tracking is the cost **`com_and_acom_tracking_cost`** of `task.yaml`'s `costs` list, selected by name like
+every other cost term. Listing it replaces base-pose regulation with a combined **CoM + aCOM** cost:
 
 $$\mathcal{L}_{\text{CoM+aCOM}}(\mathbf{x}, \mathbf{x}_{\text{ref}}) = \frac{1}{2} \mathbf{e}_{\text{CoM}}^\top \mathbf{Q}_{\text{CoM}} \, \mathbf{e}_{\text{CoM}} + \frac{1}{2} \mathbf{e}_{\text{aCOM}}^\top \mathbf{Q}_{\text{aCOM}} \, \mathbf{e}_{\text{aCOM}}$$
 
@@ -193,6 +201,36 @@ $$\mathbf{e}_{\text{CoM}} = \mathbf{r}_{\text{CoM}}(\mathbf{q}) - \mathbf{r}_{\t
 $$\mathbf{e}_{\text{aCOM}} = \boldsymbol{\theta}_{\text{aCOM}}(\mathbf{q}) - \boldsymbol{\theta}_{\text{aCOM}}(\mathbf{q}_{\text{ref}}) \in \mathbb{R}^3$$
 
 The yaw component of $\mathbf{e}_{\text{aCOM}}$ is wrapped to $[-\pi, \pi]$ via `moduloAngleWithReference` to handle the $\pm\pi$ discontinuity.
+
+Everything the replacement involves follows from that one entry (`CentroidalMpcInterface::setupOptimalControlProblem`):
+
+```mermaid
+flowchart LR
+    entry["costs: com_and_acom_tracking_cost"] --> running["ComAndAcomTrackingCost on Q_com, Q_acom<br/>(stateCostPtr: comAndAcomTrackingCost)"]
+    entry --> zeroQ["Q: base-pose block 6..11 zeroed<br/>(state_quadratic_cost or state_input_quadratic_cost)"]
+    entry --> zeroQf["Q_final: base-pose block zeroed<br/>(terminal_cost)"]
+    zeroQf --> terminal["terminal ComAndAcomTrackingCost on<br/>terminalCostScaling x Q_com, Q_acom<br/>(finalCostPtr: terminalComAndAcomTrackingCost)"]
+    entry --> arms["procedural arm swing off"]
+    entry --> updater["live parameter updater: zeroes the same blocks<br/>because the RUNNING problem carries the cost"]
+```
+
+- **Which quadratic state cost carries `Q` does not matter.** The base-pose block is zeroed in `state_quadratic_cost`
+  and in `state_input_quadratic_cost` alike, and the ACoM cost is added beside either (or on its own).
+- **The terminal node keeps CoM and orientation regulation.** With `terminal_cost`, `Q_final`'s base-pose block is
+  zeroed as well, and the final cost gets a second `ComAndAcomTrackingCost` weighted by `terminalCostScaling` times
+  `Q_com` and `Q_acom` - exactly how `Q_final` relates to `Q` for the rest of the state. Zeroing without that
+  substitute would leave the last node - the one `terminalCostScaling` weights up - with no CoM, height or orientation
+  weight at all. Under the
+  DCM terminal cost (`dcm_terminal_cost` in `costs`, in place of `terminal_cost`, as Atlas ships) there is no
+  `Q_final` and no terminal instance: the horizon ends on the capture-point cost.
+- **Centroidal MPC only.** `WBMpcInterface` refuses the name: the whole-body state has joint angles where the
+  centroidal state has the base pose, so the zeroed block would be one leg's weights.
+- **The cost list is not hot-reloadable.** `MpcParameterUpdaterModule` zeroes a reloaded `Q` and `Q_final` when the
+  running problem carries the ACoM cost, whatever the reloaded file lists, and warns when the two disagree; the new list
+  takes effect at the next start.
+- **The retired key is refused.** It replaced the top-level boolean `useComAndAcomTracking`; a task file that still
+  carries that key - with either value - fails at start-up (`loadMpcFormulationTasks`) with a message naming
+  `com_and_acom_tracking_cost`, so that a stale file never silently runs a different formulation.
 
 ### 4.2 Gauss-Newton Quadratic Approximation
 
@@ -208,7 +246,11 @@ $$\mathbf{x} = \begin{bmatrix} \mathbf{h}_{\text{norm}} \\ \mathbf{p}_{\text{bas
 
 $$\frac{\partial \mathbf{r}_{\text{CoM}}}{\partial \mathbf{x}} = \begin{bmatrix} \mathbf{0}_{3 \times 6} & \mathbf{J}_{\text{com}}^{[:, 0:3]} & \mathbf{J}_{\text{com}}^{[:, 3:6]} & \mathbf{J}_{\text{com}}^{[:, 6:]} \end{bmatrix}$$
 
-This convention is pinned by a finite-difference regression test in `testComAndAcomTrackingCost.cpp`.
+This convention is pinned by `testComAndAcomTrackingCost.cpp`, which builds the cost on the reduced Atlas model and
+checks, at a tilted base with bent joints, that `getQuadraticApproximation`'s gradient equals central differences of
+`getValue` and that its Hessian equals $\mathbf{J}^\top\mathbf{Q}\mathbf{J}$ with each $\mathbf{J}$ taken by finite
+differences of the CoM position and of $\boldsymbol{\theta}_{\text{aCOM}}$. Re-chaining $\mathbf{T}(\boldsymbol{\theta})$,
+shifting a block to the wrong state index, or dropping the XYZ-to-ZYX reordering fails it.
 
 #### aCOM Jacobian
 
@@ -223,30 +265,46 @@ $$\nabla^2_{\mathbf{x}} \mathcal{L} \approx \mathbf{J}_{\text{CoM}}^\top \mathbf
 
 ### 4.3 Arm Swing Guard
 
-When `useComAndAcomTracking` is enabled, the procedural arm swing reference generator is automatically disabled in `SwitchedModelReferenceManager`. This allows the aCOM cost to produce **emergent arm swing behavior**: the optimizer naturally counter-swings the arms to maintain whole-body orientation alignment during walking, resulting in more natural locomotion.
+While `com_and_acom_tracking_cost` is listed, `CentroidalMpcInterface` switches the procedural arm swing reference generator of `SwitchedModelReferenceManager` off (`setArmSwingReferenceActive`). This allows the aCOM cost to produce **emergent arm swing behavior**: the optimizer naturally counter-swings the arms to maintain whole-body orientation alignment during walking, resulting in more natural locomotion.
 
 ### 4.4 Configuration
 
-Enable in `task.yaml`:
+Enable in `task.yaml` (the weights below show the layout; `robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml`
+carries Atlas's tuned values):
 ```yaml
-useComAndAcomTracking: true
+costs:
+  - state_quadratic_cost
+  - com_and_acom_tracking_cost
+  # ...
 
 Q_com:
-  scaling: 85
-  "(0,0)": 0   # p_com_x (free to drift in walking direction)
-  "(1,1)": 0   # p_com_y
-  "(2,2)": 15  # p_com_z (height regulation)
+  scaling: 1.0
+  "(0,0)": 1.0  # weight on p_com_x
+  "(1,1)": 1.0  # weight on p_com_y
+  "(2,2)": 1.0  # weight on p_com_z
 
 # Rows follow the centroidal state's ZYX Euler convention, mirroring Q entries
 # (9,9) through (11,11). Row 0 is yaw, not roll.
 Q_acom:
-  scaling: 85
-  "(0,0)": 25  # yaw (heading alignment)
-  "(1,1)": 15  # pitch (forward lean regulation)
-  "(2,2)": 15  # roll (lateral stability)
+  scaling: 1.0
+  "(0,0)": 1.0  # weight on the aCOM yaw
+  "(1,1)": 1.0  # weight on the aCOM pitch
+  "(2,2)": 1.0  # weight on the aCOM roll
 ```
 
-When this flag is set, the factory zeros out the base-pose block in the state quadratic cost `Q` to avoid double-penalizing orientation.
+With the cost listed, the factory zeroes the 6x6 base-pose block (the diagonal block at rows and columns 6..11:
+$\mathbf{p}_{\text{base}}$ and the base Euler angles) of both the running `Q` and the terminal `Q_final`, to avoid
+penalizing the same error twice in two parameterizations; `ComAndAcomTrackingCost::zeroBasePoseWeights` defines that
+block, and the live parameter updater calls the same function. `testAcomWiring` pins the wiring: the named cost
+assembles, term by term and derivative by derivative, exactly the problem the retired boolean assembled on Atlas; the
+block is zeroed beside either quadratic state cost; the terminal node keeps CoM and orientation regulation; and the
+retired key is refused.
+
+`ComAndAcomTrackingCost::Create` refuses to build the cost - with a `Status` that names the key to change - when
+`Q_com` or `Q_acom` is not 3x3, when no network is registered for `model_settings.robotName`, or when the network was
+trained on a joint vector other than the MPC model's (compared name by name, see section 8). Before that, a task file
+that lists `com_and_acom_tracking_cost` without writing `Q_com` or `Q_acom` - as the G1 and SA01 files, which do not
+list it, carry neither - is refused the same way by `HumanoidCostConstraintFactory`, naming the missing matrix.
 
 ---
 
@@ -259,25 +317,35 @@ humanoid_learning/acom/
 ├── models.py                     # JAX SIREN model definition
 ├── dataset_generator.py          # MuJoCo-based CMM sampling
 ├── train_acom.py                 # Training loop with TensorBoard
-├── train_main.py                 # CLI entrypoint
+├── train_main.py                 # CLI entrypoint, and the pipeline functions the notebook calls
 ├── export_acom.py                # JSON and C++ header export
 ├── BUILD.bazel                   # Bazel build rules
 └── tests/
-    ├── test_acom.py              # Pipeline, export, and dataset generator tests
+    ├── test_acom.py              # Pipeline, export, dataset generator, per-robot and notebook tests
     └── BUILD.bazel               # Test build rules
+
+notebooks/
+└── train_acom_siren.ipynb        # Interactive driver over train_main (make train-acom-jupyter)
 
 humanoid_nmpc/humanoid_common_mpc/
 ├── include/.../acom/
-│   ├── AngularCenterOfMass.h     # C++ evaluator class
-│   ├── AcomSirenWeightsAtlas.h    # Auto-generated Atlas weight arrays
-│   └── AcomSirenWeightsG1.h      # Auto-generated G1 weight arrays
+│   ├── AngularCenterOfMass.h     # C++ evaluator class and its robot registry
+│   ├── AcomSirenWeightsAtlas.h   # Auto-generated Atlas weight arrays (validated)
+│   ├── AcomSirenWeightsG1.h      # Auto-generated G1 weight arrays (NOT VALIDATED)
+│   └── AcomSirenWeightsSa01.h    # Auto-generated SA01 weight arrays (NOT VALIDATED)
 ├── src/acom/
-│   └── AngularCenterOfMass.cpp   # Forward pass + chain-rule Jacobian
+│   └── AngularCenterOfMass.cpp   # Registry, forward pass + chain-rule Jacobian
 ├── src/cost/
 │   └── ComAndAcomTrackingCost.cpp # MPC cost with CoM + aCOM tracking
 └── test/
-    ├── testAngularCenterOfMass.cpp      # FD Jacobian, equivariance, dimension guards
-    └── testComAndAcomTrackingCost.cpp   # CoM Jacobian convention, ZYX row ordering
+    ├── testAngularCenterOfMass.cpp              # FD Jacobian, equivariance, dimension guards
+    ├── testComAndAcomTrackingCost.cpp           # The cost: gradient and Hessian vs finite differences, yaw wrap,
+    │                                            # ZYX row weighting, clone, construction checks
+    └── testAcomAngularVelocityConsistency.cpp   # Per-robot acceptance of every shipped header, joint order
+
+humanoid_nmpc/humanoid_centroidal_mpc/test/
+└── testAcomWiring.cpp                           # com_and_acom_tracking_cost in the assembled problem, and the
+                                                 # heading model's evaluator across a hot reload
 ```
 
 ---
@@ -291,12 +359,29 @@ humanoid_nmpc/humanoid_common_mpc/
 bazel run //humanoid_learning/acom:train_main -- \
     --robot g1 --output_dir /tmp/acom_g1
 
+# Train on EngineAI SA01 (12 leg joints; model_settings.robotName engineai_sa01)
+bazel run //humanoid_learning/acom:train_main -- \
+    --robot sa01 --output_dir /tmp/acom_sa01
+
 # Train on DRC Atlas (24 active joints) and install weights into the C++ source tree
 bazel run //humanoid_learning/acom:train_main -- \
     --robot atlas --output_dir /tmp/acom_atlas --install_header
 ```
 
-The defaults — `--num_samples 20000 --hidden_dim 64 --epochs 150` — are the recipe that produced the shipped headers, so the commands above reproduce them and there is nothing to remember. They used to be 5000 / 16 / 30, which meant following this section verbatim installed a network about twice as inaccurate as the one it replaced.
+`--robot` picks the model files in `train_main.py`'s `_ROBOT_CONFIGS`. Everything that has to agree with the MPC - the
+robot's `model_settings.robotName` and the joints it holds fixed (`model_settings.fixedJointNames`) - is read out of
+that robot's centroidal `task.yaml` at training time rather than repeated in the script.
+
+The defaults - `--num_samples 20000 --hidden_dim 64 --epochs 150` - are a standard run, **not** a record of how each
+shipped header was made. The Atlas header came from `--num_samples 80000 --epochs 300` (section 6.3); the recipe of the G1
+and SA01 headers was not recorded. Every header exported since records its own: `train_main.py` writes the robot, its
+`robotName` and fixed joints, the sampling box, the dataset size, epochs, width, layer count, seeds and the exported
+epoch into the header's banner. The architecture defaults (`--hidden_dim 64`, two sine layers) *are* those of every
+shipped header; they used to be 5000 / 16 / 30, which meant following this section verbatim installed a network about
+twice as inaccurate as the one it replaced.
+
+`make train-acom-jupyter` opens `notebooks/train_acom_siren.ipynb`, an interactive front end that calls the same
+`train_main.py` functions and so exports the same header; `test_acom` runs it end to end on a small configuration.
 
 The `--install_header` flag copies the generated `AcomSirenWeights<Robot>.h` directly into the C++ include path, ready for the next `bazel build`. It requires `BUILD_WORKSPACE_DIRECTORY`, which `bazel run` sets.
 
@@ -323,12 +408,13 @@ tensorboard --logdir /tmp/acom_atlas/tb_logs
 | | `loss/train_frobenius`, `loss/val_frobenius` | Frobenius error $\|\mathbf{J}_{\Delta\theta}(\mathbf{q}_j) - \bar{\mathbf{A}}_{\omega, j}(\mathbf{q})\|_F^2$ |
 | | `loss/train_regularization`, `loss/val_regularization` | Offset centering penalty $\lambda_{\text{reg}} \|\Delta\boldsymbol{\theta}(\mathbf{q}_j)\|^2$ |
 | | `loss/val_rmse_rad_per_rad` | RMSE per Jacobian entry: $\sqrt{\mathcal{L}_{\text{frob}} / (3 \cdot n_j)}$ |
-| **Per-Axis Error** | `error_axes/{roll,pitch,yaw}_frob_loss` | Per-axis Frobenius fitting error |
+| **Per-Axis Error** | `error_axes/roll_x_frob_loss`, `error_axes/pitch_y_frob_loss`, `error_axes/yaw_z_frob_loss` | Per-axis Frobenius fitting error, rows of the network's XYZ output |
 | **Optimization** | `optim/learning_rate` | Cosine LR decay schedule |
 | | `gradients/global_l2_norm` | Global $L_2$ gradient norm |
 | | `gradients/layer_{l}_{weight,bias}_norm` | Per-layer gradient norms |
 | **Output Stats** | `stats/mean_acom_offset_deg` | Mean $\|\Delta\boldsymbol{\theta}\|$ in degrees |
 | | `stats/max_acom_offset_deg` | Max $\|\Delta\boldsymbol{\theta}\|$ in degrees |
+| **Performance** | `perf/epoch_time_ms`, `perf/throughput_samples_per_sec` | Wall time per epoch and training throughput |
 | **Histograms** | `weights/`, `gradients/`, `activations/` | Weight, gradient, and offset distributions |
 | **Diagnostics** | `diagnostics/jacobian_heatmap` | 3-panel heatmap: target $\bar{\mathbf{A}}$, predicted $\mathbf{J}_{\Delta\theta}$, error |
 
@@ -338,58 +424,91 @@ tensorboard --logdir /tmp/acom_atlas/tb_logs
 # Python: model, training, export, and dataset generator
 bazel test //humanoid_learning/acom/tests:test_acom
 
-# C++: analytical Jacobian, equivariance, conventions, and dimension guards
+# C++: analytical Jacobian, equivariance, and dimension guards of the evaluator
 bazel test //humanoid_nmpc/humanoid_common_mpc:testAngularCenterOfMass
+
+# C++: the cost itself - gradient and Hessian against finite differences, yaw wrap, ZYX row weighting,
+# clone(), and the construction checks
 bazel test //humanoid_nmpc/humanoid_common_mpc:testComAndAcomTrackingCost
 
-# C++: does the SHIPPED weight header actually approximate the centroidal angular velocity?
+# C++: does each SHIPPED weight header actually approximate the centroidal angular velocity, and is it indexed by
+# exactly the MPC model's joints?
 bazel test //humanoid_nmpc/humanoid_common_mpc:testAcomAngularVelocityConsistency
+
+# C++: the wiring into the MPC (section 4.1) - the named cost's problem against the retired boolean's, the base-pose
+# block beside either quadratic state cost, the terminal instance, the retired key, and the planner's heading model
+# following a hot reload; the updater's side is in testMpcParameterUpdaterModule, the whole-body refusal in
+# testWBMpcFormulation
+bazel test //humanoid_nmpc/humanoid_centroidal_mpc:testAcomWiring //humanoid_nmpc/humanoid_centroidal_mpc:testMpcParameterUpdaterModule \
+    //humanoid_nmpc/humanoid_wb_mpc:testWBMpcFormulation
 ```
 
 #### What the tests do and do not establish
 
-Everything in the first two C++ targets, and everything in the Python suite bar the synthetic-data convergence test, is
-**structural**: shapes, floating-base equivariance, the analytic Jacobian against finite differences, the XYZ-to-ZYX row
-permutation, the joint ordering recorded in the generated header. All of it passes just as happily with an untrained
-network, with zeroed weights, or with a header exported for a different robot — none of it looks at the quantity the
-network was fit to.
+Everything in `testAngularCenterOfMass`, and everything in the Python suite bar the synthetic-data convergence test, is
+**structural**: shapes, floating-base equivariance, the analytic Jacobian against finite differences, the joint ordering
+the generator derives, the header the exporter writes. All of it passes just as happily with an untrained network, with
+zeroed weights, or with a header exported for a different robot - none of it looks at the quantity the network was fit
+to. `testComAndAcomTrackingCost` checks that the cost is a correct Gauss-Newton model of itself, which is also
+independent of how good the network is.
 
 `testAcomAngularVelocityConsistency` is the acceptance test for the **training**, evaluated through the exported header
-the robot actually runs rather than through the JAX parameters. It states the defining property directly:
+the robot actually runs rather than through the JAX parameters, for **every** robot with a compiled-in network (it
+fails if a network is registered without a case of its own). It states the defining property directly:
 
 $$\dot{\boldsymbol{\theta}}_{\text{aCOM}} \;\approx\; \boldsymbol{\omega}_{\text{locked}} = \mathbf{I}_G^{-1}\mathbf{L}_G$$
 
 and, via the equivariant decomposition whose base block is exact by construction, reduces it to the joint block
-$\mathbf{J}_{\Delta\theta} \approx \bar{\mathbf{A}}_{\omega,j}$ — the Frobenius objective of section 1.2, recomputed
-with Pinocchio's `ccrba` on the reduced MPC model, over configurations drawn uniformly from the joint-limit box (the same
-distribution `dataset_generator.py` samples).
+$\mathbf{J}_{\Delta\theta} \approx \bar{\mathbf{A}}_{\omega,j}$ - the Frobenius objective of section 1.2, recomputed
+with Pinocchio's `ccrba` on the reduced MPC model, over configurations drawn uniformly from the URDF joint-limit box.
+That is the box `dataset_generator.py` samples now. The shipped headers were trained on that box trimmed by 10 % of
+each joint's range at both ends - a margin since removed because it left G1's nominal knee angle outside the training
+set - so the numbers below include the trimmed margins, where the error is larger (Atlas: about 0.17 mean inside the
+trimmed box against 0.22 over the whole of it).
 
-**Measured on the Atlas weights currently in `AcomSirenWeightsAtlas.h`:**
+The same file checks, per robot, that the joint names recorded in the header equal the MPC model's joint for joint, that
+`AngularCenterOfMass::Create` refuses a permuted joint list, and that the acceptance bound is tight enough to fail the
+same network fed its joints in the wrong order.
 
-| quantity | mean | worst |
-|---|---|---|
-| relative Frobenius error $\|\mathbf{J}_{\Delta\theta}-\bar{\mathbf{A}}_{\omega,j}\|_F / \|\bar{\mathbf{A}}_{\omega,j}\|_F$ | 0.219 | 0.375 |
-| relative rate error $\|\dot{\boldsymbol{\theta}}_{\text{aCOM}}-\boldsymbol{\omega}_{\text{locked}}\| / (\|\bar{\mathbf{A}}_{\omega,j}\|_F\|\dot{\mathbf{q}}_j\|)$ | 0.042 | 0.138 |
+**Measured on the shipped headers** (mean / worst over 200 configurations; the bounds each header must stay under are
+in `kAcomRobotCases`):
+
+<!-- LINT.IfChange(acom_acceptance_numbers) -->
+| robot | status | relative Frobenius error $\|\mathbf{J}_{\Delta\theta}-\bar{\mathbf{A}}_{\omega,j}\|_F / \|\bar{\mathbf{A}}_{\omega,j}\|_F$ | relative rate error $\|\dot{\boldsymbol{\theta}}_{\text{aCOM}}-\boldsymbol{\omega}_{\text{locked}}\| / (\|\bar{\mathbf{A}}_{\omega,j}\|_F\|\dot{\mathbf{q}}_j\|)$ | constant-Jacobian baseline |
+|---|---|---|---|---|
+| `atlas` | validated | 0.219 / 0.375 | 0.042 / 0.138 | 0.378 |
+| `g1` | **NOT VALIDATED** | 0.402 / 1.33 | 0.072 / 0.238 | 0.929 |
+| `engineai_sa01` | **NOT VALIDATED** | 0.508 / 1.62 | 0.127 / 0.647 | 0.649 |
+<!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/test/testAcomAngularVelocityConsistency.cpp:acom_acceptance_robots) -->
+
+Atlas's bounds (0.30 / 0.50 and 0.08 / 0.25) sit well above its measurement on purpose, where a meaningful regression
+lives. G1 and SA01 do not come close to them: on average their Jacobian is 40 % and 51 % off the target, and at their
+worst configurations both networks are further from the target than no network at all (a relative error above 1).
+Retraining SA01 with the default recipe reproduces its numbers, so this is a limit of the recipe or the hypothesis class
+rather than a bad export. Their bounds in the test are their own measurements plus about 20 %: they pin "no worse than
+what ships" and catch a mis-exported, transposed or wrong-robot header, but they do **not** mean the network is good
+enough to use. Validating either robot means retraining until it meets Atlas's bounds, then marking it validated in
+`kAcomRobotCases`.
 
 Two remarks on reading those numbers. First, the residual has a **floor**: the connection has non-zero curvature, so no
-exact integrable whole-body orientation exists at all — that is the premise of the paper, and these are acceptance
+exact integrable whole-body orientation exists at all - that is the premise of the paper, and these are acceptance
 bounds on fit quality, not tolerances on an identity. Second, the test reports two baselines that need no training:
 $\Delta\theta \equiv 0$ (the base orientation used as the whole-body orientation) scores exactly 1.0, and the best
-**constant** Jacobian $\mathbb{E}[\bar{\mathbf{A}}_{\omega,j}]$ — a single matrix, no network — scores 0.378. The
-trained SIREN's 0.219 therefore captures about 42 % of the configuration-dependent variation that a constant matrix
-misses. That is a real improvement and the test asserts it, but it is also the number to beat when retraining.
+**constant** Jacobian $\mathbb{E}[\bar{\mathbf{A}}_{\omega,j}]$ - a single matrix, no network - scores the last column.
+Atlas's trained SIREN at 0.219 against 0.378 therefore captures about 42 % of the configuration-dependent variation that
+a constant matrix misses. That is a real improvement and the test asserts it for every robot, but it is also the number
+to beat when retraining.
 
-**How much headroom is left in data and optimisation: very little.** The current weights come from 80 000 samples over
-300 epochs, four times the data and twice the epochs of the previous recipe. That moved the mean relative Frobenius
-error from 0.224 to 0.219 — about 2 %, against a 1.8 % spread across training seeds. The validation loss did improve
-consistently (0.04493 to 0.04372), so the run is not noise, but the conclusion is that this error is not
-sample-limited or optimiser-limited. What remains is the curvature obstruction itself — no exact integrable
-whole-body orientation exists — plus the choice of hypothesis class and, most likely, the **sampling distribution**:
-training draws each joint i.i.d. and uniform over its full range, where mean $\|\Delta\theta\|$ is about 19°, while
-the Atlas nominal stance sits at 2.17°. Nearly every training sample is a posture the robot never adopts.
-Concentrating the distribution around the operating region, or mixing uniform samples with a nominal-centred ball,
-is the lever with real headroom left; it trades tail accuracy for operating-point accuracy, so it is a deliberate
-design choice rather than a free win.
+**How much headroom is left in data and optimization on Atlas: very little.** The Atlas header comes from 80 000
+samples over 300 epochs, four times the data and twice the epochs of the default recipe. That moved the mean relative
+Frobenius error from 0.224 to 0.219 - about 2 %, against a 1.8 % spread across training seeds. The validation loss did
+improve consistently (0.04493 to 0.04372), so the run is not noise, but the conclusion is that this error is not
+sample-limited or optimizer-limited. What remains is the curvature obstruction itself - no exact integrable whole-body
+orientation exists - plus the choice of hypothesis class and, most likely, the **sampling distribution**: training draws
+each joint i.i.d. and uniform over its range, where mean $\|\Delta\theta\|$ is about 19°, while the Atlas nominal stance
+sits at 2.17°. Nearly every training sample is a posture the robot never adopts. Concentrating the distribution around
+the operating region, or mixing uniform samples with a nominal-centered ball, is the lever with real headroom left; it
+trades tail accuracy for operating-point accuracy, so it is a deliberate design choice rather than a free win.
 
 The rate error is much smaller than the Frobenius error because contracting a matrix error with a velocity averages over
 its directions. Note that it is measured against $\|\bar{\mathbf{A}}_{\omega,j}\|_F\|\dot{\mathbf{q}}_j\|$ rather
@@ -404,18 +523,25 @@ Include the zero-dependency C++ header and evaluate whole-body aCOM in microseco
 ```cpp
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
 
-// Load the weights compiled into the binary for this robot.
-auto acom = AngularCenterOfMass::createForRobot(modelSettings.robotName);
+// Load the weights compiled into the binary for this robot, checking that the network was trained on exactly the
+// MPC model's joints. The Status names the key to change when it was not, or when the robot has no network.
+absl::StatusOr<std::unique_ptr<AngularCenterOfMass>> acomOr =
+    AngularCenterOfMass::Create(modelSettings.robotName, modelSettings.mpcModelJointNames);
+if (!acomOr.ok()) return acomOr.status();
+std::unique_ptr<AngularCenterOfMass> acom = *std::move(acomOr);
 
 // Joint offset and its Jacobian, in the network's native XYZ ordering.
-vector3_t delta_theta = acom->computeJointOrientationOffset(q_joints);
-matrix_t J_delta = acom->computeJointOffsetJacobian(q_joints);
+const vector3_t delta_theta = acom->computeJointOrientationOffset(q_joints);
+const matrix_t J_delta = acom->computeJointOffsetJacobian(q_joints);
 
 // Whole-body aCOM, in the centroidal state's ZYX ordering. Takes the Pinocchio
 // generalized coordinates q = [pos_base(3), euler_zyx_base(3), q_joints(n_j)].
-vector3_t theta_acom = acom->computeAcomOrientation(q);
-matrix_t J_acom = acom->computeAcomJacobian(q);
+const vector3_t theta_acom = acom->computeAcomOrientation(q);
+const matrix_t J_acom = acom->computeAcomJacobian(q);
 ```
+
+`AngularCenterOfMass::registeredRobotNames()` lists the robots with a network. `Create()` is the only factory: the
+older `createForRobot(robotName)`, which skipped the joint check and threw instead of returning a `Status`, is gone.
 
 ---
 
@@ -438,9 +564,15 @@ matrix_t J_acom = acom->computeAcomJacobian(q);
 
 ## 8. Joint Ordering: Pinocchio ↔ MuJoCo Permutation
 
-The C++ MPC indexes joints via Pinocchio, so the training data must use Pinocchio's joint ordering. Pinocchio numbers joints by a **depth-first walk of the kinematic tree**, visiting the children of each link in URDF document order. That is emphatically **not** the order in which `<joint>` elements happen to appear in the URDF file: `atlas.urdf` lists its joints alphabetically, so document order and tree order disagree completely.
+The C++ MPC indexes joints via Pinocchio, so the training data must use Pinocchio's joint ordering. Pinocchio numbers
+joints by a **pre-order depth-first walk of the kinematic tree**, and it visits the children of a link **sorted by the
+name of the joint** leading to them: urdfdom builds each link's child list by iterating its `std::map` of joints. That
+is neither the order in which `<joint>` elements appear in the URDF file (`atlas.urdf` lists its joints alphabetically,
+so document order and tree order disagree completely) nor a tree walk in document order (the Unitree R1 URDF lists its
+arms before its head; Pinocchio visits `head_*` first). For Atlas, G1 and SA01 the tree walk happens to come out the same
+either way.
 
-`AcomDatasetGenerator` therefore reconstructs the tree ordering itself and permutes the dataset into it:
+`AcomDatasetGenerator` therefore reconstructs that ordering itself and permutes the dataset into it:
 
 ```python
 gen = AcomDatasetGenerator(
@@ -453,13 +585,31 @@ gen = AcomDatasetGenerator(
 dataset = gen.generate_dataset(num_samples=20000)
 ```
 
-For both robots currently shipped, MuJoCo's MJCF also declares joints in kinematic tree order, so `joint_perm` comes out as the identity. That is asserted rather than assumed: a non-identity permutation means MuJoCo and Pinocchio disagree, and the reordering step is what keeps the dataset aligned.
+(`train_main.make_generator("atlas")` builds exactly this, with the fixed joints read from Atlas's `task.yaml`.)
 
-A joint-order mismatch is silent and severe. The joint *count* is unchanged, so every dimension check still passes, the training loss still looks healthy, and the network simply evaluates the wrong joint at every index. Two guards catch it:
+For all three robots currently shipped, MuJoCo's MJCF also declares joints in Pinocchio's order, so `joint_perm` comes
+out as the identity. That is asserted rather than assumed, by `test_joint_permutation_is_the_identity`: a non-identity
+permutation is handled correctly, but would mean the two model files have drifted apart.
 
-1. `test_joint_order_matches_pinocchio_kinematic_tree` pins the generator's ordering to a tree walk and asserts parent joints precede their children.
-2. The exported header records the joint names it was trained on, as `joint_names[]`, and `testAngularCenterOfMass.cpp` checks them against the expected Pinocchio ordering.
+A joint-order mismatch is silent and severe. The joint *count* is unchanged, so every dimension check still passes, the
+training loss still looks healthy, and the network simply evaluates the wrong joint at every index. Four guards catch
+it:
+
+1. `test_sibling_joints_are_ordered_by_name` pins the generator's rule on a URDF whose siblings are listed out of order,
+   and `testAcomAngularVelocityConsistency`'s `pinocchioOrdersSiblingJointsByName` parses the same URDF with Pinocchio
+   itself, which ties the rule to the parser the MPC runs.
+2. `test_joint_order_matches_pinocchio_kinematic_tree` asserts parent joints precede their children on Atlas.
+3. The exported header records the joint names it was trained on, as `joint_names[]`, and at start-up
+   `AngularCenterOfMass::Create` - which `ComAndAcomTrackingCost::Create` calls with the reduced Pinocchio model's
+   joints - compares them name by name with the MPC model and refuses a mismatch, naming the robot and the first joint
+   that differs.
+4. `testAcomAngularVelocityConsistency` makes the same comparison for every shipped header, against both
+   `ModelSettings::mpcModelJointNames` and the reduced Pinocchio model.
 
 ### Fixed joints
 
-`fixed_joints` must match the `model_settings.fixedJointNames` list in the robot's `task.yaml`. Those joints are held at zero during sampling and then dropped from the dataset, so the network's `input_dim` equals the MPC's `actuatedDofNum`. `ComAndAcomTrackingCost` throws at construction if the two disagree.
+The fixed joints are `model_settings.fixedJointNames` of the robot's centroidal `task.yaml`, which `train_main.py` reads
+directly, so there is no second list to keep in sync. Those joints are held at zero during sampling and then dropped
+from the dataset, so the network's inputs are exactly the MPC model's joints; a fixed-joint name the model does not
+have is rejected rather than ignored. Changing `fixedJointNames` after training - even for another set of the same size -
+is caught at start-up by the name check above, and needs a retrain.

@@ -31,6 +31,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // Pinocchio forward declarations must be included first
 #include <pinocchio/fwd.hpp>
 
+#include <string>
+#include <utility>
+#include <vector>
+
 #include <pinocchio/algorithm/center-of-mass.hpp>
 #include <pinocchio/algorithm/frames.hpp>
 #include <pinocchio/algorithm/kinematics.hpp>
@@ -85,7 +89,7 @@ HumanoidVisualizer::HumanoidVisualizer(const std::string& taskFile,
 /******************************************************************************************************/
 
 void HumanoidVisualizer::launchSubscribers() {
-  auto qos = rclcpp::QoS(1);
+  rclcpp::QoS qos(1);
   qos.best_effort();
   observationSubscriberPtr_ = node_handle_->create_subscription<ocs2_ros2_msgs::msg::MpcObservation>(
       "/humanoid/mpc_observation", qos, std::bind(&HumanoidVisualizer::mpcObservationCallback, this, std::placeholders::_1));
@@ -96,7 +100,7 @@ void HumanoidVisualizer::launchSubscribers() {
 /******************************************************************************************************/
 
 void HumanoidVisualizer::mpcObservationCallback(const ocs2_ros2_msgs::msg::MpcObservation::SharedPtr msg) {
-  const auto currentObservation = ros_msg_conversions::readObservationMsg(*msg);
+  const SystemObservation currentObservation = ros_msg_conversions::readObservationMsg(*msg);
   update(currentObservation, PrimalSolution(), CommandData());
 }
 
@@ -106,12 +110,13 @@ void HumanoidVisualizer::mpcObservationCallback(const ocs2_ros2_msgs::msg::MpcOb
 
 void HumanoidVisualizer::createVisualizationPublishers() {
   tfBroadcasterPtr_.reset(new tf2_ros::TransformBroadcaster(node_handle_));
-  jointPublisherPtr_ = node_handle_->create_publisher<sensor_msgs::msg::JointState>("joint_states", 1);
-  terminalJointPublisherPtr_ = node_handle_->create_publisher<sensor_msgs::msg::JointState>("terminal_state/joint_states", 1);
-  terminalJointTargetPublisherPtr_ = node_handle_->create_publisher<sensor_msgs::msg::JointState>("terminal_target/joint_states", 1);
-  markerPublisherPtr_ = node_handle_->create_publisher<visualization_msgs::msg::MarkerArray>("cartesian_markers", 1);
-  collsisionMarkerPublisherPtr_ = node_handle_->create_publisher<visualization_msgs::msg::MarkerArray>("collision_markers", 1);
-  stateOptimizedPublisherPtr_ = node_handle_->create_publisher<visualization_msgs::msg::MarkerArray>("optimized_state_markers", 1);
+  jointPublisherPtr_ = node_handle_->create_publisher<sensor_msgs::msg::JointState>("joint_states", /*qos=*/1);
+  terminalJointPublisherPtr_ = node_handle_->create_publisher<sensor_msgs::msg::JointState>("terminal_state/joint_states", /*qos=*/1);
+  terminalJointTargetPublisherPtr_ =
+      node_handle_->create_publisher<sensor_msgs::msg::JointState>("terminal_target/joint_states", /*qos=*/1);
+  markerPublisherPtr_ = node_handle_->create_publisher<visualization_msgs::msg::MarkerArray>("cartesian_markers", /*qos=*/1);
+  collsisionMarkerPublisherPtr_ = node_handle_->create_publisher<visualization_msgs::msg::MarkerArray>("collision_markers", /*qos=*/1);
+  stateOptimizedPublisherPtr_ = node_handle_->create_publisher<visualization_msgs::msg::MarkerArray>("optimized_state_markers", /*qos=*/1);
 }
 
 /******************************************************************************************************/
@@ -174,8 +179,8 @@ void HumanoidVisualizer::publishBaseTransform(const vector6_t& basePose, const s
 /******************************************************************************************************/
 
 void HumanoidVisualizer::updatePinocchioFrames(const vector_t& state) {
-  const auto& model = pinocchioInterface_.getModel();
-  auto& data = pinocchioInterface_.getData();
+  const PinocchioInterface::Model& model = pinocchioInterface_.getModel();
+  PinocchioInterface::Data& data = pinocchioInterface_.getData();
   pinocchio::forwardKinematics(model, data, mpcRobotModelPtr_->getGeneralizedCoordinates(state));
   // for (int i = 0; i < N_CONTACTS; i++) {
   //   pinocchio::updateFramePlacement(model, data, contactFrameIndices[i]);
@@ -218,7 +223,7 @@ void HumanoidVisualizer::publishCartesianMarkers(const contact_flag_t& contactFl
   // Add the visualization of the 4 fources equal to the contact wrench
   visualization_msgs::msg::MarkerArray wrenchVisualizationForcesMarkerArray(
       contactVisualizer_.generateContactVisualizationForceMarkers(state, input, contactFlags, forceScale_));
-  for (auto& marker : wrenchVisualizationForcesMarkerArray.markers) {
+  for (const visualization_msgs::msg::Marker& marker : wrenchVisualizationForcesMarkerArray.markers) {
     markerArray.markers.emplace_back(marker);
   }
 
@@ -235,8 +240,8 @@ void HumanoidVisualizer::publishCartesianMarkers(const contact_flag_t& contactFl
 /******************************************************************************************************/
 
 void HumanoidVisualizer::publishSelfCollisionMarkers(const contact_flag_t& contactFlags, const vector_t& state) const {
-  const auto& model = pinocchioInterface_.getModel();
-  const auto& data = pinocchioInterface_.getData();
+  const PinocchioInterface::Model& model = pinocchioInterface_.getModel();
+  const PinocchioInterface::Data& data = pinocchioInterface_.getData();
 
   const std::vector<std::pair<std::string, scalar_t>> candidateFrames = {
       {collisionConfig_.leftAnkleFrame, collisionConfig_.footCollisionSphereRadius},
@@ -252,7 +257,9 @@ void HumanoidVisualizer::publishSelfCollisionMarkers(const contact_flag_t& conta
 
   visualization_msgs::msg::MarkerArray markerArray;
 
-  for (const auto& [frameName, radius] : candidateFrames) {
+  for (const std::pair<std::string, scalar_t>& candidate : candidateFrames) {
+    const std::string& frameName = candidate.first;
+    const scalar_t radius = candidate.second;
     if (!frameName.empty() && model.existFrame(frameName)) {
       const pinocchio::FrameIndex frameIndex = model.getFrameId(frameName);
       const vector3_t& position = data.oMf[frameIndex].translation();
@@ -317,12 +324,12 @@ void HumanoidVisualizer::publishOptimizedStateTrajectory(const scalar_array_t& m
 
     vector3_t comPosition =
         pinocchio::centerOfMass(stateTrajectoryPinocchioInterface.getModel(), stateTrajectoryPinocchioInterface.getData(),
-                                mpcRobotModelPtr_->getGeneralizedCoordinates(state), false);
+                                mpcRobotModelPtr_->getGeneralizedCoordinates(state), /*computeSubtreeComs=*/false);
     comPosition[2] = groundHeight;
 
     mpcCOMPositionMsgs.push_back(getPointMsg(comPosition));
 
-    const auto framePositions =
+    const std::vector<vector3_t> framePositions =
         computeFramePositions<scalar_t>(mpcRobotModelPtr_->getGeneralizedCoordinates(state), stateTrajectoryPinocchioInterface, frameNames);
     for (size_t i = 0; i < frameMsgs.size(); i++) {
       frameMsgs[i].push_back(getPointMsg(framePositions[i]));
@@ -371,17 +378,17 @@ void HumanoidVisualizer::publishOptimizedStateTrajectory(const scalar_array_t& m
   sphereList.scale.z = footMarkerDiameter_;
   sphereList.ns = "Future footholds";
   sphereList.pose.orientation = getOrientationMsg({1., 0., 0., 0.});
-  const auto& eventTimes = modeSchedule.eventTimes;
-  const auto& subsystemSequence = modeSchedule.modeSequence;
-  const auto tStart = mpcTimeTrajectory.front();
-  const auto tEnd = mpcTimeTrajectory.back();
+  const scalar_array_t& eventTimes = modeSchedule.eventTimes;
+  const size_array_t& subsystemSequence = modeSchedule.modeSequence;
+  const scalar_t tStart = mpcTimeTrajectory.front();
+  const scalar_t tEnd = mpcTimeTrajectory.back();
   for (size_t event = 0; event < eventTimes.size(); ++event) {
     if (tStart < eventTimes[event] && eventTimes[event] < tEnd) {  // Only publish future footholds within the optimized horizon
-      const auto preEventContactFlags = modeNumber2StanceLeg(subsystemSequence[event]);
-      const auto postEventContactFlags = modeNumber2StanceLeg(subsystemSequence[event + 1]);
-      const auto postEventState = LinearInterpolation::interpolate(eventTimes[event], mpcTimeTrajectory, mpcStateTrajectory);
-      const auto feetPositions = computeContactPositions<scalar_t>(mpcRobotModelPtr_->getGeneralizedCoordinates(postEventState),
-                                                                   stateTrajectoryPinocchioInterface, *mpcRobotModelPtr_);
+      const contact_flag_t preEventContactFlags = modeNumber2StanceLeg(subsystemSequence[event]);
+      const contact_flag_t postEventContactFlags = modeNumber2StanceLeg(subsystemSequence[event + 1]);
+      const vector_t postEventState = LinearInterpolation::interpolate(eventTimes[event], mpcTimeTrajectory, mpcStateTrajectory);
+      const std::vector<vector3_t> feetPositions = computeContactPositions<scalar_t>(
+          mpcRobotModelPtr_->getGeneralizedCoordinates(postEventState), stateTrajectoryPinocchioInterface, *mpcRobotModelPtr_);
       for (size_t i = 0; i < feetPositions.size(); i++) {
         if (!preEventContactFlags[i] && postEventContactFlags[i]) {  // If a foot lands, a marker is added at that location.
           sphereList.points.emplace_back(getPointMsg(feetPositions[i]));

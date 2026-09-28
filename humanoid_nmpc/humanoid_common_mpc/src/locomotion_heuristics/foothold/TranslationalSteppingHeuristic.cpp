@@ -59,19 +59,27 @@ vector2_t TranslationalSteppingHeuristic::offset(const FootholdHeuristicContext&
   // is rotated into the base frame, the affine law is applied there, and the result is rotated back - which is not
   // the same as applying the law in the world, because the forward and lateral coefficients differ and the robot's
   // forward is not the world's x.
-  const vector2_t commandedInBaseFrame = toWorld(context.commandedVelocity, -context.measuredBaseYaw);
-  const vector2_t offsetInBaseFrame(
-      parameters_.forwardPerForwardVelocity * commandedInBaseFrame.x() + parameters_.forwardOffset,
-      // The lateral constant is signed by the foot's own side, so one number in the task file widens the stance
-      // instead of shifting the whole robot to the left. The velocity-proportional part is NOT signed: both feet
-      // step the same way when the robot is asked to move sideways.
-      parameters_.lateralPerLateralVelocity * commandedInBaseFrame.y() + context.side * parameters_.lateralOffset);
-  return toWorld(offsetInBaseFrame, context.measuredBaseYaw);
+  //
+  // a1 is Bledt's constant plus a term proportional to the stance about to begin. His a1 was regressed at one gait;
+  // this robot's gait scheduler changes the stance duration with the commanded speed, and Raibert's rule - the foot half
+  // a stance of travel ahead of the hip it lands under - is a1 = T_stance / 2. With the stance fraction at 0.5 and the
+  // constant at 0 the lead is right on every gait the scheduler moves between; with the fraction at 0 it is Bledt's.
+  const vector2_t commandedInBaseFrame = toWorld(context.commandedVelocity, -context.baseYaw);
+  const scalar_t forwardGain = parameters_.forwardPerForwardVelocity + parameters_.forwardStanceFraction * context.stanceDuration;
+  const scalar_t lateralGain = parameters_.lateralPerLateralVelocity + parameters_.lateralStanceFraction * context.stanceDuration;
+  const vector2_t offsetInBaseFrame(forwardGain * commandedInBaseFrame.x() + parameters_.forwardOffset,
+                                    // The lateral constant is signed by the foot's own side, so one number in the task file widens the
+                                    // stance instead of shifting the whole robot to the left. The velocity-proportional part is NOT signed:
+                                    // both feet step the same way when the robot is asked to move sideways.
+                                    lateralGain * commandedInBaseFrame.y() + context.side * parameters_.lateralOffset);
+  return toWorld(offsetInBaseFrame, context.baseYaw);
 }
 
 std::string TranslationalSteppingHeuristic::describe() const {
-  return absl::StrCat("translational_stepping: d_forward = ", parameters_.forwardPerForwardVelocity, " * v_x + ", parameters_.forwardOffset,
-                      " [m], d_lateral = ", parameters_.lateralPerLateralVelocity, " * v_y + side * ", parameters_.lateralOffset, " [m]");
+  return absl::StrCat("translational_stepping: d_forward = (", parameters_.forwardPerForwardVelocity, " + ",
+                      parameters_.forwardStanceFraction, " * T_stance) * v_x + ", parameters_.forwardOffset, " [m], d_lateral = (",
+                      parameters_.lateralPerLateralVelocity, " + ", parameters_.lateralStanceFraction, " * T_stance) * v_y + side * ",
+                      parameters_.lateralOffset, " [m]");
 }
 
 }  // namespace ocs2::humanoid

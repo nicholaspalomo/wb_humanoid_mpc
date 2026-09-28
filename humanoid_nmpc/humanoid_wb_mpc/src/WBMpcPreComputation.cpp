@@ -30,6 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <pinocchio/fwd.hpp>
 
+#include <functional>
+
 #include <pinocchio/algorithm/kinematics.hpp>
 
 #include <ocs2_core/misc/Numerics.h>
@@ -74,13 +76,13 @@ void WBMpcPreComputation::request(RequestSet request, scalar_t t, const vector_t
   updatePinocchioModelKinematics(mpcRobotModelPtr_->getGeneralizedCoordinates(x));
 
   // lambda to set config for normal velocity constraints
-  auto eeNormalVelConConfig = [&](size_t footIndex) {
+  const std::function<EndEffectorKinematicsLinearVelConstraint::Config(size_t)> eeNormalVelConConfig = [&](size_t footIndex) {
     EndEffectorKinematicsLinearVelConstraint::Config config;
     config.b =
         (vector_t(1) << -footConstraintCfg.linearVelocityErrorGain_z * swingTrajectoryPlannerPtr_->getZvelocityConstraint(footIndex, t))
             .finished();
     config.Av = (matrix_t(1, 3) << 0.0, 0.0, footConstraintCfg.linearVelocityErrorGain_z).finished();
-    if (!numerics::almost_eq(footConstraintCfg.positionErrorGain_z, 0.0)) {
+    if (!numerics::almost_eq(footConstraintCfg.positionErrorGain_z, /*y=*/0.0)) {
       config.b(0) -= footConstraintCfg.positionErrorGain_z * swingTrajectoryPlannerPtr_->getZpositionConstraint(footIndex, t);
       config.Ax = (matrix_t(1, 3) << 0.0, 0.0, footConstraintCfg.positionErrorGain_z).finished();
     }
@@ -88,7 +90,7 @@ void WBMpcPreComputation::request(RequestSet request, scalar_t t, const vector_t
   };
 
   // lambda to set config for normal velocity constraints
-  auto eeNormalAccConConfig = [&](size_t footIndex) {
+  const std::function<EndEffectorDynamicsLinearAccConstraint::Config(size_t)> eeNormalAccConConfig = [&](size_t footIndex) {
     EndEffectorDynamicsLinearAccConstraint::Config config;
     config.b =
         (vector_t(1) << -footConstraintCfg.linearVelocityErrorGain_z * swingTrajectoryPlannerPtr_->getZvelocityConstraint(footIndex, t))
@@ -96,7 +98,7 @@ void WBMpcPreComputation::request(RequestSet request, scalar_t t, const vector_t
     config.Av = (matrix_t(1, 3) << 0.0, 0.0, footConstraintCfg.linearVelocityErrorGain_z).finished();
     config.b(0) -= footConstraintCfg.linearAccelerationErrorGain_z * swingTrajectoryPlannerPtr_->getZaccelerationConstraint(footIndex, t);
     config.Aa = (matrix_t(1, 3) << 0.0, 0.0, footConstraintCfg.linearAccelerationErrorGain_z).finished();
-    if (!numerics::almost_eq(footConstraintCfg.positionErrorGain_z, 0.0)) {
+    if (!numerics::almost_eq(footConstraintCfg.positionErrorGain_z, /*y=*/0.0)) {
       config.b(0) -= footConstraintCfg.positionErrorGain_z * swingTrajectoryPlannerPtr_->getZpositionConstraint(footIndex, t);
       config.Ax = (matrix_t(1, 3) << 0.0, 0.0, footConstraintCfg.positionErrorGain_z).finished();
     }

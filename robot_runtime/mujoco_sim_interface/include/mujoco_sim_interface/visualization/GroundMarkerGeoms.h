@@ -33,7 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace robot::mujoco_sim_interface {
 
-/** Colour of a ground marker. */
+/** Color of a ground marker. */
 struct MarkerColor {
   float r{1.0f};
   float g{1.0f};
@@ -42,7 +42,7 @@ struct MarkerColor {
 };
 
 /**
- * Decor geoms shared by the centroidal markers of the viewer (centre of mass, ZMP, DCM): a flat disc on the ground plane
+ * Decor geoms shared by the centroidal markers of the viewer (center of mass, ZMP, DCM): a flat disc on the ground plane
  * at (x, y), a sphere in space, and a thin vertical line between a point and its projection on the ground. Each call
  * appends one geom to the scene and returns false when the scene is full.
  */

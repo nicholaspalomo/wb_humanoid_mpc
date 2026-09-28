@@ -11,18 +11,28 @@ py_test(
     name = "test_acom",
     size = "medium",
     srcs = ["test_acom.py"],
+    # Every robot train_main.py can train, so each one's generator, joint order and task-file agreement is exercised,
+    # and the notebook behind `make train-acom-jupyter`, which the tests run end to end.
+    # LINT.IfChange(acom_test_data)
     data = [
+        "//:notebooks/train_acom_siren.ipynb",
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
         "//robot_models/drc_atlas/drc_atlas_description",
+        "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
+        "//robot_models/engineai_sa01/engineai_sa01_description",
+        "//robot_models/unitree_g1/g1_centroidal_mpc",
         "//robot_models/unitree_g1/g1_description",
     ],
+    # LINT.ThenChange(//humanoid_learning/acom/train_main.py:robot_paths)
     deps = [
         "//humanoid_learning/acom:acom_lib",
-        "//humanoid_learning/acom:train_main",  # the test imports train_main (the C++ evaluator's layer count)
+        "//humanoid_learning/acom:train_main",  # the tests drive the pipeline functions train_main defines
         requirement("jax"),
         requirement("jaxlib"),
         requirement("mujoco"),
         requirement("numpy"),
         requirement("optax"),
+        requirement("pyyaml"),
         requirement("tensorboardx"),
     ],
 )

@@ -42,7 +42,7 @@ SwingLegVerticalConstraintCppAd::SwingLegVerticalConstraintCppAd(const SwitchedM
                                                                  size_t contactPointIndex)
     : StateInputConstraint(ConstraintOrder::Linear),
       referenceManagerPtr_(&referenceManager),
-      eeLinearConstraintPtr_(new EndEffectorDynamicsLinearAccConstraint(endEffectorDynamics, 1)),
+      eeLinearConstraintPtr_(new EndEffectorDynamicsLinearAccConstraint(endEffectorDynamics, /*numConstraints=*/1)),
       contactPointIndex_(contactPointIndex) {}
 
 /******************************************************************************************************/
@@ -69,7 +69,7 @@ vector_t SwingLegVerticalConstraintCppAd::getValue(scalar_t time,
                                                    const vector_t& state,
                                                    const vector_t& input,
                                                    const PreComputation& preComp) const {
-  const auto& humanoidPreComp = cast<WBMpcPreComputation>(preComp);
+  const WBMpcPreComputation& humanoidPreComp = cast<WBMpcPreComputation>(preComp);
   eeLinearConstraintPtr_->configure(humanoidPreComp.getEeNormalAccelerationConstraintConfigs()[contactPointIndex_]);
 
   return eeLinearConstraintPtr_->getValue(time, state, input, preComp);
@@ -82,9 +82,9 @@ VectorFunctionLinearApproximation SwingLegVerticalConstraintCppAd::getLinearAppr
                                                                                           const vector_t& state,
                                                                                           const vector_t& input,
                                                                                           const PreComputation& preComp) const {
-  const auto& humanoidPreComp = cast<WBMpcPreComputation>(preComp);
+  const WBMpcPreComputation& humanoidPreComp = cast<WBMpcPreComputation>(preComp);
 
-  auto config = humanoidPreComp.getEeNormalAccelerationConstraintConfigs()[contactPointIndex_];
+  EndEffectorDynamicsLinearAccConstraint::Config config = humanoidPreComp.getEeNormalAccelerationConstraintConfigs()[contactPointIndex_];
 
   eeLinearConstraintPtr_->configure(config);
 

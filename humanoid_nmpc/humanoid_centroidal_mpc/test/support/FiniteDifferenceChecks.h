@@ -51,16 +51,16 @@ constexpr scalar_t kDerivativeTol = 1e-5;
 template <typename TERM_T>
 void expectStateInputDerivativesMatchFiniteDifferences(const TERM_T& term, const vector_t& state, const vector_t& input) {
   const PreComputation preComp;
-  const VectorFunctionLinearApproximation approximation = term.getLinearApproximation(0.0, state, input, preComp);
-  EXPECT_TRUE(approximation.f.isApprox(term.getValue(0.0, state, input, preComp), 1e-12))
+  const VectorFunctionLinearApproximation approximation = term.getLinearApproximation(/*time=*/0.0, state, input, preComp);
+  EXPECT_TRUE(approximation.f.isApprox(term.getValue(/*time=*/0.0, state, input, preComp), 1e-12))
       << "the linear approximation's value disagrees with getValue()";
 
   for (long index = 0; index < state.size(); ++index) {
     vector_t perturbed = state;
     perturbed(index) += kFiniteDifferenceStep;
-    const vector_t forward = term.getValue(0.0, perturbed, input, preComp);
+    const vector_t forward = term.getValue(/*time=*/0.0, perturbed, input, preComp);
     perturbed(index) -= 2.0 * kFiniteDifferenceStep;
-    const vector_t backward = term.getValue(0.0, perturbed, input, preComp);
+    const vector_t backward = term.getValue(/*time=*/0.0, perturbed, input, preComp);
     const vector_t numerical = (forward - backward) / (2.0 * kFiniteDifferenceStep);
     for (long row = 0; row < numerical.size(); ++row) {
       EXPECT_NEAR(approximation.dfdx(row, index), numerical(row), kDerivativeTol) << "dfdx(" << row << ", " << index << ")";
@@ -69,9 +69,9 @@ void expectStateInputDerivativesMatchFiniteDifferences(const TERM_T& term, const
   for (long index = 0; index < input.size(); ++index) {
     vector_t perturbed = input;
     perturbed(index) += kFiniteDifferenceStep;
-    const vector_t forward = term.getValue(0.0, state, perturbed, preComp);
+    const vector_t forward = term.getValue(/*time=*/0.0, state, perturbed, preComp);
     perturbed(index) -= 2.0 * kFiniteDifferenceStep;
-    const vector_t backward = term.getValue(0.0, state, perturbed, preComp);
+    const vector_t backward = term.getValue(/*time=*/0.0, state, perturbed, preComp);
     const vector_t numerical = (forward - backward) / (2.0 * kFiniteDifferenceStep);
     for (long row = 0; row < numerical.size(); ++row) {
       EXPECT_NEAR(approximation.dfdu(row, index), numerical(row), kDerivativeTol) << "dfdu(" << row << ", " << index << ")";
@@ -83,16 +83,16 @@ void expectStateInputDerivativesMatchFiniteDifferences(const TERM_T& term, const
 template <typename TERM_T>
 void expectStateDerivativesMatchFiniteDifferences(const TERM_T& term, const vector_t& state) {
   const PreComputation preComp;
-  const VectorFunctionLinearApproximation approximation = term.getLinearApproximation(0.0, state, preComp);
-  EXPECT_TRUE(approximation.f.isApprox(term.getValue(0.0, state, preComp), 1e-12))
+  const VectorFunctionLinearApproximation approximation = term.getLinearApproximation(/*time=*/0.0, state, preComp);
+  EXPECT_TRUE(approximation.f.isApprox(term.getValue(/*time=*/0.0, state, preComp), 1e-12))
       << "the linear approximation's value disagrees with getValue()";
 
   for (long index = 0; index < state.size(); ++index) {
     vector_t perturbed = state;
     perturbed(index) += kFiniteDifferenceStep;
-    const vector_t forward = term.getValue(0.0, perturbed, preComp);
+    const vector_t forward = term.getValue(/*time=*/0.0, perturbed, preComp);
     perturbed(index) -= 2.0 * kFiniteDifferenceStep;
-    const vector_t backward = term.getValue(0.0, perturbed, preComp);
+    const vector_t backward = term.getValue(/*time=*/0.0, perturbed, preComp);
     const vector_t numerical = (forward - backward) / (2.0 * kFiniteDifferenceStep);
     for (long row = 0; row < numerical.size(); ++row) {
       EXPECT_NEAR(approximation.dfdx(row, index), numerical(row), kDerivativeTol) << "dfdx(" << row << ", " << index << ")";

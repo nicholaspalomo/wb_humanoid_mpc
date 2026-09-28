@@ -30,8 +30,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <string>
+
 #include <ocs2_core/cost/StateInputGaussNewtonCostAd.h>
 #include <ocs2_pinocchio_interface/PinocchioInterface.h>
+
+#include "absl/strings/string_view.h"
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 
@@ -53,6 +57,14 @@ class JointTorqueCostCppAd final : public StateInputCostGaussNewtonAd {
   vector_t getParameters(scalar_t time, const TargetTrajectories& targetTrajectories, const PreComputation& preComputation) const override {
     return sqrtWeights_;
   }
+
+  /**
+   * The name the CppAD library of the cost called `costName` is compiled and cached under. It carries the version of the
+   * taped inverse dynamics, so that a library taped from an earlier computeJointTorques - the one that left out the base
+   * coupling of the mass matrix - is never loaded from the cache in its place (the robots ship
+   * recompileLibrariesCppAd: false).
+   */
+  static std::string libraryName(absl::string_view costName);
 
  private:
   JointTorqueCostCppAd(const JointTorqueCostCppAd& other);

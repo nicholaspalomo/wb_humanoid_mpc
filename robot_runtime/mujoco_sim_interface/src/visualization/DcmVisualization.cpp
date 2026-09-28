@@ -52,7 +52,7 @@ void DcmVisualization::addSceneGeoms(const VisualizationFrame& frame) {
     std::memset(line, 0, sizeof(mjvGeom));
     const mjtNum from[3] = {state.com[0], state.com[1], 0.004};
     const mjtNum to[3] = {dcm[0], dcm[1], 0.004};
-    mjv_connector(line, mjGEOM_CAPSULE, 0.004, from, to);
+    mjv_connector(line, mjGEOM_CAPSULE, /*width=*/0.004, from, to);
     line->rgba[0] = green.r;
     line->rgba[1] = green.g;
     line->rgba[2] = green.b;
@@ -60,7 +60,7 @@ void DcmVisualization::addSceneGeoms(const VisualizationFrame& frame) {
     line->category = mjCAT_DECOR;
     line->emission = 0.6f;
   }
-  addGroundDiscGeom(frame.scene, dcm[0], dcm[1], 0.025, green);
+  addGroundDiscGeom(frame.scene, dcm[0], dcm[1], /*radius=*/0.025, green);
 }
 
 }  // namespace robot::mujoco_sim_interface

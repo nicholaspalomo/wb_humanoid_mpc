@@ -28,7 +28,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <deque>
 #include <fstream>
+#include <functional>
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "humanoid_common_mpc/contact_planning/ContactPlan.h"
@@ -76,16 +79,18 @@ size_t otherFoot(size_t foot) {
 
 ContactPlanningConfig makeConfig() {
   ContactPlanningConfig config;
+  // No robot model derives the pendulum here (the library default 0 means "from the model"), so it is set.
+  config.shared.comHeight = 0.85;
   config.planner.dt = 0.1;
   config.shared.gaitLimits.minSwingDuration = 0.3;
   config.shared.gaitLimits.maxSwingDuration = 0.6;
-  config.formulation.setExecutionRule(term::kPhaseResetting, true);
+  config.formulation.setExecutionRule(term::kPhaseResetting, /*on=*/true);
   config.phaseResetting.earlyTouchdownMinSwingRatio = 0.25;
   config.phaseResetting.earlyTouchdownMinContactDuration = 0.0;  // the timing tests below act on a single cycle; the debounce has its own
   config.phaseResetting.maxLateTouchdownExtension = 0.15;
   config.phaseResetting.lateTouchdownExtensionStep = 0.05;
-  config.formulation.setExecutionRule(term::kEnergyCadenceModulation, false);
-  config.validate();
+  config.formulation.setExecutionRule(term::kEnergyCadenceModulation, /*on=*/false);
+  EXPECT_EQ(config.validateStatus(), absl::OkStatus());
   return config;
 }
 
@@ -140,43 +145,43 @@ ContactPlan makePlan(
 
 TEST(ContactScheduleQueries, EventAtQueryTimeCountsAsPassed) {
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-    const ModeSchedule schedule = singleSwingSchedule(foot, 1.0, 1.4);
-    EXPECT_EQ(modeIndexAtTime(schedule, 0.5), 0u);
-    EXPECT_EQ(modeIndexAtTime(schedule, 1.0), 1u) << "lift-off at the query time is passed";
-    EXPECT_EQ(modeIndexAtTime(schedule, 1.2), 1u);
-    EXPECT_EQ(modeIndexAtTime(schedule, 1.4), 2u) << "touch-down at the query time is passed";
-    EXPECT_EQ(modeIndexAtTime(schedule, 9.0), 2u);
-    EXPECT_FALSE(contactFlagsAtTime(schedule, 1.0)[foot]);
-    EXPECT_TRUE(contactFlagsAtTime(schedule, 1.4)[foot]);
-    EXPECT_TRUE(contactFlagsAtTime(schedule, 0.9)[foot]);
+    const ModeSchedule schedule = singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4);
+    EXPECT_EQ(modeIndexAtTime(schedule, /*time=*/0.5), 0u);
+    EXPECT_EQ(modeIndexAtTime(schedule, /*time=*/1.0), 1u) << "lift-off at the query time is passed";
+    EXPECT_EQ(modeIndexAtTime(schedule, /*time=*/1.2), 1u);
+    EXPECT_EQ(modeIndexAtTime(schedule, /*time=*/1.4), 2u) << "touch-down at the query time is passed";
+    EXPECT_EQ(modeIndexAtTime(schedule, /*time=*/9.0), 2u);
+    EXPECT_FALSE(contactFlagsAtTime(schedule, /*time=*/1.0)[foot]);
+    EXPECT_TRUE(contactFlagsAtTime(schedule, /*time=*/1.4)[foot]);
+    EXPECT_TRUE(contactFlagsAtTime(schedule, /*time=*/0.9)[foot]);
     // ocs2's ModeSchedule uses the opposite convention; the queries here must not silently inherit it.
     EXPECT_EQ(schedule.modeAtTime(1.4), modeWithSwinging({foot}));
   }
   const ModeSchedule defaultSchedule;  // one mode, no event
-  EXPECT_EQ(modeIndexAtTime(defaultSchedule, 3.0), 0u);
+  EXPECT_EQ(modeIndexAtTime(defaultSchedule, /*time=*/3.0), 0u);
   ModeSchedule empty;
   empty.clear();
-  EXPECT_EQ(modeIndexAtTime(empty, 3.0), 0u);
-  for (size_t foot = 0; foot < N_CONTACTS; ++foot) EXPECT_TRUE(contactFlagsAtTime(empty, 0.0)[foot]);
+  EXPECT_EQ(modeIndexAtTime(empty, /*time=*/3.0), 0u);
+  for (size_t foot = 0; foot < N_CONTACTS; ++foot) EXPECT_TRUE(contactFlagsAtTime(empty, /*time=*/0.0)[foot]);
 }
 
 TEST(ContactScheduleQueries, SwingPhaseLookup) {
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-    const ModeSchedule schedule = singleSwingSchedule(foot, 1.0, 1.4);
-    const auto phase = swingPhaseAtTime(schedule, foot, 1.2);
+    const ModeSchedule schedule = singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4);
+    const std::optional<std::pair<scalar_t, scalar_t>> phase = swingPhaseAtTime(schedule, foot, /*time=*/1.2);
     ASSERT_TRUE(phase.has_value());
     EXPECT_NEAR(phase->first, 1.0, kTol);
     EXPECT_NEAR(phase->second, 1.4, kTol);
-    EXPECT_FALSE(swingPhaseAtTime(schedule, foot, 0.5).has_value());
-    EXPECT_FALSE(swingPhaseAtTime(schedule, foot, 1.4).has_value());
+    EXPECT_FALSE(swingPhaseAtTime(schedule, foot, /*time=*/0.5).has_value());
+    EXPECT_FALSE(swingPhaseAtTime(schedule, foot, /*time=*/1.4).has_value());
     for (size_t other = 0; other < N_CONTACTS; ++other) {
-      if (other != foot) EXPECT_FALSE(swingPhaseAtTime(schedule, other, 1.2).has_value());
+      if (other != foot) EXPECT_FALSE(swingPhaseAtTime(schedule, other, /*time=*/1.2).has_value());
     }
-    const auto range = swingPhaseIndexRange(schedule, foot, 1.2);
+    const std::optional<std::pair<size_t, size_t>> range = swingPhaseIndexRange(schedule, foot, /*time=*/1.2);
     ASSERT_TRUE(range.has_value());
     EXPECT_EQ(range->first, 1u);
     EXPECT_EQ(range->second, 1u);
-    const auto tdIndex = touchDownEventIndex(schedule, foot, 1.2);
+    const std::optional<size_t> tdIndex = touchDownEventIndex(schedule, foot, /*time=*/1.2);
     ASSERT_TRUE(tdIndex.has_value());
     EXPECT_EQ(*tdIndex, 1u);
   }
@@ -185,12 +190,12 @@ TEST(ContactScheduleQueries, SwingPhaseLookup) {
 TEST(ContactScheduleQueries, SwingWithoutLiftOffOrTouchDownEvent) {
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
     const ModeSchedule noLiftOff({1.4}, {modeWithSwinging({foot}), kAllInContact});
-    EXPECT_FALSE(swingPhaseAtTime(noLiftOff, foot, 1.0).has_value());
-    EXPECT_TRUE(touchDownEventIndex(noLiftOff, foot, 1.0).has_value());
+    EXPECT_FALSE(swingPhaseAtTime(noLiftOff, foot, /*time=*/1.0).has_value());
+    EXPECT_TRUE(touchDownEventIndex(noLiftOff, foot, /*time=*/1.0).has_value());
     const ModeSchedule noTouchDown({1.0}, {kAllInContact, modeWithSwinging({foot})});
-    EXPECT_FALSE(swingPhaseAtTime(noTouchDown, foot, 1.2).has_value());
-    EXPECT_FALSE(touchDownEventIndex(noTouchDown, foot, 1.2).has_value());
-    EXPECT_TRUE(swingPhaseIndexRange(noTouchDown, foot, 1.2).has_value());
+    EXPECT_FALSE(swingPhaseAtTime(noTouchDown, foot, /*time=*/1.2).has_value());
+    EXPECT_FALSE(touchDownEventIndex(noTouchDown, foot, /*time=*/1.2).has_value());
+    EXPECT_TRUE(swingPhaseIndexRange(noTouchDown, foot, /*time=*/1.2).has_value());
   }
 }
 
@@ -199,16 +204,16 @@ TEST(ContactScheduleQueries, SwingSpanningSeveralPhases) {
   // foot 0 in the air over [1.0, 1.6] while foot 1 lifts at 1.2 and lands at 1.4 (a flight phase, only for the query).
   const ModeSchedule schedule({1.0, 1.2, 1.4, 1.6},
                               {kAllInContact, modeWithSwinging({0}), modeWithSwinging({0, 1}), modeWithSwinging({0}), kAllInContact});
-  const auto phase = swingPhaseAtTime(schedule, 0, 1.3);
+  const std::optional<std::pair<scalar_t, scalar_t>> phase = swingPhaseAtTime(schedule, /*foot=*/0, /*time=*/1.3);
   ASSERT_TRUE(phase.has_value());
   EXPECT_NEAR(phase->first, 1.0, kTol);
   EXPECT_NEAR(phase->second, 1.6, kTol);
-  const auto range = swingPhaseIndexRange(schedule, 0, 1.3);
+  const std::optional<std::pair<size_t, size_t>> range = swingPhaseIndexRange(schedule, /*foot=*/0, /*time=*/1.3);
   ASSERT_TRUE(range.has_value());
   EXPECT_EQ(range->first, 1u);
   EXPECT_EQ(range->second, 3u);
-  EXPECT_EQ(*touchDownEventIndex(schedule, 0, 1.1), 3u);
-  const auto inner = swingPhaseAtTime(schedule, 1, 1.3);
+  EXPECT_EQ(*touchDownEventIndex(schedule, /*foot=*/0, /*time=*/1.1), 3u);
+  const std::optional<std::pair<scalar_t, scalar_t>> inner = swingPhaseAtTime(schedule, /*foot=*/1, /*time=*/1.3);
   ASSERT_TRUE(inner.has_value());
   EXPECT_NEAR(inner->first, 1.2, kTol);
   EXPECT_NEAR(inner->second, 1.4, kTol);
@@ -231,18 +236,18 @@ TEST(ContactScheduleEdits, RemoveRedundantEvents) {
 TEST(ContactScheduleEdits, TruncateSwingMidPhase) {
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
     ModeSchedule schedule = twoStepSchedule(foot, otherFoot(foot));
-    const auto cut = truncateSwingPhase(schedule, foot, 1.25);
+    const std::optional<scalar_t> cut = truncateSwingPhase(schedule, foot, /*time=*/1.25);
     ASSERT_TRUE(cut.has_value());
     EXPECT_NEAR(*cut, 1.4, kTol);
     EXPECT_TRUE(consistentSchedule(schedule));
     // The foot is in contact from 1.25 on; the old touch-down event vanished; the later step is untouched.
-    EXPECT_FALSE(contactFlagsAtTime(schedule, 1.2)[foot]);
-    EXPECT_TRUE(contactFlagsAtTime(schedule, 1.25)[foot]);
-    EXPECT_TRUE(contactFlagsAtTime(schedule, 1.3)[foot]);
+    EXPECT_FALSE(contactFlagsAtTime(schedule, /*time=*/1.2)[foot]);
+    EXPECT_TRUE(contactFlagsAtTime(schedule, /*time=*/1.25)[foot]);
+    EXPECT_TRUE(contactFlagsAtTime(schedule, /*time=*/1.3)[foot]);
     EXPECT_EQ(schedule.eventTimes, (std::vector<scalar_t>{1.0, 1.25, 1.5, 1.9}));
     if (N_CONTACTS > 1) {
-      EXPECT_FALSE(contactFlagsAtTime(schedule, 1.6)[otherFoot(foot)]);
-      EXPECT_TRUE(contactFlagsAtTime(schedule, 1.95)[otherFoot(foot)]);
+      EXPECT_FALSE(contactFlagsAtTime(schedule, /*time=*/1.6)[otherFoot(foot)]);
+      EXPECT_TRUE(contactFlagsAtTime(schedule, /*time=*/1.95)[otherFoot(foot)]);
     }
     EXPECT_FALSE(hasFlightPhase(schedule));
   }
@@ -250,8 +255,8 @@ TEST(ContactScheduleEdits, TruncateSwingMidPhase) {
 
 TEST(ContactScheduleEdits, TruncateSwingAtPhaseStartDoesNotDuplicateEvent) {
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-    ModeSchedule schedule = singleSwingSchedule(foot, 1.0, 1.4);
-    ASSERT_TRUE(truncateSwingPhase(schedule, foot, 1.0).has_value());
+    ModeSchedule schedule = singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4);
+    ASSERT_TRUE(truncateSwingPhase(schedule, foot, /*time=*/1.0).has_value());
     EXPECT_TRUE(consistentSchedule(schedule));
     EXPECT_TRUE(schedule.eventTimes.empty()) << "the whole swing collapsed into stance";
     EXPECT_EQ(schedule.modeSequence, std::vector<size_t>{kAllInContact});
@@ -260,14 +265,14 @@ TEST(ContactScheduleEdits, TruncateSwingAtPhaseStartDoesNotDuplicateEvent) {
 
 TEST(ContactScheduleEdits, TruncateSwingRejectsStanceAndMissingTouchDown) {
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-    ModeSchedule schedule = singleSwingSchedule(foot, 1.0, 1.4);
+    ModeSchedule schedule = singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4);
     const ModeSchedule before = schedule;
-    EXPECT_FALSE(truncateSwingPhase(schedule, foot, 0.5).has_value());
-    EXPECT_FALSE(truncateSwingPhase(schedule, foot, 1.4).has_value());
+    EXPECT_FALSE(truncateSwingPhase(schedule, foot, /*time=*/0.5).has_value());
+    EXPECT_FALSE(truncateSwingPhase(schedule, foot, /*time=*/1.4).has_value());
     EXPECT_EQ(schedule.eventTimes, before.eventTimes);
     EXPECT_EQ(schedule.modeSequence, before.modeSequence);
     ModeSchedule noTouchDown({1.0}, {kAllInContact, modeWithSwinging({foot})});
-    EXPECT_FALSE(truncateSwingPhase(noTouchDown, foot, 1.2).has_value());
+    EXPECT_FALSE(truncateSwingPhase(noTouchDown, foot, /*time=*/1.2).has_value());
     EXPECT_EQ(noTouchDown.eventTimes.size(), 1u);
   }
 }
@@ -276,29 +281,29 @@ TEST(ContactScheduleEdits, TruncateSwingSpanningSeveralPhasesKeepsOtherFeet) {
   if (N_CONTACTS < 2) GTEST_SKIP() << "needs a second foot";
   ModeSchedule schedule({1.0, 1.2, 1.4, 1.6},
                         {kAllInContact, modeWithSwinging({0}), modeWithSwinging({0, 1}), modeWithSwinging({0}), kAllInContact});
-  ASSERT_TRUE(truncateSwingPhase(schedule, 0, 1.1).has_value());
+  ASSERT_TRUE(truncateSwingPhase(schedule, /*foot=*/0, /*time=*/1.1).has_value());
   EXPECT_TRUE(consistentSchedule(schedule));
   for (scalar_t t : {1.1, 1.3, 1.5, 1.7}) EXPECT_TRUE(contactFlagsAtTime(schedule, t)[0]) << t;
-  EXPECT_TRUE(contactFlagsAtTime(schedule, 1.1)[1]);
-  EXPECT_FALSE(contactFlagsAtTime(schedule, 1.3)[1]);
-  EXPECT_TRUE(contactFlagsAtTime(schedule, 1.5)[1]);
+  EXPECT_TRUE(contactFlagsAtTime(schedule, /*time=*/1.1)[1]);
+  EXPECT_FALSE(contactFlagsAtTime(schedule, /*time=*/1.3)[1]);
+  EXPECT_TRUE(contactFlagsAtTime(schedule, /*time=*/1.5)[1]);
   EXPECT_EQ(schedule.eventTimes, (std::vector<scalar_t>{1.0, 1.1, 1.2, 1.4}));
 }
 
 TEST(ContactScheduleEdits, ShiftEventsPreservesLaterDurations) {
-  ModeSchedule schedule = twoStepSchedule(0, otherFoot(0));
-  EXPECT_TRUE(shiftEventsFrom(schedule, 1, 0.07));
+  ModeSchedule schedule = twoStepSchedule(/*foot=*/0, otherFoot(0));
+  EXPECT_TRUE(shiftEventsFrom(schedule, /*firstEventIndex=*/1, /*shift=*/0.07));
   EXPECT_EQ(schedule.eventTimes.size(), 4u);
   EXPECT_NEAR(schedule.eventTimes[0], 1.0, kTol);
   EXPECT_NEAR(schedule.eventTimes[1], 1.47, kTol);
   EXPECT_NEAR(schedule.eventTimes[2], 1.57, kTol);
   EXPECT_NEAR(schedule.eventTimes[3], 1.97, kTol);
-  EXPECT_TRUE(shiftEventsFrom(schedule, 1, -0.07));
+  EXPECT_TRUE(shiftEventsFrom(schedule, /*firstEventIndex=*/1, /*shift=*/-0.07));
   EXPECT_NEAR(schedule.eventTimes[3], 1.9, kTol);
-  EXPECT_FALSE(shiftEventsFrom(schedule, 1, -0.4)) << "would move the touch-down before the lift-off";
+  EXPECT_FALSE(shiftEventsFrom(schedule, /*firstEventIndex=*/1, /*shift=*/-0.4)) << "would move the touch-down before the lift-off";
   EXPECT_NEAR(schedule.eventTimes[1], 1.4, kTol);
-  EXPECT_FALSE(shiftEventsFrom(schedule, 4, 0.1)) << "out of range";
-  EXPECT_TRUE(shiftEventsFrom(schedule, 0, -5.0)) << "the first event has no predecessor";
+  EXPECT_FALSE(shiftEventsFrom(schedule, /*firstEventIndex=*/4, /*shift=*/0.1)) << "out of range";
+  EXPECT_TRUE(shiftEventsFrom(schedule, /*firstEventIndex=*/0, /*shift=*/-5.0)) << "the first event has no predecessor";
   EXPECT_TRUE(consistentSchedule(schedule));
 }
 
@@ -333,13 +338,13 @@ TEST_F(ContactEventTest, NothingHappensWhenContactMatchesSchedule) {
     ModeSchedule schedule = twoStepSchedule(foot, otherFoot(foot));
     const ModeSchedule before = schedule;
     for (scalar_t t : {0.5, 1.0, 1.2, 1.39}) {
-      const auto reports = step(schedule, t, measured(foot, false));
+      const feet_array_t<ContactEventReport> reports = step(schedule, t, measured(foot, /*inContact=*/false));
       for (size_t i = 0; i < N_CONTACTS; ++i) EXPECT_EQ(reports[i].type, ContactEventReport::Type::NONE);
     }
     EXPECT_TRUE(latches[foot].active);
     EXPECT_NEAR(latches[foot].liftOffTime, 1.0, kTol);
     EXPECT_NEAR(latches[foot].nominalTouchDownTime, 1.4, kTol);
-    const auto landed = step(schedule, 1.4, measured(foot, true));
+    const feet_array_t<ContactEventReport> landed = step(schedule, /*time=*/1.4, measured(foot, /*inContact=*/true));
     EXPECT_EQ(landed[foot].type, ContactEventReport::Type::NONE);
     EXPECT_FALSE(latches[foot].active) << "a swing that landed as scheduled releases its latch";
     EXPECT_EQ(schedule.eventTimes, before.eventTimes);
@@ -351,20 +356,20 @@ TEST_F(ContactEventTest, EarlyTouchDownTruncatesSwingInPlace) {
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
     latches.fill(SwingTimingLatch{});
     ModeSchedule schedule = twoStepSchedule(foot, otherFoot(foot));
-    step(schedule, 1.1, measured(foot, false));  // in flight, latch created
-    const auto reports = step(schedule, 1.25, measured(foot, true));
+    step(schedule, /*time=*/1.1, measured(foot, /*inContact=*/false));  // in flight, latch created
+    const feet_array_t<ContactEventReport> reports = step(schedule, /*time=*/1.25, measured(foot, /*inContact=*/true));
     EXPECT_EQ(reports[foot].type, ContactEventReport::Type::EARLY_TOUCH_DOWN);
     EXPECT_NEAR(reports[foot].touchDownTime, 1.25, kTol);
     EXPECT_NEAR(reports[foot].timeShift, 0.0, kTol);
     expectNoEventExcept(reports, foot);
     EXPECT_FALSE(latches[foot].active);
     EXPECT_TRUE(consistentSchedule(schedule));
-    EXPECT_TRUE(contactFlagsAtTime(schedule, 1.25)[foot]);
-    EXPECT_FALSE(contactFlagsAtTime(schedule, 1.24)[foot]);
+    EXPECT_TRUE(contactFlagsAtTime(schedule, /*time=*/1.25)[foot]);
+    EXPECT_FALSE(contactFlagsAtTime(schedule, /*time=*/1.24)[foot]);
     EXPECT_EQ(schedule.eventTimes, (std::vector<scalar_t>{1.0, 1.25, 1.5, 1.9})) << "later events keep their timing";
     // The next cycle sees a foot in contact as scheduled: nothing more happens, even if the sensor flickers.
-    EXPECT_EQ(step(schedule, 1.27, measured(foot, true))[foot].type, ContactEventReport::Type::NONE);
-    EXPECT_EQ(step(schedule, 1.29, measured(foot, false))[foot].type, ContactEventReport::Type::NONE);
+    EXPECT_EQ(step(schedule, /*time=*/1.27, measured(foot, /*inContact=*/true))[foot].type, ContactEventReport::Type::NONE);
+    EXPECT_EQ(step(schedule, /*time=*/1.29, measured(foot, /*inContact=*/false))[foot].type, ContactEventReport::Type::NONE);
     EXPECT_EQ(schedule.eventTimes, (std::vector<scalar_t>{1.0, 1.25, 1.5, 1.9}));
   }
 }
@@ -372,13 +377,13 @@ TEST_F(ContactEventTest, EarlyTouchDownTruncatesSwingInPlace) {
 TEST_F(ContactEventTest, EarlyTouchDownIgnoredDuringScuffingWindowButAcceptedWhenContactPersists) {
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
     latches.fill(SwingTimingLatch{});
-    ModeSchedule schedule = singleSwingSchedule(foot, 1.0, 1.4);  // nominal duration 0.4, window 0.1
-    EXPECT_EQ(step(schedule, 1.02, measured(foot, true))[foot].type, ContactEventReport::Type::NONE);
-    EXPECT_EQ(step(schedule, 1.09, measured(foot, true))[foot].type, ContactEventReport::Type::NONE);
-    EXPECT_FALSE(contactFlagsAtTime(schedule, 1.09)[foot]);
+    ModeSchedule schedule = singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4);  // nominal duration 0.4, window 0.1
+    EXPECT_EQ(step(schedule, /*time=*/1.02, measured(foot, /*inContact=*/true))[foot].type, ContactEventReport::Type::NONE);
+    EXPECT_EQ(step(schedule, /*time=*/1.09, measured(foot, /*inContact=*/true))[foot].type, ContactEventReport::Type::NONE);
+    EXPECT_FALSE(contactFlagsAtTime(schedule, /*time=*/1.09)[foot]);
     // Level-triggered: contact that persists past the window is a landing even though it started inside the window.
-    EXPECT_EQ(step(schedule, 1.1, measured(foot, true))[foot].type, ContactEventReport::Type::EARLY_TOUCH_DOWN);
-    EXPECT_TRUE(contactFlagsAtTime(schedule, 1.1)[foot]);
+    EXPECT_EQ(step(schedule, /*time=*/1.1, measured(foot, /*inContact=*/true))[foot].type, ContactEventReport::Type::EARLY_TOUCH_DOWN);
+    EXPECT_TRUE(contactFlagsAtTime(schedule, /*time=*/1.1)[foot]);
   }
 }
 
@@ -386,16 +391,16 @@ TEST_F(ContactEventTest, EarlyTouchDownRequiresContactToPersistForTheDebounceDur
   config.phaseResetting.earlyTouchdownMinContactDuration = 0.04;
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
     latches.fill(SwingTimingLatch{});
-    ModeSchedule schedule = singleSwingSchedule(foot, 1.0, 1.4);  // scuffing window ends at 1.1
-    EXPECT_EQ(step(schedule, 1.20, measured(foot, true))[foot].type, ContactEventReport::Type::NONE);
+    ModeSchedule schedule = singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4);  // scuffing window ends at 1.1
+    EXPECT_EQ(step(schedule, /*time=*/1.20, measured(foot, /*inContact=*/true))[foot].type, ContactEventReport::Type::NONE);
     EXPECT_TRUE(latches[foot].contactObserved);
     EXPECT_NEAR(latches[foot].contactObservedSince, 1.20, kTol);
-    EXPECT_EQ(step(schedule, 1.22, measured(foot, true))[foot].type, ContactEventReport::Type::NONE);
-    EXPECT_FALSE(contactFlagsAtTime(schedule, 1.22)[foot]) << "the swing must not end before the contact has persisted";
-    const auto reports = step(schedule, 1.24, measured(foot, true));
+    EXPECT_EQ(step(schedule, /*time=*/1.22, measured(foot, /*inContact=*/true))[foot].type, ContactEventReport::Type::NONE);
+    EXPECT_FALSE(contactFlagsAtTime(schedule, /*time=*/1.22)[foot]) << "the swing must not end before the contact has persisted";
+    const feet_array_t<ContactEventReport> reports = step(schedule, /*time=*/1.24, measured(foot, /*inContact=*/true));
     EXPECT_EQ(reports[foot].type, ContactEventReport::Type::EARLY_TOUCH_DOWN);
     EXPECT_NEAR(reports[foot].touchDownTime, 1.24, kTol) << "the schedule switches at the current cycle, not retroactively";
-    EXPECT_TRUE(contactFlagsAtTime(schedule, 1.24)[foot]);
+    EXPECT_TRUE(contactFlagsAtTime(schedule, /*time=*/1.24)[foot]);
     EXPECT_FALSE(latches[foot].active);
   }
 }
@@ -404,16 +409,16 @@ TEST_F(ContactEventTest, SingleChatteringContactSampleDoesNotEndTheSwing) {
   config.phaseResetting.earlyTouchdownMinContactDuration = 0.04;
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
     latches.fill(SwingTimingLatch{});
-    ModeSchedule schedule = singleSwingSchedule(foot, 1.0, 1.4);
-    EXPECT_EQ(step(schedule, 1.20, measured(foot, true))[foot].type, ContactEventReport::Type::NONE);
-    EXPECT_EQ(step(schedule, 1.22, measured(foot, false))[foot].type, ContactEventReport::Type::NONE);
+    ModeSchedule schedule = singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4);
+    EXPECT_EQ(step(schedule, /*time=*/1.20, measured(foot, /*inContact=*/true))[foot].type, ContactEventReport::Type::NONE);
+    EXPECT_EQ(step(schedule, /*time=*/1.22, measured(foot, /*inContact=*/false))[foot].type, ContactEventReport::Type::NONE);
     EXPECT_FALSE(latches[foot].contactObserved) << "a lost contact restarts the debounce";
     // The timer restarts with the next contact sample: 1.24 -> 1.26 is only 0.02 s, 1.28 completes the 0.04 s.
-    EXPECT_EQ(step(schedule, 1.24, measured(foot, true))[foot].type, ContactEventReport::Type::NONE);
-    EXPECT_EQ(step(schedule, 1.26, measured(foot, true))[foot].type, ContactEventReport::Type::NONE);
-    EXPECT_FALSE(contactFlagsAtTime(schedule, 1.26)[foot]);
-    EXPECT_EQ(step(schedule, 1.28, measured(foot, true))[foot].type, ContactEventReport::Type::EARLY_TOUCH_DOWN);
-    EXPECT_TRUE(contactFlagsAtTime(schedule, 1.28)[foot]);
+    EXPECT_EQ(step(schedule, /*time=*/1.24, measured(foot, /*inContact=*/true))[foot].type, ContactEventReport::Type::NONE);
+    EXPECT_EQ(step(schedule, /*time=*/1.26, measured(foot, /*inContact=*/true))[foot].type, ContactEventReport::Type::NONE);
+    EXPECT_FALSE(contactFlagsAtTime(schedule, /*time=*/1.26)[foot]);
+    EXPECT_EQ(step(schedule, /*time=*/1.28, measured(foot, /*inContact=*/true))[foot].type, ContactEventReport::Type::EARLY_TOUCH_DOWN);
+    EXPECT_TRUE(contactFlagsAtTime(schedule, /*time=*/1.28)[foot]);
   }
 }
 
@@ -421,16 +426,16 @@ TEST_F(ContactEventTest, DebounceStartsOnlyAfterTheScuffingWindow) {
   config.phaseResetting.earlyTouchdownMinContactDuration = 0.04;
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
     latches.fill(SwingTimingLatch{});
-    ModeSchedule schedule = singleSwingSchedule(foot, 1.0, 1.4);  // window 0.25 * 0.4 = 0.1
+    ModeSchedule schedule = singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4);  // window 0.25 * 0.4 = 0.1
     // Contact from lift-off on: ignored as scuffing inside the window, and the debounce timer does not run there.
-    EXPECT_EQ(step(schedule, 1.02, measured(foot, true))[foot].type, ContactEventReport::Type::NONE);
-    EXPECT_EQ(step(schedule, 1.06, measured(foot, true))[foot].type, ContactEventReport::Type::NONE);
+    EXPECT_EQ(step(schedule, /*time=*/1.02, measured(foot, /*inContact=*/true))[foot].type, ContactEventReport::Type::NONE);
+    EXPECT_EQ(step(schedule, /*time=*/1.06, measured(foot, /*inContact=*/true))[foot].type, ContactEventReport::Type::NONE);
     EXPECT_FALSE(latches[foot].contactObserved);
-    EXPECT_EQ(step(schedule, 1.10, measured(foot, true))[foot].type, ContactEventReport::Type::NONE);
+    EXPECT_EQ(step(schedule, /*time=*/1.10, measured(foot, /*inContact=*/true))[foot].type, ContactEventReport::Type::NONE);
     EXPECT_TRUE(latches[foot].contactObserved);
     EXPECT_NEAR(latches[foot].contactObservedSince, 1.10, kTol);
-    EXPECT_EQ(step(schedule, 1.12, measured(foot, true))[foot].type, ContactEventReport::Type::NONE);
-    EXPECT_EQ(step(schedule, 1.14, measured(foot, true))[foot].type, ContactEventReport::Type::EARLY_TOUCH_DOWN);
+    EXPECT_EQ(step(schedule, /*time=*/1.12, measured(foot, /*inContact=*/true))[foot].type, ContactEventReport::Type::NONE);
+    EXPECT_EQ(step(schedule, /*time=*/1.14, measured(foot, /*inContact=*/true))[foot].type, ContactEventReport::Type::EARLY_TOUCH_DOWN);
   }
 }
 
@@ -438,35 +443,36 @@ TEST_F(ContactEventTest, ZeroDebounceEndsTheSwingOnTheFirstSample) {
   config.phaseResetting.earlyTouchdownMinContactDuration = 0.0;
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
     latches.fill(SwingTimingLatch{});
-    ModeSchedule schedule = singleSwingSchedule(foot, 1.0, 1.4);
-    EXPECT_EQ(step(schedule, 1.2, measured(foot, true))[foot].type, ContactEventReport::Type::EARLY_TOUCH_DOWN);
+    ModeSchedule schedule = singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4);
+    EXPECT_EQ(step(schedule, /*time=*/1.2, measured(foot, /*inContact=*/true))[foot].type, ContactEventReport::Type::EARLY_TOUCH_DOWN);
   }
 }
 
 TEST_F(ContactEventTest, EarlyTouchDownWindowUsesNominalDurationEvenAfterCadenceShift) {
-  config.formulation.setExecutionRule(term::kEnergyCadenceModulation, true);
+  config.formulation.setExecutionRule(term::kEnergyCadenceModulation, /*on=*/true);
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
     latches.fill(SwingTimingLatch{});
-    ModeSchedule schedule = singleSwingSchedule(foot, 1.0, 1.4);
+    ModeSchedule schedule = singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4);
     feet_array_t<scalar_t> cadence = makeFeetArray(0.0);
     cadence[foot] = 0.2;  // touch-down 1.6 (within maxSwingDuration)
-    adaptScheduleToContactEvents(schedule, 1.05, measured(foot, false), cadence, config, latches);
+    adaptScheduleToContactEvents(schedule, /*time=*/1.05, measured(foot, /*inContact=*/false), cadence, config, latches);
     EXPECT_NEAR(latches[foot].plannedTouchDownTime(), 1.6, kTol);
     EXPECT_NEAR(latches[foot].nominalTouchDownTime, 1.4, kTol);
     // The window is 25 % of the nominal 0.4 s, i.e. contact at 1.1 counts although the swing now lasts until 1.6.
-    const auto reports = adaptScheduleToContactEvents(schedule, 1.1, measured(foot, true), cadence, config, latches);
+    const feet_array_t<ContactEventReport> reports =
+        adaptScheduleToContactEvents(schedule, /*time=*/1.1, measured(foot, /*inContact=*/true), cadence, config, latches);
     EXPECT_EQ(reports[foot].type, ContactEventReport::Type::EARLY_TOUCH_DOWN);
   }
 }
 
 TEST_F(ContactEventTest, PhaseResettingDisabledLeavesScheduleAlone) {
-  config.formulation.setExecutionRule(term::kPhaseResetting, false);
+  config.formulation.setExecutionRule(term::kPhaseResetting, /*on=*/false);
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
     latches.fill(SwingTimingLatch{});
-    ModeSchedule schedule = singleSwingSchedule(foot, 1.0, 1.4);
+    ModeSchedule schedule = singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4);
     const ModeSchedule before = schedule;
-    EXPECT_EQ(step(schedule, 1.2, measured(foot, true))[foot].type, ContactEventReport::Type::NONE);
-    EXPECT_EQ(step(schedule, 1.41, measured(foot, false))[foot].type, ContactEventReport::Type::NONE);
+    EXPECT_EQ(step(schedule, /*time=*/1.2, measured(foot, /*inContact=*/true))[foot].type, ContactEventReport::Type::NONE);
+    EXPECT_EQ(step(schedule, /*time=*/1.41, measured(foot, /*inContact=*/false))[foot].type, ContactEventReport::Type::NONE);
     EXPECT_EQ(schedule.eventTimes, before.eventTimes);
     EXPECT_EQ(schedule.modeSequence, before.modeSequence);
   }
@@ -476,10 +482,10 @@ TEST_F(ContactEventTest, LateTouchDownExtendsInStepsUpToBudgetThenGivesUp) {
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
     latches.fill(SwingTimingLatch{});
     ModeSchedule schedule = twoStepSchedule(foot, otherFoot(foot));
-    step(schedule, 1.2, measured(foot, false));
+    step(schedule, /*time=*/1.2, measured(foot, /*inContact=*/false));
 
     // 1.405: scheduled in contact since 1.4, no contact measured -> touch-down pushed to 1.455, tail shifted by 0.055.
-    auto reports = step(schedule, 1.405, measured(foot, false));
+    feet_array_t<ContactEventReport> reports = step(schedule, /*time=*/1.405, measured(foot, /*inContact=*/false));
     EXPECT_EQ(reports[foot].type, ContactEventReport::Type::LATE_TOUCH_DOWN);
     EXPECT_NEAR(reports[foot].touchDownTime, 1.455, kTol);
     EXPECT_NEAR(reports[foot].timeShift, 0.055, kTol);
@@ -492,26 +498,27 @@ TEST_F(ContactEventTest, LateTouchDownExtendsInStepsUpToBudgetThenGivesUp) {
     EXPECT_FALSE(hasFlightPhase(schedule));
 
     // While the extended swing is in flight nothing changes.
-    EXPECT_EQ(step(schedule, 1.43, measured(foot, false))[foot].type, ContactEventReport::Type::NONE);
+    EXPECT_EQ(step(schedule, /*time=*/1.43, measured(foot, /*inContact=*/false))[foot].type, ContactEventReport::Type::NONE);
     EXPECT_NEAR(schedule.eventTimes[1], 1.455, kTol);
 
     // 1.46: again past the touch-down -> 1.51. 1.52: -> capped at 1.4 + 0.15 = 1.55.
-    reports = step(schedule, 1.46, measured(foot, false));
+    reports = step(schedule, /*time=*/1.46, measured(foot, /*inContact=*/false));
     EXPECT_EQ(reports[foot].type, ContactEventReport::Type::LATE_TOUCH_DOWN);
     EXPECT_NEAR(schedule.eventTimes[1], 1.51, kTol);
-    reports = step(schedule, 1.52, measured(foot, false));
+    reports = step(schedule, /*time=*/1.52, measured(foot, /*inContact=*/false));
     EXPECT_EQ(reports[foot].type, ContactEventReport::Type::LATE_TOUCH_DOWN);
     EXPECT_NEAR(schedule.eventTimes[1], 1.55, kTol);
     EXPECT_NEAR(reports[foot].timeShift, 0.04, kTol);
     EXPECT_NEAR(latches[foot].lateExtension, 0.15, kTol);
 
     // 1.56: the budget is used up, the contact phase proceeds and the latch is released.
-    reports = step(schedule, 1.56, measured(foot, false));
+    reports = step(schedule, /*time=*/1.56, measured(foot, /*inContact=*/false));
     EXPECT_EQ(reports[foot].type, ContactEventReport::Type::NONE);
     EXPECT_FALSE(latches[foot].active);
     EXPECT_NEAR(schedule.eventTimes[1], 1.55, kTol);
-    EXPECT_TRUE(contactFlagsAtTime(schedule, 1.56)[foot]);
-    EXPECT_EQ(step(schedule, 1.58, measured(foot, false))[foot].type, ContactEventReport::Type::NONE) << "no restart without a latch";
+    EXPECT_TRUE(contactFlagsAtTime(schedule, /*time=*/1.56)[foot]);
+    EXPECT_EQ(step(schedule, /*time=*/1.58, measured(foot, /*inContact=*/false))[foot].type, ContactEventReport::Type::NONE)
+        << "no restart without a latch";
     EXPECT_TRUE(consistentSchedule(schedule));
     EXPECT_NEAR(schedule.eventTimes[3] - schedule.eventTimes[2], 0.4, kTol) << "the next swing keeps its duration";
   }
@@ -521,12 +528,12 @@ TEST_F(ContactEventTest, ContactDuringLateExtensionEndsSwingImmediately) {
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
     latches.fill(SwingTimingLatch{});
     ModeSchedule schedule = twoStepSchedule(foot, otherFoot(foot));
-    step(schedule, 1.2, measured(foot, false));
-    ASSERT_EQ(step(schedule, 1.405, measured(foot, false))[foot].type, ContactEventReport::Type::LATE_TOUCH_DOWN);
-    const auto reports = step(schedule, 1.43, measured(foot, true));
+    step(schedule, /*time=*/1.2, measured(foot, /*inContact=*/false));
+    ASSERT_EQ(step(schedule, /*time=*/1.405, measured(foot, /*inContact=*/false))[foot].type, ContactEventReport::Type::LATE_TOUCH_DOWN);
+    const feet_array_t<ContactEventReport> reports = step(schedule, /*time=*/1.43, measured(foot, /*inContact=*/true));
     EXPECT_EQ(reports[foot].type, ContactEventReport::Type::EARLY_TOUCH_DOWN);
-    EXPECT_TRUE(contactFlagsAtTime(schedule, 1.43)[foot]);
-    EXPECT_FALSE(contactFlagsAtTime(schedule, 1.42)[foot]);
+    EXPECT_TRUE(contactFlagsAtTime(schedule, /*time=*/1.43)[foot]);
+    EXPECT_FALSE(contactFlagsAtTime(schedule, /*time=*/1.42)[foot]);
     EXPECT_FALSE(latches[foot].active);
     // The later step keeps the timing it got from the extension (the plan is shifted alongside by the caller).
     ASSERT_EQ(schedule.eventTimes.size(), 4u);
@@ -541,43 +548,44 @@ TEST_F(ContactEventTest, ContactDuringLateExtensionEndsSwingImmediately) {
 TEST_F(ContactEventTest, LateTouchDownNeedsALatchedSwing) {
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
     latches.fill(SwingTimingLatch{});
-    ModeSchedule schedule = singleSwingSchedule(foot, 1.0, 1.4);
+    ModeSchedule schedule = singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4);
     const ModeSchedule before = schedule;
     // The swing was never observed in flight (e.g. the controller started after it): no extension is attempted.
-    EXPECT_EQ(step(schedule, 1.405, measured(foot, false))[foot].type, ContactEventReport::Type::NONE);
+    EXPECT_EQ(step(schedule, /*time=*/1.405, measured(foot, /*inContact=*/false))[foot].type, ContactEventReport::Type::NONE);
     EXPECT_EQ(schedule.eventTimes, before.eventTimes);
     // A stale latch from another swing is dropped.
     latches[foot].active = true;
     latches[foot].liftOffTime = 0.2;
     latches[foot].nominalTouchDownTime = 0.6;
-    EXPECT_EQ(step(schedule, 1.405, measured(foot, false))[foot].type, ContactEventReport::Type::NONE);
+    EXPECT_EQ(step(schedule, /*time=*/1.405, measured(foot, /*inContact=*/false))[foot].type, ContactEventReport::Type::NONE);
     EXPECT_FALSE(latches[foot].active);
     EXPECT_EQ(schedule.eventTimes, before.eventTimes);
   }
 }
 
 TEST_F(ContactEventTest, CadenceShiftMovesTouchDownRelativeToNominalWithinLimits) {
-  config.formulation.setExecutionRule(term::kEnergyCadenceModulation, true);
+  config.formulation.setExecutionRule(term::kEnergyCadenceModulation, /*on=*/true);
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
     latches.fill(SwingTimingLatch{});
     ModeSchedule schedule = twoStepSchedule(foot, otherFoot(foot));  // swing [1.0, 1.4], limits [1.3, 1.6]
     feet_array_t<scalar_t> cadence = makeFeetArray(0.0);
 
     cadence[foot] = 0.1;
-    auto reports = adaptScheduleToContactEvents(schedule, 1.1, measured(foot, false), cadence, config, latches);
+    feet_array_t<ContactEventReport> reports =
+        adaptScheduleToContactEvents(schedule, /*time=*/1.1, measured(foot, /*inContact=*/false), cadence, config, latches);
     EXPECT_EQ(reports[foot].type, ContactEventReport::Type::CADENCE_SHIFT);
     EXPECT_NEAR(reports[foot].timeShift, 0.1, kTol);
     EXPECT_NEAR(schedule.eventTimes[1], 1.5, kTol);
     EXPECT_NEAR(schedule.eventTimes[3], 2.0, kTol) << "later events move with the touch-down";
 
     // Relative to the nominal touch-down, not cumulative: the same request leaves the schedule unchanged.
-    reports = adaptScheduleToContactEvents(schedule, 1.12, measured(foot, false), cadence, config, latches);
+    reports = adaptScheduleToContactEvents(schedule, /*time=*/1.12, measured(foot, /*inContact=*/false), cadence, config, latches);
     EXPECT_EQ(reports[foot].type, ContactEventReport::Type::NONE);
     EXPECT_NEAR(schedule.eventTimes[1], 1.5, kTol);
 
     // A shorter request moves it back, clamped to the minimum swing duration.
     cadence[foot] = -0.5;
-    reports = adaptScheduleToContactEvents(schedule, 1.14, measured(foot, false), cadence, config, latches);
+    reports = adaptScheduleToContactEvents(schedule, /*time=*/1.14, measured(foot, /*inContact=*/false), cadence, config, latches);
     EXPECT_EQ(reports[foot].type, ContactEventReport::Type::CADENCE_SHIFT);
     EXPECT_NEAR(schedule.eventTimes[1], 1.3, kTol);
     EXPECT_NEAR(schedule.eventTimes[2], 1.4, kTol);
@@ -585,13 +593,13 @@ TEST_F(ContactEventTest, CadenceShiftMovesTouchDownRelativeToNominalWithinLimits
 
     // Clamped to the maximum swing duration.
     cadence[foot] = 1.0;
-    adaptScheduleToContactEvents(schedule, 1.16, measured(foot, false), cadence, config, latches);
+    adaptScheduleToContactEvents(schedule, /*time=*/1.16, measured(foot, /*inContact=*/false), cadence, config, latches);
     EXPECT_NEAR(schedule.eventTimes[1], 1.6, kTol);
 
     // A request earlier than what is still feasible never pushes an imminent touch-down out: at 1.59 the touch-down at
     // 1.6 stands (flooring it at now + margin every cycle would drag it along with the clock, see the dedicated test).
     cadence[foot] = -0.5;
-    reports = adaptScheduleToContactEvents(schedule, 1.59, measured(foot, false), cadence, config, latches);
+    reports = adaptScheduleToContactEvents(schedule, /*time=*/1.59, measured(foot, /*inContact=*/false), cadence, config, latches);
     EXPECT_EQ(reports[foot].type, ContactEventReport::Type::NONE);
     EXPECT_NEAR(schedule.eventTimes[1], 1.6, kTol);
     EXPECT_TRUE(consistentSchedule(schedule));
@@ -604,24 +612,25 @@ TEST_F(ContactEventTest, CadenceRequestEarlierThanFeasibleLetsTheFootLand) {
   // margin" ahead of the clock: the foot would then never land. Swing [1.1, 1.5], request -0.10 -> wanted 1.40.
   // Phase resetting is off: with no measured contact it would (correctly) start the late touch-down search once the
   // re-timed touch-down has passed, which is a different mechanism from the one under test.
-  config.formulation.setExecutionRule(term::kEnergyCadenceModulation, true);
-  config.formulation.setExecutionRule(term::kPhaseResetting, false);
+  config.formulation.setExecutionRule(term::kEnergyCadenceModulation, /*on=*/true);
+  config.formulation.setExecutionRule(term::kPhaseResetting, /*on=*/false);
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
     latches.fill(SwingTimingLatch{});
     ModeSchedule schedule = ModeSchedule(
         {1.1, 1.5, 1.6, 2.0}, {kAllInContact, modeWithSwinging({foot}), kAllInContact, modeWithSwinging({otherFoot(foot)}), kAllInContact});
     feet_array_t<scalar_t> cadence = makeFeetArray(0.0);
     cadence[foot] = -0.10;
-    auto reports = adaptScheduleToContactEvents(schedule, 1.30, measured(foot, false), cadence, config, latches);
+    feet_array_t<ContactEventReport> reports =
+        adaptScheduleToContactEvents(schedule, /*time=*/1.30, measured(foot, /*inContact=*/false), cadence, config, latches);
     EXPECT_EQ(reports[foot].type, ContactEventReport::Type::CADENCE_SHIFT);
     EXPECT_NEAR(schedule.eventTimes[1], 1.40, kTol);
     // 10 ms cycles up to and past the re-timed touch-down: it must stay at 1.40 and the foot must land there.
     for (int i = 1; i <= 12; ++i) {
       const scalar_t time = 1.30 + 0.01 * i;
-      reports = adaptScheduleToContactEvents(schedule, time, measured(foot, false), cadence, config, latches);
+      reports = adaptScheduleToContactEvents(schedule, time, measured(foot, /*inContact=*/false), cadence, config, latches);
       EXPECT_NEAR(schedule.eventTimes[1], 1.40, kTol) << "touch-down dragged at t=" << time;
     }
-    EXPECT_TRUE(contactFlagsAtTime(schedule, 1.41)[foot]) << "the foot must be scheduled in contact after 1.40";
+    EXPECT_TRUE(contactFlagsAtTime(schedule, /*time=*/1.41)[foot]) << "the foot must be scheduled in contact after 1.40";
     EXPECT_TRUE(consistentSchedule(schedule));
     EXPECT_NEAR(schedule.eventTimes[3] - schedule.eventTimes[2], 0.4, kTol) << "later phases keep their duration";
   }
@@ -630,16 +639,18 @@ TEST_F(ContactEventTest, CadenceRequestEarlierThanFeasibleLetsTheFootLand) {
 TEST_F(ContactEventTest, CadenceRequestIsClippedToWhatRemainsFeasible) {
   // An early request at a time where the wanted touch-down is already in the past but the current one is not yet
   // imminent brings the touch-down forward to now + margin, not to the current touch-down and not into the past.
-  config.formulation.setExecutionRule(term::kEnergyCadenceModulation, true);
+  config.formulation.setExecutionRule(term::kEnergyCadenceModulation, /*on=*/true);
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
     latches.fill(SwingTimingLatch{});
-    ModeSchedule schedule = singleSwingSchedule(foot, 1.1, 1.5);
+    ModeSchedule schedule = singleSwingSchedule(foot, /*liftOff=*/1.1, /*touchDown=*/1.5);
     feet_array_t<scalar_t> cadence = makeFeetArray(0.0);
     cadence[foot] = -0.10;  // wanted 1.40
-    const auto reports = adaptScheduleToContactEvents(schedule, 1.42, measured(foot, false), cadence, config, latches);
+    const feet_array_t<ContactEventReport> reports =
+        adaptScheduleToContactEvents(schedule, /*time=*/1.42, measured(foot, /*inContact=*/false), cadence, config, latches);
     EXPECT_EQ(reports[foot].type, ContactEventReport::Type::CADENCE_SHIFT);
     EXPECT_NEAR(schedule.eventTimes[1], 1.44, kTol);
-    const auto again = adaptScheduleToContactEvents(schedule, 1.43, measured(foot, false), cadence, config, latches);
+    const feet_array_t<ContactEventReport> again =
+        adaptScheduleToContactEvents(schedule, /*time=*/1.43, measured(foot, /*inContact=*/false), cadence, config, latches);
     EXPECT_EQ(again[foot].type, ContactEventReport::Type::NONE) << "once imminent the touch-down stands";
     EXPECT_NEAR(schedule.eventTimes[1], 1.44, kTol);
   }
@@ -648,19 +659,22 @@ TEST_F(ContactEventTest, CadenceRequestIsClippedToWhatRemainsFeasible) {
 TEST_F(ContactEventTest, CadenceShiftIgnoredWhenDisabledOrWhileSearchingForGround) {
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
     latches.fill(SwingTimingLatch{});
-    ModeSchedule schedule = singleSwingSchedule(foot, 1.0, 1.4);
+    ModeSchedule schedule = singleSwingSchedule(foot, /*liftOff=*/1.0, /*touchDown=*/1.4);
     feet_array_t<scalar_t> cadence = makeFeetArray(0.1);
-    config.formulation.setExecutionRule(term::kEnergyCadenceModulation, false);
-    EXPECT_EQ(adaptScheduleToContactEvents(schedule, 1.1, measured(foot, false), cadence, config, latches)[foot].type,
-              ContactEventReport::Type::NONE);
+    config.formulation.setExecutionRule(term::kEnergyCadenceModulation, /*on=*/false);
+    EXPECT_EQ(
+        adaptScheduleToContactEvents(schedule, /*time=*/1.1, measured(foot, /*inContact=*/false), cadence, config, latches)[foot].type,
+        ContactEventReport::Type::NONE);
     EXPECT_NEAR(schedule.eventTimes[1], 1.4, kTol);
 
-    config.formulation.setExecutionRule(term::kEnergyCadenceModulation, true);
-    ASSERT_EQ(adaptScheduleToContactEvents(schedule, 1.405, measured(foot, false), cadence, config, latches)[foot].type,
-              ContactEventReport::Type::LATE_TOUCH_DOWN);
+    config.formulation.setExecutionRule(term::kEnergyCadenceModulation, /*on=*/true);
+    ASSERT_EQ(
+        adaptScheduleToContactEvents(schedule, /*time=*/1.405, measured(foot, /*inContact=*/false), cadence, config, latches)[foot].type,
+        ContactEventReport::Type::LATE_TOUCH_DOWN);
     const scalar_t extended = schedule.eventTimes[1];
-    EXPECT_EQ(adaptScheduleToContactEvents(schedule, 1.42, measured(foot, false), cadence, config, latches)[foot].type,
-              ContactEventReport::Type::NONE);
+    EXPECT_EQ(
+        adaptScheduleToContactEvents(schedule, /*time=*/1.42, measured(foot, /*inContact=*/false), cadence, config, latches)[foot].type,
+        ContactEventReport::Type::NONE);
     EXPECT_NEAR(schedule.eventTimes[1], extended, kTol);
   }
 }
@@ -668,7 +682,7 @@ TEST_F(ContactEventTest, CadenceShiftIgnoredWhenDisabledOrWhileSearchingForGroun
 TEST_F(ContactEventTest, EmptyScheduleIsHarmless) {
   ModeSchedule empty;
   empty.clear();
-  const auto reports = step(empty, 1.0, makeFeetArray(true));
+  const feet_array_t<ContactEventReport> reports = step(empty, /*time=*/1.0, makeFeetArray(true));
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) EXPECT_EQ(reports[foot].type, ContactEventReport::Type::NONE);
 }
 
@@ -691,19 +705,19 @@ TEST_F(ContactEventTest, AlternatingGaitSimulationStaysConsistent) {
   for (scalar_t time = 0.5; time < 6.0; time += 0.02) {
     contact_flag_t contact = makeFeetArray(true);
     for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-      const auto phase = swingPhaseAtTime(schedule, foot, time);
+      const std::optional<std::pair<scalar_t, scalar_t>> phase = swingPhaseAtTime(schedule, foot, time);
       if (phase.has_value()) {
         const int swingNumber = static_cast<int>(std::floor((phase->first - 1.0) / 0.5 + 0.5));
         const bool landsEarly = swingNumber % 2 == 1 && time - phase->first > 0.3;
         contact[foot] = landsEarly;
       } else {
-        const auto& latch = latches[foot];
+        const SwingTimingLatch& latch = latches[foot];
         const bool searching = latch.active && static_cast<int>(std::floor((latch.liftOffTime - 1.0) / 0.5 + 0.5)) % 3 == 2 &&
                                time < latch.plannedTouchDownTime() + 0.08;
         contact[foot] = !searching;
       }
     }
-    const auto reports = step(schedule, time, contact);
+    const feet_array_t<ContactEventReport> reports = step(schedule, time, contact);
     for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
       if (reports[foot].type == ContactEventReport::Type::EARLY_TOUCH_DOWN) ++early;
       if (reports[foot].type == ContactEventReport::Type::LATE_TOUCH_DOWN) ++late;
@@ -712,7 +726,7 @@ TEST_F(ContactEventTest, AlternatingGaitSimulationStaysConsistent) {
     ASSERT_FALSE(hasFlightPhase(schedule)) << "at t=" << time;
     // Every phase of every foot keeps a positive duration and a swing never lasts longer than max + extension.
     for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-      const auto phase = swingPhaseAtTime(schedule, foot, time);
+      const std::optional<std::pair<scalar_t, scalar_t>> phase = swingPhaseAtTime(schedule, foot, time);
       if (phase.has_value())
         ASSERT_LE(phase->second - phase->first,
                   config.shared.gaitLimits.maxSwingDuration + config.phaseResetting.maxLateTouchdownExtension + kTol);
@@ -728,7 +742,8 @@ TEST(CommittedContacts, StraddlingNodeTakesTheStateHandedOverAtTheBoundary) {
   if (N_CONTACTS < 2) GTEST_SKIP() << "needs a second foot";
   // Right foot swings 0.07 -> 0.47. Planner grid from 0.0 with dt 0.1, boundary at the touch-down 0.47.
   const ModeSchedule schedule({0.07, 0.47}, {kAllInContact, modeWithSwinging({1}), kAllInContact});
-  const std::vector<contact_flag_t> committed = committedContactsForPlanner(schedule, 0.0, 0.1, 11, 0.47);
+  const std::vector<contact_flag_t> committed =
+      committedContactsForPlanner(schedule, /*startTime=*/0.0, /*dt=*/0.1, /*maxNodes=*/11, /*committedUntil=*/0.47);
   ASSERT_EQ(committed.size(), 5u) << "nodes starting at 0.0 .. 0.4 start before the boundary";
   EXPECT_TRUE(committed[0][1]) << "node 0 (midpoint 0.05) is before the lift-off";
   for (size_t k = 1; k < 4; ++k) EXPECT_FALSE(committed[k][1]) << "node " << k << " is in the swing";
@@ -746,9 +761,10 @@ TEST(CommittedContacts, StraddlingNodeTakesTheStateHandedOverAtTheBoundary) {
   plan.dt = 0.1;
   plan.committedUntil = 0.47;
   plan.contacts = planContacts;
-  const ModeSchedule merged = mergeModeSchedules(schedule, plan.toModeSchedule(), 0.47, -1.2, 2.4);
-  EXPECT_FALSE(contactFlagsAtTime(merged, 0.469)[1]);
-  EXPECT_TRUE(contactFlagsAtTime(merged, 0.471)[1]) << "the in-flight touch-down must not be delayed by the merge";
+  const ModeSchedule merged =
+      mergeModeSchedules(schedule, plan.toModeSchedule(), /*commitTime=*/0.47, /*lowerBoundTime=*/-1.2, /*upperBoundTime=*/2.4);
+  EXPECT_FALSE(contactFlagsAtTime(merged, /*time=*/0.469)[1]);
+  EXPECT_TRUE(contactFlagsAtTime(merged, /*time=*/0.471)[1]) << "the in-flight touch-down must not be delayed by the merge";
   for (scalar_t t = 0.47; t < 2.0; t += 0.01) EXPECT_TRUE(contactFlagsAtTime(merged, t)[1]) << "phantom re-lift at " << t;
 }
 
@@ -757,16 +773,17 @@ TEST(CommittedContacts, BoundaryInsideAContactPhaseAndNodeLimit) {
   // Left swings 0.83 -> 1.23; boundary 1.25 (commit window), grid from 1.0.
   const ModeSchedule schedule({0.83, 1.23, 1.33, 1.73},
                               {kAllInContact, modeWithSwinging({0}), kAllInContact, modeWithSwinging({1}), kAllInContact});
-  const std::vector<contact_flag_t> committed = committedContactsForPlanner(schedule, 1.0, 0.1, 11, 1.25);
+  const std::vector<contact_flag_t> committed =
+      committedContactsForPlanner(schedule, /*startTime=*/1.0, /*dt=*/0.1, /*maxNodes=*/11, /*committedUntil=*/1.25);
   ASSERT_EQ(committed.size(), 3u) << "nodes starting at 1.0, 1.1, 1.2";
   EXPECT_FALSE(committed[0][0]);
   EXPECT_FALSE(committed[1][0]);
   EXPECT_TRUE(committed[2][0]) << "the straddling node reads the landed state at the boundary, not the swing at its midpoint";
   EXPECT_TRUE(committed[2][1]) << "the right foot's later lift-off at 1.33 is outside the window";
   // At most maxNodes nodes, and a boundary at or before the grid start commits nothing.
-  EXPECT_EQ(committedContactsForPlanner(schedule, 1.0, 0.1, 2, 1.25).size(), 2u);
-  EXPECT_TRUE(committedContactsForPlanner(schedule, 1.0, 0.1, 11, 1.0).empty());
-  EXPECT_TRUE(committedContactsForPlanner(schedule, 1.0, 0.1, 11, 0.9).empty());
+  EXPECT_EQ(committedContactsForPlanner(schedule, /*startTime=*/1.0, /*dt=*/0.1, /*maxNodes=*/2, /*committedUntil=*/1.25).size(), 2u);
+  EXPECT_TRUE(committedContactsForPlanner(schedule, /*startTime=*/1.0, /*dt=*/0.1, /*maxNodes=*/11, /*committedUntil=*/1.0).empty());
+  EXPECT_TRUE(committedContactsForPlanner(schedule, /*startTime=*/1.0, /*dt=*/0.1, /*maxNodes=*/11, /*committedUntil=*/0.9).empty());
 }
 
 TEST(CommittedContacts, LastCommittedNodeEndingOnTheBoundaryIsSampledAtTheBoundary) {
@@ -781,18 +798,21 @@ TEST(CommittedContacts, LastCommittedNodeEndingOnTheBoundaryIsSampledAtTheBounda
   EXPECT_NEAR(samples[0], 0.05, kTol);
   EXPECT_NEAR(samples[1], 0.15, kTol);
   EXPECT_NEAR(samples[2], 0.3, kTol) << "the node that ends on the boundary is sampled at the boundary, not at 0.25";
-  const std::vector<contact_flag_t> committed = committedContactsForPlanner(schedule, 0.0, 0.1, 11, 0.3);
+  const std::vector<contact_flag_t> committed =
+      committedContactsForPlanner(schedule, /*startTime=*/0.0, /*dt=*/0.1, /*maxNodes=*/11, /*committedUntil=*/0.3);
   ASSERT_EQ(committed.size(), 3u);
   EXPECT_FALSE(committed[0][1]);
   EXPECT_FALSE(committed[1][1]);
   EXPECT_TRUE(committed[2][1]) << "landed before the boundary: the plan continues from a foot on the ground";
-  const std::vector<feet_array_t<scalar_t>> starts = committedPhaseStartsForPlanner(schedule, 0.0, 0.1, 11, 0.3);
+  const std::vector<feet_array_t<scalar_t>> starts =
+      committedPhaseStartsForPlanner(schedule, /*startTime=*/0.0, /*dt=*/0.1, /*maxNodes=*/11, /*committedUntil=*/0.3);
   ASSERT_EQ(starts.size(), 3u);
   EXPECT_NEAR(starts[2][1], 0.27, kTol) << "the contact is counted from the executed touch-down";
   // A touch-down exactly on the boundary has passed as well (the event at the query time counts as passed).
   const ModeSchedule onBoundary({-0.1, 0.3}, {kAllInContact, modeWithSwinging({1}), kAllInContact});
-  EXPECT_TRUE(committedContactsForPlanner(onBoundary, 0.0, 0.1, 11, 0.3)[2][1]);
-  EXPECT_NEAR(committedPhaseStartsForPlanner(onBoundary, 0.0, 0.1, 11, 0.3)[2][1], 0.3, kTol);
+  EXPECT_TRUE(committedContactsForPlanner(onBoundary, /*startTime=*/0.0, /*dt=*/0.1, /*maxNodes=*/11, /*committedUntil=*/0.3)[2][1]);
+  EXPECT_NEAR(committedPhaseStartsForPlanner(onBoundary, /*startTime=*/0.0, /*dt=*/0.1, /*maxNodes=*/11, /*committedUntil=*/0.3)[2][1], 0.3,
+              kTol);
 
   // The merge of a plan built on these committed contacts keeps the executed touch-down and never lifts the foot again.
   ContactPlan plan;
@@ -802,8 +822,9 @@ TEST(CommittedContacts, LastCommittedNodeEndingOnTheBoundaryIsSampledAtTheBounda
   plan.committedUntil = 0.3;
   plan.contacts = committed;
   while (plan.contacts.size() < 12) plan.contacts.push_back(makeFeetArray(true));
-  const ModeSchedule merged = mergeModeSchedules(schedule, plan.toModeSchedule(), 0.3, -1.2, 2.4);
-  EXPECT_FALSE(contactFlagsAtTime(merged, 0.269)[1]);
+  const ModeSchedule merged =
+      mergeModeSchedules(schedule, plan.toModeSchedule(), /*commitTime=*/0.3, /*lowerBoundTime=*/-1.2, /*upperBoundTime=*/2.4);
+  EXPECT_FALSE(contactFlagsAtTime(merged, /*time=*/0.269)[1]);
   for (scalar_t t = 0.27; t < 2.0; t += 0.01) EXPECT_TRUE(contactFlagsAtTime(merged, t)[1]) << "phantom re-lift at " << t;
 }
 
@@ -814,16 +835,16 @@ TEST(CommitBoundary, CoversSwingsOfEveryFootThatStartOnAnExtendedBoundary) {
   // left swing starts exactly there and is in the window too, so the boundary is its touch-down. Walking the schedule
   // once per foot in foot order saw the left foot before the right one had extended the boundary and stopped at 1.4.
   const ModeSchedule schedule({1.0, 1.4, 1.8}, {kAllInContact, modeWithSwinging({1}), modeWithSwinging({0}), kAllInContact});
-  EXPECT_NEAR(commitBoundaryForSchedule(schedule, 0.9, 0.25), 1.8, kTol);
+  EXPECT_NEAR(commitBoundaryForSchedule(schedule, /*time=*/0.9, /*commitTime=*/0.25), 1.8, kTol);
   // The mirrored schedule (left first) gave the right answer already; both orders agree now.
   const ModeSchedule mirrored({1.0, 1.4, 1.8}, {kAllInContact, modeWithSwinging({0}), modeWithSwinging({1}), kAllInContact});
-  EXPECT_NEAR(commitBoundaryForSchedule(mirrored, 0.9, 0.25), 1.8, kTol);
+  EXPECT_NEAR(commitBoundaryForSchedule(mirrored, /*time=*/0.9, /*commitTime=*/0.25), 1.8, kTol);
   // A swing that starts after the (extended) boundary is not covered; a window with no swing is not extended.
   const ModeSchedule later({1.0, 1.4, 1.5, 1.9},
                            {kAllInContact, modeWithSwinging({1}), kAllInContact, modeWithSwinging({0}), kAllInContact});
-  EXPECT_NEAR(commitBoundaryForSchedule(later, 0.9, 0.25), 1.4, kTol);
-  EXPECT_NEAR(commitBoundaryForSchedule(later, 0.2, 0.25), 0.45, kTol);
-  EXPECT_NEAR(commitBoundaryForSchedule(ModeSchedule({}, {kAllInContact}), 0.2, 0.25), 0.45, kTol);
+  EXPECT_NEAR(commitBoundaryForSchedule(later, /*time=*/0.9, /*commitTime=*/0.25), 1.4, kTol);
+  EXPECT_NEAR(commitBoundaryForSchedule(later, /*time=*/0.2, /*commitTime=*/0.25), 0.45, kTol);
+  EXPECT_NEAR(commitBoundaryForSchedule(ModeSchedule({}, {kAllInContact}), /*time=*/0.2, /*commitTime=*/0.25), 0.45, kTol);
 }
 
 /**
@@ -840,36 +861,39 @@ TEST(CommitBoundary, TheExtensionChainsThroughAZeroDoubleSupportGaitUntilItIsCap
                                        {kAllInContact, modeWithSwinging({1}), modeWithSwinging({0}), modeWithSwinging({1}),
                                         modeWithSwinging({0}), modeWithSwinging({1}), kAllInContact});
   // Uncapped (the default): the walk runs all the way to the last event, 1.65 s past time + commitTime.
-  EXPECT_NEAR(commitBoundaryForSchedule(zeroDoubleSupport, 1.05, 0.3), 3.0, kTol) << "the chain runs to the end of the stepping region";
-  EXPECT_NEAR(commitBoundaryForSchedule(zeroDoubleSupport, 1.05, 0.3, 0.0), 3.0, kTol) << "0 means no cap";
+  EXPECT_NEAR(commitBoundaryForSchedule(zeroDoubleSupport, /*time=*/1.05, /*commitTime=*/0.3), 3.0, kTol)
+      << "the chain runs to the end of the stepping region";
+  EXPECT_NEAR(commitBoundaryForSchedule(zeroDoubleSupport, /*time=*/1.05, /*commitTime=*/0.3, /*maxCommitExtension=*/0.0), 3.0, kTol)
+      << "0 means no cap";
 
   // Capped at one maximum swing past the commit window: the boundary stays finite and close to the window.
-  const scalar_t capped = commitBoundaryForSchedule(zeroDoubleSupport, 1.05, 0.3, 0.5);
+  const scalar_t capped = commitBoundaryForSchedule(zeroDoubleSupport, /*time=*/1.05, /*commitTime=*/0.3, /*maxCommitExtension=*/0.5);
   EXPECT_LE(capped, 1.05 + 0.3 + 0.5 + kTol);
   EXPECT_GE(capped, 1.05 + 0.3 - kTol) << "the cap may never pull the boundary inside the commit window itself";
 
   // A plan of the Atlas horizon (12 * 0.1 s) made at 1.05 reaches 2.25, so the uncapped boundary makes it unusable
   // (planUsable needs endTime() > commitTime + dt) while the capped one leaves room to plan.
   const scalar_t planEnd = 1.05 + 12 * 0.1;
-  EXPECT_FALSE(planEnd > commitBoundaryForSchedule(zeroDoubleSupport, 1.05, 0.3) + 0.1) << "uncapped: every plan is unusable";
+  EXPECT_FALSE(planEnd > commitBoundaryForSchedule(zeroDoubleSupport, /*time=*/1.05, /*commitTime=*/0.3) + 0.1)
+      << "uncapped: every plan is unusable";
   EXPECT_TRUE(planEnd > capped + 0.1) << "capped: the plan still reaches past the boundary";
 
-  // One double support anywhere in the stretch is enough to stop the chain on its own - the historical behaviour.
+  // One double support anywhere in the stretch is enough to stop the chain on its own - the historical behavior.
   const ModeSchedule withDoubleSupport({1.0, 1.4, 1.5, 1.9},
                                        {kAllInContact, modeWithSwinging({1}), kAllInContact, modeWithSwinging({0}), kAllInContact});
-  EXPECT_NEAR(commitBoundaryForSchedule(withDoubleSupport, 1.05, 0.3), 1.4, kTol);
+  EXPECT_NEAR(commitBoundaryForSchedule(withDoubleSupport, /*time=*/1.05, /*commitTime=*/0.3), 1.4, kTol);
 }
 
 TEST(CommittedContacts, PhaseStartsAreTheExecutedEventTimes) {
   if (N_CONTACTS < 2) GTEST_SKIP() << "needs a second foot";
   // Right foot swings 0.57 -> 0.97. Planner grid from 0.7 with dt 0.1, boundary at the touch-down 0.97.
   const ModeSchedule schedule({0.57, 0.97}, {kAllInContact, modeWithSwinging({1}), kAllInContact});
-  const feet_array_t<scalar_t> before = contactPhaseStartTimes(schedule, 0.7);
+  const feet_array_t<scalar_t> before = contactPhaseStartTimes(schedule, /*time=*/0.7);
   EXPECT_TRUE(std::isinf(before[0]) && before[0] < 0.0) << "the left foot's contact began before the schedule";
   EXPECT_NEAR(before[1], 0.57, kTol);
-  EXPECT_NEAR(contactPhaseStartTimes(schedule, 0.969)[1], 0.57, kTol);
-  EXPECT_NEAR(contactPhaseStartTimes(schedule, 0.97)[1], 0.97, kTol) << "the touch-down at the query time counts as passed";
-  EXPECT_NEAR(contactPhaseStartTimes(schedule, 1.5)[1], 0.97, kTol);
+  EXPECT_NEAR(contactPhaseStartTimes(schedule, /*time=*/0.969)[1], 0.57, kTol);
+  EXPECT_NEAR(contactPhaseStartTimes(schedule, /*time=*/0.97)[1], 0.97, kTol) << "the touch-down at the query time counts as passed";
+  EXPECT_NEAR(contactPhaseStartTimes(schedule, /*time=*/1.5)[1], 0.97, kTol);
 
   const std::vector<scalar_t> samples = committedSampleTimes(0.7, 0.1, 11, 0.97);
   ASSERT_EQ(samples.size(), 3u) << "nodes starting at 0.7, 0.8, 0.9 start before the boundary";
@@ -877,17 +901,18 @@ TEST(CommittedContacts, PhaseStartsAreTheExecutedEventTimes) {
   EXPECT_NEAR(samples[1], 0.85, kTol);
   EXPECT_NEAR(samples[2], 0.97, kTol) << "the straddling node is sampled at the boundary";
 
-  const std::vector<feet_array_t<scalar_t>> starts = committedPhaseStartsForPlanner(schedule, 0.7, 0.1, 11, 0.97);
+  const std::vector<feet_array_t<scalar_t>> starts =
+      committedPhaseStartsForPlanner(schedule, /*startTime=*/0.7, /*dt=*/0.1, /*maxNodes=*/11, /*committedUntil=*/0.97);
   ASSERT_EQ(starts.size(), 3u);
   for (size_t k = 0; k < 2; ++k) EXPECT_NEAR(starts[k][1], 0.57, kTol) << "node " << k << " is in the swing that began at 0.57";
   // The straddling node reports the landed state; the landing happened at 0.97, 0.07 s after the node start.
   EXPECT_NEAR(starts[2][1], 0.97, kTol);
-  for (const auto& nodeStarts : starts) EXPECT_TRUE(std::isinf(nodeStarts[0]));
-  EXPECT_TRUE(committedPhaseStartsForPlanner(schedule, 0.7, 0.1, 11, 0.7).empty());
+  for (const feet_array_t<scalar_t>& nodeStarts : starts) EXPECT_TRUE(std::isinf(nodeStarts[0]));
+  EXPECT_TRUE(committedPhaseStartsForPlanner(schedule, /*startTime=*/0.7, /*dt=*/0.1, /*maxNodes=*/11, /*committedUntil=*/0.7).empty());
 }
 
 TEST(PlanShiftLog, ShiftsYoungerThanTheSnapshotAreSummedAgainstTheOriginalStartTime) {
-  ContactPlan plan = makePlan(1.005, 0.1, 5, vector2_t::Zero(), vector2_t::Zero(), vector2_t::Zero());
+  ContactPlan plan = makePlan(/*startTime=*/1.005, /*dt=*/0.1, /*numIntervals=*/5, vector2_t::Zero(), vector2_t::Zero(), vector2_t::Zero());
   plan.committedUntil = 1.3;
   // A cadence advance undone one cycle later: net zero. Comparing against the already-shifted start time would apply
   // the first (+0.10 -> start 1.105) and then skip the second (1.020 < 1.105).
@@ -911,28 +936,28 @@ TEST(PlanShiftLog, PlanMadeBeforeASwingWasCommittedDisagreesWithItInFlight) {
 
   // A plan that keeps both feet down was made from a snapshot without that swing: merging it while the swing is in
   // flight would land the foot at the merge point and lift it again.
-  ContactPlan plan = makePlan(1.0, 0.1, 10, vector2_t::Zero(), vector2_t::Zero(), vector2_t::Zero());
-  EXPECT_TRUE(planAgreesWithSwingsInFlight(applied, plan, 1.1)) << "before the swing";
-  EXPECT_TRUE(planAgreesWithSwingsInFlight(applied, plan, 1.2)) << "a lift-off at the merge point itself is not executing yet";
-  EXPECT_FALSE(planAgreesWithSwingsInFlight(applied, plan, 1.3)) << "in flight";
-  EXPECT_FALSE(planAgreesWithSwingsInFlight(applied, plan, 1.65)) << "still in flight";
-  EXPECT_TRUE(planAgreesWithSwingsInFlight(applied, plan, 1.7)) << "landed (the touch-down counts as passed)";
+  ContactPlan plan = makePlan(/*startTime=*/1.0, /*dt=*/0.1, /*numIntervals=*/10, vector2_t::Zero(), vector2_t::Zero(), vector2_t::Zero());
+  EXPECT_TRUE(planAgreesWithSwingsInFlight(applied, plan, /*time=*/1.1)) << "before the swing";
+  EXPECT_TRUE(planAgreesWithSwingsInFlight(applied, plan, /*time=*/1.2)) << "a lift-off at the merge point itself is not executing yet";
+  EXPECT_FALSE(planAgreesWithSwingsInFlight(applied, plan, /*time=*/1.3)) << "in flight";
+  EXPECT_FALSE(planAgreesWithSwingsInFlight(applied, plan, /*time=*/1.65)) << "still in flight";
+  EXPECT_TRUE(planAgreesWithSwingsInFlight(applied, plan, /*time=*/1.7)) << "landed (the touch-down counts as passed)";
 
   // A plan that has the foot in the air there agrees, whatever it does afterwards.
   for (int k = 2; k < 7; ++k) plan.contacts[k][0] = false;  // nodes [1.2, 1.7)
-  EXPECT_TRUE(planAgreesWithSwingsInFlight(applied, plan, 1.3));
-  EXPECT_TRUE(planAgreesWithSwingsInFlight(applied, plan, 1.65));
+  EXPECT_TRUE(planAgreesWithSwingsInFlight(applied, plan, /*time=*/1.3));
+  EXPECT_TRUE(planAgreesWithSwingsInFlight(applied, plan, /*time=*/1.65));
   // The other foot is free to be lifted by the plan at any time.
   for (int k = 0; k < 10; ++k) plan.contacts[k][1] = false;
-  EXPECT_TRUE(planAgreesWithSwingsInFlight(applied, plan, 1.3));
+  EXPECT_TRUE(planAgreesWithSwingsInFlight(applied, plan, /*time=*/1.3));
 
   // Nothing to disagree with.
   plan.valid = false;
-  EXPECT_TRUE(planAgreesWithSwingsInFlight(applied, plan, 1.3));
+  EXPECT_TRUE(planAgreesWithSwingsInFlight(applied, plan, /*time=*/1.3));
 }
 
 TEST(PlanHeading, InterpolatesHeadingAndLooksUpFootYaw) {
-  ContactPlan plan = makePlan(1.0, 0.1, 4, vector2_t::Zero(), vector2_t::Zero(), vector2_t::Zero());
+  ContactPlan plan = makePlan(/*startTime=*/1.0, /*dt=*/0.1, /*numIntervals=*/4, vector2_t::Zero(), vector2_t::Zero(), vector2_t::Zero());
   EXPECT_FALSE(plan.hasHeading());
   EXPECT_FALSE(plan.headingAtTime(1.0).has_value());
   EXPECT_FALSE(plan.footYawAtTime(0, 1.0).has_value());
@@ -954,14 +979,14 @@ TEST(PlanHeading, InterpolatesHeadingAndLooksUpFootYaw) {
 TEST(SwingQueries, CurrentOrNextLiftOff) {
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
     const ModeSchedule schedule = twoStepSchedule(foot, foot);  // the same foot swings [1.0, 1.4] and [1.5, 1.9]
-    ASSERT_TRUE(currentOrNextLiftOffTime(schedule, foot, 0.5).has_value());
-    EXPECT_NEAR(*currentOrNextLiftOffTime(schedule, foot, 0.5), 1.0, kTol) << "next swing while standing";
-    EXPECT_NEAR(*currentOrNextLiftOffTime(schedule, foot, 1.2), 1.0, kTol) << "the swing in flight";
-    EXPECT_NEAR(*currentOrNextLiftOffTime(schedule, foot, 1.45), 1.5, kTol) << "the next swing during double support";
-    EXPECT_NEAR(*currentOrNextLiftOffTime(schedule, foot, 1.7), 1.5, kTol);
-    EXPECT_FALSE(currentOrNextLiftOffTime(schedule, foot, 1.95).has_value()) << "no further swing";
+    ASSERT_TRUE(currentOrNextLiftOffTime(schedule, foot, /*time=*/0.5).has_value());
+    EXPECT_NEAR(*currentOrNextLiftOffTime(schedule, foot, /*time=*/0.5), 1.0, kTol) << "next swing while standing";
+    EXPECT_NEAR(*currentOrNextLiftOffTime(schedule, foot, /*time=*/1.2), 1.0, kTol) << "the swing in flight";
+    EXPECT_NEAR(*currentOrNextLiftOffTime(schedule, foot, /*time=*/1.45), 1.5, kTol) << "the next swing during double support";
+    EXPECT_NEAR(*currentOrNextLiftOffTime(schedule, foot, /*time=*/1.7), 1.5, kTol);
+    EXPECT_FALSE(currentOrNextLiftOffTime(schedule, foot, /*time=*/1.95).has_value()) << "no further swing";
     const ModeSchedule noLiftOff({1.4}, {modeWithSwinging({foot}), kAllInContact});
-    EXPECT_FALSE(currentOrNextLiftOffTime(noLiftOff, foot, 1.0).has_value());
+    EXPECT_FALSE(currentOrNextLiftOffTime(noLiftOff, foot, /*time=*/1.0).has_value());
   }
 }
 
@@ -969,56 +994,64 @@ TEST(SwingQueries, CurrentOrNextLiftOff) {
 
 TEST(LipHelpers, ReferenceStateMatchesClosedFormAndNodes) {
   const scalar_t omega = std::sqrt(9.81 / 0.85);
-  const ContactPlan plan = makePlan(2.0, 0.1, 6, vector2_t(0.1, 0.0), vector2_t(0.15, 0.02), vector2_t(0.3, -0.1));
+  const ContactPlan plan =
+      makePlan(/*startTime=*/2.0, /*dt=*/0.1, /*numIntervals=*/6, vector2_t(0.1, 0.0), vector2_t(0.15, 0.02), vector2_t(0.3, -0.1));
   for (int k = 0; k <= 6; ++k) {
-    const auto state = lipReferenceState(plan, omega, 2.0 + 0.1 * k);
+    const std::optional<LipState> state = lipReferenceState(plan, omega, 2.0 + 0.1 * k);
     ASSERT_TRUE(state.has_value());
     EXPECT_TRUE(state->com.isApprox(plan.comPosition[k], 1e-9)) << k;
     EXPECT_TRUE(state->comVelocity.isApprox(plan.comVelocity[k], 1e-9)) << k;
     EXPECT_TRUE(state->zmp.isApprox(plan.zmp[std::min(k, 5)], 1e-12));
   }
   // Between nodes the DCM follows xi(t) = z + (xi_k - z) exp(omega tau), and the CoM lies between the node values.
-  const auto mid = lipReferenceState(plan, omega, 2.05);
+  const std::optional<LipState> mid = lipReferenceState(plan, omega, /*time=*/2.05);
   ASSERT_TRUE(mid.has_value());
   const vector2_t dcm0 = computeDcm(plan.comPosition[0], plan.comVelocity[0], omega);
   const vector2_t expected = plan.zmp[0] + (dcm0 - plan.zmp[0]) * std::exp(omega * 0.05);
   EXPECT_TRUE(computeDcm(mid->com, mid->comVelocity, omega).isApprox(expected, 1e-9));
-  EXPECT_FALSE(lipReferenceState(plan, omega, 1.9).has_value());
-  EXPECT_FALSE(lipReferenceState(plan, omega, 2.7).has_value());
+  EXPECT_FALSE(lipReferenceState(plan, omega, /*time=*/1.9).has_value());
+  EXPECT_FALSE(lipReferenceState(plan, omega, /*time=*/2.7).has_value());
   ContactPlan invalid = plan;
   invalid.valid = false;
-  EXPECT_FALSE(lipReferenceState(invalid, omega, 2.1).has_value());
+  EXPECT_FALSE(lipReferenceState(invalid, omega, /*time=*/2.1).has_value());
   ContactPlan inconsistent = plan;
   inconsistent.zmp.pop_back();
-  EXPECT_FALSE(lipReferenceState(inconsistent, omega, 2.1).has_value());
+  EXPECT_FALSE(lipReferenceState(inconsistent, omega, /*time=*/2.1).has_value());
 }
 
 TEST(LipHelpers, OrbitalEnergyIsConservedAlongTheReference) {
   const scalar_t omega = std::sqrt(9.81 / 0.85);
-  const ContactPlan plan = makePlan(0.0, 0.1, 8, vector2_t(0.0, 0.0), vector2_t(-0.1, 0.0), vector2_t(0.4, 0.0));
-  const scalar_t e0 = lipOrbitalEnergy(-0.1, 0.4, omega, 100.0);
+  const ContactPlan plan =
+      makePlan(/*startTime=*/0.0, /*dt=*/0.1, /*numIntervals=*/8, vector2_t(0.0, 0.0), vector2_t(-0.1, 0.0), vector2_t(0.4, 0.0));
+  const scalar_t e0 = lipOrbitalEnergy(/*position=*/-0.1, /*velocity=*/0.4, omega, /*mass=*/100.0);
   for (scalar_t t = 0.0; t <= 0.8; t += 0.037) {
-    const auto state = lipReferenceState(plan, omega, t);
+    const std::optional<LipState> state = lipReferenceState(plan, omega, t);
     ASSERT_TRUE(state.has_value());
-    EXPECT_NEAR(lipOrbitalEnergy(state->com(0) - state->zmp(0), state->comVelocity(0), omega, 100.0), e0, 1e-8) << t;
+    EXPECT_NEAR(lipOrbitalEnergy(state->com(0) - state->zmp(0), state->comVelocity(0), omega, /*mass=*/100.0), e0, 1e-8) << t;
   }
-  EXPECT_GT(lipOrbitalEnergy(-0.1, 0.5, omega, 100.0), e0) << "more speed, more energy";
-  EXPECT_LT(lipOrbitalEnergy(-0.2, 0.4, omega, 100.0), e0) << "further from the ZMP, less energy";
+  EXPECT_GT(lipOrbitalEnergy(/*position=*/-0.1, /*velocity=*/0.5, omega, /*mass=*/100.0), e0) << "more speed, more energy";
+  EXPECT_LT(lipOrbitalEnergy(/*position=*/-0.2, /*velocity=*/0.4, omega, /*mass=*/100.0), e0) << "further from the ZMP, less energy";
 }
 
 TEST(LipHelpers, StepAdjustmentPropagatesToTouchDownAndIsBounded) {
   const scalar_t omega = 3.4;
   const vector2_t error(0.01, -0.02);
-  EXPECT_TRUE(dcmStepAdjustment(vector2_t::Zero(), omega, 0.3, 1.0, 0.15).isZero());
-  EXPECT_TRUE(dcmStepAdjustment(error, omega, 0.0, 1.0, 0.15).isApprox(error, 1e-12)) << "at touch-down the error maps 1:1";
-  EXPECT_TRUE(dcmStepAdjustment(error, omega, 0.3, 1.0, 0.15).isApprox(error * std::exp(omega * 0.3), 1e-12));
-  EXPECT_TRUE(dcmStepAdjustment(error, omega, 0.3, 0.5, 0.15).isApprox(0.5 * error * std::exp(omega * 0.3), 1e-12));
-  EXPECT_TRUE(dcmStepAdjustment(error, omega, -0.5, 1.0, 0.15).isApprox(error, 1e-12)) << "a past touch-down is not propagated";
-  const vector2_t large = dcmStepAdjustment(vector2_t(0.2, 0.0), omega, 0.5, 1.0, 0.15);
+  EXPECT_TRUE(dcmStepAdjustment(vector2_t::Zero(), omega, /*timeToTouchDown=*/0.3, /*gain=*/1.0, /*maxOffset=*/0.15).isZero());
+  EXPECT_TRUE(dcmStepAdjustment(error, omega, /*timeToTouchDown=*/0.0, /*gain=*/1.0, /*maxOffset=*/0.15).isApprox(error, 1e-12))
+      << "at touch-down the error maps 1:1";
+  EXPECT_TRUE(dcmStepAdjustment(error, omega, /*timeToTouchDown=*/0.3, /*gain=*/1.0, /*maxOffset=*/0.15)
+                  .isApprox(error * std::exp(omega * 0.3), 1e-12));
+  EXPECT_TRUE(dcmStepAdjustment(error, omega, /*timeToTouchDown=*/0.3, /*gain=*/0.5, /*maxOffset=*/0.15)
+                  .isApprox(0.5 * error * std::exp(omega * 0.3), 1e-12));
+  EXPECT_TRUE(dcmStepAdjustment(error, omega, /*timeToTouchDown=*/-0.5, /*gain=*/1.0, /*maxOffset=*/0.15).isApprox(error, 1e-12))
+      << "a past touch-down is not propagated";
+  const vector2_t large = dcmStepAdjustment(vector2_t(0.2, 0.0), omega, /*timeToTouchDown=*/0.5, /*gain=*/1.0, /*maxOffset=*/0.15);
   EXPECT_NEAR(large.norm(), 0.15, 1e-12);
   EXPECT_GT(large(0), 0.0);
-  EXPECT_TRUE(dcmStepAdjustment(error, omega, 0.3, 1.0, 0.0).isZero()) << "a zero bound switches the adjustment off";
-  EXPECT_TRUE(dcmStepAdjustment(error, omega, 0.3, 0.0, 0.15).isZero()) << "a zero gain switches the adjustment off";
+  EXPECT_TRUE(dcmStepAdjustment(error, omega, /*timeToTouchDown=*/0.3, /*gain=*/1.0, /*maxOffset=*/0.0).isZero())
+      << "a zero bound switches the adjustment off";
+  EXPECT_TRUE(dcmStepAdjustment(error, omega, /*timeToTouchDown=*/0.3, /*gain=*/0.0, /*maxOffset=*/0.15).isZero())
+      << "a zero gain switches the adjustment off";
 }
 
 TEST(LipHelpers, ReachClippingInYawFrameKeepsSideOfBody) {
@@ -1057,7 +1090,7 @@ TEST(LipHelpers, ReachClippingInYawFrameKeepsSideOfBody) {
 /*============================================ plan and config ============================================*/
 
 TEST(ContactPlanShift, ShiftInTimeKeepsFootholdLookupRelativeToEvents) {
-  ContactPlan plan = makePlan(1.0, 0.1, 5, vector2_t::Zero(), vector2_t::Zero(), vector2_t::Zero());
+  ContactPlan plan = makePlan(/*startTime=*/1.0, /*dt=*/0.1, /*numIntervals=*/5, vector2_t::Zero(), vector2_t::Zero(), vector2_t::Zero());
   plan.committedUntil = 1.3;
   for (int k = 0; k <= 5; ++k) plan.footholds[k][0] = vector2_t(0.1 * k, 0.0);
   const vector2_t before = *plan.footholdAtTime(0, 1.3);
@@ -1070,12 +1103,17 @@ TEST(ContactPlanShift, ShiftInTimeKeepsFootholdLookupRelativeToEvents) {
 }
 
 TEST(ContactPlanningConfigAdaptive, DefaultsAreValidAndLoadable) {
+  // The defaults, with the pendulum a robot model would derive (ContactPlanningModelParameters::applyTo): the library
+  // default shared.comHeight of 0 means "from the model", which validation refuses without one.
   ContactPlanningConfig config;
-  EXPECT_NO_THROW(config.validate());
+  config.shared.comHeight = 0.85;
+  EXPECT_TRUE(config.validateStatus().ok()) << config.validateStatus();
   const std::string file = testing::TempDir() + "/adaptive_contact_planning.yaml";
   {
     std::ofstream out(file);
     out << "contact_planning:\n"
+        << "  shared:\n"
+        << "    comHeight: 0.85\n"
         << "  execution:\n"
         << "    - energy_cadence_modulation\n"
         << "  phase_resetting:\n"
@@ -1091,7 +1129,7 @@ TEST(ContactPlanningConfigAdaptive, DefaultsAreValidAndLoadable) {
         << "    gain: 0.02\n"
         << "    deadband: 0.6\n";
   }
-  const ContactPlanningConfig loaded = loadContactPlanningConfig(file, "contact_planning.", false);
+  const ContactPlanningConfig loaded = loadContactPlanningConfigStatus(file, "contact_planning.", /*verbose=*/false).value();
   std::remove(file.c_str());
   EXPECT_FALSE(loaded.formulation.hasExecutionRule(term::kPhaseResetting));
   EXPECT_NEAR(loaded.phaseResetting.earlyTouchdownMinSwingRatio, 0.4, kTol);
@@ -1105,16 +1143,18 @@ TEST(ContactPlanningConfigAdaptive, DefaultsAreValidAndLoadable) {
   EXPECT_TRUE(loaded.formulation.hasExecutionRule(term::kEnergyCadenceModulation));
   EXPECT_NEAR(loaded.energyCadenceModulation.gain, 0.02, kTol);
   EXPECT_NEAR(loaded.energyCadenceModulation.deadband, 0.6, kTol);
-  EXPECT_NEAR(config.energyCadenceModulation.deadband, 0.0, kTol) << "no deadband by default: the shipped behaviour is unchanged";
+  EXPECT_NEAR(config.energyCadenceModulation.deadband, 0.0, kTol) << "no deadband by default: the shipped behavior is unchanged";
   EXPECT_NEAR(loaded.planner.dt, config.planner.dt, kTol) << "missing keys keep their defaults";
 }
 
 TEST(ContactPlanningConfigAdaptive, ValidationRejectsBadValues) {
-  const auto rejects = [](auto mutate) {
-    ContactPlanningConfig config;
-    mutate(config);
-    EXPECT_THROW(config.validate(), std::invalid_argument);
-  };
+  const std::function<void(const std::function<void(ContactPlanningConfig&)>&)> rejects =
+      [](const std::function<void(ContactPlanningConfig&)>& mutate) {
+        ContactPlanningConfig config;
+        config.shared.comHeight = 0.85;  // valid but for the one value `mutate` breaks
+        mutate(config);
+        EXPECT_EQ(config.validateStatus().code(), absl::StatusCode::kInvalidArgument);
+      };
   rejects([](ContactPlanningConfig& c) { c.phaseResetting.earlyTouchdownMinSwingRatio = -0.1; });
   rejects([](ContactPlanningConfig& c) { c.phaseResetting.earlyTouchdownMinSwingRatio = 1.1; });
   rejects([](ContactPlanningConfig& c) { c.phaseResetting.earlyTouchdownMinContactDuration = -0.01; });
@@ -1126,6 +1166,7 @@ TEST(ContactPlanningConfigAdaptive, ValidationRejectsBadValues) {
   rejects([](ContactPlanningConfig& c) { c.dcmStepAdjustment.maxOffset = -0.1; });
   rejects([](ContactPlanningConfig& c) { c.energyCadenceModulation.gain = -0.1; });
   ContactPlanningConfig zeros;
+  zeros.shared.comHeight = 0.85;
   zeros.phaseResetting.earlyTouchdownMinSwingRatio = 0.0;
   zeros.phaseResetting.earlyTouchdownMinContactDuration = 0.0;
   zeros.phaseResetting.maxLateTouchdownExtension = 0.0;
@@ -1133,7 +1174,7 @@ TEST(ContactPlanningConfigAdaptive, ValidationRejectsBadValues) {
   zeros.dcmStepAdjustment.gain = 0.0;
   zeros.dcmStepAdjustment.maxOffset = 0.0;
   zeros.energyCadenceModulation.gain = 0.0;
-  EXPECT_NO_THROW(zeros.validate());
+  EXPECT_TRUE(zeros.validateStatus().ok()) << zeros.validateStatus();
 }
 
 }  // namespace ocs2::humanoid

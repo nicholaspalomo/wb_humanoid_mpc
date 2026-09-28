@@ -143,7 +143,7 @@ struct HipCenteredSteppingParameters {
  */
 struct CapturePointParameters {
   scalar_t gain = 1.0;
-  /** [m] 0: use the centre-of-mass height measured at each solve. Positive: use this fixed height instead. */
+  /** [m] 0: use the center-of-mass height measured at each solve. Positive: use this fixed height instead. */
   scalar_t comHeightOverride = 0.0;
   scalar_t gravity = 9.81;  // [m/s^2]
   /** [m] the offset is clamped to this magnitude, so a bad velocity estimate cannot throw the landing target out of reach. */
@@ -151,7 +151,7 @@ struct CapturePointParameters {
 };
 
 /**
- * H_r(pdot) = a1 pdot + a0, Table C.2: step in the direction you are travelling.
+ * H_r(pdot) = a1 pdot + a0, Table C.2: step in the direction you are traveling.
  *
  * "So as to maximize the utility of the contact feet over the stance period" (section 4.3, figure 4-9): a foot placed
  * under the hip at lift-off is behind the robot by touch-down, and the stance that follows is spent catching up.
@@ -161,16 +161,18 @@ struct CapturePointParameters {
  * whole robot to the left.
  */
 struct TranslationalSteppingParameters {
-  scalar_t forwardPerForwardVelocity = 0.0;  // a1 [m s/m]
+  scalar_t forwardPerForwardVelocity = 0.0;  // a1 [m s/m], Bledt's constant
+  scalar_t forwardStanceFraction = 0.0;      // [-] adds this times the stance duration to a1; Raibert's rule is 0.5
   scalar_t forwardOffset = 0.0;              // a0 [m]
-  scalar_t lateralPerLateralVelocity = 0.0;  // a1 [m s/m]
+  scalar_t lateralPerLateralVelocity = 0.0;  // a1 [m s/m], Bledt's constant
+  scalar_t lateralStanceFraction = 0.0;      // [-] adds this times the stance duration to a1
   scalar_t lateralOffset = 0.0;              // a0 [m], applied to this foot's own side
 };
 
 /**
  * H_r(psidot) = a1 psidot + a0, Table C.2: step along the arc while turning on the spot.
  *
- * The rotational analogue of translational stepping and, like it, about keeping the foot useful over the stance: the
+ * The rotational analog of translational stepping and, like it, about keeping the foot useful over the stance: the
  * feet lead the hips into the turn instead of trailing them to the end of their workspace (figure 4-10). `psidot` is
  * the COMMANDED yaw rate, taken from the command rather than differentiated from the measured heading, because the
  * whole point is to step where the robot is being asked to go.
@@ -178,13 +180,14 @@ struct TranslationalSteppingParameters {
  * The forward term is signed per foot, because a foot to the LEFT of a body turning counter-clockwise travels
  * BACKWARDS (its velocity is omega x r) while the right foot travels forwards: the two fore-aft displacements must be
  * equal and opposite. The implementation carries that sign, so a POSITIVE coefficient places each foot further along
- * the direction its own hip is travelling - it leads the hips into the turn, which is what the heuristic is for.
+ * the direction its own hip is traveling - it leads the hips into the turn, which is what the heuristic is for.
  */
 struct InPlaceTurningParameters {
-  scalar_t forwardPerYawRate = 0.0;  // a1 [m s/rad], positive leads the hips into the turn
-  scalar_t forwardOffset = 0.0;      // a0 [m]
-  scalar_t lateralPerYawRate = 0.0;  // a1 [m s/rad]
-  scalar_t lateralOffset = 0.0;      // a0 [m], applied to this foot's own side
+  scalar_t forwardPerYawRate = 0.0;   // a1 [m s/rad], Bledt's constant; positive leads the hips into the turn
+  scalar_t forwardStanceLever = 0.0;  // [m/rad] adds this times the stance duration to a1; Raibert's is half the hip's lever
+  scalar_t forwardOffset = 0.0;       // a0 [m]
+  scalar_t lateralPerYawRate = 0.0;   // a1 [m s/rad]
+  scalar_t lateralOffset = 0.0;       // a0 [m], applied to this foot's own side
 };
 
 /**
@@ -192,7 +195,7 @@ struct InPlaceTurningParameters {
  *
  * The heuristic the extraction framework found and the designer had not thought of, and the one that made fast
  * turning possible at all (section 4.3, figure 4-11): without it the robot "tended to fall outwards along the turning
- * radius as if it were an object slipping off a spinning plate". Bledt then recognised it after the fact as the foot
+ * radius as if it were an object slipping off a spinning plate". Bledt then recognized it after the fact as the foot
  * placement that lines up with the resultant of gravity and the centripetal acceleration (equation 4.31).
  *
  * With omega = psidot e_z and a horizontal velocity, the cross product reduces to the two planar scalars
@@ -212,7 +215,7 @@ struct HighSpeedTurningParameters {
  * A foot that is on the ground for a fraction beta of the gait cycle has to push harder than static weight
  * compensation while it is down, or the vertical impulse over the cycle does not add up to the robot's weight. The
  * reference this layer shapes divides the weight over the feet that are in contact AT THIS INSTANT, which is the
- * beta = 1 case; the offset below is the difference between the two, so an empty list is exactly today's behaviour.
+ * beta = 1 case; the offset below is the difference between the two, so an empty list is exactly today's behavior.
  *
  * Both clamps are load-bearing rather than defensive: beta goes to zero at the onset of a flight phase, and 1/beta is
  * unbounded there.
@@ -288,5 +291,12 @@ struct LocomotionHeuristicConfig {
  * duplicate, or a parameter outside its admissible range.
  */
 absl::StatusOr<LocomotionHeuristicConfig> loadLocomotionHeuristicConfig(absl::string_view taskFile, bool verbose = false);
+
+/**
+ * Every coefficient key the loader reads, as "<heuristic>.<key>" relative to the locomotion_heuristics block - the same
+ * list the loader iterates, so it cannot drift from it. The loader ignores a key it does not know, like every other
+ * loader here; the tests use this to check that no shipped task file carries a misspelled one.
+ */
+std::vector<std::string> locomotionHeuristicCoefficientKeys();
 
 }  // namespace ocs2::humanoid

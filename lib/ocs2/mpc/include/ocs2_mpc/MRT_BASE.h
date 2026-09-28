@@ -135,8 +135,8 @@ class MRT_BASE {
    * @param [out] mpcInput: the new control input of MPC.
    * @param [out] mode: the active mode.
    */
-  void rolloutPolicy(scalar_t currentTime, const vector_t& currentState, const scalar_t& timeStep, vector_t& mpcState, vector_t& mpcInput,
-                     size_t& mode);
+  void rolloutPolicy(
+      scalar_t currentTime, const vector_t& currentState, const scalar_t& timeStep, vector_t& mpcState, vector_t& mpcInput, size_t& mode);
 
   /**
    * Checks the data buffer for an update of the MPC policy. If a new policy
@@ -158,8 +158,26 @@ class MRT_BASE {
    */
   void addMrtObserver(std::shared_ptr<MrtObserver> mrtObserver) { observerPtrArray_.push_back(std::move(mrtObserver)); };
 
+  /**
+   * Drops a policy that is waiting in the buffer and starts a new policy epoch, so that no policy solved before this
+   * call can be swapped in by updatePolicy() afterwards. The policy in use is left alone: it is read by the thread that
+   * calls updatePolicy() without a lock, so only that thread may replace it, and it does so with the first policy moved
+   * to the buffer after this call. isActivePolicyCurrent() tells that thread whether that has happened yet.
+   *
+   * Call it from the thread that fills the buffer (the one running the MPC) when the MPC is reset. Thread-safe with
+   * respect to updatePolicy().
+   */
+  void discardBufferedPolicy();
+
+  /**
+   * True when the policy in use was moved to the buffer after the last discardBufferedPolicy(), i.e. it was solved
+   * after the last MPC reset; false before any policy was received. Call it from the thread that calls updatePolicy().
+   */
+  bool isActivePolicyCurrent() const { return activePrimalSolutionPtr_ != nullptr && activePolicyEpoch_ == policyEpoch_.load(); }
+
  protected:
-  void moveToBuffer(std::unique_ptr<CommandData> commandDataPtr, std::unique_ptr<PrimalSolution> primalSolutionPtr,
+  void moveToBuffer(std::unique_ptr<CommandData> commandDataPtr,
+                    std::unique_ptr<PrimalSolution> primalSolutionPtr,
                     std::unique_ptr<PerformanceIndex> performanceIndicesPtr);
 
  private:
@@ -180,6 +198,12 @@ class MRT_BASE {
   std::unique_ptr<PrimalSolution> bufferPrimalSolutionPtr_;
   std::unique_ptr<PerformanceIndex> activePerformanceIndicesPtr_;
   std::unique_ptr<PerformanceIndex> bufferPerformanceIndicesPtr_;
+
+  // Policy epochs (discardBufferedPolicy()): the epoch a policy was moved to the buffer in travels with it through the
+  // swap in updatePolicy(). policyEpoch_ is only incremented, under bufferMutex_.
+  std::atomic<size_t> policyEpoch_{0};
+  size_t bufferPolicyEpoch_{0};  // guarded by bufferMutex_
+  size_t activePolicyEpoch_{0};  // owned by the thread calling updatePolicy()
 
   // thread safety
   mutable std::mutex bufferMutex_;  // for policy variables with the prefix (buffer*)

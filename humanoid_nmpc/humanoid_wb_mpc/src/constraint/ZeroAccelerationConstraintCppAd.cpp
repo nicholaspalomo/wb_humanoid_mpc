@@ -41,7 +41,7 @@ ZeroAccelerationConstraintCppAd::ZeroAccelerationConstraintCppAd(const SwitchedM
                                                                  EndEffectorDynamicsAccelerationsConstraint::Config config)
     : StateInputConstraint(ConstraintOrder::Linear),
       referenceManagerPtr_(&referenceManager),
-      eeAccelConstraintPtr_(new EndEffectorDynamicsAccelerationsConstraint(endEffectorDynamics, 6, std::move(config))),
+      eeAccelConstraintPtr_(new EndEffectorDynamicsAccelerationsConstraint(endEffectorDynamics, /*numConstraints=*/6, std::move(config))),
       contactPointIndex_(contactPointIndex) {}
 
 /******************************************************************************************************/

@@ -4,7 +4,7 @@ Both must describe the same robot. Where they disagree, the controller computes 
 applies the result to a different one, and the error is silent - nothing crashes, the robot simply behaves as if it
 were being pushed by a force nobody commanded.
 
-This test was written after exactly that. The EngineAI SA01 MJCF carried the centre of mass of each ankle-pitch link at
+This test was written after exactly that. The EngineAI SA01 MJCF carried the center of mass of each ankle-pitch link at
 +/- 0.259 m along x, where the URDF has +/- 2.5946e-10 m: an exponent dropped in transcription, ``E-10`` written as
 ``e-1``, nine orders of magnitude. The two legs took opposite signs, so the robot was asymmetric as well as wrong. In
 GRAVITY_COMP that became a constant unbalanced torque on the three pitch joints of each leg and about 13 degrees of
@@ -145,7 +145,7 @@ def _parse_mjcf(path):
     return bodies
 
 
-def _lumped_inertial(link, links, fixed_children, modelled_separately):
+def _lumped_inertial(link, links, fixed_children, modeled_separately):
     """Mass and COM of a URDF link once every fixed-joint descendant the MJCF does not model separately is absorbed
     into it, expressed in that link's own frame - the body the MJCF actually simulates.
     """
@@ -159,7 +159,7 @@ def _lumped_inertial(link, links, fixed_children, modelled_separately):
     ]
     while stack:
         child, translation, rotation = stack.pop()
-        if child in modelled_separately or child not in links:
+        if child in modeled_separately or child not in links:
             continue
         child_mass, child_com = links[child]
         position = _transform(rotation, translation, child_com)
@@ -198,7 +198,7 @@ class UrdfMjcfInertialConsistencyTest(unittest.TestCase):
             "expected a URDF/MJCF pair for each shipped robot",
         )
 
-    def test_bodies_agree_on_mass_and_centre_of_mass(self):
+    def test_bodies_agree_on_mass_and_center_of_mass(self):
         for robot, urdf, mjcf in _find_model_pairs():
             links, fixed_children = _parse_urdf(urdf)
             bodies = _parse_mjcf(mjcf)
@@ -206,11 +206,11 @@ class UrdfMjcfInertialConsistencyTest(unittest.TestCase):
             self.assertGreater(
                 len(shared), 0, "%s: the two descriptions share no body names" % robot
             )
-            modelled_separately = set(bodies)
+            modeled_separately = set(bodies)
 
             for body in shared:
                 urdf_mass, urdf_com = _lumped_inertial(
-                    body, links, fixed_children, modelled_separately
+                    body, links, fixed_children, modeled_separately
                 )
                 mjcf_mass, mjcf_com = bodies[body]
                 mass_error = abs(urdf_mass - mjcf_mass)

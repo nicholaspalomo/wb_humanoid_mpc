@@ -26,6 +26,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "support/DrcAtlasContactTestModel.h"
 
 #include <algorithm>
+#include <array>
 #include <iterator>
 #include <utility>
 
@@ -37,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ament_index_cpp/get_package_share_directory.hpp>
 
 #include "absl/log/check.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "humanoid_common_mpc/constraint/ContactWrenchConeConstraint.h"
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
@@ -59,9 +61,10 @@ DrcAtlasContactTestModel::DrcAtlasContactTestModel(const std::string& modelNameP
   referenceFile_ = configDir + "/config/command/reference.yaml";
   urdfFile_ = descriptionDir + "/urdf/atlas.urdf";
 
-  modelSettings_ = std::make_unique<ModelSettings>(taskFile_, urdfFile_, modelNamePrefix_, false);
+  modelSettings_ = std::make_unique<ModelSettings>(taskFile_, urdfFile_, modelNamePrefix_, /*verbose=*/false);
   modelSettings_->recompileLibrariesCppAd = false;
-  pinocchioInterface_ = std::make_unique<PinocchioInterface>(createCustomPinocchioInterface(taskFile_, urdfFile_, *modelSettings_, false));
+  pinocchioInterface_ =
+      std::make_unique<PinocchioInterface>(createCustomPinocchioInterface(taskFile_, urdfFile_, *modelSettings_, /*scaleTotalMass=*/false));
   info_ = centroidal_model::createCentroidalModelInfo(
       *pinocchioInterface_, centroidal_model::loadCentroidalType(taskFile_),
       centroidal_model::loadDefaultJointState(pinocchioInterface_->getModel().nq - 6, referenceFile_), modelSettings_->contactNames3DoF,
@@ -69,30 +72,21 @@ DrcAtlasContactTestModel::DrcAtlasContactTestModel(const std::string& modelNameP
   wrenchModel_ = std::make_unique<CentroidalMpcRobotModel<scalar_t>>(*modelSettings_, *pinocchioInterface_, info_);
   adWrenchModel_ = std::make_unique<CentroidalMpcRobotModel<ad_scalar_t>>(*modelSettings_, pinocchioInterface_->toCppAd(), info_.toCppAd());
 
-  // The basis-vector decorator, built exactly as CentroidalMpcInterface builds it, so that a test sees the input
-  // parameterization the shipped robot actually runs.
-  boost::property_tree::ptree pt;
-  loadData::readPropertyTree(taskFile_, pt);
-  const std::string prefix = "contacts.contactWrenchConeSoftConstraint.";
-  ContactWrenchConeConstraint::Config coneConfig;
-  loadData::loadPtreeValue(pt, coneConfig.frictionCoefficient, absl::StrCat(prefix, "frictionCoefficient"), false);
-  loadData::loadPtreeValue(pt, coneConfig.torsionalFrictionCoefficient, absl::StrCat(prefix, "torsionalFrictionCoefficient"), false);
-  loadData::loadPtreeValue(pt, coneConfig.minNormalForce, absl::StrCat(prefix, "minNormalForce"), false);
-  loadData::loadPtreeValue(pt, coneConfig.gripperForce, absl::StrCat(prefix, "gripperForce"), false);
-  loadData::loadPtreeValue(pt, coneConfig.numBasisVectors, absl::StrCat(prefix, "numBasisVectors"), false);
-  const std::array<ContactWrenchConeBasisMatrix, N_CONTACTS> basisMatrices = {
-      ContactWrenchConeBasisMatrix(coneConfig, ContactRectangle::loadContactRectangle(taskFile_, *modelSettings_, 0, false)),
-      ContactWrenchConeBasisMatrix(coneConfig, ContactRectangle::loadContactRectangle(taskFile_, *modelSettings_, 1, false))};
+  // The basis-vector decorator, built through the loader CentroidalMpcInterface builds it with, so that a test sees the
+  // input parameterization - generator set and all - the shipped robot actually runs.
+  const absl::StatusOr<feet_array_t<ContactWrenchConeBasisMatrix>> basisMatrices =
+      loadContactWrenchConeBases(taskFile_, *modelSettings_, /*verbose=*/false);
+  CHECK(basisMatrices.ok()) << basisMatrices.status();
   basisModel_ = std::make_unique<BasisInputsModelDecorator<scalar_t>>(std::unique_ptr<MpcRobotModelBase<scalar_t>>(wrenchModel_->clone()),
-                                                                      basisMatrices, *pinocchioInterface_);
+                                                                      *basisMatrices, *pinocchioInterface_);
 
   const CentroidalModelInfoCppAd infoCppAd = info_.toCppAd();
   mappingCppAd_ = std::make_unique<CentroidalModelPinocchioMappingCppAd>(infoCppAd);
 
   std::unique_ptr<SwingTrajectoryPlanner> swingTrajectoryPlanner(
-      new SwingTrajectoryPlanner(loadSwingTrajectorySettings(taskFile_, "swing_trajectory_config", false), N_CONTACTS));
+      new SwingTrajectoryPlanner(loadSwingTrajectorySettings(taskFile_, "swing_trajectory_config", /*verbose=*/false), N_CONTACTS));
   referenceManager_ =
-      std::make_unique<SwitchedModelReferenceManager>(GaitSchedule::loadGaitSchedule(referenceFile_, *modelSettings_, false),
+      std::make_unique<SwitchedModelReferenceManager>(GaitSchedule::loadGaitSchedule(referenceFile_, *modelSettings_, /*verbose=*/false),
                                                       std::move(swingTrajectoryPlanner), *pinocchioInterface_, *wrenchModel_);
   // Loaded before the first setContactFlags(): that call drives preSolverRun(), which needs a valid state.
   nominalState_.setZero(info_.stateDim);
@@ -136,9 +130,9 @@ std::unique_ptr<PinocchioEndEffectorKinematicsCppAd> DrcAtlasContactTestModel::m
   // The generated library is keyed to the input dimension: the wrench-space and the basis-vector parameterizations
   // have different input dimensions and must not share a cached model.
   const std::string modelName = absl::StrCat(modelNamePrefix_, footName, "_u", inputDim);
-  return std::make_unique<PinocchioEndEffectorKinematicsCppAd>(*pinocchioInterface_, *mappingCppAd_, std::vector<std::string>{footName},
-                                                               info_.stateDim, inputDim, velocityUpdateCallback, modelName,
-                                                               modelSettings_->modelFolderCppAd, false, false);
+  return std::make_unique<PinocchioEndEffectorKinematicsCppAd>(
+      *pinocchioInterface_, *mappingCppAd_, std::vector<std::string>{footName}, info_.stateDim, inputDim, velocityUpdateCallback, modelName,
+      modelSettings_->modelFolderCppAd, /*recompileLibraries=*/false, /*verbose=*/false);
 }
 
 std::unique_ptr<FootprintCornerHeights> DrcAtlasContactTestModel::makeCornerHeights(size_t contactIndex,
@@ -162,7 +156,7 @@ long DrcAtlasContactTestModel::anklePitchStateIndex(size_t contactIndex) const {
 }
 
 ContactRectangle DrcAtlasContactTestModel::contactRectangle(size_t contactIndex) const {
-  return ContactRectangle::loadContactRectangle(taskFile_, *modelSettings_, static_cast<int>(contactIndex), false);
+  return ContactRectangle::loadContactRectangle(taskFile_, *modelSettings_, static_cast<int>(contactIndex), /*verbose=*/false);
 }
 
 vector_t DrcAtlasContactTestModel::makeInput(const MpcRobotModelBase<scalar_t>& model, size_t loadedFoot, scalar_t normalForce) const {

@@ -54,7 +54,9 @@ class SolverSynchronizedModule {
    * @param initState : State at the start of the MPC horizon
    * @param referenceManager : The ReferenceManager which manages both ModeSchedule and TargetTrajectories.
    */
-  virtual void preSolverRun(scalar_t initTime, scalar_t finalTime, const vector_t& initState,
+  virtual void preSolverRun(scalar_t initTime,
+                            scalar_t finalTime,
+                            const vector_t& initState,
                             const ReferenceManagerInterface& referenceManager) = 0;
 
   /**
@@ -63,6 +65,17 @@ class SolverSynchronizedModule {
    * @param primalSolution : primalSolution
    */
   virtual void postSolverRun(const PrimalSolution& primalSolution) = 0;
+
+  /**
+   * Returns the module to the state it had right after construction, keeping only its configuration: whatever it
+   * carries from one solve to the next (a command ramp, a pending plan, a warm start) is dropped, so that the next
+   * preSolverRun() behaves exactly as the first one of a freshly constructed module would.
+   *
+   * Called by MPC_BASE::reset() on the thread that runs the solver, between two solves, after the reference manager's
+   * reset() and before the solver's. A module that owns another thread must make sure nothing that thread computed from
+   * the state before the reset reaches the reference manager after it.
+   */
+  virtual void reset() {}
 };
 
 }  // namespace ocs2

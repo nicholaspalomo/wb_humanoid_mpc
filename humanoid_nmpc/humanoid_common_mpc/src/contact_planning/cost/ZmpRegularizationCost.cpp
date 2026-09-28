@@ -27,7 +27,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
-#include <sstream>
 
 namespace ocs2::humanoid {
 
@@ -36,13 +35,12 @@ std::string ZmpRegularizationCost::describe() const {
 }
 
 void ZmpRegularizationCost::configure(const ContactPlanningConfig& config) {
-  checkWeight("zmp_regularization", config.zmpRegularization.weight);
   weight_ = config.zmpRegularization.weight;
 }
 
 void ZmpRegularizationCost::addToStage(const ContactPlanningContext& /*ctx*/, int /*node*/, StageAccumulator& stage) const {
   for (int axis = 0; axis < 2; ++axis) {
-    stage.addQuadraticResidual({{idx_.com[axis], -1.0}}, {{idx_.zmp[axis], 1.0}}, 0.0, weight_);
+    stage.addQuadraticResidual({{idx_.com[axis], -1.0}}, {{idx_.zmp[axis], 1.0}}, /*offset=*/0.0, weight_);
   }
 }
 

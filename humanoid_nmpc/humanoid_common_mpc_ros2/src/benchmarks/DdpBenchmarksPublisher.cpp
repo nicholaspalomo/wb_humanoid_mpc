@@ -30,6 +30,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <humanoid_common_mpc_ros2/benchmarks/DdpBenchmarksPublisher.h>
 
+#include <functional>
+#include <string>
+
 namespace ocs2::humanoid {
 
 DdpBenchmarksPublisher::DdpBenchmarksPublisher(rclcpp::Node::SharedPtr node, const ocs2::GaussNewtonDDP* ddpSolver)
@@ -46,7 +49,7 @@ void DdpBenchmarksPublisher::postSolverRun(const ocs2::PrimalSolution& primalSol
 
   ocs2_ros2_msgs::msg::Benchmarks bmMsg;
   bmMsg.time = primalSolution.timeTrajectory_.front();
-  auto addBenchmark = [&](const std::string& description, const double& value) {
+  const std::function<void(const std::string&, const double&)> addBenchmark = [&](const std::string& description, const double& value) {
     ocs2_ros2_msgs::msg::IndividualBenchmarks ibmMsg;
     ibmMsg.description = description;
     ibmMsg.values.emplace_back(value);

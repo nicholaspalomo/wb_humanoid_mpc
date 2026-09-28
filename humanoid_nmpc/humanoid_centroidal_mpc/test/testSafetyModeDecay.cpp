@@ -38,10 +38,10 @@ constexpr scalar_t kTimeConstant = 0.5;
 
 /// SAFETY hands out the full joint PD at the instant the mode is entered, so the torque does not jump on the switch.
 TEST(SafetyModeDecay, startsAtFullAuthority) {
-  EXPECT_DOUBLE_EQ(Controller::safetyDecayFactor(0.0, kTimeConstant), 1.0);
+  EXPECT_DOUBLE_EQ(Controller::safetyDecayFactor(/*elapsedSinceEntry=*/0.0, kTimeConstant), 1.0);
 }
 
-/// The decay is exponential, not linear: the shipped behaviour before this was a linear ramp that kept most of its
+/// The decay is exponential, not linear: the shipped behavior before this was a linear ramp that kept most of its
 /// authority through the first half of the window, which is the opposite of "rapidly decrease down to 0".
 TEST(SafetyModeDecay, isExponentialNotLinear) {
   for (int i = 1; i <= 4; ++i) {
@@ -57,7 +57,7 @@ TEST(SafetyModeDecay, isExponentialNotLinear) {
 
 /// Monotonically non-increasing: the torque must never climb back up part-way through a safety stop.
 TEST(SafetyModeDecay, decreasesMonotonically) {
-  scalar_t previous = Controller::safetyDecayFactor(0.0, kTimeConstant);
+  scalar_t previous = Controller::safetyDecayFactor(/*elapsedSinceEntry=*/0.0, kTimeConstant);
   for (int i = 1; i <= 100; ++i) {
     const scalar_t alpha = Controller::safetyDecayFactor(0.05 * i, kTimeConstant);
     EXPECT_LE(alpha, previous);
@@ -72,13 +72,13 @@ TEST(SafetyModeDecay, decreasesMonotonically) {
 TEST(SafetyModeDecay, reachesExactlyZeroInFiniteTime) {
   EXPECT_GT(Controller::safetyDecayFactor(3.0 * kTimeConstant, kTimeConstant), 0.0);
   EXPECT_DOUBLE_EQ(Controller::safetyDecayFactor(4.0 * kTimeConstant, kTimeConstant), 0.0);
-  EXPECT_DOUBLE_EQ(Controller::safetyDecayFactor(100.0, kTimeConstant), 0.0);
+  EXPECT_DOUBLE_EQ(Controller::safetyDecayFactor(/*elapsedSinceEntry=*/100.0, kTimeConstant), 0.0);
 }
 
 /// Time is read from the MPC observation, which can step backwards across an MPC reset. A negative elapsed must not
 /// produce a factor above one, which would amplify the gains rather than decay them.
 TEST(SafetyModeDecay, clampsNegativeElapsedTime) {
-  EXPECT_DOUBLE_EQ(Controller::safetyDecayFactor(-1.0, kTimeConstant), 1.0);
+  EXPECT_DOUBLE_EQ(Controller::safetyDecayFactor(/*elapsedSinceEntry=*/-1.0, kTimeConstant), 1.0);
 }
 
 /// A task file setting the time constant to zero must not produce a division by zero.

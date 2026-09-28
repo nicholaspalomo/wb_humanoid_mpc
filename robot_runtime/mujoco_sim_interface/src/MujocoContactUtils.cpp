@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <functional>
 #include <sstream>
 
 namespace robot::mujoco_sim_interface {
@@ -67,7 +68,7 @@ std::vector<int> resolveContactBodies(const mjModel* model,
   std::vector<int> bodyIds(contactFrameNames.size(), -1);
 
   urdf::ModelInterfaceSharedPtr urdfModel;
-  const auto loadUrdf = [&]() {
+  const std::function<void()> loadUrdf = [&]() {
     if (urdfModel) return;
     std::ifstream file(urdfPath);
     if (file) {
@@ -140,7 +141,7 @@ uint32_t groundTruthContactMask(
       const int robotRoot = model->body_rootid[contactBody];
       // A body belongs to the robot when it shares the contact body's root; the world body never does. (For a robot
       // welded to the world every static body counts as the robot, a limitation accepted for walking robots.)
-      const auto isRobot = [&](int body) { return body != 0 && model->body_rootid[body] == robotRoot; };
+      const std::function<bool(int)> isRobot = [&](int body) { return body != 0 && model->body_rootid[body] == robotRoot; };
       const bool oneIsContact = isInBodySubtree(model, body1, contactBody);
       const bool twoIsContact = isInBodySubtree(model, body2, contactBody);
       if ((oneIsContact && !isRobot(body2)) || (twoIsContact && !isRobot(body1))) {
@@ -161,14 +162,14 @@ RobotCentroidalState robotCentroidalState(const mjModel* model, const mjData* da
   state.mass = model->body_subtreemass[state.rootBodyId];
   if (state.mass <= 0.0) return state;
   for (int axis = 0; axis < 3; ++axis) state.com[axis] = data->subtree_com[3 * state.rootBodyId + axis];
-  // mj_forward does not fill subtree_linvel; the mass-weighted mean of the body centre velocities is the same thing.
+  // mj_forward does not fill subtree_linvel; the mass-weighted mean of the body center velocities is the same thing.
   double momentum[3] = {0.0, 0.0, 0.0};
   for (int body = state.rootBodyId; body < model->nbody; ++body) {
     if (!isInBodySubtree(model, body, state.rootBodyId)) continue;
     const double mass = model->body_mass[body];
     if (mass <= 0.0) continue;
     mjtNum velocity[6];  // [angular, linear] of the body's inertial frame, world orientation
-    mj_objectVelocity(model, data, mjOBJ_BODY, body, velocity, 0);
+    mj_objectVelocity(model, data, mjOBJ_BODY, body, velocity, /*flg_local=*/0);
     for (int axis = 0; axis < 3; ++axis) momentum[axis] += mass * velocity[3 + axis];
   }
   for (int axis = 0; axis < 3; ++axis) state.comVelocity[axis] = momentum[axis] / state.mass;
@@ -176,7 +177,7 @@ RobotCentroidalState robotCentroidalState(const mjModel* model, const mjData* da
   return state;
 }
 
-GroundReaction groundReaction(const mjModel* model, const mjData* data, int rootBodyId, double minNormalForce) {
+GroundReaction groundReaction(const mjModel* model, const mjData* data, int rootBodyId, double minNormalForce, int ignoreBodyId) {
   GroundReaction reaction;
   if (model == nullptr || data == nullptr || rootBodyId < 0) return reaction;
   for (int c = 0; c < data->ncon; ++c) {
@@ -185,6 +186,7 @@ GroundReaction groundReaction(const mjModel* model, const mjData* data, int root
     if (contact.geom[0] < 0 || contact.geom[1] < 0) continue;
     const int body1 = model->geom_bodyid[contact.geom[0]];
     const int body2 = model->geom_bodyid[contact.geom[1]];
+    if (ignoreBodyId >= 0 && (body1 == ignoreBodyId || body2 == ignoreBodyId)) continue;  // a thrown ball, not the ground
     const bool oneIsRobot = isInBodySubtree(model, body1, rootBodyId);
     const bool twoIsRobot = isInBodySubtree(model, body2, rootBodyId);
     if (oneIsRobot == twoIsRobot) continue;  // self-contact, or a contact that does not involve the robot

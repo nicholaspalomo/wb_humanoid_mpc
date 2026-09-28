@@ -54,9 +54,12 @@ _NOMINAL_BASE_HEIGHT = 0.8
 # Real humanoids stay below 10; this leaves a wide margin before rejecting.
 _MAX_INERTIA_COND = 1.0e6
 
-# Fraction of each joint's range trimmed from both ends when sampling, to keep
-# configurations away from the joint limits.
-_JOINT_LIMIT_MARGIN_FRACTION = 0.1
+# Half-width [rad] of the range a joint WITHOUT position limits is sampled over.
+# The C++ acceptance test samples such a joint over the same range, so both sides
+# grade the network on one distribution. No shipped robot has such a joint.
+# LINT.IfChange(unlimited_joint_range)
+_UNLIMITED_JOINT_HALF_RANGE = np.pi
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/test/testAcomAngularVelocityConsistency.cpp:acom_unlimited_joint_range)
 
 
 def resolve_xml_path(path: str) -> str:
@@ -82,13 +85,18 @@ def resolve_xml_path(path: str) -> str:
 def _parse_pinocchio_joint_order(urdf_path: str) -> List[str]:
     """Returns the non-fixed URDF joint names in Pinocchio's joint ordering.
 
-    Pinocchio's URDF parser numbers joints by a depth-first traversal of the
-    kinematic tree starting at the root link, visiting the children of each link
-    in URDF document order. That ordering is what `pinocchio::Model::names`
-    exposes, and therefore what the C++ MPC feeds to the aCOM network. It is NOT
-    the order in which `<joint>` elements happen to appear in the URDF document:
-    many URDFs (the DRC Atlas one among them) list joints alphabetically, which
-    scrambles the joint vector relative to the kinematic tree.
+    Pinocchio's URDF parser numbers joints by a pre-order depth-first traversal
+    of the kinematic tree starting at the root link. It walks each link's
+    `child_links`, which urdfdom fills by iterating its `std::map` of joints, so
+    the children of a link are visited sorted by the NAME of the joint leading
+    to them - not in the order the URDF lists them. That ordering is what
+    `pinocchio::Model::names` exposes, and therefore what the C++ MPC feeds to
+    the aCOM network. It is neither the order in which `<joint>` elements appear
+    in the URDF document (the DRC Atlas URDF, for one, lists them
+    alphabetically, which scrambles the tree) nor a tree walk in document order
+    (the Unitree R1 URDF lists its arms before its head, while Pinocchio visits
+    `head_*` first). testAcomAngularVelocityConsistency.cpp checks the rule
+    against Pinocchio itself on the fixture test_acom.py uses.
 
     Args:
         urdf_path: Path to the URDF file.
@@ -120,8 +128,9 @@ def _parse_pinocchio_joint_order(urdf_path: str) -> List[str]:
         )
 
     # Pre-order depth-first walk: a joint is emitted when it is reached, and its
-    # whole subtree is emitted before any of its siblings. Children are pushed in
-    # reverse so that siblings come off the stack in URDF document order.
+    # whole subtree is emitted before any of its siblings. Siblings are visited
+    # sorted by joint name, as urdfdom's std::map of joints orders them; they are
+    # pushed in reverse so that they come off the stack in that order.
     joint_order: List[str] = []
     stack = [(None, root_links[0])]
     visited = set()
@@ -134,7 +143,7 @@ def _parse_pinocchio_joint_order(urdf_path: str) -> List[str]:
             name, joint_type = joint_type_and_name
             if joint_type not in _URDF_DOF_FREE_JOINT_TYPES:
                 joint_order.append(name)
-        for name, joint_type, child_link in reversed(children[link]):
+        for name, joint_type, child_link in reversed(sorted(children[link])):
             stack.append(((name, joint_type), child_link))
     return joint_order
 
@@ -151,7 +160,13 @@ class AcomDatasetGenerator:
             Pinocchio.
         fixed_joints: Joint names to hold at zero and drop from the dataset. Must
             match the `fixedJointNames` list in the robot's MPC task.yaml, since
-            the C++ runtime evaluates the network on the reduced joint vector.
+            the C++ runtime evaluates the network on the reduced joint vector;
+            train_main.make_generator reads them from there.
+
+    Raises:
+        ValueError: If the model is not a floating-base model of single-DoF
+            joints, if the URDF and the MJCF name different joints, or if
+            `fixed_joints` names a joint the model does not have.
     """
 
     def __init__(
@@ -219,11 +234,18 @@ class AcomDatasetGenerator:
             )
 
         self.fixed_joints = set(fixed_joints or [])
-        self.mj_fixed_indices = [
-            self.mj_joint_names.index(name)
-            for name in self.fixed_joints
-            if name in self.mj_joint_names
-        ]
+        # A misspelt fixed joint would otherwise be dropped silently, leave the
+        # joint it meant in the dataset, and only surface much later as an
+        # input_dim mismatch in the C++ MPC.
+        unknown_fixed = sorted(self.fixed_joints - set(self.mj_joint_names))
+        if unknown_fixed:
+            raise ValueError(
+                f"fixed_joints names joints the model does not have: {unknown_fixed}. "
+                f"Its joints are: {self.mj_joint_names}."
+            )
+        self.mj_fixed_indices = sorted(
+            self.mj_joint_names.index(name) for name in self.fixed_joints
+        )
 
         # Joint limits for the internal joints, in MuJoCo order.
         lower = []
@@ -233,8 +255,8 @@ class AcomDatasetGenerator:
                 lower.append(self.model.jnt_range[j, 0])
                 upper.append(self.model.jnt_range[j, 1])
             else:
-                lower.append(-np.pi)
-                upper.append(np.pi)
+                lower.append(-_UNLIMITED_JOINT_HALF_RANGE)
+                upper.append(_UNLIMITED_JOINT_HALF_RANGE)
 
         self.joint_limits_lower = np.array(lower, dtype=np.float64)
         self.joint_limits_upper = np.array(upper, dtype=np.float64)
@@ -260,6 +282,44 @@ class AcomDatasetGenerator:
         ]
         self.num_active_joints = len(self.active_joint_names)
         # LINT.ThenChange(//humanoid_learning/acom/tests/test_acom.py:joint_permutation_test)
+
+    def _to_dataset_order(self, per_mj_joint: np.ndarray) -> np.ndarray:
+        """Reorders a per-joint array from MuJoCo order into the dataset's.
+
+        The dataset's joint axis is Pinocchio's order when a URDF was given (and
+        MuJoCo's otherwise), without the fixed joints; `active_joint_names` names
+        its entries.
+        """
+        ordered = (
+            per_mj_joint[..., self.joint_perm]
+            if self.joint_perm is not None
+            else per_mj_joint
+        )
+        active = [
+            i
+            for i, name in enumerate(self.pinocchio_joint_names)
+            if name not in self.fixed_joints
+        ]
+        return ordered[..., active]
+
+    def sampling_bounds(self) -> Tuple[np.ndarray, np.ndarray]:
+        """The box `generate_dataset` samples the active joints from.
+
+        It is the joint-limit box itself, untrimmed, so every posture the MPC can
+        reach within its limits - the robot's nominal stance included - is inside
+        the training distribution, and the C++ acceptance test, which samples the
+        URDF limits, grades the network on the distribution it was fit to.
+
+        Returns:
+            (low, high), each of shape (num_active_joints,), in the dataset's
+            joint order (see `active_joint_names`).
+        """
+        low_mj, high_mj = self._sampling_bounds_mj()
+        return self._to_dataset_order(low_mj), self._to_dataset_order(high_mj)
+
+    def _sampling_bounds_mj(self) -> Tuple[np.ndarray, np.ndarray]:
+        """The sampling box in MuJoCo order, including the fixed joints' ranges."""
+        return self.joint_limits_lower, self.joint_limits_upper
 
     def _compute_joint_permutation(
         self, urdf_path: str
@@ -392,15 +452,16 @@ class AcomDatasetGenerator:
         """
         rng = np.random.default_rng(seed)
 
-        # Sample uniformly inside the joint limits, trimmed at both ends, to stay
-        # away from the configurations where the limits themselves are active.
-        # Limits, and therefore the samples, are in MuJoCo order.
-        margin = _JOINT_LIMIT_MARGIN_FRACTION * (
-            self.joint_limits_upper - self.joint_limits_lower
+        # Sample uniformly over the full joint-limit box, in MuJoCo order. There
+        # used to be a margin of 10 % of each range trimmed from both ends; it
+        # excluded postures the robot really adopts (G1 stands with its knees at
+        # 0.1 rad, below the trimmed floor of 0.21 rad), so the network was never
+        # trained where the MPC evaluates it. The box is the one sampling_bounds()
+        # reports.
+        low_mj, high_mj = self._sampling_bounds_mj()
+        q_samples_mj = rng.uniform(
+            low_mj, high_mj, size=(num_samples, self.num_mj_joints)
         )
-        low = self.joint_limits_lower + margin
-        high = self.joint_limits_upper - margin
-        q_samples_mj = rng.uniform(low, high, size=(num_samples, self.num_mj_joints))
 
         # The C++ runtime evaluates the network on the reduced joint vector, in
         # which the fixed joints are held at zero.
@@ -416,21 +477,9 @@ class AcomDatasetGenerator:
 
         # Reorder from MuJoCo to Pinocchio joint ordering so that the trained SIREN
         # network is indexed the same way as the C++ runtime, which reads joints
-        # out of the Pinocchio model.
-        if self.joint_perm is not None:
-            q_samples = q_samples_mj[:, self.joint_perm]
-            A_bar_samples = A_bar_samples[:, :, self.joint_perm]
-        else:
-            q_samples = q_samples_mj
-
-        if self.fixed_joints:
-            active_indices = [
-                i
-                for i, name in enumerate(self.pinocchio_joint_names)
-                if name not in self.fixed_joints
-            ]
-            q_samples = q_samples[:, active_indices]
-            A_bar_samples = A_bar_samples[:, :, active_indices]
+        # out of the Pinocchio model, and drop the fixed joints.
+        q_samples = self._to_dataset_order(q_samples_mj)
+        A_bar_samples = self._to_dataset_order(A_bar_samples)
 
         return {
             "q_joints": q_samples.astype(np.float32),

@@ -62,8 +62,8 @@ vector3_t ImpulseScalingHeuristic::forceOffset(const WrenchHeuristicContext& con
   //
   // because the mean number of feet on the ground IS F times the duty factor. THAT is the impulse budget the
   // heuristic exists to satisfy. Scaling W / n_stance(t) by 1/beta instead would put W/beta on the ground at every
-  // instant and deliver W T / beta over the cycle, i.e. it would regularise the solver towards accelerating the
-  // centre of mass upwards for ever.
+  // instant and deliver W T / beta over the cycle, i.e. it would regularize the solver towards accelerating the
+  // center of mass upwards for ever.
   //
   // Two sanity checks fall straight out. Standing (beta = 1, n_stance = F) gives W/F on each foot, which is the
   // existing reference, so the offset is zero. A pure alternating single support (beta = 1/2, n_stance = 1) gives
@@ -87,8 +87,10 @@ vector3_t ImpulseScalingHeuristic::forceOffset(const WrenchHeuristicContext& con
 }
 
 std::string ImpulseScalingHeuristic::describe() const {
-  return absl::StrCat("impulse_scaling: f_z *= ", parameters_.scale, " / beta + ", 1.0 - parameters_.scale,
-                      ", beta >= ", parameters_.minimumDutyFactor, ", ratio clamped to ", parameters_.maximumForceRatio);
+  // The formula forceOffset() implements. Not "f_z *= scale / beta": that scales the INSTANTANEOUS weight compensation,
+  // puts W / beta on the ground at every instant, and is the form the comment on forceOffset() rejects.
+  return absl::StrCat("impulse_scaling: f_z = W/n + ", parameters_.scale, " * (W/(F max(beta, ", parameters_.minimumDutyFactor,
+                      ")) - W/n), clamped to [0, ", parameters_.maximumForceRatio, " * W/n]; beta over each foot's own stride");
 }
 
 }  // namespace ocs2::humanoid

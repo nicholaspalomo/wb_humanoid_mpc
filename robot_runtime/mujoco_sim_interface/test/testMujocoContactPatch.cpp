@@ -56,7 +56,7 @@ struct SceneFixture {
     const std::string path = testing::TempDir() + "/patch_scene.xml";
     std::ofstream(path) << kScene;
     char error[1000] = "";
-    model = mj_loadXML(path.c_str(), nullptr, error, sizeof(error));
+    model = mj_loadXML(path.c_str(), /*vfs=*/nullptr, error, sizeof(error));
     if (model == nullptr) throw std::runtime_error(std::string("mj_loadXML: ") + error);
     mjv_defaultScene(&scene);
     mjv_makeScene(model, &scene, maxgeom);
@@ -87,7 +87,7 @@ const ContactPatchCorners kRectangle = {{-0.12, -0.05}, {0.12, -0.05}, {0.12, 0.
 }  // namespace
 
 TEST(MujocoContactPatch, WorldCornersFollowTheYawAndTheOrigin) {
-  const auto world = contactPatchWorldCorners(makePatch(), kRectangle, 0.01);
+  const std::vector<std::array<double, 3>> world = contactPatchWorldCorners(makePatch(), kRectangle, /*heightOffset=*/0.01);
   ASSERT_EQ(world.size(), kRectangle.size());
   for (size_t i = 0; i < world.size(); ++i) {
     // A rotation by +90 degrees maps a local (x, y) to (-y, x).
@@ -98,7 +98,7 @@ TEST(MujocoContactPatch, WorldCornersFollowTheYawAndTheOrigin) {
   // No yaw, no offset: a pure translation.
   TargetContactPatch flat = makePatch();
   flat.yaw = 0.0;
-  const auto translated = contactPatchWorldCorners(flat, kRectangle);
+  const std::vector<std::array<double, 3>> translated = contactPatchWorldCorners(flat, kRectangle);
   EXPECT_NEAR(translated[1][0], 1.12, kTol);
   EXPECT_NEAR(translated[1][1], 1.95, kTol);
   EXPECT_NEAR(translated[1][2], 0.1, kTol);
@@ -115,7 +115,7 @@ TEST(MujocoContactPatch, DrawsSlabOutlineAndArrowAsDecorGeoms) {
   ASSERT_EQ(addContactPatchGeoms(&fixture.scene, patch, kRectangle, style), 6);
   ASSERT_EQ(fixture.scene.ngeom, 6);
 
-  // The slab: a thin box centred on the patch, its x axis (first column) turned to world y.
+  // The slab: a thin box centered on the patch, its x axis (first column) turned to world y.
   const mjvGeom& slab = fixture.scene.geoms[0];
   EXPECT_EQ(slab.type, mjGEOM_BOX);
   EXPECT_NEAR(slab.size[0], 0.12, kTol);
@@ -131,13 +131,13 @@ TEST(MujocoContactPatch, DrawsSlabOutlineAndArrowAsDecorGeoms) {
   EXPECT_NEAR(slab.mat[4], 0.0, kTol);
   EXPECT_NEAR(slab.mat[8], 1.0, kTol);
 
-  // The outline: one capsule per edge, centred on the edge midpoint, above the slab.
-  const auto world = contactPatchWorldCorners(patch, kRectangle);
+  // The outline: one capsule per edge, centered on the edge midpoint, above the slab.
+  const std::vector<std::array<double, 3>> world = contactPatchWorldCorners(patch, kRectangle);
   for (size_t i = 0; i < kRectangle.size(); ++i) {
     const mjvGeom& edge = fixture.scene.geoms[1 + i];
     EXPECT_EQ(edge.type, mjGEOM_CAPSULE) << "edge " << i;
-    const auto& a = world[i];
-    const auto& b = world[(i + 1) % world.size()];
+    const std::array<double, 3>& a = world[i];
+    const std::array<double, 3>& b = world[(i + 1) % world.size()];
     EXPECT_NEAR(edge.pos[0], 0.5 * (a[0] + b[0]), kTol) << "edge " << i;
     EXPECT_NEAR(edge.pos[1], 0.5 * (a[1] + b[1]), kTol) << "edge " << i;
     EXPECT_GT(edge.pos[2], 2.0 * slab.size[2] + 0.1) << "edge " << i;
@@ -191,7 +191,7 @@ TEST(MujocoContactPatch, NothingIsDrawnWithoutAValidPatchOrRoom) {
   EXPECT_EQ(addContactPatchGeoms(&fixture.scene, makePatch(), {{0.0, 0.0}, {0.1, 0.0}}, style), 0) << "two corners are no polygon";
   EXPECT_EQ(addContactPatchGeoms(&fixture.scene, makePatch(), kRectangle, style), 0) << "no room for the whole patch";
   EXPECT_EQ(fixture.scene.ngeom, 0) << "a patch is drawn whole or not at all";
-  EXPECT_EQ(addContactPatchGeoms(nullptr, makePatch(), kRectangle, style), 0);
+  EXPECT_EQ(addContactPatchGeoms(/*scene=*/nullptr, makePatch(), kRectangle, style), 0);
 
   ContactPatchStyle outlineOnly;
   outlineOnly.fill = false;

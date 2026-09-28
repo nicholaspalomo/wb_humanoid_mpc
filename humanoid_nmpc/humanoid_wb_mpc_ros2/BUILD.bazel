@@ -1,4 +1,6 @@
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
 # humanoid_wb_mpc_ros2 - ROS2 nodes for whole-body MPC
 
 package(default_visibility = ["//visibility:public"])
@@ -61,12 +63,58 @@ cc_binary(
     deps = _COMMON_DEPS,
 )
 
+# The target of the pose command node, built by the whole-body target calculator. Free of ROS.
+cc_library(
+    name = "wb_mpc_pose_command",
+    srcs = ["src/WBMpcPoseCommand.cpp"],
+    hdrs = ["include/humanoid_wb_mpc_ros2/WBMpcPoseCommand.h"],
+    includes = ["include"],
+    copts = _COMMON_COPTS,
+    deps = [
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_wb_mpc",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_mpc",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+    ],
+)
+
 # Pose command node
 cc_binary(
     name = "humanoid_wb_mpc_pose_command_node",
     srcs = ["src/WBMpcPoseCommandNode.cpp"],
     copts = _COMMON_COPTS,
-    deps = _COMMON_DEPS,
+    deps = _COMMON_DEPS + [
+        ":wb_mpc_pose_command",
+        "@abseil-cpp//absl/log:check",
+        "@abseil-cpp//absl/log:initialize",
+        "@abseil-cpp//absl/status:statusor",
+    ],
+)
+
+# The pose command's target on a raised ground, against the whole-body target calculator, and its missing-file errors.
+# Builds no CppAD model.
+cc_test(
+    name = "testWBMpcPoseCommand",
+    size = "small",
+    srcs = ["test/testWBMpcPoseCommand.cpp"],
+    copts = _COMMON_COPTS,
+    data = [
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    deps = [
+        ":wb_mpc_pose_command",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_wb_mpc",
+        "//lib/ocs2:ocs2_core",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
 )
 
 # MuJoCo simulator

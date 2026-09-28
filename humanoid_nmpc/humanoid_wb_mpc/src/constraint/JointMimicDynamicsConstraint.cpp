@@ -113,16 +113,18 @@ VectorFunctionLinearApproximation JointMimicDynamicsConstraint::getLinearApproxi
 
   linearApproximation.f = getValue(time, state, input, preComp);
 
-  linearApproximation.dfdx(0, wbAccelMpcRobotModelPtr_->getJointStartindex() + config_.parentJointIndex) =
+  linearApproximation.dfdx(/*row=*/0, wbAccelMpcRobotModelPtr_->getJointStartindex() + config_.parentJointIndex) =
       config_.positionGain * config_.multiplier;
-  linearApproximation.dfdx(0, wbAccelMpcRobotModelPtr_->getJointStartindex() + config_.childJointIndex) = -config_.positionGain;
+  linearApproximation.dfdx(/*row=*/0, wbAccelMpcRobotModelPtr_->getJointStartindex() + config_.childJointIndex) = -config_.positionGain;
 
-  linearApproximation.dfdx(0, wbAccelMpcRobotModelPtr_->getJointVelocitiesStartindex() + config_.parentJointIndex) =
+  linearApproximation.dfdx(/*row=*/0, wbAccelMpcRobotModelPtr_->getJointVelocitiesStartindex() + config_.parentJointIndex) =
       config_.velocityGain * config_.multiplier;
-  linearApproximation.dfdx(0, wbAccelMpcRobotModelPtr_->getJointVelocitiesStartindex() + config_.childJointIndex) = -config_.velocityGain;
+  linearApproximation.dfdx(/*row=*/0, wbAccelMpcRobotModelPtr_->getJointVelocitiesStartindex() + config_.childJointIndex) =
+      -config_.velocityGain;
 
-  linearApproximation.dfdu(0, wbAccelMpcRobotModelPtr_->getJointAccelerationsStartindex() + config_.parentJointIndex) = config_.multiplier;
-  linearApproximation.dfdu(0, wbAccelMpcRobotModelPtr_->getJointAccelerationsStartindex() + config_.childJointIndex) = -1;
+  linearApproximation.dfdu(/*row=*/0, wbAccelMpcRobotModelPtr_->getJointAccelerationsStartindex() + config_.parentJointIndex) =
+      config_.multiplier;
+  linearApproximation.dfdu(/*row=*/0, wbAccelMpcRobotModelPtr_->getJointAccelerationsStartindex() + config_.childJointIndex) = -1;
 
   return linearApproximation;
 }

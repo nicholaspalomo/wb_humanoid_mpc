@@ -36,6 +36,7 @@ skip themselves where no display is available so the file is still runnable over
 """
 
 import math
+import os
 import random
 import unittest
 
@@ -43,6 +44,9 @@ import yaml
 
 from remote_control.tk_app.dodgeball import (
     AZIMUTH_RANGE_DEG,
+    arrival_velocity,
+    launch_speed,
+    minimum_launch_speed,
     DEFAULT_BALL_MASS_KG,
     DISTANCE_RANGE_M,
     ELEVATION_RANGE_DEG,
@@ -130,16 +134,20 @@ class TestLaunchVelocity(unittest.TestCase):
         # Anti-parallel to the offset: the ball travels from the spawn point to the base along the straight line.
         for axis in range(3):
             self.assertAlmostEqual(
-                velocity[axis], -offset[axis] / flight_time(throw), places=9
+                velocity[axis],
+                -offset[axis] / flight_time(throw, gravity=0.0),
+                places=9,
             )
         self.assertAlmostEqual(_norm(velocity), throw.speed_mps, places=9)
 
     def test_the_ballistic_path_passes_through_the_base(self):
-        # The whole point of the gravity term: integrate the flight and land on the base, not below it.
+        # The whole point of the gravity term: integrate the flight and land on the base, not below it. Includes a
+        # throw too slow to reach, which is raised to the minimum speed and must still land.
         for throw in (
             DodgeballThrow(0.0, 0.0, 3.0, 5.0),
             DodgeballThrow(-140.0, 45.0, 6.0, 12.0),
             DodgeballThrow(90.0, -20.0, 1.5, 3.0),
+            DodgeballThrow(0.0, 0.0, 8.0, 1.0),
         ):
             spawn = spawn_offset(throw)
             velocity = launch_velocity(throw)
@@ -156,39 +164,99 @@ class TestLaunchVelocity(unittest.TestCase):
                     arrival[axis], 0.0, places=9, msg=f"{throw} missed on axis {axis}"
                 )
 
-    def test_gravity_compensation_only_lifts_it(self):
-        # It must not steer: the horizontal components are the straight-line ones, so the ball still comes from the
-        # direction the azimuth slider says.
+    def test_the_speed_slider_is_the_launch_speed(self):
+        # What the slider is labeled and what was asked for: the speed the ball LEAVES at. It used to be the closing
+        # speed along the line, and at 8 m and 1 m/s that meant an 8 s lob launched at 39 m/s.
+        for throw in (
+            DodgeballThrow(0.0, 10.0, 3.0, 8.0),
+            DodgeballThrow(-140.0, 45.0, 6.0, 12.0),
+            DodgeballThrow(37.0, -20.0, 2.0, 15.0),
+            DodgeballThrow(0.0, 0.0, 8.0, 25.0),
+        ):
+            self.assertGreater(throw.speed_mps, minimum_launch_speed(throw), throw)
+            self.assertAlmostEqual(
+                _norm(launch_velocity(throw)), throw.speed_mps, places=9, msg=throw
+            )
+
+    def test_a_throw_too_slow_to_reach_is_raised_to_the_minimum_that_does(self):
+        throw = DodgeballThrow(0.0, 0.0, 8.0, 1.0)
+        minimum = minimum_launch_speed(throw)
+        # sqrt(g (d + rise)); level with the base the rise is zero.
+        self.assertAlmostEqual(minimum, math.sqrt(GRAVITY * 8.0), places=9)
+        self.assertAlmostEqual(launch_speed(throw), minimum, places=9)
+        self.assertAlmostEqual(_norm(launch_velocity(throw)), minimum, places=6)
+        # The slowest throw is the 45-degree-ish one whose flight is sqrt(2 d / g), about 1.3 s rather than 8.
+        self.assertAlmostEqual(
+            flight_time(throw), math.sqrt(2.0 * 8.0 / GRAVITY), places=6
+        )
+
+    def test_throwing_down_from_above_is_easier_than_throwing_up_from_below(self):
+        above = DodgeballThrow(0.0, 45.0, 4.0, 1.0)
+        below = DodgeballThrow(0.0, -20.0, 4.0, 1.0)
+        self.assertLess(minimum_launch_speed(above), minimum_launch_speed(below))
+
+    def test_the_direct_throw_is_chosen_not_the_lob(self):
+        # Of the two flight times that reach the base at a given speed, the shorter is the direct throw.
+        throw = DodgeballThrow(0.0, 0.0, 5.0, 15.0)
+        chord = 5.0 / 15.0
+        self.assertLess(flight_time(throw), 1.2 * chord)
+
+    def test_without_gravity_the_flight_is_distance_over_speed(self):
+        self.assertAlmostEqual(
+            flight_time(DodgeballThrow(0.0, 0.0, 6.0, 3.0), gravity=0.0),
+            2.0,
+            places=9,
+        )
+
+    def test_gravity_compensation_does_not_steer_it(self):
+        # The horizontal components stay parallel to the straight-line aim, so the ball still comes from the direction
+        # the azimuth slider says. (Their magnitude changes: the flight is shorter or longer under gravity.)
         throw = DodgeballThrow(37.0, 10.0, 4.0, 8.0)
         straight = launch_velocity(throw, gravity=0.0)
         lifted = launch_velocity(throw)
-        self.assertAlmostEqual(lifted[0], straight[0], places=9)
-        self.assertAlmostEqual(lifted[1], straight[1], places=9)
-        self.assertGreater(lifted[2], straight[2])
+        self.assertAlmostEqual(
+            math.atan2(lifted[1], lifted[0]),
+            math.atan2(straight[1], straight[0]),
+            places=9,
+        )
 
     def test_a_slow_long_throw_needs_more_lift_than_a_fast_short_one(self):
-        slow = launch_velocity(DodgeballThrow(0.0, 0.0, 6.0, 2.0))
+        slow = launch_velocity(DodgeballThrow(0.0, 0.0, 6.0, 9.0))
         fast = launch_velocity(DodgeballThrow(0.0, 0.0, 6.0, 20.0))
         self.assertGreater(slow[2], fast[2])
 
 
 class TestFlightAndImpact(unittest.TestCase):
-    def test_flight_time_is_distance_over_speed(self):
-        self.assertAlmostEqual(
-            flight_time(DodgeballThrow(0.0, 0.0, 6.0, 3.0)), 2.0, places=9
-        )
+    def test_the_arrival_speed_obeys_energy_conservation(self):
+        # v_arrival^2 = v_launch^2 + 2 g (spawn height - base height), independently of the aiming algebra.
+        for throw in (
+            DodgeballThrow(0.0, 40.0, 5.0, 9.0),
+            DodgeballThrow(120.0, -15.0, 3.0, 12.0),
+            DodgeballThrow(0.0, 0.0, 8.0, 1.0),
+        ):
+            height = spawn_offset(throw)[2]
+            expected = math.sqrt(launch_speed(throw) ** 2 + 2.0 * GRAVITY * height)
+            self.assertAlmostEqual(
+                _norm(arrival_velocity(throw)), expected, places=6, msg=throw
+            )
 
-    def test_impact_momentum_scales_with_mass_and_speed(self):
+    def test_impact_momentum_is_mass_times_the_arrival_speed(self):
+        throw = DodgeballThrow(0.0, 30.0, 4.0, 10.0, mass_kg=0.5)
         self.assertAlmostEqual(
-            impact_momentum(DodgeballThrow(0.0, 0.0, 3.0, 10.0, mass_kg=0.5)),
-            5.0,
-            places=9,
+            impact_momentum(throw), 0.5 * _norm(arrival_velocity(throw)), places=9
         )
+        # And it is linear in the mass and grows with the speed.
+        heavy = DodgeballThrow(0.0, 30.0, 4.0, 10.0, mass_kg=2.0)
+        faster = DodgeballThrow(0.0, 30.0, 4.0, 20.0, mass_kg=0.5)
         self.assertAlmostEqual(
-            impact_momentum(DodgeballThrow(0.0, 0.0, 3.0, 20.0, mass_kg=0.5)),
-            10.0,
-            places=9,
+            impact_momentum(heavy), 4.0 * impact_momentum(throw), places=9
         )
+        self.assertGreater(impact_momentum(faster), impact_momentum(throw))
+
+    def test_a_ball_dropped_from_above_arrives_faster_than_the_slider_says(self):
+        # Which is exactly what mass x slider speed used to hide.
+        throw = DodgeballThrow(0.0, 60.0, 8.0, 3.0, mass_kg=5.0)
+        self.assertGreater(impact_momentum(throw), 5.0 * launch_speed(throw))
 
 
 class TestClamping(unittest.TestCase):
@@ -214,14 +282,29 @@ class TestClamping(unittest.TestCase):
             all(math.isfinite(component) for component in launch_velocity(throw))
         )
 
-    def test_a_zero_mass_cannot_divide_by_zero(self):
-        # The simulator divides by the mass to retune the ball's inertia, so the floor is a real kilogram figure and
-        # not merely "positive".
+    def test_a_zero_mass_is_clamped_to_a_real_ball(self):
+        # A sphere's inertia is proportional to its mass and MuJoCo cannot integrate a free body with zero inertia, so
+        # the floor is a real kilogram figure and not merely "positive".
         self.assertEqual(
             DodgeballThrow(0.0, 0.0, 3.0, 5.0, mass_kg=0.0).clamped().mass_kg,
             MASS_RANGE_KG[0],
         )
         self.assertGreater(MASS_RANGE_KG[0], 0.0)
+
+    def test_nan_takes_the_low_end_of_every_range(self):
+        # NaN fails every comparison and used to pass straight through the clamp into the payload, where the
+        # simulator either dropped the throw silently or, for a NaN speed, reset the whole simulation.
+        nan = float("nan")
+        throw = DodgeballThrow(nan, nan, nan, nan, mass_kg=nan).clamped()
+        self.assertEqual(throw.azimuth_deg, AZIMUTH_RANGE_DEG[0])
+        self.assertEqual(throw.elevation_deg, ELEVATION_RANGE_DEG[0])
+        self.assertEqual(throw.distance_m, DISTANCE_RANGE_M[0])
+        self.assertEqual(throw.speed_mps, SPEED_RANGE_MPS[0])
+        self.assertEqual(throw.mass_kg, MASS_RANGE_KG[0])
+        payload = throw_payload(DodgeballThrow(0.0, 0.0, nan, nan, mass_kg=nan))
+        for value in payload["dodgeball"].values():
+            for number in value if isinstance(value, list) else [value]:
+                self.assertTrue(math.isfinite(number), payload)
 
     def test_the_regulation_ball_is_inside_the_mass_range(self):
         # Otherwise the slider's own default would be clamped away the first time it was thrown.
@@ -299,9 +382,15 @@ class TestThrowPayload(unittest.TestCase):
         self.assertEqual(ball["azimuthDeg"], AZIMUTH_RANGE_DEG[1])
         self.assertEqual(ball["distance"], DISTANCE_RANGE_M[1])
         self.assertEqual(ball["mass"], MASS_RANGE_KG[1])
-        # And the momentum is computed from the CLAMPED mass, so the preview never promises a throw that is not sent.
+        # And the momentum is computed from the CLAMPED throw, so the preview never promises a throw that is not sent.
+        clamped = DodgeballThrow(1e9, 1e9, 1e9, 1e9, mass_kg=1e9).clamped()
         self.assertAlmostEqual(
-            ball["impactMomentum"], MASS_RANGE_KG[1] * SPEED_RANGE_MPS[1], places=4
+            ball["impactMomentum"], impact_momentum(clamped), places=4
+        )
+        self.assertAlmostEqual(
+            ball["impactMomentum"],
+            MASS_RANGE_KG[1] * _norm(arrival_velocity(clamped)),
+            places=4,
         )
 
     def test_the_mass_does_not_change_where_the_ball_goes(self):
@@ -313,11 +402,37 @@ class TestThrowPayload(unittest.TestCase):
         heavy = throw_payload(DodgeballThrow(30.0, 20.0, 4.0, 9.0, mass_kg=4.0))[
             "dodgeball"
         ]
-        for key in ("spawnOffset", "launchVelocity", "flightTime"):
+        for key in ("spawnOffset", "launchVelocity", "flightTime", "launchSpeed"):
             self.assertEqual(light[key], heavy[key], key)
+        # Rounded to 6 places on the wire, so the ratio is exact only to about that.
         self.assertAlmostEqual(
-            heavy["impactMomentum"] / light["impactMomentum"], 20.0, places=6
+            heavy["impactMomentum"] / light["impactMomentum"], 20.0, places=4
         )
+
+    def test_the_payload_has_exactly_the_keys_the_simulator_reads_and_documents(self):
+        # The golden payload is what the C++ parser's test reads (humanoid_common_mpc_ros2/test/data). If the GUI's
+        # keys drift from it, this fails here; if the parser's do, its own test fails there.
+        golden_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "..",
+            "..",
+            "humanoid_common_mpc_ros2",
+            "test",
+            "data",
+            "dodgeball_payload.yaml",
+        )
+        with open(golden_path) as golden_file:
+            golden = yaml.safe_load(golden_file)["dodgeball"]
+        produced = throw_payload(DodgeballThrow(30.0, 15.0, 3.0, 9.0, mass_kg=1.2))[
+            "dodgeball"
+        ]
+        self.assertEqual(set(produced), set(golden))
+        for key, value in golden.items():
+            if isinstance(value, list):
+                self.assertEqual(len(produced[key]), len(value), key)
+        # The golden file was generated from exactly this throw, so the values agree too - until the geometry is
+        # changed on purpose, in which case regenerate the file and the C++ test's expected numbers together.
+        self.assertEqual(produced, golden)
 
 
 def _tk_available():
@@ -369,7 +484,10 @@ class TestDodgeballTab(unittest.TestCase):
         ball = yaml.safe_load(self.publisher.last_data)["dodgeball"]
         self.assertAlmostEqual(ball["azimuthDeg"], 90.0, places=3)
         self.assertAlmostEqual(ball["distance"], 4.0, places=3)
-        self.assertAlmostEqual(ball["flightTime"], 0.5, places=3)
+        self.assertAlmostEqual(
+            ball["flightTime"], flight_time(self.tab.current_throw()), places=5
+        )
+        self.assertAlmostEqual(_norm(ball["launchVelocity"]), 8.0, places=4)
         # 90 deg is the robot's left, so the ball spawns at +y and flies in -y.
         self.assertGreater(ball["spawnOffset"][1], 3.9)
         self.assertLess(ball["launchVelocity"][1], 0.0)
@@ -379,7 +497,7 @@ class TestDodgeballTab(unittest.TestCase):
         self.tab.throw()
         self.assertEqual(self.publisher.publish_count, 2)
 
-    def test_the_checkbox_randomises_the_angles_but_not_distance_speed_or_mass(self):
+    def test_the_checkbox_randomizes_the_angles_but_not_distance_speed_or_mass(self):
         self.tab.distance_row.set_value(5.0)
         self.tab.speed_row.set_value(12.0)
         self.tab.mass_row.set_value(1.5)
@@ -395,10 +513,10 @@ class TestDodgeballTab(unittest.TestCase):
             self.assertAlmostEqual(ball["speed"], 12.0, places=6)
             self.assertAlmostEqual(ball["mass"], 1.5, places=6)
         self.assertGreater(
-            len(azimuths), 1, "the checkbox did not randomise the azimuth"
+            len(azimuths), 1, "the checkbox did not randomize the azimuth"
         )
 
-    def test_randomising_writes_the_sampled_angles_back_onto_the_sliders(self):
+    def test_randomizing_writes_the_sampled_angles_back_onto_the_sliders(self):
         # So that the screen records what was thrown, rather than whatever the sliders were last left at.
         self.tab.randomize_var.set(True)
         self.tab._on_randomize_toggle()
@@ -410,7 +528,7 @@ class TestDodgeballTab(unittest.TestCase):
             self.tab.elevation_row.get_value(), ball["elevationDeg"], places=3
         )
 
-    def test_the_angle_sliders_are_disabled_while_randomising(self):
+    def test_the_angle_sliders_are_disabled_while_randomizing(self):
         self.tab.randomize_var.set(True)
         self.tab._on_randomize_toggle()
         self.assertEqual(str(self.tab.azimuth_row.scale.cget("state")), "disabled")
@@ -418,17 +536,43 @@ class TestDodgeballTab(unittest.TestCase):
         self.tab._on_randomize_toggle()
         self.assertNotEqual(str(self.tab.azimuth_row.scale.cget("state")), "disabled")
 
-    def test_with_no_publisher_it_still_computes_the_throw_and_does_not_raise(self):
+    def test_with_no_publisher_it_still_computes_the_throw_and_says_so(self):
         from remote_control.tk_app.dodgeball_tab import DodgeballTab
 
         tab = DodgeballTab(self.root, throw_publisher=None)
         payload = tab.throw()
         self.assertIn("dodgeball", payload)
+        # The status line has to SHOW it: it used to be written with configure(text=...) on a label bound to a
+        # variable, which Tk overwrote with the variable's empty string before it was ever drawn.
+        self.root.update_idletasks()
+        self.assertIn("No publisher", tab.status_label.cget("text"))
 
-    def test_the_topic_matches_the_one_the_gui_publishes_on(self):
+    def test_a_throw_reports_what_was_thrown_including_the_mass(self):
+        self.tab.mass_row.set_value(1.75)
+        self.tab.throw()
+        self.root.update_idletasks()
+        status = self.tab.status_label.cget("text")
+        self.assertIn("Thrown", status)
+        self.assertIn("1.75 kg", status)
+
+    def test_the_topic_is_the_one_the_simulator_subscribes_to(self):
+        # Read out of the bridge's C++ source, so a topic renamed on either side of the wire fails here.
         from remote_control.tk_app.dodgeball_tab import DodgeballTab
 
-        self.assertEqual(DodgeballTab.TOPIC_NAME, "/humanoid/dodgeball_throw")
+        bridge = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "..",
+            "..",
+            "humanoid_common_mpc_ros2",
+            "src",
+            "fsm",
+            "SimFsmBridge.cpp",
+        )
+        with open(bridge) as source:
+            text = source.read()
+        subscription = text[text.index("dodgeballSub_ = ") :]
+        topic = subscription[subscription.index('"') + 1 :]
+        self.assertEqual(DodgeballTab.TOPIC_NAME, topic[: topic.index('"')])
 
     def test_the_default_ball_is_a_dodgeball_and_not_a_cannonball(self):
         self.assertAlmostEqual(
@@ -453,11 +597,35 @@ class TestDodgeballTab(unittest.TestCase):
         self.tab.throw()
         ball = yaml.safe_load(self.publisher.last_data)["dodgeball"]
         self.assertAlmostEqual(ball["mass"], 2.25, places=4)
-        self.assertAlmostEqual(ball["impactMomentum"], 22.5, places=4)
+        self.assertAlmostEqual(
+            ball["impactMomentum"],
+            impact_momentum(self.tab.current_throw()),
+            places=4,
+        )
 
-    def test_the_mass_slider_stays_live_while_the_direction_is_randomised(self):
-        # The checkbox greys out the two angles it drives, and nothing else: a disabled mass slider would look like
-        # the mass was being randomised too.
+    def test_a_value_typed_beyond_a_slider_is_clamped_on_screen_and_on_the_wire(self):
+        # A mass typed as 8 used to stay on screen as 8 and widen the slider to 12 kg, while every throw weighed 5.
+        self.tab.mass_row.entry_var.set("8")
+        self.tab.mass_row._on_entry_submit()
+        self.assertEqual(self.tab.mass_row.get_value(), MASS_RANGE_KG[1])
+        self.assertAlmostEqual(
+            float(self.tab.mass_row.scale.cget("to")), MASS_RANGE_KG[1], places=6
+        )
+        self.assertAlmostEqual(
+            float(self.tab.mass_row.entry_var.get()), MASS_RANGE_KG[1], places=3
+        )
+        self.assertEqual(self.tab.throw()["dodgeball"]["mass"], MASS_RANGE_KG[1])
+
+    def test_a_non_number_typed_into_a_slider_is_rejected(self):
+        before = self.tab.speed_row.get_value()
+        for typed in ("nan", "inf", "fast"):
+            self.tab.speed_row.entry_var.set(typed)
+            self.tab.speed_row._on_entry_submit()
+            self.assertEqual(self.tab.speed_row.get_value(), before, typed)
+
+    def test_the_mass_slider_stays_live_while_the_direction_is_randomized(self):
+        # The checkbox grays out the two angles it drives, and nothing else: a disabled mass slider would look like
+        # the mass was being randomized too.
         self.tab.randomize_var.set(True)
         self.tab._on_randomize_toggle()
         self.assertNotEqual(str(self.tab.mass_row.scale.cget("state")), "disabled")
@@ -468,8 +636,18 @@ class TestDodgeballTab(unittest.TestCase):
         self.tab.speed_row.set_value(8.0)
         self.tab._update_preview()
         preview = self.tab.preview_var.get()
+        throw = self.tab.current_throw()
         self.assertIn("3.00 kg", preview)
-        self.assertIn("24.00 N s", preview)
+        self.assertIn("%.2f N s" % impact_momentum(throw), preview)
+        self.assertIn("%.1f m/s launch" % launch_speed(throw), preview)
+        self.assertNotIn("raised", preview)
+
+    def test_the_preview_says_when_the_speed_was_raised_to_reach_the_base(self):
+        self.tab.distance_row.set_value(8.0)
+        self.tab.elevation_row.set_value(0.0)
+        self.tab.speed_row.set_value(1.0)
+        self.tab._update_preview()
+        self.assertIn("raised from 1.0", self.tab.preview_var.get())
 
 
 if __name__ == "__main__":

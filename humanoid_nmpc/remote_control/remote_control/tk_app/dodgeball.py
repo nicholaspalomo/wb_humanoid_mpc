@@ -58,7 +58,7 @@ from typing import Dict, Optional, Tuple
 #: [kg] Mass of a regulation foam dodgeball, and where the mass slider starts.
 #:
 #: Mass is the property the impact scales with most directly: what the robot feels is the momentum `mass * speed`
-#: arriving over the contact, so this and the speed slider are two ways of dialling the same thing - except that mass
+#: arriving over the contact, so this and the speed slider are two ways of dialing the same thing - except that mass
 #: also changes how the ball behaves AFTER the hit, because a heavy ball carries its momentum through the contact
 #: while a light one gives it all back and bounces away.
 #:
@@ -71,8 +71,11 @@ DEFAULT_BALL_MASS_KG = 0.45
 # LINT.ThenChange(//robot_runtime/mujoco_sim_interface/src/Projectile.cpp:dodgeball_properties)
 
 #: [m/s^2] Gravity the flight is computed under. The launch velocity is lifted so that the ball's BALLISTIC path
-#: passes through the base, rather than pointing straight at it and landing low - see `launch_velocity`.
+#: passes through the base, rather than pointing straight at it and landing low - see `launch_velocity`. The simulator
+#: flies the ball, and times the fallback impulse, under the same value.
+# LINT.IfChange(dodgeball_gravity)
 GRAVITY = 9.81
+# LINT.ThenChange(//robot_runtime/mujoco_sim_interface/src/MujocoSimInterface.cpp:dodgeball_gravity)
 
 #: Inclusive slider ranges. They are here rather than in the tab so that the sampler and the tests agree with the
 #: widgets by construction.
@@ -82,10 +85,10 @@ DISTANCE_RANGE_M = (0.5, 8.0)
 SPEED_RANGE_MPS = (1.0, 25.0)
 
 #: [kg] The mass slider's range, from a beach ball to a medicine ball, with the regulation 0.45 kg near the bottom of
-#: it. The top end is a deliberately unfair throw: 5 kg at the top speed is 125 kg m/s, which is about 0.8 m/s of base
-#: velocity for a robot the mass of Atlas - a shove that no balance controller should be expected to absorb standing
-#: still, and therefore the interesting end of the sweep. The bottom end stays clear of zero because the simulator
-#: divides by the mass to retune the ball's inertia.
+#: it. The top end is a deliberately unfair throw: 5 kg arriving at 25-28 m/s is 125-140 N s, roughly 0.8 m/s of base
+#: velocity for the 160 kg Atlas before the bounce adds more - a shove that no balance controller should be expected to
+#: absorb standing still, and therefore the interesting end of the sweep. The bottom end stays clear of zero because a
+#: sphere's inertia is proportional to its mass, and MuJoCo cannot integrate a free body with zero inertia.
 #:
 #: The simulator clamps to the same range, because a topic can be published by hand.
 # LINT.IfChange(dodgeball_mass_range)
@@ -120,11 +123,14 @@ class DodgeballThrow:
 
 
 def _clamp(value: float, low: float, high: float) -> float:
+    # NaN fails every comparison and would otherwise pass straight through; it takes the low end, as -inf does.
+    if math.isnan(value):
+        return low
     return low if value < low else (high if value > high else value)
 
 
 def spawn_offset(throw: DodgeballThrow) -> Tuple[float, float, float]:
-    """Where the ball appears, as an offset from the robot's base in the base's yaw frame, in metres.
+    """Where the ball appears, as an offset from the robot's base in the base's yaw frame, in meters.
 
     Spherical: the azimuth sweeps the horizontal plane and the elevation lifts out of it, both of the SPAWN POINT.
     The distance is the straight-line distance to the base, so `norm(spawn_offset) == distance` exactly, whatever the
@@ -141,16 +147,43 @@ def spawn_offset(throw: DodgeballThrow) -> Tuple[float, float, float]:
     )
 
 
-def flight_time(throw: DodgeballThrow) -> float:
-    """[s] How long the ball is in the air: the straight-line distance over the commanded speed.
+def minimum_launch_speed(throw: DodgeballThrow, gravity: float = GRAVITY) -> float:
+    """[m/s] The slowest launch that can reach the base at all: sqrt(g (d + dz)).
 
-    The commanded speed is therefore the CLOSING speed along the line to the base, not quite the launch speed - the
-    lift that `launch_velocity` adds to beat gravity makes the launch marginally faster. Defining it this way is what
-    lets the flight time be exactly `distance / speed`, so the operator can predict when the ball lands from the two
-    sliders alone.
+    Here d is the distance and dz the height of the base above the spawn point. A ball launched any slower falls short
+    whichever way it is aimed, so `launch_speed` raises the slider's speed to this. It is 5.4 m/s from 3 m level with
+    the base and 8.9 m/s from 8 m, which is why the bottom of the speed slider only works for short or high throws.
     """
     throw = throw.clamped()
-    return throw.distance_m / throw.speed_mps
+    rise = -spawn_offset(throw)[2]
+    return math.sqrt(max(gravity * (throw.distance_m + rise), 0.0))
+
+
+def launch_speed(throw: DodgeballThrow, gravity: float = GRAVITY) -> float:
+    """[m/s] The speed the ball actually leaves at: the slider's, or the minimum that reaches the base if that is more."""
+    throw = throw.clamped()
+    return max(throw.speed_mps, minimum_launch_speed(throw, gravity))
+
+
+def flight_time(throw: DodgeballThrow, gravity: float = GRAVITY) -> float:
+    """[s] How long the ball is in the air on its way to the base, launched at `launch_speed`.
+
+    The speed slider is the LAUNCH speed, as its label says. A ball launched at speed s from a point d away and dz
+    below the base, aimed so that it arrives there after t seconds, leaves with v = (base - spawn) / t + (0, 0, g t/2)
+    (see `launch_velocity`), and |v| = s gives a quadratic in t^2:
+
+        (g^2 / 4) t^4 + (g dz - s^2) t^2 + d^2 = 0.
+
+    Of its two roots the smaller is the direct throw and the larger a lob; this takes the direct one, written in the
+    form that stays accurate as g goes to zero, where it reduces to d / s.
+    """
+    throw = throw.clamped()
+    speed = launch_speed(throw, gravity)
+    rise = -spawn_offset(throw)[2]
+    distance = throw.distance_m
+    b = speed * speed - gravity * rise
+    discriminant = max(b * b - gravity * gravity * distance * distance, 0.0)
+    return math.sqrt(2.0 * distance * distance / (b + math.sqrt(discriminant)))
 
 
 def launch_velocity(
@@ -160,18 +193,17 @@ def launch_velocity(
 
     "Aimed at the robot's base" is taken to mean the ball arrives there, not merely that it sets off in that
     direction. Over a flight of `t` seconds gravity drops it by `g t^2 / 2`, so a velocity pointed straight down the
-    line lands that far low - half a metre at 3 m and 5 m/s, which on these robots is the difference between the
-    chest and the floor. The correction is exact rather than iterative: for a straight-line flight time `t`,
+    line lands that far low. For the flight time `t` from `flight_time`,
 
         v = (base - spawn) / t + (0, 0, g t / 2)
 
     puts the ball at the base at time `t` under constant gravity, because the vertical term integrates to exactly the
-    drop it cancels. Pass `gravity=0.0` to get the straight-line aim, which is what the tests use to check the
-    geometry on its own.
+    drop it cancels, and |v| is `launch_speed` by construction of `t`. Pass `gravity=0.0` to get the straight-line
+    aim, which is what the tests use to check the geometry on its own.
     """
     throw = throw.clamped()
     offset_x, offset_y, offset_z = spawn_offset(throw)
-    time_of_flight = flight_time(throw)
+    time_of_flight = flight_time(throw, gravity)
     return (
         -offset_x / time_of_flight,
         -offset_y / time_of_flight,
@@ -179,15 +211,29 @@ def launch_velocity(
     )
 
 
-def impact_momentum(throw: DodgeballThrow) -> float:
-    """[N s] The momentum the ball carries along its line of travel, which is what the robot feels.
+def arrival_velocity(
+    throw: DodgeballThrow, gravity: float = GRAVITY
+) -> Tuple[float, float, float]:
+    """[m/s] The velocity the ball reaches the base with: the launch velocity less what gravity took, `g t`."""
+    velocity_x, velocity_y, velocity_z = launch_velocity(throw, gravity)
+    return (
+        velocity_x,
+        velocity_y,
+        velocity_z - gravity * flight_time(throw, gravity),
+    )
 
-    The simulator delivers this as an impulse on the base, so it is the one number that sets how hard the hit is. A
-    0.45 kg ball at 15 m/s carries 6.75 N s - enough to shift a 33 kg SA01 by 0.2 m/s and barely to nudge a 160 kg
-    Atlas, which is the honest asymmetry between the two robots rather than anything the GUI should hide.
+
+def impact_momentum(throw: DodgeballThrow, gravity: float = GRAVITY) -> float:
+    """[N s] The momentum the ball carries when it reaches the base: its mass times its ARRIVAL speed.
+
+    Not mass times the slider's speed: a ball thrown from above arrives faster than it left and one thrown upwards
+    slower, by energy conservation, v_arrival^2 = v_launch^2 + 2 g (spawn height - base height). This is what the ball
+    brings to the collision. A ball that bounces off hands the robot more than this - up to (1 + e) times as much -
+    and a real ball compiled into the scene does exactly that; the simulator applies precisely this momentum only when
+    no ball is compiled in and the throw falls back to an impulse on the base.
     """
     throw = throw.clamped()
-    return throw.mass_kg * throw.speed_mps
+    return throw.mass_kg * math.hypot(*arrival_velocity(throw, gravity))
 
 
 def sample_random_angles(rng: Optional[random.Random] = None) -> Tuple[float, float]:
@@ -195,7 +241,7 @@ def sample_random_angles(rng: Optional[random.Random] = None) -> Tuple[float, fl
 
     Only the two ANGLES. The distance, the speed and the MASS are left to the operator deliberately: those three set
     how hard and how soon the hit lands, which is the part of the experiment being controlled, while the direction is
-    the part worth randomising to avoid unconsciously always throwing from the same side. Mass belongs with the speed
+    the part worth randomizing to avoid unconsciously always throwing from the same side. Mass belongs with the speed
     rather than with the angles for exactly the reason the original request put the speed on the operator's side of
     that line: it is a magnitude being swept, not a condition being sampled.
 
@@ -211,13 +257,16 @@ def sample_random_angles(rng: Optional[random.Random] = None) -> Tuple[float, fl
 def throw_payload(throw: DodgeballThrow, gravity: float = GRAVITY) -> Dict[str, object]:
     """The message the tab publishes, as the dict that is then dumped to YAML.
 
-    It carries BOTH the operator's five parameters and the derived spawn offset, launch velocity and flight time. The
-    derived values are what the simulator acts on; the parameters are there so that a recorded bag, or someone
-    watching the topic with `ros2 topic echo`, says what was asked for rather than only what was computed.
+    It carries BOTH the operator's five parameters and what was derived from them. The simulator reads the mass, the
+    spawn offset, the launch velocity and the flight time (humanoid_common_mpc_ros2's parseDodgeballThrow); the rest
+    is there so that a recorded bag, or someone watching the topic with `ros2 topic echo`, says what was asked for as
+    well as what was computed - including `launchSpeed`, which differs from `speed` when the slider's speed was too
+    slow to reach the base and was raised.
     """
     throw = throw.clamped()
     offset = spawn_offset(throw)
     velocity = launch_velocity(throw, gravity)
+    # LINT.IfChange(dodgeball_payload_keys)
     return {
         "dodgeball": {
             # What the operator set.
@@ -227,10 +276,14 @@ def throw_payload(throw: DodgeballThrow, gravity: float = GRAVITY) -> Dict[str, 
             "speed": round(throw.speed_mps, 4),
             "mass": round(throw.mass_kg, 4),
             # What the simulator acts on, in the robot's own yaw frame: it rotates these by the measured base yaw and
-            # adds the base position, and applies the impulse after `flightTime`.
+            # adds the base position. With a ball compiled into the scene it flies the ball from there; without one,
+            # it applies the arrival momentum to the base after `flightTime`.
             "spawnOffset": [round(value, 6) for value in offset],
             "launchVelocity": [round(value, 6) for value in velocity],
-            "flightTime": round(flight_time(throw), 6),
-            "impactMomentum": round(impact_momentum(throw), 6),
+            "flightTime": round(flight_time(throw, gravity), 6),
+            # Documentation only.
+            "launchSpeed": round(launch_speed(throw, gravity), 6),
+            "impactMomentum": round(impact_momentum(throw, gravity), 6),
         }
     }
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_ros2/src/fsm/DodgeballThrowParser.cpp:dodgeball_payload_keys)

@@ -30,8 +30,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/gait/ModeSequenceTemplate.h"
 
+#include <string>
+
 #include <ocs2_core/misc/Display.h>
 #include <ocs2_core/misc/LoadData.h>
+
+#include "absl/strings/str_cat.h"
+#include "absl/strings/str_join.h"
 
 namespace ocs2::humanoid {
 
@@ -61,11 +66,34 @@ ModeSequenceTemplate loadModeSequenceTemplate(const std::string& filename, const
   // convert the mode name to mode enum
   std::vector<size_t> modeSequence;
   modeSequence.reserve(modeSequenceString.size());
-  for (const auto& modeName : modeSequenceString) {
+  for (const std::string& modeName : modeSequenceString) {
     modeSequence.push_back(string2ModeNumber(modeName));
   }
 
-  return {switchingTimes, modeSequence};
+  ModeSequenceTemplate modeSequenceTemplate(switchingTimes, modeSequence);
+  const absl::Status status = validateModeSequenceTemplate(modeSequenceTemplate, topicName);
+  if (!status.ok()) {
+    throw std::runtime_error(absl::StrCat("[loadModeSequenceTemplate] ", status.message(), " (in ", filename, ")"));
+  }
+  return modeSequenceTemplate;
+}
+
+absl::Status validateModeSequenceTemplate(const ModeSequenceTemplate& modeSequenceTemplate, absl::string_view topicName) {
+  const std::vector<scalar_t>& switchingTimes = modeSequenceTemplate.switchingTimes;
+  const std::vector<size_t>& modeSequence = modeSequenceTemplate.modeSequence;
+  if (switchingTimes.size() != modeSequence.size() + 1) {
+    return absl::InvalidArgumentError(absl::StrCat(topicName, ".switchingTimes has ", switchingTimes.size(), " entries for ",
+                                                   modeSequence.size(), " modes in ", topicName,
+                                                   ".modeSequence; it needs one more than there are modes."));
+  }
+  for (size_t i = 1; i < switchingTimes.size(); ++i) {
+    if (!(switchingTimes[i] > switchingTimes[i - 1])) {
+      return absl::InvalidArgumentError(absl::StrCat(topicName, ".switchingTimes [", absl::StrJoin(switchingTimes, ", "),
+                                                     "] is not strictly increasing at entry ", i, " (", switchingTimes[i], " after ",
+                                                     switchingTimes[i - 1], "), which gives mode ", i - 1, " a duration of zero or less."));
+    }
+  }
+  return absl::OkStatus();
 }
 
 /******************************************************************************************************/

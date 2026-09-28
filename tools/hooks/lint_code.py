@@ -4,12 +4,20 @@ Linter for wb_humanoid_mpc repository.
 - Validates Google LINT.IfChange / LINT.ThenChange cross-file directives.
 - Checks trailing whitespace and missing EOF newlines.
 - Checks C/C++ formatting with clang-format (--dry-run --Werror).
+- Checks that bare literal arguments carry a Google-style argument comment (argument_comments.py).
+- Checks that Abseil headers are included with quotes, as Bazel exposes them (include_style.py).
+- Checks that the repository is written in American English (american_spelling.py).
 - Checks Python formatting with black (--check).
 """
 
 import os
 import subprocess
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import argument_comments  # noqa: E402
+import include_style  # noqa: E402
+import american_spelling  # noqa: E402
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
@@ -24,9 +32,11 @@ EXCLUDE_DIRS = {
     "build",
     "install",
     "log",
+    # LINT.IfChange(vendored_dirs)
     "lib/ocs2",
     "lib/mujoco_vendor",
     "tools/ifttt-lint",
+    # LINT.ThenChange(//tools/hooks/argument_comments.py:vendored_dirs)
 }
 
 TEXT_EXTENSIONS = {
@@ -63,6 +73,13 @@ EXACT_FILES = {
 }
 
 
+SPELLING_SKIPPED_EXTENSIONS = {".urdf", ".xacro", ".xml", ".mjcf"}
+SPELLING_SKIPPED_FILES = {
+    os.path.join("tools", "hooks", "american_spelling.py"),
+    os.path.join("tools", "hooks", "test_american_spelling.py"),
+}
+
+
 def should_skip(path):
     rel = os.path.relpath(path, REPO_ROOT)
     for exc in EXCLUDE_DIRS:
@@ -92,7 +109,7 @@ def check_trailing_newlines_and_whitespace(file_path):
 
 
 def main():
-    print("🔍 1/4 Checking IFTTT cross-file directives...")
+    print("🔍 1/7 Checking IFTTT cross-file directives...")
     ifttt_script = os.path.join(os.path.dirname(__file__), "check_ifttt.py")
     ifttt_res = subprocess.run(
         [sys.executable, ifttt_script], capture_output=True, text=True
@@ -102,8 +119,9 @@ def main():
         print(ifttt_res.stderr)
         return 1
 
-    print("🔍 2/4 Checking trailing whitespace and EOF newlines...")
+    print("🔍 2/7 Checking trailing whitespace and EOF newlines...")
     whitespace_errors = []
+    spelling_files = []
     cpp_files = []
     py_files = []
 
@@ -121,6 +139,12 @@ def main():
                 valid, msg = check_trailing_newlines_and_whitespace(full_path)
                 if not valid:
                     whitespace_errors.append(f"{rel_path}: {msg}")
+                # Robot model files (URDF, MJCF) are upstream data; the checker's own word list is British on purpose.
+                if (
+                    ext not in SPELLING_SKIPPED_EXTENSIONS
+                    and rel_path not in SPELLING_SKIPPED_FILES
+                ):
+                    spelling_files.append(full_path)
 
             if ext in {".cpp", ".h", ".hpp"}:
                 cpp_files.append(full_path)
@@ -134,7 +158,7 @@ def main():
         print("💡 Run 'make format' to auto-fix whitespace and newlines.")
         return 1
 
-    print("🔍 3/4 Checking C++ formatting (clang-format)...")
+    print("🔍 3/7 Checking C++ formatting (clang-format)...")
     cpp_errors = []
     if cpp_files:
         try:
@@ -153,7 +177,52 @@ def main():
         print("💡 Run 'make format' to auto-format C++ code.")
         return 1
 
-    print("🔍 4/4 Checking Python formatting (black)...")
+    print("🔍 4/7 Checking argument comments on literal arguments...")
+    violations = argument_comments.check_files(cpp_files, REPO_ROOT)
+    if violations:
+        print("❌ Literal arguments without an argument comment:")
+        for violation in violations:
+            print(f"  {violation}")
+        print(
+            f"💡 {len(violations)} call site(s): write /*parameter_name=*/ in front of each literal, with the name "
+            "from the callee's declaration (see tools/hooks/argument_comments.py for what is exempt)."
+        )
+        return 1
+
+    print("🔍 5/7 Checking that Abseil headers are included with quotes...")
+    include_violations = include_style.check_files(cpp_files, REPO_ROOT)
+    if include_violations:
+        print("❌ Abseil headers included with angle brackets:")
+        for violation in include_violations:
+            print(f"  {violation}")
+        return 1
+
+    print("🔍 6/7 Checking for British spellings (American English throughout)...")
+    # Only files git would track: ignored side files (the tuning GUI's *.live.yaml copies, *.bak backups) are not ours
+    # to fix and are rewritten from their sources anyway.
+    try:
+        listed = subprocess.run(
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.split("\0")
+        tracked = {os.path.join(REPO_ROOT, path) for path in listed if path}
+        spelling_files = [path for path in spelling_files if path in tracked]
+    except (OSError, subprocess.CalledProcessError):
+        pass
+    spelling_findings = american_spelling.check_files(spelling_files, REPO_ROOT)
+    if spelling_findings:
+        print("❌ British spellings:")
+        for finding in spelling_findings:
+            print(f"  {finding}")
+        print(
+            "💡 Fix them all with: python3 tools/hooks/american_spelling.py --fix <files>"
+        )
+        return 1
+
+    print("🔍 7/7 Checking Python formatting (black)...")
     py_errors = []
     if py_files:
         try:

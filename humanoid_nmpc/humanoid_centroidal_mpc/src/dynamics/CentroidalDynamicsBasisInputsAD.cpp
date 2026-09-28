@@ -31,10 +31,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc/dynamics/CentroidalDynamicsBasisInputsAD.h"
 
-#include <functional>
-#include <iomanip>
-#include <sstream>
 #include <stdexcept>
+#include <utility>
 
 #include <pinocchio/multibody/data.hpp>
 #include <pinocchio/multibody/model.hpp>
@@ -45,12 +43,78 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/strings/str_cat.h"
 
+#include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
+
 namespace ocs2::humanoid {
 
 namespace {
-static constexpr size_t kWrenchDim = 6;
-static constexpr size_t kForceDim = 3;
+constexpr size_t kWrenchDim = 6;
+constexpr size_t kForceDim = 3;
+
+/** Frame index of every contact; validate() has established that each frame exists. */
+std::array<pinocchio::FrameIndex, N_CONTACTS> contactFrameIndices(const PinocchioInterface& pinocchioInterface,
+                                                                  const ModelSettings& modelSettings) {
+  const pinocchio::ModelTpl<scalar_t>& model = pinocchioInterface.getModel();
+  std::array<pinocchio::FrameIndex, N_CONTACTS> indices;
+  for (size_t i = 0; i < N_CONTACTS; ++i) {
+    indices[i] = model.getFrameId(modelSettings.contactNames[i]);
+  }
+  return indices;
+}
 }  // namespace
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+absl::Status CentroidalDynamicsBasisInputsAD::validate(const PinocchioInterface& pinocchioInterface,
+                                                       const CentroidalModelInfo& info,
+                                                       const ModelSettings& modelSettings,
+                                                       const std::array<matrix_t, N_CONTACTS>& localBasisMatrices) {
+  if (info.numThreeDofContacts != 0 || info.numSixDofContacts != N_CONTACTS || modelSettings.contactNames.size() != N_CONTACTS) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("[CentroidalDynamicsBasisInputsAD] basis-vector contact inputs need exactly ", N_CONTACTS,
+                     " six-DoF contacts and no three-DoF contacts; model_settings.contactNames6DoF gives ", info.numSixDofContacts,
+                     " six-DoF and ", info.numThreeDofContacts, " three-DoF contacts."));
+  }
+  if (static_cast<size_t>(info.actuatedDofNum) != modelSettings.mpc_joint_dim) {
+    return absl::InvalidArgumentError(absl::StrCat("[CentroidalDynamicsBasisInputsAD] the centroidal model actuates ", info.actuatedDofNum,
+                                                   " joints but model_settings.fixedJointNames leaves ", modelSettings.mpc_joint_dim,
+                                                   " MPC joints; they must agree."));
+  }
+  const pinocchio::ModelTpl<scalar_t>& model = pinocchioInterface.getModel();
+  const Eigen::Index numBasisPerFoot = localBasisMatrices[0].cols();
+  for (size_t i = 0; i < N_CONTACTS; ++i) {
+    if (localBasisMatrices[i].rows() != static_cast<Eigen::Index>(kWrenchDim) || localBasisMatrices[i].cols() != numBasisPerFoot) {
+      return absl::InternalError(absl::StrCat("[CentroidalDynamicsBasisInputsAD] basis matrix ", i, " has size ",
+                                              localBasisMatrices[i].rows(), "x", localBasisMatrices[i].cols(), ", expected ", kWrenchDim,
+                                              "x", numBasisPerFoot, "."));
+    }
+    const std::string& frameName = modelSettings.contactNames[i];
+    if (!model.existFrame(frameName)) {
+      return absl::InvalidArgumentError(absl::StrCat("[CentroidalDynamicsBasisInputsAD] model_settings.contactNames6DoF entry '", frameName,
+                                                     "' is not a frame of the robot model."));
+    }
+  }
+  return absl::OkStatus();
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+absl::StatusOr<std::unique_ptr<CentroidalDynamicsBasisInputsAD>> CentroidalDynamicsBasisInputsAD::Create(
+    const PinocchioInterface& pinocchioInterface,
+    const CentroidalModelInfo& info,
+    const std::string& modelName,
+    const ModelSettings& modelSettings,
+    const std::array<matrix_t, N_CONTACTS>& localBasisMatrices) {
+  const absl::Status status = validate(pinocchioInterface, info, modelSettings, localBasisMatrices);
+  if (!status.ok()) {
+    return status;
+  }
+  // Not std::make_unique: it cannot reach the private constructor.
+  return std::unique_ptr<CentroidalDynamicsBasisInputsAD>(
+      new CentroidalDynamicsBasisInputsAD(pinocchioInterface, info, modelName, modelSettings, localBasisMatrices));
+}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -67,27 +131,8 @@ CentroidalDynamicsBasisInputsAD::CentroidalDynamicsBasisInputsAD(const Pinocchio
       numBasisPerFoot_(static_cast<size_t>(localBasisMatrices[0].cols())),
       jointDim_(modelSettings.mpc_joint_dim),
       basisInputDim_(static_cast<size_t>(localBasisMatrices[0].cols()) * N_CONTACTS + modelSettings.mpc_joint_dim) {
-  if (info.numThreeDofContacts != 0 || info.numSixDofContacts != N_CONTACTS) {
-    throw std::runtime_error(absl::StrCat("[CentroidalDynamicsBasisInputsAD] Expected exactly ", N_CONTACTS,
-                                          " six-DoF contacts and no three-DoF contacts, got ", info.numSixDofContacts, " / ",
-                                          info.numThreeDofContacts));
-  }
-  if (static_cast<size_t>(info.actuatedDofNum) != jointDim_) {
-    throw std::runtime_error(absl::StrCat("[CentroidalDynamicsBasisInputsAD] actuatedDofNum (", info.actuatedDofNum,
-                                          ") does not match mpc_joint_dim (", jointDim_, ")"));
-  }
-  const auto& model = pinocchioInterface.getModel();
-  for (size_t i = 0; i < N_CONTACTS; ++i) {
-    if (B_local_[i].rows() != static_cast<Eigen::Index>(kWrenchDim) || B_local_[i].cols() != static_cast<Eigen::Index>(numBasisPerFoot_)) {
-      throw std::runtime_error(absl::StrCat("[CentroidalDynamicsBasisInputsAD] Basis matrix ", i, " has size ", B_local_[i].rows(), "x",
-                                            B_local_[i].cols(), ", expected 6x", numBasisPerFoot_));
-    }
-    const std::string& frameName = modelSettings.contactNames[i];
-    if (!model.existFrame(frameName)) {
-      throw std::runtime_error(absl::StrCat("[CentroidalDynamicsBasisInputsAD] Contact frame '", frameName, "' does not exist"));
-    }
-    contactFrameIndices_[i] = model.getFrameId(frameName);
-  }
+  // Create() has validated the arguments.
+  contactFrameIndices_ = contactFrameIndices(pinocchioInterface, modelSettings);
 
   initialize(info.stateDim, basisInputDim_, uniqueModelName(modelName, localBasisMatrices), modelSettings.modelFolderCppAd,
              modelSettings.recompileLibrariesCppAd, modelSettings.verboseCppAd);
@@ -111,23 +156,9 @@ CentroidalDynamicsBasisInputsAD::CentroidalDynamicsBasisInputsAD(const Centroida
 /******************************************************************************************************/
 std::string CentroidalDynamicsBasisInputsAD::uniqueModelName(const std::string& modelName,
                                                              const std::array<matrix_t, N_CONTACTS>& localBasisMatrices) {
-  // Encode the basis dimension and a hash of the basis entries so that a cached CppAD library compiled for a
-  // different basis (e.g. other friction coefficient, footprint or number of generators) is never reused.
-  std::ostringstream oss;
-  oss << std::setprecision(12);
-  for (const matrix_t& B : localBasisMatrices) {
-    oss << B.rows() << 'x' << B.cols() << ':';
-    for (Eigen::Index r = 0; r < B.rows(); ++r) {
-      for (Eigen::Index c = 0; c < B.cols(); ++c) {
-        oss << B(r, c) << ',';
-      }
-    }
-    oss << ';';
-  }
-  const size_t hash = std::hash<std::string>{}(oss.str());
-  std::ostringstream name;
-  name << modelName << "_basis" << localBasisMatrices[0].cols() << "_" << std::hex << hash;
-  return name.str();
+  // A cached CppAD library compiled for a different basis (another generator set, friction coefficient, footprint or
+  // number of generators) must never be reused, so the name carries the basis' content key.
+  return absl::StrCat(modelName, "_", basisInputsLibraryKey(localBasisMatrices));
 }
 
 /******************************************************************************************************/
@@ -138,7 +169,7 @@ VECTOR_T<SCALAR_T> CentroidalDynamicsBasisInputsAD::toWorldFrameWrenchInput(cons
                                                                             const CentroidalModelInfoTpl<SCALAR_T>& info,
                                                                             const VECTOR_T<SCALAR_T>& basisInput) const {
   assert(basisInput.size() == static_cast<Eigen::Index>(basisInputDim_));
-  const auto& data = pinocchioInterface.getData();
+  const pinocchio::DataTpl<SCALAR_T>& data = pinocchioInterface.getData();
 
   VECTOR_T<SCALAR_T> wrenchInput = VECTOR_T<SCALAR_T>::Zero(info.inputDim);
   for (size_t i = 0; i < N_CONTACTS; ++i) {

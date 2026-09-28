@@ -49,7 +49,7 @@ std::unique_ptr<MujocoOptionFlagVisualization> MujocoOptionFlagVisualization::co
                                                          'f', mjVIS_CONTACTFORCE);
 }
 std::unique_ptr<MujocoOptionFlagVisualization> MujocoOptionFlagVisualization::centerOfMass() {
-  return std::make_unique<MujocoOptionFlagVisualization>("mj_com", "MuJoCo's centre of mass markers of the bodies", 'm', mjVIS_COM);
+  return std::make_unique<MujocoOptionFlagVisualization>("mj_com", "MuJoCo's center of mass markers of the bodies", 'm', mjVIS_COM);
 }
 std::unique_ptr<MujocoOptionFlagVisualization> MujocoOptionFlagVisualization::inertia() {
   return std::make_unique<MujocoOptionFlagVisualization>("mj_inertia", "MuJoCo's equivalent inertia ellipsoids", 'i', mjVIS_INERTIA);

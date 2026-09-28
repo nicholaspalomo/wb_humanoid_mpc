@@ -68,21 +68,26 @@ vector2_t InPlaceTurningHeuristic::offset(const FootholdHeuristicContext& contex
   // this term is signed per foot and the translational one is not.
   //
   // The sign below carries the MINUS so that a POSITIVE forwardPerYawRate means "place each foot further along the
-  // direction its own hip is travelling", i.e. lead the hips into the turn - which is what the heuristic is for
+  // direction its own hip is traveling", i.e. lead the hips into the turn - which is what the heuristic is for
   // (figure 4-10: without it the feet trail the hips until they run out of workspace). Leaving the minus out would
   // make a positive coefficient drive the feet to trail the hips by twice the intended amount, which is the very
   // failure being fixed.
   //
   // The lateral RATE term is not signed per foot: it moves the whole stance sideways, which is what a turn with a
   // radius does. The lateral CONSTANT is signed, and that one opens or closes the stance.
-  const vector2_t offsetInBaseFrame(-context.side * parameters_.forwardPerYawRate * context.commandedYawRate + parameters_.forwardOffset,
+  //
+  // As in translational_stepping, a1 is Bledt's constant plus a term proportional to the stance about to begin: the hip
+  // travels its lever arm times psidot, and Raibert's lead is half a stance of that travel.
+  const scalar_t forwardGain = parameters_.forwardPerYawRate + parameters_.forwardStanceLever * context.stanceDuration;
+  const vector2_t offsetInBaseFrame(-context.side * forwardGain * context.commandedYawRate + parameters_.forwardOffset,
                                     parameters_.lateralPerYawRate * context.commandedYawRate + context.side * parameters_.lateralOffset);
-  return toWorld(offsetInBaseFrame, context.measuredBaseYaw);
+  return toWorld(offsetInBaseFrame, context.baseYaw);
 }
 
 std::string InPlaceTurningHeuristic::describe() const {
-  return absl::StrCat("in_place_turning: d_forward = -side * ", parameters_.forwardPerYawRate, " * psidot + ", parameters_.forwardOffset,
-                      " [m], d_lateral = ", parameters_.lateralPerYawRate, " * psidot + side * ", parameters_.lateralOffset, " [m]");
+  return absl::StrCat("in_place_turning: d_forward = -side * (", parameters_.forwardPerYawRate, " + ", parameters_.forwardStanceLever,
+                      " * T_stance) * psidot + ", parameters_.forwardOffset, " [m], d_lateral = ", parameters_.lateralPerYawRate,
+                      " * psidot + side * ", parameters_.lateralOffset, " [m]");
 }
 
 }  // namespace ocs2::humanoid

@@ -50,7 +50,7 @@ struct LocomotionHeuristicModelParameters;
  * heuristic and added to the reference the controller would have used anyway.
  *
  * Three consequences of "offset" that are load-bearing and are relied on throughout the layer:
- *  - an empty list is EXACTLY the previous behaviour, bit for bit, because the sum of no offsets is zero and nothing
+ *  - an empty list is EXACTLY the previous behavior, bit for bit, because the sum of no offsets is zero and nothing
  *    is recomputed;
  *  - the order of the names in the task file is documentary, because addition is commutative (unlike the contact
  *    planner's `costs` list, whose order is the floating-point accumulation order);

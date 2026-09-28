@@ -27,12 +27,21 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
+
 #include <chrono>
 #include <filesystem>
 #include <fstream>
-#include <stdexcept>
+#include <memory>
+#include <string>
 #include <thread>
+#include <vector>
+
+#include "absl/log/scoped_mock_log.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 
 #include <humanoid_centroidal_mpc/mrt/MpcParameterUpdaterModule.h>
 #include <humanoid_common_mpc/common/BasisInputsCostTransform.h>
@@ -57,23 +66,31 @@ class MpcParameterUpdaterModuleTest : public ::testing::Test {
     }
   }
 
+  /** The updater of the test model without a solver, which the tests below expect Create() to accept. */
+  std::unique_ptr<MpcParameterUpdaterModule> createUpdater() {
+    absl::StatusOr<std::unique_ptr<MpcParameterUpdaterModule>> created = MpcParameterUpdaterModule::Create(
+        /*mpcPtr=*/nullptr, tempTaskFile_.string(), testingModelInterface.urdfFile, testingModelInterface.referenceFile,
+        testingModelInterface.getMpcRobotModel().getStateDim(), testingModelInterface.getMpcRobotModel().getInputDim(),
+        testingModelInterface.getModelSettings().contactNames);
+    EXPECT_TRUE(created.ok()) << created.status();
+    return created.ok() ? *std::move(created) : nullptr;
+  }
+
   CentroidalTestingModelInterface testingModelInterface;
   std::filesystem::path tempTaskFile_;
 };
 
 TEST_F(MpcParameterUpdaterModuleTest, testFileWatcher) {
   // Pass a nullptr for MPC_BASE. The module should safely handle this.
-  MpcParameterUpdaterModule updater(nullptr, tempTaskFile_.string(), testingModelInterface.urdfFile, testingModelInterface.referenceFile,
-                                    testingModelInterface.getMpcRobotModel().getStateDim(),
-                                    testingModelInterface.getMpcRobotModel().getInputDim(),
-                                    testingModelInterface.getModelSettings().contactNames);
+  std::unique_ptr<MpcParameterUpdaterModule> updater = createUpdater();
+  ASSERT_NE(updater, nullptr);
 
   ReferenceManager referenceManager;
   vector_t state = vector_t::Zero(testingModelInterface.getMpcRobotModel().getStateDim());
 
   // Call it a few times, it shouldn't trigger anything since file hasn't changed.
   for (int i = 0; i < 150; ++i) {
-    updater.preSolverRun(0.0, 0.01, state, referenceManager);
+    updater->preSolverRun(/*initTime=*/0.0, /*finalTime=*/0.01, state, referenceManager);
   }
 
   // Now modify the file
@@ -87,7 +104,7 @@ TEST_F(MpcParameterUpdaterModuleTest, testFileWatcher) {
   // It should parse the file (and log it) without crashing because of the nullptr check we added.
   EXPECT_NO_THROW({
     for (int i = 0; i < 150; ++i) {
-      updater.preSolverRun(0.0, 0.01, state, referenceManager);
+      updater->preSolverRun(/*initTime=*/0.0, /*finalTime=*/0.01, state, referenceManager);
     }
   });
 }
@@ -95,14 +112,12 @@ TEST_F(MpcParameterUpdaterModuleTest, testFileWatcher) {
 // The `contactEstimator` key of an applied YAML is handed to the simulator node once, whichever pathway delivered it
 // (the task file here), and only when the YAML carries the key. It is recorded without a solver to update.
 TEST_F(MpcParameterUpdaterModuleTest, contactEstimatorSelectionIsRecordedOnceFromAppliedYaml) {
-  MpcParameterUpdaterModule updater(nullptr, tempTaskFile_.string(), testingModelInterface.urdfFile, testingModelInterface.referenceFile,
-                                    testingModelInterface.getMpcRobotModel().getStateDim(),
-                                    testingModelInterface.getMpcRobotModel().getInputDim(),
-                                    testingModelInterface.getModelSettings().contactNames);
+  std::unique_ptr<MpcParameterUpdaterModule> updater = createUpdater();
+  ASSERT_NE(updater, nullptr);
   ReferenceManager referenceManager;
   vector_t state = vector_t::Zero(testingModelInterface.getMpcRobotModel().getStateDim());
-  EXPECT_FALSE(updater.takeContactEstimatorUpdate().has_value());
-  EXPECT_FALSE(updater.takeContactWrenchGateUpdate().has_value());
+  EXPECT_FALSE(updater->takeContactEstimatorUpdate().has_value());
+  EXPECT_FALSE(updater->takeContactWrenchGateUpdate().has_value());
 
   // Without a solver nothing but these keys is read, so a file holding only them is enough (the copied task file already
   // selects an estimator, and a YAML parser keeps the first of two equal keys).
@@ -111,16 +126,16 @@ TEST_F(MpcParameterUpdaterModuleTest, contactEstimatorSelectionIsRecordedOnceFro
     std::ofstream ofs(tempTaskFile_, std::ios::trunc);
     ofs << "contactEstimator: Always_In_Contact\ncontact_wrench_gate:\n  debounceTime: 0.02\n  rampTime: 0.05\n";
   }
-  for (int i = 0; i < 150; ++i) updater.preSolverRun(0.0, 0.01, state, referenceManager);
-  const std::optional<std::string> update = updater.takeContactEstimatorUpdate();
+  for (int i = 0; i < 150; ++i) updater->preSolverRun(/*initTime=*/0.0, /*finalTime=*/0.01, state, referenceManager);
+  const std::optional<std::string> update = updater->takeContactEstimatorUpdate();
   ASSERT_TRUE(update.has_value());
   EXPECT_EQ(*update, "Always_In_Contact");  // the registry canonicalises the name
-  EXPECT_FALSE(updater.takeContactEstimatorUpdate().has_value());
-  const std::optional<ContactWrenchGate::Config> gate = updater.takeContactWrenchGateUpdate();
+  EXPECT_FALSE(updater->takeContactEstimatorUpdate().has_value());
+  const std::optional<ContactWrenchGate::Config> gate = updater->takeContactWrenchGateUpdate();
   ASSERT_TRUE(gate.has_value());
   EXPECT_DOUBLE_EQ(gate->debounceTime, 0.02);
   EXPECT_DOUBLE_EQ(gate->rampTime, 0.05);
-  EXPECT_FALSE(updater.takeContactWrenchGateUpdate().has_value());
+  EXPECT_FALSE(updater->takeContactWrenchGateUpdate().has_value());
 
   // A negative time is rejected and the block ignored; a partial block keeps the default for the missing key.
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -128,18 +143,36 @@ TEST_F(MpcParameterUpdaterModuleTest, contactEstimatorSelectionIsRecordedOnceFro
     std::ofstream ofs(tempTaskFile_, std::ios::trunc);
     ofs << "contact_wrench_gate:\n  rampTime: -1.0\n";
   }
-  for (int i = 0; i < 150; ++i) updater.preSolverRun(0.0, 0.01, state, referenceManager);
-  EXPECT_FALSE(updater.takeContactWrenchGateUpdate().has_value());
+  for (int i = 0; i < 150; ++i) updater->preSolverRun(/*initTime=*/0.0, /*finalTime=*/0.01, state, referenceManager);
+  EXPECT_FALSE(updater->takeContactWrenchGateUpdate().has_value());
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
   {
     std::ofstream ofs(tempTaskFile_, std::ios::trunc);
     ofs << "contact_wrench_gate:\n  rampTime: 0.03\n";
   }
-  for (int i = 0; i < 150; ++i) updater.preSolverRun(0.0, 0.01, state, referenceManager);
-  const std::optional<ContactWrenchGate::Config> partial = updater.takeContactWrenchGateUpdate();
+  for (int i = 0; i < 150; ++i) updater->preSolverRun(/*initTime=*/0.0, /*finalTime=*/0.01, state, referenceManager);
+  const std::optional<ContactWrenchGate::Config> partial = updater->takeContactWrenchGateUpdate();
   ASSERT_TRUE(partial.has_value());
   EXPECT_DOUBLE_EQ(partial->debounceTime, 0.0);
   EXPECT_DOUBLE_EQ(partial->rampTime, 0.03);
+
+  // A value that does not parse refuses the block, with a warning that names its key, where a `get` with a default used
+  // to apply the default in its place without a word.
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  {
+    std::ofstream ofs(tempTaskFile_, std::ios::trunc);
+    ofs << "contact_wrench_gate:\n  debounceTime: 0.01\n  rampTime: slow\n";
+  }
+  {
+    absl::ScopedMockLog log(absl::MockLogDefault::kIgnoreUnexpected);
+    EXPECT_CALL(log, Log(absl::LogSeverity::kWarning, testing::_,
+                         testing::AllOf(testing::HasSubstr("contact_wrench_gate.rampTime"), testing::HasSubstr("'slow'"))))
+        .Times(1);
+    log.StartCapturingLogs();
+    for (int i = 0; i < 150; ++i) updater->preSolverRun(/*initTime=*/0.0, /*finalTime=*/0.01, state, referenceManager);
+    log.StopCapturingLogs();
+  }
+  EXPECT_FALSE(updater->takeContactWrenchGateUpdate().has_value()) << "a gate with an unparsable rampTime was handed on";
 
   // A YAML without the keys records nothing.
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -147,9 +180,9 @@ TEST_F(MpcParameterUpdaterModuleTest, contactEstimatorSelectionIsRecordedOnceFro
     std::ofstream ofs(tempTaskFile_, std::ios::trunc);
     ofs << "Q:\n  scaling: 1.0\n";
   }
-  for (int i = 0; i < 150; ++i) updater.preSolverRun(0.0, 0.01, state, referenceManager);
-  EXPECT_FALSE(updater.takeContactEstimatorUpdate().has_value());
-  EXPECT_FALSE(updater.takeContactWrenchGateUpdate().has_value());
+  for (int i = 0; i < 150; ++i) updater->preSolverRun(/*initTime=*/0.0, /*finalTime=*/0.01, state, referenceManager);
+  EXPECT_FALSE(updater->takeContactEstimatorUpdate().has_value());
+  EXPECT_FALSE(updater->takeContactWrenchGateUpdate().has_value());
 }
 
 TEST_F(MpcParameterUpdaterModuleTest, basisCostTransformRequiresBasisSpaceInputDim) {
@@ -158,7 +191,7 @@ TEST_F(MpcParameterUpdaterModuleTest, basisCostTransformRequiresBasisSpaceInputD
   const size_t stateDim = testingModelInterface.getMpcRobotModel().getStateDim();
   const size_t wrenchInputDim = testingModelInterface.getMpcRobotModel().getInputDim();
   const size_t numJoints = testingModelInterface.getModelSettings().mpc_joint_dim;
-  const auto& contactNames = testingModelInterface.getModelSettings().contactNames;
+  const std::vector<std::string>& contactNames = testingModelInterface.getModelSettings().contactNames;
 
   BasisInputsCostTransformConfig config;
   config.wrenchInputDim = wrenchInputDim;
@@ -167,14 +200,14 @@ TEST_F(MpcParameterUpdaterModuleTest, basisCostTransformRequiresBasisSpaceInputD
   config.basisToWrenchMap = matrix_t::Random(wrenchInputDim, config.numBasisInputs + numJoints);
   ASSERT_NE(config.basisInputDim(), wrenchInputDim);
 
-  EXPECT_THROW(
-      {
-        MpcParameterUpdaterModule updater(nullptr, tempTaskFile_.string(), testingModelInterface.urdfFile,
-                                          testingModelInterface.referenceFile, stateDim, wrenchInputDim, contactNames, nullptr, config);
-      },
-      std::invalid_argument);
-  EXPECT_NO_THROW({
-    MpcParameterUpdaterModule updater(nullptr, tempTaskFile_.string(), testingModelInterface.urdfFile, testingModelInterface.referenceFile,
-                                      stateDim, config.basisInputDim(), contactNames, nullptr, config);
-  });
+  const absl::StatusOr<std::unique_ptr<MpcParameterUpdaterModule>> wrench = MpcParameterUpdaterModule::Create(
+      /*mpcPtr=*/nullptr, tempTaskFile_.string(), testingModelInterface.urdfFile, testingModelInterface.referenceFile, stateDim,
+      wrenchInputDim, contactNames, /*referenceManager=*/nullptr, config);
+  ASSERT_FALSE(wrench.ok()) << "the wrench-space input dimension was accepted beside a basis-space transform";
+  EXPECT_EQ(wrench.status().code(), absl::StatusCode::kInvalidArgument) << wrench.status();
+  EXPECT_NE(wrench.status().message().find("inputDim"), absl::string_view::npos) << wrench.status();
+  const absl::StatusOr<std::unique_ptr<MpcParameterUpdaterModule>> basis = MpcParameterUpdaterModule::Create(
+      /*mpcPtr=*/nullptr, tempTaskFile_.string(), testingModelInterface.urdfFile, testingModelInterface.referenceFile, stateDim,
+      config.basisInputDim(), contactNames, /*referenceManager=*/nullptr, config);
+  EXPECT_TRUE(basis.ok()) << basis.status();
 }

@@ -26,27 +26,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/constraint/ZmpSupportRegionConstraint.h"
 
 #include <cmath>
-#include <sstream>
-#include <stdexcept>
+#include <functional>
+
+#include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
 
 static_assert(N_CONTACTS == 2, "the support region rows are written for a biped");
 
 std::string ZmpSupportRegionConstraint::describe() const {
-  std::ostringstream out;
-  out << "zmp in the support region, box half-widths (" << halfWidthX_ << ", " << halfWidthY_
-      << ") m around the stance foot / between both feet, big-M disjunction, " << penaltyText();
-  return out.str();
+  return absl::StrCat("zmp in the support region, box half-widths (", halfWidthX_, ", ", halfWidthY_,
+                      ") m around the stance foot / between both feet, big-M disjunction, ", penaltyText());
 }
 
 void ZmpSupportRegionConstraint::configure(const ContactPlanningConfig& config) {
-  if (config.zmpSupportRegion.halfWidthX <= 0.0 || config.zmpSupportRegion.halfWidthY <= 0.0) {
-    throw std::invalid_argument("[zmp_support_region] ZMP half widths must be positive");
-  }
   halfWidthX_ = config.zmpSupportRegion.halfWidthX;
   halfWidthY_ = config.zmpSupportRegion.halfWidthY;
-  configurePenalty(config, config.zmpSupportRegion.slack, "zmp_support_region");
+  configurePenalty(config, config.zmpSupportRegion.slack);
 }
 
 void ZmpSupportRegionConstraint::addRows(const ContactPlanningContext& ctx, int node, RowBuilder& rows) const {
@@ -54,7 +50,8 @@ void ZmpSupportRegionConstraint::addRows(const ContactPlanningContext& ctx, int 
   const std::array<vector2_t, 2>& axes = ctx.axesAt(node);
   const std::array<scalar_t, 2> halfWidth{halfWidthX_, halfWidthY_};
   // +-e_j'(zmp - p_i), with the sign folded in.
-  const auto zmpMinusFoot = [&](size_t foot, int axis, scalar_t sign, Coefficients& xc, Coefficients& uc) {
+  const std::function<void(size_t, int, scalar_t, Coefficients&, Coefficients&)> zmpMinusFoot = [&](size_t foot, int axis, scalar_t sign,
+                                                                                                    Coefficients& xc, Coefficients& uc) {
     for (int w = 0; w < 2; ++w) {
       xc.push_back({idx_.foot[foot][w], -sign * axes[static_cast<size_t>(axis)](w)});
       uc.push_back({idx_.zmp[w], sign * axes[static_cast<size_t>(axis)](w)});
@@ -97,14 +94,14 @@ void ZmpSupportRegionConstraint::addRows(const ContactPlanningContext& ctx, int 
   // support the surviving constraint is the single-support box, which is the same inequality.
   {
     Coefficients xc, uc;  // e_y'(zmp - p_L) <= r + M (1 - c_L) + M (1 - c_R)
-    zmpMinusFoot(0, 1, 1.0, xc, uc);
+    zmpMinusFoot(/*foot=*/0, /*axis=*/1, /*sign=*/1.0, xc, uc);
     uc.push_back({idx_.contact[0], M});
     uc.push_back({idx_.contact[1], M});
     rows.addSoft(xc, uc, -kLipLooseBound, halfWidth[1] + 2.0 * M, penalty_);
   }
   {
     Coefficients xc, uc;  // -e_y'(zmp - p_R) <= r + M (1 - c_L) + M (1 - c_R)
-    zmpMinusFoot(1, 1, -1.0, xc, uc);
+    zmpMinusFoot(/*foot=*/1, /*axis=*/1, /*sign=*/-1.0, xc, uc);
     uc.push_back({idx_.contact[0], M});
     uc.push_back({idx_.contact[1], M});
     rows.addSoft(xc, uc, -kLipLooseBound, halfWidth[1] + 2.0 * M, penalty_);

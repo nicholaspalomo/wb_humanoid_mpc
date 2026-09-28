@@ -11,7 +11,9 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV ROS_DISTRO=${ROS_DISTRO}
 
 # Install clang-format (for linting).
+# LINT.IfChange(clang_format_version)
 ARG CLANG_VERSION=18
+# LINT.ThenChange(//.github/workflows/format_test.yml:formatter_versions)
 
 # Install LLVM GPG key and add repository.
 RUN UBUNTU_DISTRO=$(lsb_release -cs) && \
@@ -81,26 +83,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Set up environment variables
 ENV CMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}:/opt/ros/${ROS_DISTRO}"
 
-# Create directory for the Abseil volume mount and set appropriate permissions
-RUN mkdir -p /usr/local/include/absl /usr/local/lib && \
-    chmod -R 777 /usr/local
-
-# Install Abseil with better volume persistence handling
-RUN if [ ! -f /usr/local/lib/libabsl_base.a ]; then \
-      echo "Installing Abseil from source..." && \
-      git clone -b 20240722.0 https://github.com/abseil/abseil-cpp.git && \
-      cd abseil-cpp && \
-      mkdir -p build && \
-      cd build && \
-      cmake -DCMAKE_INSTALL_PREFIX=/usr/local -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCMAKE_BUILD_TYPE=Release .. && \
-      cmake --build . --target install -j$(nproc) && \
-      ldconfig && \
-      cd / && \
-      rm -rf abseil-cpp && \
-      echo "Abseil installation completed."; \
-    else \
-      echo "Abseil already installed in volume, skipping compilation"; \
-    fi
+# No Abseil is installed here (nor by dependencies.txt): Bazel builds against its own @abseil-cpp module. A second,
+# older copy built from source into /usr/local used to sit on the compiler's default include path, where a target that
+# included an Abseil header with angle brackets or without its Bazel dependency silently compiled against it here and
+# failed in CI's clean container (tools/hooks/include_style.py, tools/hooks/test_include_style.py).
 COPY dependencies.txt /tmp/dependencies.txt
 
 # Install dependencies from dependencies.txt

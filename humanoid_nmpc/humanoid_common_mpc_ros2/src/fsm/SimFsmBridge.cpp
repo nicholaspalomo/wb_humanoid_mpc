@@ -29,14 +29,24 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc_ros2/fsm/SimFsmBridge.h"
 
+#include "humanoid_common_mpc_ros2/fsm/DodgeballThrowParser.h"
+
 #include <algorithm>
 #include <cmath>
+#include <string>
 
-#include <absl/log/log.h>
 #include <ocs2_robotic_tools/common/RotationTransforms.h>
 #include <yaml-cpp/yaml.h>
+#include "absl/log/log.h"
+#include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
+
+std::string formatFsmState(absl::string_view modeName, bool gantryLocked, uint64_t controllerResets) {
+  // LINT.IfChange(fsm_state_format)
+  return absl::StrCat(modeName, ",", gantryLocked ? "GANTRY_LOCKED" : "GANTRY_UNLOCKED", ",", controllerResets);
+  // LINT.ThenChange(//humanoid_nmpc/remote_control/remote_control/fsm_state.py:fsm_state_format)
+}
 
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -47,7 +57,7 @@ SimFsmBridge::SimFsmBridge(const robot::model::RobotDescription& robotDescriptio
     : nodeHandle_(std::move(nodeHandle)) {
   nominalJointPositions_.resize(robotDescription.getNumJoints(), 0.0);
   allJointNames_ = robotDescription.getJointNames();
-  const auto& jointIdxVec = robotDescription.getJointIndices();
+  const std::vector<robot::joint_index_t>& jointIdxVec = robotDescription.getJointIndices();
   allJointIndices_.assign(jointIdxVec.begin(), jointIdxVec.end());
   for (size_t i = 0; i < robotDescription.getNumJoints(); ++i) {
     nominalJointPositions_[i] = initState.getJointPosition(i);
@@ -72,8 +82,10 @@ SimFsmBridge::SimFsmBridge(const robot::model::RobotDescription& robotDescriptio
 
   // Dodgeball throws from the GUI. RELIABLE like the FSM command and for the same reason: a throw is one event, so
   // a dropped message is a button press that did nothing rather than a value the next message corrects.
+  // LINT.IfChange(dodgeball_topic_name)
   dodgeballSub_ = nodeHandle_->create_subscription<std_msgs::msg::String>(
       "/humanoid/dodgeball_throw", cmdQos, [this](const std_msgs::msg::String::ConstSharedPtr& msg) { dodgeballCallback(msg); });
+  // LINT.ThenChange(//humanoid_nmpc/remote_control/remote_control/tk_app/dodgeball_tab.py:dodgeball_topic_name)
 
   // Subscribe to walking velocity command for gantry height control
   rclcpp::QoS velQos(1);
@@ -83,7 +95,7 @@ SimFsmBridge::SimFsmBridge(const robot::model::RobotDescription& robotDescriptio
       [this](const humanoid_mpc_msgs::msg::WalkingVelocityCommand::ConstSharedPtr& msg) { walkingVelocityCallback(msg); });
 
   // Publish initial zero-torque + locked state
-  publishFsmState("ZERO_TORQUE", true);
+  publishFsmState("ZERO_TORQUE", /*gantryLocked=*/true);
 }
 
 /******************************************************************************************************/
@@ -101,46 +113,15 @@ void SimFsmBridge::fsmCommandCallback(const std_msgs::msg::String::ConstSharedPt
 /******************************************************************************************************/
 void SimFsmBridge::dodgeballCallback(const std_msgs::msg::String::ConstSharedPtr& msg) {
   if (!msg) return;
-
-  // The geometry was computed by the GUI (remote_control/tk_app/dodgeball.py) and is not recomputed here: this reads
-  // the spawn offset, the launch velocity and the flight time it already worked out, in the robot's yaw frame. The
-  // operator's four slider values travel in the same payload but are documentation - nothing below reads them.
-  robot::mujoco_sim_interface::MujocoSimInterface::DodgeballThrow command;
-  try {
-    const YAML::Node root = YAML::Load(msg->data);
-    const YAML::Node ball = root["dodgeball"];
-    if (!ball) {
-      LOG(WARNING) << "Dodgeball throw ignored: the payload has no 'dodgeball' block.";
-      return;
-    }
-    const YAML::Node offset = ball["spawnOffset"];
-    const YAML::Node velocity = ball["launchVelocity"];
-    if (!offset || offset.size() != 3 || !velocity || velocity.size() != 3) {
-      LOG(WARNING) << "Dodgeball throw ignored: spawnOffset and launchVelocity must both be three numbers.";
-      return;
-    }
-    for (size_t axis = 0; axis < 3; ++axis) {
-      command.spawnOffset[axis] = offset[axis].as<double>();
-      command.launchVelocity[axis] = velocity[axis].as<double>();
-    }
-    command.flightTime = ball["flightTime"] ? ball["flightTime"].as<double>() : 0.0;
-    // The GUI always sends a mass; this fallback is only for a payload published by hand. It has to match the
-    // registry's nominal mass, or a hand-thrown ball would weigh something the operator never asked for.
-    // LINT.IfChange(dodgeball_fallback_mass)
-    command.mass = ball["mass"] ? ball["mass"].as<double>() : 0.45;
-    // LINT.ThenChange(//robot_runtime/mujoco_sim_interface/src/Projectile.cpp:dodgeball_properties)
-  } catch (const std::exception& error) {
-    LOG(WARNING) << "Dodgeball throw ignored: the payload could not be read as YAML: " << error.what();
+  // All of the reading and the validation is in parseDodgeballThrow, which is unit-tested; see it for what is read and
+  // what is rejected.
+  const absl::StatusOr<robot::mujoco_sim_interface::MujocoSimInterface::DodgeballThrow> command = parseDodgeballThrow(msg->data);
+  if (!command.ok()) {
+    LOG(WARNING) << command.status().message();
     return;
   }
-
-  if (!(command.mass > 0.0) || command.flightTime < 0.0) {
-    LOG(WARNING) << "Dodgeball throw ignored: a ball needs a positive mass and a non-negative flight time.";
-    return;
-  }
-
   std::lock_guard<std::mutex> lock(dodgeballMutex_);
-  pendingDodgeball_ = command;
+  pendingDodgeball_ = *command;
 }
 
 /******************************************************************************************************/
@@ -149,7 +130,7 @@ void SimFsmBridge::dodgeballCallback(const std_msgs::msg::String::ConstSharedPtr
 void SimFsmBridge::publishFsmState(std::string_view modeName, bool gantryLocked) const {
   if (fsmStatePub_) {
     std_msgs::msg::String msg;
-    msg.data = std::string(modeName) + (gantryLocked ? ",GANTRY_LOCKED" : ",GANTRY_UNLOCKED");
+    msg.data = formatFsmState(modeName, gantryLocked, controllerResets_);
     fsmStatePub_->publish(msg);
   }
 }
@@ -157,39 +138,13 @@ void SimFsmBridge::publishFsmState(std::string_view modeName, bool gantryLocked)
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-void SimFsmBridge::applyModeAction(std::string_view modeName,
-                                   const robot::model::RobotDescription& robotDescription,
-                                   robot::model::RobotJointAction& robotJointAction) const {}
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-scalar_t SimFsmBridge::baseTiltAngle(const quaternion_t& baseRotationLocalToWorld) {
-  // The base's own vertical, expressed in the world: the third column of its rotation matrix. Its angle to the world
-  // vertical is the arccosine of that column's z component, which is heading independent, so a robot that has turned
-  // on the spot reads zero tilt exactly like one that has not. The clamp keeps a matrix entry that rounds just past
-  // one from producing a NaN, which would compare false against the threshold and silently disable the recovery.
-  const matrix3_t baseRotation = baseRotationLocalToWorld.toRotationMatrix();
-  return std::acos(std::clamp(baseRotation(2, 2), scalar_t(-1.0), scalar_t(1.0)));
+void SimFsmBridge::publishControllerReset(std::string_view modeName, bool gantryLocked) {
+  ++controllerResets_;
+  publishFsmState(modeName, gantryLocked);
 }
 
 /******************************************************************************************************/
-bool SimFsmBridge::recoverFromFall(const robot::model::RobotState& robotState,
-                                   robot::mujoco_sim_interface::MujocoSimInterface& robotInterface,
-                                   std::string& currentModeName) {
-  if (maxBaseTiltAngle_ <= 0.0 || robotInterface.isGantryLocked()) return false;
-  const scalar_t tilt = baseTiltAngle(robotState.getRootRotationLocalToWorldFrame());
-  if (tilt <= maxBaseTiltAngle_) return false;
-
-  LOG(INFO) << "Base tilted " << tilt << " rad past the " << maxBaseTiltAngle_
-            << " rad limit — catching the robot on the gantry in JOINT_PD.";
-  robotInterface.lockGantry();
-  if (robotInterface.isZeroTorqueMode()) robotInterface.enableTorques();
-  currentModeName = "JOINT_PD";
-  publishFsmState(currentModeName, robotInterface.isGantryLocked());
-  return true;
-}
-
+/******************************************************************************************************/
 /******************************************************************************************************/
 bool SimFsmBridge::processCommands(std::string& currentModeName, robot::mujoco_sim_interface::MujocoSimInterface& robotInterface) {
   // Handed over first and unconditionally: a throw is independent of the FSM, and the early return below fires on
@@ -280,7 +235,7 @@ robot::model::RobotState createInitialSimState(const robot::model::RobotDescript
                                                const ModelSettings& modelSettings,
                                                const MpcRobotModelBase<scalar_t>& mpcRobotModel,
                                                const vector_t& initMpcState) {
-  robot::model::RobotState initState(robotDescription, 2);
+  robot::model::RobotState initState(robotDescription, /*contactSize=*/2);
   initState.setConfigurationToZero();
 
   initState.setRootPositionInWorldFrame(mpcRobotModel.getBasePosition(initMpcState));

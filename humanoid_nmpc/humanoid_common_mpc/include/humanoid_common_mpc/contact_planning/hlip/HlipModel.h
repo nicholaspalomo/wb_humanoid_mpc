@@ -69,7 +69,7 @@ class HlipModel {
    * @param comHeight    [m] pendulum height z0, must be positive.
    * @param gravity      [m/s^2] must be positive.
    *
-   * The preconditions are checked; ContactPlanningConfig::validate() rejects a configuration that would violate them
+   * The preconditions are checked; ContactPlanningConfig::validateStatus() rejects a configuration that would violate them
    * before a model is ever built from it.
    */
   HlipModel(scalar_t sspDuration, scalar_t dspDuration, scalar_t comHeight, scalar_t gravity);

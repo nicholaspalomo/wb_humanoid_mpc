@@ -58,17 +58,18 @@ feet_array_t<ContactEventReport> adaptScheduleWithRules(ModeSchedule& schedule,
     SwingTimingLatch& latch = latches[foot];
     ContactEventReport& report = reports[foot];
 
-    const auto phase = swingPhaseAtTime(schedule, foot, time);
+    const std::optional<std::pair<scalar_t, scalar_t>> phase = swingPhaseAtTime(schedule, foot, time);
     if (phase.has_value()) {
       // ---- the foot is scheduled to swing at `time`: latch the swing, then let the rules act on it ----
-      const auto [liftOff, touchDown] = *phase;
+      const scalar_t liftOff = phase->first;
+      const scalar_t touchDown = phase->second;
       if (!latch.active || std::abs(latch.liftOffTime - liftOff) > kSameSwingTolerance) {
         latch = SwingTimingLatch{};
         latch.active = true;
         latch.liftOffTime = liftOff;
         latch.nominalTouchDownTime = touchDown;
       }
-      for (const auto& rule : rules) {
+      for (const std::unique_ptr<ExecutionRule>& rule : rules) {
         if (rule->adaptSwingingFoot(ctx, foot, liftOff, touchDown, schedule, latch, report)) break;
       }
       continue;
@@ -94,7 +95,7 @@ feet_array_t<ContactEventReport> adaptScheduleWithRules(ModeSchedule& schedule,
       continue;
     }
     bool handled = false;
-    for (const auto& rule : rules) {
+    for (const std::unique_ptr<ExecutionRule>& rule : rules) {
       if (rule->adaptContactFoot(ctx, foot, schedule, latch, report)) {
         handled = true;
         break;

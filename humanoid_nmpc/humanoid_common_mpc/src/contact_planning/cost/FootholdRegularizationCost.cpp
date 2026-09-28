@@ -27,7 +27,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
-#include <sstream>
 
 namespace ocs2::humanoid {
 
@@ -36,14 +35,13 @@ std::string FootholdRegularizationCost::describe() const {
 }
 
 void FootholdRegularizationCost::configure(const ContactPlanningConfig& config) {
-  checkWeight("foothold_regularization", config.footholdRegularization.weight);
   weight_ = config.footholdRegularization.weight;
 }
 
 void FootholdRegularizationCost::addToStage(const ContactPlanningContext& /*ctx*/, int /*node*/, StageAccumulator& stage) const {
   for (int axis = 0; axis < 2; ++axis) {
     for (size_t foot = 0; foot < N_CONTACTS; ++foot) {
-      stage.addQuadraticResidual({}, {{idx_.footDelta[foot][axis], 1.0}}, 0.0, weight_);
+      stage.addQuadraticResidual({}, {{idx_.footDelta[foot][axis], 1.0}}, /*offset=*/0.0, weight_);
     }
   }
 }

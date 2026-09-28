@@ -40,7 +40,7 @@ namespace ocs2::humanoid {
  * `capture_point`: H_r(pdot, Phi) = gain sqrt(p_z / g) (pdot - pdot_d) (Bledt, Appendix C, Table C.1).
  *
  * Step into the VELOCITY ERROR by the capture-point distance of a linear inverted pendulum of the measured
- * centre-of-mass height.
+ * center-of-mass height.
  *
  * The one member of the family that is feedback on a disturbance rather than a function of the command: it is
  * identically zero whenever the robot is moving as fast as it was asked to, and grows only when a push, a slip or a

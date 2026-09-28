@@ -29,23 +29,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact_planning/cost/StepLengthCost.h"
 
-#include <sstream>
-#include <stdexcept>
+#include <algorithm>
+
+#include "absl/strings/str_cat.h"
 
 namespace ocs2::humanoid {
 
 std::string StepLengthCost::describe() const {
-  std::ostringstream out;
-  out << weightLine("w sum_i ||dp_{i,k} - d_nom (1 - c_{i,k})||^2 on the running nodes, d_nom = v_cmd dt T_stride / T_swing")
-      << ", T_stride / T_swing = " << strideToSwingRatio_;
-  return out.str();
+  return absl::StrCat(weightLine("w sum_i ||dp_{i,k} - d_nom (1 - c_{i,k})||^2 on the running nodes, d_nom = v_cmd dt T_stride / T_swing"),
+                      ", T_stride / T_swing = ", strideToSwingRatio_);
 }
 
 void StepLengthCost::configure(const ContactPlanningConfig& config) {
-  checkWeight("step_length", config.stepLength.weight);
   weight_ = config.stepLength.weight;
   const GaitLimits& limits = config.shared.gaitLimits;
-  if (limits.minSwingDuration <= 0.0) throw std::invalid_argument("step_length: shared.gait_limits.minSwingDuration must be positive");
   const scalar_t doubleSupport = std::max(0.0, limits.minDoubleSupportDuration);
   strideToSwingRatio_ = 2.0 * (limits.minSwingDuration + doubleSupport) / limits.minSwingDuration;
 }
