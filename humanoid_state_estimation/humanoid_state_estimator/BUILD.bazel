@@ -1,0 +1,51 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+# humanoid_state_estimator - State estimation for the humanoid controllers.
+
+package(default_visibility = ["//visibility:public"])
+
+_COPTS = [
+    "-std=c++20",
+    "-Wall",
+    "-Wextra",
+    "-Wpedantic",
+    "-Werror=return-type",
+]
+
+# A linear Kalman filter whose state, inputs and measurements are organized in named channels.
+cc_library(
+    name = "kalman_filter",
+    srcs = ["src/KalmanFilter.cpp"],
+    hdrs = ["include/humanoid_state_estimator/KalmanFilter.h"],
+    includes = ["include"],
+    copts = _COPTS,
+    deps = [
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core",
+        "@abseil-cpp//absl/container:flat_hash_map",
+        "@abseil-cpp//absl/container:flat_hash_set",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/types:span",
+        "@eigen",
+    ],
+)
+
+cc_test(
+    name = "test_kalman_filter",
+    size = "small",
+    srcs = ["test/testKalmanFilter.cpp"],
+    copts = _COPTS,
+    deps = [
+        ":kalman_filter",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/types:span",
+        "@eigen",
+        "//lib/ocs2:ocs2_core",
+        "@googletest//:gtest_main",
+    ],
+)
