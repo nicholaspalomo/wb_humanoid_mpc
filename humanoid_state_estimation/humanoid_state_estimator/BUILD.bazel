@@ -1,0 +1,102 @@
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+# humanoid_state_estimator - State estimation for the humanoid controllers.
+
+package(default_visibility = ["//visibility:public"])
+
+_COPTS = [
+    "-std=c++20",
+    "-Wall",
+    "-Wextra",
+    "-Wpedantic",
+    "-Werror=return-type",
+]
+
+# A linear Kalman filter whose state, inputs and measurements are organized in named channels.
+cc_library(
+    name = "kalman_filter",
+    srcs = ["src/KalmanFilter.cpp"],
+    hdrs = ["include/humanoid_state_estimator/KalmanFilter.h"],
+    includes = ["include"],
+    copts = _COPTS,
+    deps = [
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core",
+        "@abseil-cpp//absl/container:flat_hash_map",
+        "@abseil-cpp//absl/functional:function_ref",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/types:span",
+        "@eigen",
+    ],
+)
+
+cc_test(
+    name = "test_kalman_filter",
+    size = "small",
+    srcs = ["test/testKalmanFilter.cpp"],
+    copts = _COPTS,
+    deps = [
+        ":kalman_filter",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/types:span",
+        "@eigen",
+        "//lib/ocs2:ocs2_core",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# Counts every heap allocation of the process by interposing glibc's malloc, for the allocation test and the benchmark
+# only. Linked statically into them, so that the interposer is part of the executable.
+cc_library(
+    name = "allocation_counter",
+    testonly = True,
+    srcs = ["test/AllocationCounter.cpp"],
+    hdrs = ["test/AllocationCounter.h"],
+    copts = _COPTS,
+    linkstatic = True,
+    alwayslink = True,
+)
+
+# The real-time property: once the workspace is sized, a step makes no heap allocation. A target of its own, because the
+# allocation counter replaces malloc for the whole binary.
+cc_test(
+    name = "test_kalman_filter_allocations",
+    size = "small",
+    srcs = ["test/testKalmanFilterAllocations.cpp"],
+    copts = _COPTS,
+    linkstatic = True,
+    deps = [
+        ":allocation_counter",
+        ":kalman_filter",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@eigen",
+        "//lib/ocs2:ocs2_core",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# Per-tick latency and heap allocations of an SA01-sized contact-aided estimator; build and run it on the robot to
+# measure its CPU. See benchmark/benchmarkKalmanFilter.cpp.
+cc_binary(
+    name = "benchmark_kalman_filter",
+    testonly = True,
+    srcs = ["benchmark/benchmarkKalmanFilter.cpp"],
+    copts = _COPTS,
+    deps = [
+        ":allocation_counter",
+        ":kalman_filter",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@eigen",
+        "//lib/ocs2:ocs2_core",
+    ],
+)
