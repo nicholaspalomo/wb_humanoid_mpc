@@ -598,6 +598,65 @@ TEST(KalmanFilterTest, unknownChannelLookupsAreNotFoundAndListTheDeclaredChannel
   EXPECT_EQ(filter->getCovariance("base_orientation", "base_position").status().code(), absl::StatusCode::kNotFound);
 }
 
+TEST(KalmanFilterTest, getStateFillsACallerOwnedStateAndLeavesItAloneForAnUnknownName) {
+  std::unique_ptr<KalmanFilter> filter = createOrDie({{.name = "a", .state = makeVector({1.0, 2.0}), .P_state_estimate = identity(2)},
+                                                      {.name = "b", .state = makeVector({3.0}), .P_state_estimate = scalarMatrix(4.0)}});
+  KalmanFilterState state;
+  ASSERT_TRUE(filter->getState("a", state).ok());
+  EXPECT_EQ(state.name, "a");
+  EXPECT_TRUE(state.state == makeVector({1.0, 2.0}));
+  EXPECT_TRUE(state.P_state_estimate == identity(2));
+
+  // The same object then reads a channel of another size.
+  ASSERT_TRUE(filter->getState("b", state).ok());
+  EXPECT_EQ(state.name, "b");
+  EXPECT_TRUE(state.state == makeVector({3.0}));
+  EXPECT_TRUE(state.P_state_estimate == scalarMatrix(4.0));
+
+  const absl::Status unknown = filter->getState("c", state);
+  EXPECT_EQ(unknown.code(), absl::StatusCode::kNotFound);
+  EXPECT_THAT(unknown.message(), HasSubstr("the state channels are: a, b"));
+  EXPECT_EQ(state.name, "b");
+  EXPECT_TRUE(state.state == makeVector({3.0}));
+}
+
+TEST(KalmanFilterTest, reserveOnlySizesStorageBeforeOrAfterReset) {
+  const std::vector<KalmanFilterState> initial_states = {
+      {.name = "position", .state = makeVector({0.0, 1.0}), .P_state_estimate = identity(2)},
+      {.name = "velocity", .state = makeVector({1.0, 0.0}), .P_state_estimate = 2.0 * identity(2)}};
+  const std::vector<KalmanFilterProcessModel> process_model = {
+      {.state_name = "position", .A_state_transition = {{"velocity", 0.1 * identity(2)}}, .Q_process_noise = 1e-3 * identity(2)},
+      {.state_name = "velocity", .B_control_input = {{"acceleration", 0.1 * identity(2)}}}};
+  const std::vector<KalmanFilterInput> inputs = {
+      {.name = "acceleration", .input = makeVector({0.5, -0.5}), .Q_input_noise = 1e-2 * identity(2)}};
+  const std::vector<KalmanFilterMeasurement> measurements = {{.name = "position",
+                                                              .measurement = makeVector({0.2, 0.9}),
+                                                              .H_measurement_model = {{"position", identity(2)}},
+                                                              .R_measurement_noise = 1e-2 * identity(2)}};
+
+  std::unique_ptr<KalmanFilter> unreserved = createOrDie(initial_states);
+  KalmanFilter reserved_before_reset;
+  ASSERT_TRUE(reserved_before_reset.reserve(/*max_input_dim=*/8, /*max_measurement_dim=*/16).ok());
+  ASSERT_TRUE(reserved_before_reset.reset(initial_states).ok());
+  std::unique_ptr<KalmanFilter> reserved_after_reset = createOrDie(initial_states);
+  ASSERT_TRUE(reserved_after_reset->reserve(/*max_input_dim=*/8, /*max_measurement_dim=*/16).ok());
+
+  for (KalmanFilter* filter : {unreserved.get(), &reserved_before_reset, reserved_after_reset.get()}) {
+    for (int step = 0; step < 3; ++step) {
+      ASSERT_TRUE(filter->predict(process_model, inputs).ok());
+      ASSERT_TRUE(filter->correct(measurements).ok());
+    }
+  }
+  for (KalmanFilter* filter : {&reserved_before_reset, reserved_after_reset.get()}) {
+    expectNear(jointState(*filter), jointState(*unreserved), /*tolerance=*/1e-14);
+    expectNear(jointCovariance(*filter), jointCovariance(*unreserved), /*tolerance=*/1e-14);
+  }
+
+  const absl::Status negative = unreserved->reserve(/*max_input_dim=*/-1, /*max_measurement_dim=*/0);
+  EXPECT_EQ(negative.code(), absl::StatusCode::kInvalidArgument);
+  EXPECT_THAT(negative.message(), HasSubstr("non-negative dimensions"));
+}
+
 class KalmanFilterRejectionTest : public ::testing::Test {
  protected:
   void SetUp() override {
@@ -678,6 +737,11 @@ TEST_F(KalmanFilterRejectionTest, invalidPredictionsAreRejectedWithoutChangingTh
        {},
        {{.name = "acceleration", .input = makeVector({1.0, 1.0}), .Q_input_noise = (matrix_t(2, 2) << 1.0, 0.1, 0.0, 1.0).finished()}},
        "Q_input_noise of input 'acceleration' is not symmetric"},
+      // Positive variances, but a covariance larger than their geometric mean: a correlation of 2.
+      {"input noise with a correlation beyond one",
+       {},
+       {{.name = "acceleration", .input = makeVector({1.0, 1.0}), .Q_input_noise = (matrix_t(2, 2) << 1.0, 2.0, 2.0, 1.0).finished()}},
+       "Q_input_noise of input 'acceleration' is not positive semi-definite: its entry (0, 1) = 2"},
   };
   for (const Case& test_case : cases) {
     SCOPED_TRACE(test_case.label);
@@ -747,6 +811,24 @@ TEST_F(KalmanFilterRejectionTest, invalidCorrectionsAreRejectedWithoutChangingTh
          .H_measurement_model = {{"velocity", matrix_t::Ones(1, 2)}},
          .R_measurement_noise = scalarMatrix(0.0)}},
        "the innovation covariance H P H^T + R of measurements first, second is not positive definite"},
+      // The same direction scaled by 1/3: singular in exact arithmetic, and only rounding away from it in floating point,
+      // so the Cholesky factorization either fails or leaves a pivot at rounding level, which the pivot test rejects.
+      {"innovation covariance singular up to rounding",
+       {{.name = "first",
+         .measurement = makeVector({1.0}),
+         .H_measurement_model = {{"velocity", matrix_t::Ones(1, 2)}},
+         .R_measurement_noise = scalarMatrix(0.0)},
+        {.name = "third",
+         .measurement = makeVector({1.0 / 3.0}),
+         .H_measurement_model = {{"velocity", matrix_t::Constant(1, 2, 1.0 / 3.0)}},
+         .R_measurement_noise = scalarMatrix(0.0)}},
+       "the innovation covariance H P H^T + R of measurements first, third is not positive definite"},
+      {"noise with a correlation beyond one",
+       {{.name = "gps",
+         .measurement = makeVector({1.0, 2.0}),
+         .H_measurement_model = {{"position", identity(2)}},
+         .R_measurement_noise = (matrix_t(2, 2) << 1.0, -2.0, -2.0, 1.0).finished()}},
+       "R_measurement_noise of measurement 'gps' is not positive semi-definite: its entry (0, 1) = -2"},
   };
   for (const Case& test_case : cases) {
     SCOPED_TRACE(test_case.label);
