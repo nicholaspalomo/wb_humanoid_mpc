@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """Write the Openbox <application> placement rules for the VNC desktop.
 
-Three windows share the main display: RViz, the MuJoCo viewer, and the Tkinter "Robot Base Controller & Tuning" GUI
-from humanoid_nmpc/remote_control. The GUI used to have no rule at all, so it landed where it asks for itself
-(960x700 at +30+50) while RViz was placed across the entire left pane, covering all but a ~10 px strip of it. The GUI
-raises itself with `-topmost` for 1.5 s at start-up, which RViz beats every time under software GL, so it ended up
-buried behind RViz with nothing left to click and no way to bring it forward by clicking.
+Three windows share the display: the native Rerun viewer (when the Rerun bridge runs it inside the container rather than
+on the host), the MuJoCo viewer, and the Tkinter "Robot Base Controller & Tuning" GUI from the operator tools. Each gets
+a pane of its own, so that no window ever covers another and none of them ever needs raising.
 
-The left pane is therefore split between RViz and the GUI, and MuJoCo keeps the right pane, so that no window ever
-covers another and none of them ever needs raising.
+That matters for the GUI in particular. It raises itself with `-topmost` for only 1.5 s at start-up, and a 3D viewer
+that is still opening under software GL beats that every time. When the GUI had no rule, the 3D viewer was placed
+across the whole left pane on top of it, leaving a ~10 px strip of the GUI and nothing to click to bring it forward. So the left pane is split between the Rerun viewer (top) and the GUI (bottom), and MuJoCo keeps the right pane.
 
 Called by start_vnc.sh with the target resolution in $RESOLUTION. It lives in its own file rather than inside a
 `python3 -c` string so that the XML quoting stays readable.
@@ -16,17 +15,23 @@ Called by start_vnc.sh with the target resolution in $RESOLUTION. It lives in it
 
 import os
 import sys
+from typing import Dict, Tuple
 
 # The controller GUI's own tkinter minsize(), which Openbox cannot shrink a window below.
 GUI_MIN_W = 800
 GUI_MIN_H = 520
 
+# The fallback when $RESOLUTION is unset or malformed.
+DEFAULT_WIDTH = 1920
+DEFAULT_HEIGHT = 1080
+
 # Openbox 3.6 <application> rules accept position, size, maximized, focus, layer, desktop and friends; `force="yes"`
-# on the position is what makes it override a window that sets its own geometry, which all three of these do.
+# on the position is what makes it override a window that sets its own geometry, which all three of these do. Every
+# attribute of a rule has to match, so each one matches on the window title alone.
 RULE_TEMPLATE = """
-  <application class="*rviz*" title="*rviz*" name="*rviz*">
+  <application title="*Rerun*" name="*" class="*">
     <position force="yes"><x>0</x><y>0</y></position>
-    <size><width>{left_w}</width><height>{rviz_h}</height></size>
+    <size><width>{left_w}</width><height>{viewer_h}</height></size>
     <maximized>no</maximized>
   </application>
   <application title="*Robot Base Controller*" name="*" class="*">
@@ -40,16 +45,10 @@ RULE_TEMPLATE = """
     <maximized>no</maximized>
     <focus>yes</focus>
   </application>
-  <application class="*plotjuggler*" title="*plotjuggler*" name="*plotjuggler*">
-    <maximized>yes</maximized>
-  </application>
-  <application class="*PlotJuggler*" title="*PlotJuggler*" name="*PlotJuggler*">
-    <maximized>yes</maximized>
-  </application>
 """
 
 
-def layout(width: int, height: int) -> dict:
+def layout(width: int, height: int) -> Dict[str, int]:
     """Geometry of the three panes for a display of the given size."""
     half_w = width // 2
     pane_h = height - 40  # leave room for the window bar
@@ -58,27 +57,34 @@ def layout(width: int, height: int) -> dict:
 
     # The GUI declares minsize(800, 520). Openbox cannot size a window below the minimum the application itself asks
     # for through WM_NORMAL_HINTS, so asking for less than that would silently leave it taller than its slot and
-    # overlapping RViz again. Give it at least its own minimum, anchor it to the bottom of the pane, and hand RViz
-    # everything above it. Anchoring the GUI rather than stacking upwards from RViz keeps the two inside the pane at
-    # every resolution: on a short display RViz is squeezed (and main() says so) instead of the GUI hanging off-screen.
+    # overlapping the viewer again. Give it at least its own minimum, anchor it to the bottom of the pane, and hand the
+    # viewer everything above it. Anchoring the GUI rather than stacking upwards from the viewer keeps the two inside
+    # the pane at every resolution: on a short display the viewer is squeezed (and main() says so) instead of the GUI
+    # hanging off-screen.
     gui_h = min(max(GUI_MIN_H, (pane_h - gap) // 2), pane_h)
     gui_y = pane_h - gui_h
-    rviz_h = max(1, gui_y - gap)
+    viewer_h = max(1, gui_y - gap)
     return {
         "half_w": half_w,
         "pane_h": pane_h,
         "left_w": left_w,
         "gui_h": gui_h,
-        "rviz_h": rviz_h,
+        "viewer_h": viewer_h,
         "gui_y": gui_y,
     }
 
 
-def main() -> int:
+def parse_resolution(value: str) -> Tuple[int, int]:
+    """WIDTHxHEIGHT as two integers, or the default display when the value is not of that form."""
     try:
-        width, height = (int(x) for x in os.environ["RESOLUTION"].split("x"))
-    except (KeyError, ValueError):
-        width, height = 1920, 1080
+        width, height = (int(x) for x in value.split("x"))
+    except ValueError:
+        return DEFAULT_WIDTH, DEFAULT_HEIGHT
+    return width, height
+
+
+def main() -> int:
+    width, height = parse_resolution(os.environ.get("RESOLUTION", ""))
 
     geom = layout(width, height)
     rc_path = os.path.expanduser("~/.config/openbox/rc.xml")
@@ -106,15 +112,16 @@ def main() -> int:
             f"{GUI_MIN_W} px minimum, so it will overlap the MuJoCo pane at this resolution.",
             file=sys.stderr,
         )
-    if geom["rviz_h"] < 300:
+    if geom["viewer_h"] < 300:
         print(
-            f"NOTE: this display is short, so RViz gets only {geom['rviz_h']} px of height above the controller GUI.",
+            f"NOTE: this display is short, so the Rerun viewer gets only {geom['viewer_h']} px of height above the "
+            "controller GUI.",
             file=sys.stderr,
         )
 
     print(
         f"Openbox layout for {width}x{height}: "
-        f"RViz {geom['left_w']}x{geom['rviz_h']}+0+0, "
+        f"Rerun {geom['left_w']}x{geom['viewer_h']}+0+0, "
         f"Controller GUI {geom['left_w']}x{geom['gui_h']}+0+{geom['gui_y']}, "
         f"MuJoCo {geom['left_w']}x{geom['pane_h']}+{geom['half_w']}+0"
     )

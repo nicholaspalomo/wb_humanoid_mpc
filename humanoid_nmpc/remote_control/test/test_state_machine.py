@@ -28,7 +28,7 @@ import math
 
 import numpy as np
 import yaml
-from humanoid_nmpc.remote_control.remote_control.humanoid_finite_state_machine import (
+from remote_control.humanoid_finite_state_machine import (
     ControlMode,
     HumanoidFSM,
     VirtualGantry,
@@ -92,6 +92,14 @@ class TestHumanoidFSM(unittest.TestCase):
         self.assertEqual(fsm.cycle_prev_mode(), ControlMode.GRAVITY_COMP)
         self.assertEqual(fsm.cycle_prev_mode(), ControlMode.JOINT_PD)
         self.assertEqual(fsm.cycle_prev_mode(), ControlMode.ZERO_TORQUE)
+
+    def test_cycling_back_from_a_mode_outside_the_cycle_goes_to_zero_torque(self):
+        """SAFETY is not in the cycle: stepping back or forward from it lands in ZERO_TORQUE, in both directions."""
+        fsm = self.fsm_atlas
+        fsm.trigger_safety()
+        self.assertEqual(fsm.cycle_prev_mode(), ControlMode.ZERO_TORQUE)
+        fsm.trigger_safety()
+        self.assertEqual(fsm.cycle_next_mode(), ControlMode.ZERO_TORQUE)
 
     def test_virtual_gantry_stepping_and_ground_touch(self):
         """Verifies +1 cm / -1 cm stepping, clamping, and ground-touch auto-calibration."""

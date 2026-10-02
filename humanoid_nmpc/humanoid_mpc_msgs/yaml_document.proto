@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package humanoid_mpc_msgs;
+
+import "nproto/options.proto";
+
+// A YAML document carried as text: the GUI's MPC parameter and PD gain updates and the dodgeball throw. The receiver
+// parses it with the same loaders that read the files on disk, so the YAML schema stays the contract.
+// Next ID: 2
+message YamlDocument {
+  option (nproto.generate_struct) = "ocs2::humanoid::msgs::YamlDocument";
+
+  reserved 2 to max;
+
+  string yaml = 1;
+}

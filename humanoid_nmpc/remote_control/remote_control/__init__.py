@@ -23,11 +23,12 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ****************************************************************************"""
 
-from .dashboard_backend import (
-    SimProcessManager,
-    VirtualJoystickROS2,
-    ensure_ros2_paths,
-)
+"""remote_control: the operator GUI and the teleoperation publishers of the humanoid, on the IPC bus.
+
+See README.md. The GUI is base_velocity_controller_gui.py; operator_bus.py is its side of the bus.
+"""
+
+from .dashboard_backend import SimProcessManager, VirtualJoystick
 from .humanoid_finite_state_machine import (
     ControlMode,
     HumanoidFSM,
@@ -38,10 +39,8 @@ from .humanoid_finite_state_machine import (
     get_available_robots,
 )
 
-ensure_ros2_paths()
 
-
-# Lazy access for xbox controller to avoid eager pygame initialization in Jupyter
+# Lazy access for the Xbox controller, so that importing the package does not initialize pygame (in Jupyter, say).
 def __getattr__(name):
     if name == "XBoxControllerInterface":
         from .xbox_controller_interface import XBoxControllerInterface
@@ -56,8 +55,7 @@ def __getattr__(name):
 
 __all__ = [
     "SimProcessManager",
-    "VirtualJoystickROS2",
-    "ensure_ros2_paths",
+    "VirtualJoystick",
     "XBoxControllerInterface",
     "xbox_walking_command_publisher",
     "ControlMode",

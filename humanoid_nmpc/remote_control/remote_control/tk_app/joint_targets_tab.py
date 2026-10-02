@@ -36,6 +36,8 @@ from typing import Dict, Optional
 
 import yaml
 
+from humanoid_mpc_ipc import topics
+from remote_control.operator_bus import joint_targets
 from remote_control.tk_app.scrollable_frame import ScrollableFrame
 from remote_control.tk_app.slider_row import SliderRow
 
@@ -44,17 +46,18 @@ class JointTargetsTab(ttk.Frame):
     """
     Joint target position tuning tab for JOINT_PD mode.
 
-    Provides per-joint position sliders (in radians) that publish to the
-    ``/joint_pd_target_positions`` ROS 2 topic.  The C++ JointTargetSubscriber
-    merges these into the nominal position vector used by the JOINT_PD controller.
+    Provides per-joint position sliders (in radians) that publish a JointTargets
+    message on operator/joint_targets. The robot merges these into the nominal
+    position vector used by the JOINT_PD controller.
 
     Sliders are enabled only when the FSM mode is ``JOINT_PD``.
     Default values are loaded from ``reference.yaml``'s ``defaultJointState``.
     """
 
+    # The topic the tab's publisher publishes (operator_bus.OperatorBus.joint_targets).
     # LINT.IfChange(joint_target_topic_name)
-    TOPIC_NAME = "/joint_pd_target_positions"
-    # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_ros2/include/humanoid_common_mpc_ros2/ros_comm/JointTargetSubscriber.h:joint_target_topic_name)
+    TOPIC_NAME = topics.OPERATOR_JOINT_TARGETS
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_ipc/python/humanoid_mpc_ipc/topics.py:topics)
 
     def __init__(
         self,
@@ -72,9 +75,8 @@ class JointTargetsTab(ttk.Frame):
         self.pd_gains_file = pd_gains_file
         self.reference_file = reference_file
         self.fsm_mode_var = fsm_mode_var
-        self.param_publisher = (
-            param_publisher  # ROS publisher for /joint_pd_target_positions
-        )
+        # The publisher of operator/joint_targets (operator_bus.TopicPublisher): publish(JointTargets).
+        self.param_publisher = param_publisher
 
         self.joint_names: list = []
         self.default_positions: Dict[str, float] = {}
@@ -348,13 +350,13 @@ class JointTargetsTab(ttk.Frame):
         self._show_status("All targets reset to default joint state")
 
     def _on_any_slider_change(self, name: str, value: float):
-        """Called on every slider move; debounces publish to ROS topic."""
+        """Called on every slider move; debounces the publish."""
         if self._debounce_publish_id is not None:
             self.after_cancel(self._debounce_publish_id)
         self._debounce_publish_id = self.after(100, self._publish_to_topic)
 
     def _publish_to_topic(self):
-        """Publish current slider values as a YAML string to /joint_pd_target_positions."""
+        """Publishes every slider's position as a JointTargets message on operator/joint_targets."""
         self._debounce_publish_id = None
         if not self.param_publisher:
             return
@@ -364,17 +366,10 @@ class JointTargetsTab(ttk.Frame):
             return
 
         try:
-            targets = {}
-            for jname, row in self.slider_rows.items():
-                targets[jname] = round(row.get_value(), 6)
-
-            yaml_content = yaml.dump(targets, default_flow_style=True)
-
-            from std_msgs.msg import String
-
-            msg = String()
-            msg.data = yaml_content
-            self.param_publisher.publish(msg)
+            targets = {
+                jname: row.get_value() for jname, row in self.slider_rows.items()
+            }
+            self.param_publisher.publish(joint_targets(targets))
         except Exception as e:
             print(f"[JointTargetsTab] ERROR in _publish_to_topic: {e}")
             self._show_status(f"Error publishing: {e}", error=True)

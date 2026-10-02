@@ -36,14 +36,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <array>
 #include <cmath>
 #include <exception>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <utility>
 
-#include <boost/optional.hpp>
-#include <boost/property_tree/ptree.hpp>
-
 #include <ocs2_core/misc/LoadData.h>
+#include <ocs2_core/misc/PropertyTree.h>
 
 #include "absl/log/log.h"
 #include "absl/strings/str_cat.h"
@@ -315,7 +314,7 @@ absl::StatusOr<feet_array_t<ContactWrenchConeBasisMatrix>> loadContactWrenchCone
                                                                                       bool verbose) {
   ASSIGN_OR_RETURN(const ContactWrenchConeConstraint::Config coneConfig, ContactWrenchConeConstraint::loadConfig(taskFile, verbose));
 
-  boost::property_tree::ptree pt;
+  PropertyTree pt;
   try {
     loadData::readPropertyTree(taskFile, pt);
   } catch (const std::exception& error) {
@@ -326,15 +325,16 @@ absl::StatusOr<feet_array_t<ContactWrenchConeBasisMatrix>> loadContactWrenchCone
   // start-up only and never hot-reloaded.
   // LINT.IfChange(basis_generator_set_yaml_path)
   std::string generatorSet(kDefaultBasisGeneratorSet);
-  const boost::optional<std::string> namedSet = pt.get_optional<std::string>(std::string(kBasisGeneratorSetKey));
+  const std::optional<std::string> namedSet = pt.getOptional<std::string>(kBasisGeneratorSetKey);
   // clang-format off
   // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:basis_generator_set_config, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:basis_generator_set_config)
   // clang-format on
-  if (namedSet) {
+  if (namedSet.has_value()) {
     generatorSet = *namedSet;
   }
   if (verbose) {
-    LOG(INFO) << "[ContactWrenchConeBasisMatrix] " << kBasisGeneratorSetKey << ": " << generatorSet << (namedSet ? "" : " (default)");
+    LOG(INFO) << "[ContactWrenchConeBasisMatrix] " << kBasisGeneratorSetKey << ": " << generatorSet
+              << (namedSet.has_value() ? "" : " (default)");
   }
 
   // Two contacts, as everywhere the basis-vector parameterization is built (BasisInputsModelDecorator).

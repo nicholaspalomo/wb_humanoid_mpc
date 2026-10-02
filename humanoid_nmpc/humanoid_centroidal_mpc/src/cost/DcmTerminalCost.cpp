@@ -34,10 +34,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
-#include <boost/optional.hpp>
-#include <boost/property_tree/ptree.hpp>
-
 #include <ocs2_core/misc/LoadData.h>
+#include <ocs2_core/misc/PropertyTree.h>
 #include <pinocchio/algorithm/center-of-mass.hpp>
 #include <pinocchio/algorithm/frames.hpp>
 
@@ -63,11 +61,11 @@ absl::Status keyMustBe(absl::string_view key, scalar_t value, absl::string_view 
 }
 
 /** Reads the optional scalar `key` of `pt` into `value`; a value that is not a number is an InvalidArgument naming it. */
-absl::Status loadOptionalScalar(const boost::property_tree::ptree& pt, const std::string& key, scalar_t& value, bool verbose) {
-  const boost::optional<const boost::property_tree::ptree&> child = pt.get_child_optional(key);
-  if (!child) return absl::OkStatus();
-  const boost::optional<scalar_t> parsed = child->get_value_optional<scalar_t>();
-  if (!parsed) {
+absl::Status loadOptionalScalar(const PropertyTree& pt, const std::string& key, scalar_t& value, bool verbose) {
+  const PropertyTree* child = pt.findChild(key);
+  if (child == nullptr) return absl::OkStatus();
+  const std::optional<scalar_t> parsed = child->getValueOptional<scalar_t>();
+  if (!parsed.has_value()) {
     return absl::InvalidArgumentError(absl::StrCat("[DcmTerminalCost] ", key, " is '", child->data(), "', which is not a number."));
   }
   value = *parsed;
@@ -284,7 +282,7 @@ ScalarFunctionQuadraticApproximation DcmTerminalCost::getQuadraticApproximation(
 }
 
 absl::StatusOr<DcmTerminalCost::Config> DcmTerminalCost::loadConfig(const std::string& taskFile, const std::string& prefix, bool verbose) {
-  boost::property_tree::ptree pt;
+  PropertyTree pt;
   try {
     loadData::readPropertyTree(taskFile, pt);
   } catch (const std::exception& error) {

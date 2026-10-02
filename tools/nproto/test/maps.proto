@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package nproto_test;
+
+import "nproto/options.proto";
+import "tools/nproto/test/outer.proto";
+import "tools/nproto/test/scalars.proto";
+import "tools/nproto/test/severity.proto";
+
+// Every key type, and values of every kind: std::map, in key order.
+// Next ID: 13
+message Maps {
+  option (nproto.generate_struct) = "nproto::test::Maps";
+
+  reserved 13 to max;
+
+  map<string, double> double_by_name = 1;
+  map<int32, string> name_by_id = 2;
+  map<int64, Scalars> scalars_by_id = 3;
+  map<uint32, Severity> severity_by_id = 4;
+  map<uint64, Outer.Inner> inner_by_id = 5;
+  map<bool, int32> count_by_flag = 6;
+  map<sint32, float> ratio_by_offset = 7;
+  map<sint64, bytes> blob_by_offset = 8;
+  map<fixed32, uint64> total_by_code = 9;
+  map<fixed64, bool> flag_by_code = 10;
+  map<sfixed32, int64> delta_by_code = 11;
+  map<sfixed64, Outer.Kind> kind_by_code = 12;
+}

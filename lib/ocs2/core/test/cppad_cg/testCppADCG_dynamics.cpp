@@ -28,7 +28,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <gtest/gtest.h>
-#include <boost/filesystem.hpp>
+#include <filesystem>
 #include <functional>
 #include <iostream>
 
@@ -53,7 +53,7 @@ class testCppADCG_dynamicsFixture : public ::testing::Test {
 
     linearSystem_.reset(new LinearSystemDynamics(A, B, G));
 
-    boost::filesystem::path filePath(__FILE__);
+    std::filesystem::path filePath(__FILE__);
     std::string libraryFolder = filePath.parent_path().generic_string() + "/testCppADCG_generated";
     adLinearSystem_.reset(new LinearSystemDynamicsAD(A, B, G));
 

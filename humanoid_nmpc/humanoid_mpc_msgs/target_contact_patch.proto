@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package humanoid_mpc_msgs;
+
+import "nproto/options.proto";
+
+// A foot placement the contact planner targets, for the MuJoCo viewer only
+// (robot_runtime/mujoco_sim_interface/MujocoContactPatch.h, TargetContactPatch).
+// Next ID: 8
+message TargetContactPatch {
+  option (nproto.generate_struct) = "ocs2::humanoid::msgs::TargetContactPatch";
+
+  reserved 8 to max;
+
+  enum Kind {
+    KIND_STANCE = 0;
+    KIND_SWING_IN_FLIGHT = 1;
+    KIND_NEXT_SWING = 2;
+  }
+  bool valid = 1;
+  Kind kind = 2;
+  double x = 3;
+  double y = 4;
+  double z = 5;
+  double yaw = 6;
+  bool yaw_planned = 7;
+}

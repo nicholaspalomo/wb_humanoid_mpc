@@ -105,7 +105,8 @@ class TargetTrajectoriesCalculatorBase {
   static constexpr scalar_t kMinCommandedPelvisHeight = 0.1;
 
   void setTargetDisplacementVelocity(scalar_t targetDisplacementVelocity) { targetDisplacementVelocity_ = targetDisplacementVelocity; }
-  void setTargetRotationVelocity_(scalar_t targetRotationVelocity) { targetRotationVelocity = targetRotationVelocity; }
+  /** [rad/s] the yaw rate a pose command turns at; reloadCommandLimits() resets it to reference.yaml's targetRotationVelocity. */
+  void setTargetRotationVelocity(scalar_t targetRotationVelocity) { targetRotationVelocity_ = targetRotationVelocity; }
   void setTargetJointState(const vector_t targetJointState);
 
   /**

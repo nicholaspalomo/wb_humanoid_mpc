@@ -42,6 +42,7 @@ import shutil
 import tempfile
 import unittest
 
+from operator_test_support import requires_display
 from remote_control.tk_app import yaml_param_tree
 from remote_control.tk_app.mpc_params_tab import (
     BASIS_VECTOR_CONTACT_INPUTS,
@@ -225,6 +226,7 @@ class ContactSliderAnnotationTest(unittest.TestCase):
                 self.assertTrue(live_somewhere, block)
 
 
+@requires_display
 class ContactSliderRenderTest(unittest.TestCase):
     """The tab renders the annotation into the slider's label. Needs a display."""
 

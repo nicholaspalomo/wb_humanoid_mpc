@@ -30,8 +30,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include <unistd.h>
-
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
@@ -54,9 +52,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
-
-#include <rclcpp/rclcpp.hpp>
-#include <std_msgs/msg/string.hpp>
 
 #include <ocs2_core/cost/QuadraticStateCost.h>
 #include <ocs2_core/cost/QuadraticStateInputCost.h>
@@ -105,11 +100,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicModelParameters.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
+#include "robot_core/ResourcePaths.h"
 
 #include <ocs2_core/penalties/penalties/QuadraticPenalty.h>
 #include <ocs2_sqp/SqpSettings.h>
-
-#include <ament_index_cpp/get_package_share_directory.hpp>
 
 namespace ocs2::humanoid {
 
@@ -204,13 +198,10 @@ std::unique_ptr<MpcParameterUpdaterModule> createUpdater(MPC_BASE* mpc,
 class MpcParameterUpdaterModuleTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    // Resolve config paths from the installed drc_atlas package
-    const std::string configDir = ament_index_cpp::get_package_share_directory("drc_atlas_centroidal_mpc");
-    const std::string descriptionDir = ament_index_cpp::get_package_share_directory("drc_atlas_description");
-
-    taskFile_ = configDir + "/config/mpc/task.yaml";
-    referenceFile_ = configDir + "/config/command/reference.yaml";
-    urdfFile_ = descriptionDir + "/urdf/atlas.urdf";
+    // The DRC Atlas files, from the test's runfiles.
+    taskFile_ = robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml").value();
+    referenceFile_ = robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.yaml").value();
+    urdfFile_ = robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf").value();
 
     // Create the interface
     absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> status = CentroidalMpcInterface::Create(taskFile_, urdfFile_, referenceFile_);
@@ -1532,7 +1523,7 @@ TEST_F(MpcParameterUpdaterModuleTest, BasisNonNegativityBarrierUpdated) {
 // Test: a barrier value that is not a number is refused by its key, and the rest of the reload still applies
 /******************************************************************************************************/
 TEST_F(MpcParameterUpdaterModuleTest, AnUnparsableBarrierValueIsRefusedByKeyAndTheRestOfTheReloadApplies) {
-  // It used to throw ptree_bad_data out of applyParameterUpdates, and on a file-watch reload out of preSolverRun.
+  // It used to throw PropertyTreeBadData out of applyParameterUpdates, and on a file-watch reload out of preSolverRun.
   ASSERT_TRUE(interface_->usesContactBasisVectorInputs()) << "the shipped Atlas selects contactInputParameterization: basis_vectors";
   SqpSolver* sqp = getSqpSolver();
   ASSERT_NE(sqp, nullptr);
@@ -2260,14 +2251,15 @@ TEST_F(MpcParameterUpdaterModuleTest, LocomotionHeuristicCoefficientsHotReloadBu
 }
 
 /******************************************************************************************************/
-// Test: the locomotion-heuristic coefficients follow the YAML the tuning GUI publishes on the parameter topic.
+// Test: the locomotion-heuristic coefficients follow the YAML the tuning GUI publishes, as enqueued text.
 /******************************************************************************************************/
 TEST_F(MpcParameterUpdaterModuleTest, LocomotionHeuristicCoefficientsFollowTheParameterTopic) {
   // The tuning GUI does not save the task file when a slider moves: it publishes the whole edited file on
-  // /mpc_parameter_updates (mpc_params_tab.py, _publish_to_topic), and the updater writes that into a temp file of its
-  // own and runs applyParameterUpdates() on THAT. A heuristics block that re-read the watched task file instead of the
-  // file it is handed, or that sat on a branch only the file watcher takes, would leave every heuristic slider inert in
-  // the mode the GUI actually uses, while the file-watcher case above went on passing.
+  // operator/mpc_parameters (mpc_params_tab.py), which the MPC node forwards to enqueueParameterUpdate(),
+  // and the updater writes that into a temp file of its own and runs applyParameterUpdates() on THAT. A heuristics block
+  // that re-read the watched task file instead of the file it is handed, or that sat on a branch only the file watcher
+  // takes, would leave every heuristic slider inert in the mode the GUI actually uses, while the file-watcher case above
+  // went on passing. The bus side of the topic is tested by humanoid_common_mpc_app/node's test_mpc_node_runtime.
   const std::string shipped = readWholeFile(taskFile_);
   ASSERT_FALSE(shipped.empty()) << "could not read " << taskFile_;
   const std::vector<std::string> basePose{"orientation_compensation"};
@@ -2292,46 +2284,21 @@ TEST_F(MpcParameterUpdaterModuleTest, LocomotionHeuristicCoefficientsFollowThePa
   ASSERT_NEAR(basePoseOffsetAtForwardSpeed(*layer, /*forwardSpeed=*/1.0).pitch, 0.05, 1e-12)
       << "the test's task file did not list orientation_compensation";
 
-  // A ROS context of the test's own, on a topic no other process can be using: the updater subscribes to the absolute
-  // name /mpc_parameter_updates, which a controller or a GUI running on the same machine would share. The remap applies
-  // to every topic of the node, the test's own publisher included, and intra-process delivery keeps the middleware's
-  // discovery out of the test.
-  ASSERT_FALSE(rclcpp::ok()) << "a ROS context is already running, so this test would not own the one it shuts down";
-  rclcpp::init(/*argc=*/0, /*argv=*/nullptr);
-  struct ShutdownRclcppOnExit {
-    ~ShutdownRclcppOnExit() {
-      if (rclcpp::ok()) rclcpp::shutdown();
-    }
-  };
-  ShutdownRclcppOnExit shutdownRclcppOnExit;
-  rclcpp::NodeOptions nodeOptions;
-  nodeOptions.use_intra_process_comms(true);
-  nodeOptions.arguments({"--ros-args", "-r", absl::StrCat("/mpc_parameter_updates:=/mpc_parameter_updater_test_", getpid(), "/updates")});
-  const rclcpp::Node::SharedPtr node = std::make_shared<rclcpp::Node>("mpc_parameter_updater_test", nodeOptions);
-
   std::unique_ptr<MpcParameterUpdaterModule> updater =
       createUpdater(mpc_.get(), tmpTaskFile_, urdfFile_, referenceFile_, stateDim_, inputDim_, contactNames_, /*referenceManager=*/nullptr,
                     basisCostTransform_);
   ASSERT_NE(updater, nullptr);
   updater->setLocomotionHeuristicLayer(layer);
-  updater->subscribe(node);
-  const rclcpp::Publisher<std_msgs::msg::String>::SharedPtr publisher =
-      node->create_publisher<std_msgs::msg::String>("/mpc_parameter_updates", rclcpp::QoS(1).best_effort());
 
-  std_msgs::msg::String message;
-  ASSERT_TRUE(composeHeuristicTaskFile(shipped, basePose, noHeuristics, "0.11", kPublishedSqpIteration, message.data));
-  publisher->publish(message);
+  std::string published;
+  ASSERT_TRUE(composeHeuristicTaskFile(shipped, basePose, noHeuristics, "0.11", kPublishedSqpIteration, published));
+  updater->enqueueParameterUpdate(published);
 
-  // Delivered on a spin and applied by the next pre-solve hook. Bounded rather than assumed, because delivery goes
-  // through the executor.
+  // Applied by the next pre-solve hook.
   SqpSolver* sqp = getSqpSolver();
   ASSERT_NE(sqp, nullptr);
   const vector_t dummyState = vector_t::Zero(stateDim_);
-  for (size_t attempt = 0; attempt < 200 && sqp->getSettings().sqpIteration != kPublishedSqpIteration; ++attempt) {
-    rclcpp::spin_some(node);
-    updater->preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.0, dummyState, *interface_->getReferenceManagerPtr());
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  }
+  updater->preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.0, dummyState, *interface_->getReferenceManagerPtr());
   ASSERT_EQ(sqp->getSettings().sqpIteration, kPublishedSqpIteration) << "the published YAML never reached the updater";
   EXPECT_NEAR(basePoseOffsetAtForwardSpeed(*layer, /*forwardSpeed=*/1.0).pitch, 0.11, 1e-12)
       << "the published YAML reached the updater but its locomotion_heuristics coefficients did not reach the layer";
@@ -2341,6 +2308,66 @@ TEST_F(MpcParameterUpdaterModuleTest, LocomotionHeuristicCoefficientsFollowThePa
   ASSERT_TRUE(watched.ok()) << watched.status().message();
   EXPECT_EQ(watched->orientationCompensation.pitchPerForwardVelocity, 0.05);
 
+  std::remove((tmpTaskFile_ + ".live.yaml").c_str());
+}
+
+/******************************************************************************************************/
+// Test: enqueueParameterUpdate() hands a whole task file to the next preSolverRun(), from any thread, and the newest
+// document wins.
+/******************************************************************************************************/
+TEST_F(MpcParameterUpdaterModuleTest, EnqueuedParameterUpdatesAreAppliedByTheNextSolveNewestFirst) {
+  // The transport-agnostic entry point the ROS node forwards /mpc_parameter_updates to and the bus's communication
+  // thread will call: thread-safe, nothing applied until the solver's pre-solve hook runs, and a document enqueued
+  // before the previous one was applied replaces it (the GUI sends the whole file on every slider move).
+  std::unique_ptr<MpcParameterUpdaterModule> updater =
+      createUpdater(mpc_.get(), tmpTaskFile_, urdfFile_, referenceFile_, stateDim_, inputDim_, contactNames_, /*referenceManager=*/nullptr,
+                    basisCostTransform_);
+  ASSERT_NE(updater, nullptr);
+  SqpSolver* sqp = getSqpSolver();
+  ASSERT_NE(sqp, nullptr);
+  const size_t runningIterations = sqp->getSettings().sqpIteration;
+  const std::string watched = readTmpTaskFile();
+  const std::function<std::string(size_t)> withIterations = [&watched](size_t iterations) {
+    return std::regex_replace(watched, std::regex("\n  sqpIteration: [^\n]*"), absl::StrCat("\n  sqpIteration: ", iterations),
+                              std::regex_constants::format_first_only);
+  };
+  ASSERT_NE(withIterations(runningIterations + 1), watched) << "the task file has no multiple_shooting.sqpIteration";
+  const vector_t dummyState = vector_t::Zero(stateDim_);
+  const std::function<void()> solve = [&]() {
+    updater->preSolverRun(/*initTime=*/0.0, /*finalTime=*/1.0, dummyState, *interface_->getReferenceManagerPtr());
+  };
+
+  // Two documents from another thread, as a ROS callback would enqueue them, before any solve.
+  std::thread producer([&]() {
+    updater->enqueueParameterUpdate(withIterations(runningIterations + 1));
+    updater->enqueueParameterUpdate(withIterations(runningIterations + 2));
+  });
+  producer.join();
+  EXPECT_EQ(sqp->getSettings().sqpIteration, runningIterations) << "an enqueued document was applied before the next solve";
+  solve();
+  EXPECT_EQ(sqp->getSettings().sqpIteration, runningIterations + 2) << "the newest document was not the one applied";
+
+  // Documents enqueued while solves run: each solve applies one of them, and the solve after the last enqueue applies
+  // the last one.
+  constexpr size_t kNumDocuments = 10;
+  std::thread streamer([&]() {
+    for (size_t k = 0; k < kNumDocuments; ++k) {
+      updater->enqueueParameterUpdate(withIterations(runningIterations + 3 + k));
+      std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+  });
+  for (size_t k = 0; k < kNumDocuments; ++k) {
+    solve();
+    const size_t applied = sqp->getSettings().sqpIteration;
+    EXPECT_GE(applied, runningIterations + 2) << "a solve applied something that was never enqueued";
+    EXPECT_LT(applied, runningIterations + 3 + kNumDocuments) << "a solve applied something that was never enqueued";
+  }
+  streamer.join();
+  solve();
+  EXPECT_EQ(sqp->getSettings().sqpIteration, runningIterations + 3 + kNumDocuments - 1) << "the last document was not applied";
+
+  // The watched task file is not what was applied: it still carries the start-up value.
+  EXPECT_EQ(readTmpTaskFile(), watched) << "an enqueued update wrote the watched task file";
   std::remove((tmpTaskFile_ + ".live.yaml").c_str());
 }
 

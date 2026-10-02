@@ -1,0 +1,93 @@
+{
+  "schema": "humanoid_mpc_validation.solve_benchmark.v1",
+  "label": "B0",
+  "robot": "engineai_sa01",
+  "formulation": "centroidal",
+  "provenance": {
+    "git_commit": "c331ddd76dcf3917bdd9d0578eee6f518a915ba8",
+    "worktree_state": "1175 changed paths, diff sha256 13855b2a7a290aa5",
+    "machine": "Intel(R) Core(TM) Ultra 7 265K, 20 logical cores, 30.2 GiB",
+    "configuration_sha256": {
+      "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml": "b672478b215747d2e17a516286aab1484432128058c20314a86bf49c61a23083",
+      "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/command/reference.yaml": "f4c2989cc6199c90b3bf40f5a2a215b874350f9bac27104a6134dd1b09398995",
+      "humanoid_nmpc/humanoid_common_mpc/config/command/gait.yaml": "df9b8154d7fe9939bc45541ee5163049b392c44880e774c5ea85653ae1ce9897",
+      "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/controller/joint_pd_gains.yaml": "0753377b002f6796f7bb7b092efa69a6310a354e63cdecaa32425fea4d9d1e75",
+      "robot_models/engineai_sa01/engineai_sa01_description/urdf/zq_sa01.urdf": "fbc783619a56c4925fb378266fc69549a89c30f0cf755769749fb6c627e69744",
+      "robot_models/engineai_sa01/engineai_sa01_description/urdf/zq_sa01.xml": "30ff64fe821c60155f4292d631d00f26c46c1ce788609abbae2c9c0a634bb13e",
+      "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/contact_planning.yaml": "ad7ef8b9978bb47e00b38eae9797027b24c1999aaea6c5c9fc3a2facbea5a20e",
+      "humanoid_nmpc/humanoid_mpc_validation/data/benchmark/states/engineai_sa01_walk_0p3_states.txt": "f1da70f22db028eaf5f993c0b6325da6d2ed25890871f4f9cece150f8ac70573"
+    }
+  },
+  "settings": {
+    "solver_threads": 4,
+    "mpc_frequency_hz": 80,
+    "recorded_states": 300,
+    "warmup_solves": 25,
+    "repeats": 3,
+    "timed_solves": 825,
+    "failed_solves": 0
+  },
+  "solve_time_ms": {
+    "total": {
+      "mean": 3.1293569103030308,
+      "p50": 3.105217,
+      "p99": 3.670145,
+      "max": 3.907623
+    },
+    "lq_approximation": {
+      "mean": 1.7975725260606044,
+      "p50": 1.781086,
+      "p99": 2.151816,
+      "max": 2.353188
+    },
+    "solve_qp": {
+      "mean": 0.8378288181818174,
+      "p50": 0.838076,
+      "p99": 0.974992,
+      "max": 1.034251
+    },
+    "linesearch": {
+      "mean": 0.23965196848484852,
+      "p50": 0.238303,
+      "p99": 0.293762,
+      "max": 0.502889
+    },
+    "compute_controller": {
+      "mean": 0.16819494666666657,
+      "p50": 0.166502,
+      "p99": 0.205629,
+      "max": 0.218764
+    }
+  },
+  "real_time": {
+    "mpc_period_ms": 12.5,
+    "p99_fraction_of_period": 0.29361160000000003
+  },
+  "tape_operation_counts": {
+    "cppad_centroidal_mpc_engineai_sa01/basis11_60364f89afdab115/FootCollisionConstraint": 533,
+    "cppad_centroidal_mpc_engineai_sa01/basis11_60364f89afdab115/dcmTerminalCost_p11": 370,
+    "cppad_centroidal_mpc_engineai_sa01/basis11_60364f89afdab115/dynamics_basis11_60364f89afdab115_flow_map": 2325,
+    "cppad_centroidal_mpc_engineai_sa01/basis11_60364f89afdab115/dynamics_basis11_60364f89afdab115_guard_surfaces": 28,
+    "cppad_centroidal_mpc_engineai_sa01/basis11_60364f89afdab115/dynamics_basis11_60364f89afdab115_jump_map": 27,
+    "cppad_centroidal_mpc_engineai_sa01/basis11_60364f89afdab115/foot_l_contact_ExternalTorqueQuadraticCost": 512,
+    "cppad_centroidal_mpc_engineai_sa01/basis11_60364f89afdab115/foot_l_contact_TaskSpaceKinematicsCost_yawRefHalfAngle": 2519,
+    "cppad_centroidal_mpc_engineai_sa01/basis11_60364f89afdab115/foot_l_contact_angular_velocity": 2207,
+    "cppad_centroidal_mpc_engineai_sa01/basis11_60364f89afdab115/foot_l_contact_orientation": 219,
+    "cppad_centroidal_mpc_engineai_sa01/basis11_60364f89afdab115/foot_l_contact_orientationError": 238,
+    "cppad_centroidal_mpc_engineai_sa01/basis11_60364f89afdab115/foot_l_contact_orientation_wrt_plane": 186,
+    "cppad_centroidal_mpc_engineai_sa01/basis11_60364f89afdab115/foot_l_contact_position": 195,
+    "cppad_centroidal_mpc_engineai_sa01/basis11_60364f89afdab115/foot_l_contact_twist": 2396,
+    "cppad_centroidal_mpc_engineai_sa01/basis11_60364f89afdab115/foot_l_contact_velocity": 2384,
+    "cppad_centroidal_mpc_engineai_sa01/basis11_60364f89afdab115/foot_r_contact_ExternalTorqueQuadraticCost": 512,
+    "cppad_centroidal_mpc_engineai_sa01/basis11_60364f89afdab115/foot_r_contact_TaskSpaceKinematicsCost_yawRefHalfAngle": 2519,
+    "cppad_centroidal_mpc_engineai_sa01/basis11_60364f89afdab115/foot_r_contact_angular_velocity": 2207,
+    "cppad_centroidal_mpc_engineai_sa01/basis11_60364f89afdab115/foot_r_contact_orientation": 218,
+    "cppad_centroidal_mpc_engineai_sa01/basis11_60364f89afdab115/foot_r_contact_orientationError": 238,
+    "cppad_centroidal_mpc_engineai_sa01/basis11_60364f89afdab115/foot_r_contact_orientation_wrt_plane": 186,
+    "cppad_centroidal_mpc_engineai_sa01/basis11_60364f89afdab115/foot_r_contact_position": 195,
+    "cppad_centroidal_mpc_engineai_sa01/basis11_60364f89afdab115/foot_r_contact_twist": 2396,
+    "cppad_centroidal_mpc_engineai_sa01/basis11_60364f89afdab115/foot_r_contact_velocity": 2384,
+    "cppad_centroidal_mpc_engineai_sa01/basis11_60364f89afdab115/icp_Cost": 374
+  },
+  "total_tape_operations": 25368
+}

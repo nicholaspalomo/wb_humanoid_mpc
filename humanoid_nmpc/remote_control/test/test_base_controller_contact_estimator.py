@@ -2,8 +2,7 @@
 Tests of the cheater contact estimator checkbox on the Base Controller tab of the joystick GUI.
 
 The checkbox mirrors the contact estimator selection of the MPC Parameters tab (task file `contactEstimator`) and
-selects through it, so a toggle publishes the name on the parameter topic like a slider. Needs the ROS 2 Python
-packages the GUI module imports and a display (run under xvfb-run).
+selects through it, so a toggle publishes the name on operator/mpc_parameters like a slider. Needs a display.
 """
 
 import os
@@ -13,28 +12,16 @@ import unittest
 
 import yaml
 
-
-class MockPublisher:
-    def __init__(self):
-        self.messages = []
-
-    def publish(self, msg):
-        self.messages.append(msg)
-
-    @property
-    def last_data(self):
-        return self.messages[-1].data if self.messages else None
+from humanoid_mpc_ipc import topics
+from humanoid_mpc_msgs import yaml_document_pb2
+from operator_test_support import ATLAS_CONFIG, RecordingPublisher, requires_display
 
 
+@requires_display
 class TestBaseControllerContactEstimatorCheckbox(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.repo_root = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "../../..")
-        )
-        cls.atlas_config = os.path.join(
-            cls.repo_root, "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config"
-        )
+        cls.atlas_config = ATLAS_CONFIG
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
@@ -44,7 +31,7 @@ class TestBaseControllerContactEstimatorCheckbox(unittest.TestCase):
             os.path.join(self.atlas_config, "mpc/contact_planning.yaml"),
             os.path.join(self.tmpdir, "contact_planning.yaml"),
         )
-        self.publisher = MockPublisher()
+        self.publisher = RecordingPublisher(topics.OPERATOR_MPC_PARAMETERS)
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
@@ -59,10 +46,9 @@ class TestBaseControllerContactEstimatorCheckbox(unittest.TestCase):
             task_file=self.task_file,
             reference_file=os.path.join(self.atlas_config, "command/reference.yaml"),
             enable_online_tuning=enable_online_tuning,
-            enable_telemetry=False,
             param_publisher=self.publisher,
-            pd_gains_publisher=MockPublisher(),
-            joint_targets_publisher=MockPublisher(),
+            pd_gains_publisher=RecordingPublisher(topics.OPERATOR_PD_GAINS),
+            joint_targets_publisher=RecordingPublisher(topics.OPERATOR_JOINT_TARGETS),
         )
 
     def test_checkbox_mirrors_and_selects_the_contact_estimator(self):
@@ -83,8 +69,11 @@ class TestBaseControllerContactEstimatorCheckbox(unittest.TestCase):
             tab.after_cancel(tab._debounce_publish_id)
             tab._debounce_publish_id = None
             tab._publish_to_topic()
+            self.assertIsInstance(
+                self.publisher.last_message, yaml_document_pb2.YamlDocument
+            )
             self.assertEqual(
-                yaml.safe_load(self.publisher.last_data)["contactEstimator"],
+                yaml.safe_load(self.publisher.last_yaml)["contactEstimator"],
                 "always_in_contact",
             )
 
@@ -92,7 +81,7 @@ class TestBaseControllerContactEstimatorCheckbox(unittest.TestCase):
             tab.reset_all_defaults()
             self.assertTrue(app.cheater_contacts_var.get())
             self.assertEqual(
-                yaml.safe_load(self.publisher.last_data)["contactEstimator"],
+                yaml.safe_load(self.publisher.last_yaml)["contactEstimator"],
                 "cheater_sim",
             )
         finally:

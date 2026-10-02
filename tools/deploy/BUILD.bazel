@@ -1,0 +1,160 @@
+load("@operator_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
+load(":robot_bundle.bzl", "robot_bundle")
+
+# tools/deploy - the robot side of the distributed runtime as a deployable bundle and image, see README.md.
+#
+#   bazel build //tools/deploy:robot_bundle      # the bundle the robot images are built from (docker/Dockerfile)
+#   make deploy-robot ROBOT=drc_atlas HOST=<robot host> NETWORK=<network file>
+
+package(default_visibility = ["//visibility:public"])
+
+# The robot configurations and the launch file each one's robot side runs. The robot images run them by name (ROBOT),
+# each from the script exported from its launch file.
+# LINT.IfChange(robot_configurations)
+_ROBOT_CONFIGURATIONS = {
+    "drc_atlas": "//robot_models/drc_atlas/drc_atlas_centroidal_mpc:launch/robot.textproto",
+    "engineai_sa01": "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc:launch/robot.textproto",
+    "unitree_g1": "//robot_models/unitree_g1/g1_centroidal_mpc:launch/robot.textproto",
+    "unitree_g1_wb": "//robot_models/unitree_g1/g1_wb_mpc:launch/robot.textproto",
+    "unitree_r1": "//robot_models/unitree_r1/unitree_r1_centroidal_mpc:launch/robot.textproto",
+}
+# LINT.ThenChange(//Makefile:robot_configurations, //robot_models/tests/test_launch_files.py:robot_configurations, //tools/deploy/deploy_robot.sh:robot_names)
+
+# launch/<robot>.sh: the robot side of each robot configuration as a POSIX sh script, with the binaries under bin/ of
+# the bundle and every variable of the launch file an environment variable WB_ROBOT_<NAME>.
+[
+    genrule(
+        name = "launch_script_" + robot,
+        srcs = [launch_file],
+        outs = ["launch/" + robot + ".sh"],
+        cmd = " ".join([
+            "$(execpath //tools/launch:export_script)",
+            "$<",
+            "--machine robot",
+            "--env_prefix WB_ROBOT_",
+            "--root ..",
+            "--set bin_dir=bin",
+            "--source_name $<",
+            "--output $@",
+        ]),
+        tools = ["//tools/launch:export_script"],
+    )
+    for robot, launch_file in _ROBOT_CONFIGURATIONS.items()
+]
+
+filegroup(
+    name = "launch_scripts",
+    srcs = [":launch_script_" + robot for robot in _ROBOT_CONFIGURATIONS],
+)
+
+filegroup(
+    name = "image_scripts",
+    srcs = [
+        "collect_runtime_libraries.sh",
+        "netem.sh",
+        "robot_entrypoint.sh",
+    ],
+)
+
+py_library(
+    name = "pack_bundle_lib",
+    srcs = ["pack_bundle.py"],
+    imports = ["."],
+)
+
+py_binary(
+    name = "pack_bundle",
+    srcs = ["pack_bundle.py"],
+    main = "pack_bundle.py",
+    deps = [":pack_bundle_lib"],
+)
+
+# The bundle of the robot images: both robot binaries with their runfiles under bin/, every robot model, the network
+# files and the entry scripts, as one deterministic tar (robot_bundle.bzl).
+robot_bundle(
+    name = "robot_bundle",
+    binaries = [
+        "//humanoid_nmpc/humanoid_centroidal_mpc_app:humanoid_centroidal_mpc_robot",
+        "//humanoid_nmpc/humanoid_wb_mpc_app:humanoid_wb_mpc_robot",
+    ],
+    data = [
+        "//config/ipc:network.textproto",
+        "//config/ipc:two_machine.example.textproto",
+        "//humanoid_nmpc/humanoid_common_mpc:gait_config",
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+        "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
+        "//robot_models/engineai_sa01/engineai_sa01_description",
+        "//robot_models/unitree_g1/g1_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+        "//robot_models/unitree_r1/unitree_r1_centroidal_mpc",
+        "//robot_models/unitree_r1/unitree_r1_description",
+    ],
+    layout = {
+        ":image_scripts": "bin",
+        ":launch_scripts": "launch",
+    },
+)
+
+# ==============================================================================
+# Tests
+# ==============================================================================
+
+py_test(
+    name = "test_pack_bundle",
+    size = "small",
+    srcs = ["test_pack_bundle.py"],
+    deps = [":pack_bundle_lib"],
+)
+
+# The bundle itself: its layout, its tar entries, the robot binaries' libraries found from inside it, and every robot's
+# script starting its binary with files the bundle holds.
+py_test(
+    name = "test_robot_bundle",
+    size = "small",
+    srcs = ["test_robot_bundle.py"],
+    data = [":robot_bundle"],
+)
+
+# The files around the image: the entry point and netem.sh (against a recording tc), the compose files, the systemd
+# unit, the Dockerfile's robot stages, the deployment script, and the Makefile's robot targets.
+py_test(
+    name = "test_deploy_files",
+    size = "small",
+    srcs = ["test_deploy_files.py"],
+    data = [
+        "deploy_robot.sh",
+        "in_dev_container.sh",
+        "netem.sh",
+        "robot_entrypoint.sh",
+        "session.sh",
+        "wb-humanoid-robot@.service",
+        "//:Makefile",
+        "//:docker-compose.robot.netem.yaml",
+        "//:docker-compose.robot.sim.yaml",
+        "//:docker-compose.robot.yaml",
+        "//:docker/Dockerfile",
+        "//:.devcontainer/README.md",
+        "//config/ipc:network.textproto",
+        "//config/ipc:two_machine.example.textproto",
+        # The launch files the Makefile's launch targets run, against the binaries they build first.
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc:launch/dummy_sim.textproto",
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc:launch/mpc.textproto",
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc:launch/robot.textproto",
+        "//robot_models/drc_atlas/drc_atlas_description:launch/sandbox.textproto",
+        "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc:launch/dummy_sim.textproto",
+        "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc:launch/mpc.textproto",
+        "//robot_models/engineai_sa01/engineai_sa01_description:launch/sandbox.textproto",
+        "//robot_models/unitree_g1/g1_centroidal_mpc:launch/dummy_sim.textproto",
+        "//robot_models/unitree_g1/g1_centroidal_mpc:launch/mpc.textproto",
+        "//robot_models/unitree_g1/g1_description:launch/sandbox.textproto",
+        "//robot_models/unitree_g1/g1_wb_mpc:launch/dummy_sim.textproto",
+        "//robot_models/unitree_g1/g1_wb_mpc:launch/mpc.textproto",
+        "//robot_models/unitree_r1/unitree_r1_centroidal_mpc:launch/dummy_sim.textproto",
+        "//robot_models/unitree_r1/unitree_r1_centroidal_mpc:launch/mpc.textproto",
+        "//robot_models/unitree_r1/unitree_r1_description:launch/sandbox.textproto",
+    ],
+    deps = [requirement("pyyaml")],
+)

@@ -151,6 +151,8 @@ TEST(SimDodgeball, TorqueTogglesNeverDampTheBall) {
     } else {
       sim->disableTorques();
     }
+    // The physics thread writes the damping of the switch, at its next step.
+    step(*sim, /*steps=*/1);
     for (int dof = 6; dof < model->nv; ++dof) {
       if (isProjectileDof(model, ball, dof)) EXPECT_EQ(model->dof_damping[dof], 0.0) << "torques " << torques << " dof " << dof;
     }

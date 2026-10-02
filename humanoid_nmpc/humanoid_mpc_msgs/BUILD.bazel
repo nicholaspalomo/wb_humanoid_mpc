@@ -1,13 +1,116 @@
-load("@rules_cc//cc:cc_library.bzl", "cc_library")
-# humanoid_mpc_msgs - ROS2 message package (pre-generated headers)
-#
-# Generated C++ headers are checked into generated/ directory.
-# Type support shared libraries come from the colcon install.
-# To regenerate: run `make build-all` then copy from install dir.
+load("@operator_deps//:requirements.bzl", "requirement")
+load("@protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")
+load("@protobuf//bazel:proto_library.bzl", "proto_library")
+load("@protobuf//bazel:py_proto_library.bzl", "py_proto_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("@rules_python//python:defs.bzl", "py_test")
+load("//tools/nproto:nproto.bzl", "nproto_cc_library")
+
+# humanoid_mpc_msgs - the Protocol Buffers messages of the IPC bus that connects the robot, the MPC and the operator
+# tools (*.proto, see README.md and humanoid_nmpc/docs/distributed_runtime/README.md).
 
 package(default_visibility = ["//visibility:public"])
 
-alias(
-    name = "humanoid_mpc_msgs",
-    actual = "@humanoid_mpc_msgs_repo//:humanoid_mpc_msgs",
+# ==============================================================================
+# Protocol Buffers messages of the IPC bus
+# ==============================================================================
+# One message (or enum) per file, named after it (tools/hooks/proto_file_layout.py; see README.md). The import path
+# drops the humanoid_nmpc/ directory, so that the protos import each other as "humanoid_mpc_msgs/vector.proto", C++
+# includes "humanoid_mpc_msgs/mpc_policy.pb.h" and Python imports `from humanoid_mpc_msgs import mpc_policy_pb2`.
+proto_library(
+    name = "messages_proto",
+    srcs = glob(["*.proto"]),
+    strip_import_prefix = "/humanoid_nmpc",
+    deps = ["//tools/nproto:options_proto"],
+)
+
+cc_proto_library(
+    name = "messages_cc_proto",
+    deps = [":messages_proto"],
+)
+
+# Linked against the protobuf wheel of @operator_deps (//tools/python:python_proto_toolchain).
+py_proto_library(
+    name = "messages_py_proto",
+    deps = [":messages_proto"],
+)
+
+# The plain C++ structs of the messages (ocs2::humanoid::msgs::<Name>, the option at the top of each file) and their
+# ToProto() / FromProto(): #include "humanoid_mpc_msgs/<file>.nproto.h" and "humanoid_mpc_msgs/<file>.nproto.pb.h"
+# (tools/nproto/README.md).
+nproto_cc_library(
+    name = "messages_nproto",
+    deps = [":messages_proto"],
+)
+
+# Every file generated for the messages, for //tools/nproto/test:test_generated_code.
+filegroup(
+    name = "messages_nproto_files",
+    srcs = [":messages_nproto"],
+    output_group = "nproto_files",
+)
+
+# The generated code compiles, links next to libzmq and round-trips through the C++ runtime.
+cc_test(
+    name = "messages_cc_test",
+    size = "small",
+    srcs = ["test/testMessages.cpp"],
+    deps = [
+        ":messages_cc_proto",
+        # cppzmq's target carries only the headers of libzmq; @libzmq is the library itself.
+        "@cppzmq",
+        "@googletest//:gtest_main",
+        "@libzmq",
+    ],
+)
+
+# Every generated module imports with the operator tools' runtime and round-trips; the bus and viewer packages load.
+# The .proto files are data, so that the test can check that each of them has its module.
+py_test(
+    name = "messages_py_test",
+    size = "small",
+    srcs = ["test/test_messages.py"],
+    data = glob(["*.proto"]),
+    main = "test/test_messages.py",
+    deps = [
+        ":messages_py_proto",
+        "//tools/nproto:options_py_proto",
+        requirement("protobuf"),
+        requirement("pyzmq"),
+        # Not requirement("rerun-sdk"): see the rerun_sdk whl_mods in MODULE.bazel.
+        "@operator_deps//rerun_sdk:rerun",
+    ],
+)
+
+# Every message's struct round-trips through its protobuf message and back; the .proto files are data, so that the test
+# can check that it covers each of them.
+cc_test(
+    name = "messages_nproto_test",
+    size = "small",
+    srcs = ["test/testMessagesNproto.cpp"],
+    data = glob(["*.proto"]),
+    deps = [
+        ":messages_cc_proto",
+        ":messages_nproto",
+        "//tools/nproto/test:proto_test_values",
+        "@abseil-cpp//absl/status",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The messages of the realtime loop convert without allocating once sized. A binary of its own, because the allocation
+# counter replaces malloc for the whole process.
+cc_test(
+    name = "messages_nproto_allocations_test",
+    size = "small",
+    srcs = ["test/testMessagesNprotoAllocations.cpp"],
+    linkstatic = True,
+    deps = [
+        ":messages_cc_proto",
+        ":messages_nproto",
+        "//robot_runtime/robot_realtime:allocation_counter",
+        "//tools/nproto/test:proto_allocations",
+        "@googletest//:gtest_main",
+    ],
 )

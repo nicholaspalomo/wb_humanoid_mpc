@@ -35,6 +35,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from remote_control.operator_bus import yaml_document
 from remote_control.tk_app.scrollable_frame import ScrollableFrame
 from remote_control.tk_app.slider_row import SliderRow
 from remote_control.tk_app.yaml_param_tree import MATRIX_KEY, tunables as read_tunables
@@ -168,9 +169,8 @@ class MpcParamsTab(ttk.Frame):
             []
         )  # every numeric leaf of the loaded configuration (yaml_param_tree.Tunable)
         self._debounce_publish_id = None  # tkinter after() ID for debounced publish
-        self.param_publisher = (
-            param_publisher  # ROS publisher for /mpc_parameter_updates
-        )
+        # The publisher of operator/mpc_parameters (operator_bus.TopicPublisher): publish(YamlDocument).
+        self.param_publisher = param_publisher
         self._live_values: Dict[str, float] = (
             {}
         )  # Persists slider values across category switches
@@ -682,19 +682,19 @@ class MpcParamsTab(ttk.Frame):
         self._on_any_slider_change(key, value)
 
     def _on_any_slider_change(self, key: str, value):
-        """Called on every slider move (or checkbox toggle, with the selected name); debounces publish to ROS topic.
+        """Called on every slider move (or checkbox toggle, with the selected name); debounces the publish.
 
         `key` is the dotted key path of the value (`Q."(0,0)"`, `contacts.basisNonNegativityBarrier.mu`), which is what
         _build_yaml_with_slider_values() and save_to_yaml() split to find the line to edit. The C++
-        MpcParameterUpdaterModule subscribes to /mpc_parameter_updates for real-time parameter updates without touching
-        the YAML file.
+        MpcParameterUpdaterModule reads operator/mpc_parameters for real-time parameter updates without touching the
+        YAML file.
         """
         # Persist the value so it survives category tab switches
         self._live_values[key] = value
         self._schedule_publish()
 
     def _schedule_publish(self):
-        """Debounces a publish of every live value to /mpc_parameter_updates."""
+        """Debounces a publish of every live value on operator/mpc_parameters."""
         if self._debounce_publish_id is not None:
             self.after_cancel(self._debounce_publish_id)
         self._debounce_publish_id = self.after(300, self._publish_to_topic)
@@ -746,7 +746,7 @@ class MpcParamsTab(ttk.Frame):
         return "".join(lines)
 
     def _publish_to_topic(self):
-        """Publish current slider values as a YAML string to /mpc_parameter_updates."""
+        """Publishes the task file with the current slider values, as a YamlDocument on operator/mpc_parameters."""
         self._debounce_publish_id = None
         if not self.enable_online_tuning or not self.param_publisher:
             _LOGGER.debug("Skipping publish: online tuning disabled or no publisher.")
@@ -758,13 +758,9 @@ class MpcParamsTab(ttk.Frame):
                 _LOGGER.warning("Not publishing: the rebuilt task YAML is empty.")
                 return
 
-            from std_msgs.msg import String
-
-            msg = String()
-            msg.data = yaml_content
-            self.param_publisher.publish(msg)
+            self.param_publisher.publish(yaml_document(yaml_content))
             _LOGGER.debug(
-                "Published %d characters to /mpc_parameter_updates.", len(yaml_content)
+                "Published %d characters on operator/mpc_parameters.", len(yaml_content)
             )
         except Exception as e:
             _LOGGER.exception("Failed to publish MPC parameter updates.")

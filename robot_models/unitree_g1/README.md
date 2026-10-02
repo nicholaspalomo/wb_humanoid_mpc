@@ -3,24 +3,29 @@
 The 29-DoF Unitree G1 humanoid: six-joint legs, a three-joint waist and seven-joint arms. The MPC holds the six wrist
 joints fixed (`model_settings.fixedJointNames` in `task.yaml`), so it optimizes over the remaining 23.
 
-This directory holds three ament packages:
+This directory holds three Bazel packages:
 
 | Package | Contents |
 | --- | --- |
-| `g1_description` | the URDF and MuJoCo models in `urdf/` (the MPC uses `g1_29dof.urdf` and `g1_29dof.xml`), meshes, launch and rviz files; its own `README.md` is Unitree's description of the model variants |
-| `g1_centroidal_mpc` | the centroidal MPC's `config/mpc/task.yaml`, its command and controller configuration, and launch files |
-| `g1_wb_mpc` | the whole-body MPC's configuration and launch files |
+| `g1_description` | the URDF and MuJoCo models in `urdf/` (the MPC uses `g1_29dof.urdf` and `g1_29dof.xml`) and the meshes; its own `README.md` is Unitree's description of the model variants |
+| `g1_centroidal_mpc` | the centroidal MPC's `config/mpc/task.yaml` and its command and controller configuration |
+| `g1_wb_mpc` | the whole-body MPC's configuration |
 
 ## Running it
 
 ```bash
 make launch-g1-dummy-sim      # centroidal MPC against the ideal-tracking dummy simulator
-make launch-g1-sim            # centroidal MPC in MuJoCo
+make launch-g1-sim            # centroidal MPC in MuJoCo: the robot process in the robot-sim container (run on the host)
 make launch-wb-g1-dummy-sim   # whole-body MPC against the dummy simulator
 make launch-wb-g1-sim         # whole-body MPC in MuJoCo
+make launch-g1-sandbox        # the URDF in Rerun, a slider per joint
+make deploy-robot ROBOT=unitree_g1 HOST=<robot> NETWORK=<file>     # or ROBOT=unitree_g1_wb: the robot's computer
 ```
 
 Each has a `-vnc` variant (`make launch-g1-sim-vnc`) that starts the VNC server first; see `.devcontainer/README.md`.
+The launch files are `g1_centroidal_mpc/launch/` and `g1_wb_mpc/launch/` (`robot.textproto`, `mpc.textproto`,
+`dummy_sim.textproto`) and `g1_description/launch/sandbox.textproto`
+(`humanoid_nmpc/docs/distributed_runtime/README.md`, "Launching").
 
 ## ACoM tracking: the network exists but is NOT VALIDATED
 

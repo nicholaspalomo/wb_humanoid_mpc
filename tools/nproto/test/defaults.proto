@@ -1,0 +1,37 @@
+syntax = "proto2";
+
+package nproto_test;
+
+import "nproto/options.proto";
+
+// proto2: explicit defaults become the default member initializers, optional fields without one become std::optional.
+// Next ID: 17
+message Defaults {
+  option (nproto.generate_struct) = "nproto::test::Defaults";
+
+  reserved 17 to max;
+
+  // A closed enum: proto2 messages cannot use proto3 enums.
+  enum Level {
+    LEVEL_LOW = 1;
+    LEVEL_HIGH = 2;
+  }
+
+  optional int32 count = 1 [default = 5];
+  optional double gain = 2 [default = -1.5];
+  optional float ratio = 3 [default = 1];
+  optional string name = 4 [default = "hello \"world\"\n"];
+  optional bytes blob = 5 [default = "\001\002\377"];
+  optional bool enabled = 6 [default = true];
+  optional Level level = 7 [default = LEVEL_HIGH];
+  optional int64 smallest = 8 [default = -9223372036854775808];
+  optional uint64 largest = 9 [default = 18446744073709551615];
+  optional double limit = 10 [default = inf];
+  optional double floor = 11 [default = -inf];
+  optional int32 smallest32 = 12 [default = -2147483648];
+  optional float tiny = 13 [default = 1e-3];
+  // No default: absent has no value of its own.
+  optional int32 no_default = 14;
+  optional Level no_default_level = 15;
+  required int32 required_count = 16;
+}

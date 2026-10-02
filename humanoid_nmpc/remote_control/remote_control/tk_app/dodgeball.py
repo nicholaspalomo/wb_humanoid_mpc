@@ -258,9 +258,9 @@ def throw_payload(throw: DodgeballThrow, gravity: float = GRAVITY) -> Dict[str, 
     """The message the tab publishes, as the dict that is then dumped to YAML.
 
     It carries BOTH the operator's five parameters and what was derived from them. The simulator reads the mass, the
-    spawn offset, the launch velocity and the flight time (humanoid_common_mpc_ros2's parseDodgeballThrow); the rest
-    is there so that a recorded bag, or someone watching the topic with `ros2 topic echo`, says what was asked for as
-    well as what was computed - including `launchSpeed`, which differs from `speed` when the slider's speed was too
+    spawn offset, the launch velocity and the flight time (humanoid_common_mpc_app/robot's parseDodgeballThrow); the rest
+    is there so that someone watching the topic (`bazel run //tools/ipc:ipc_tool -- echo operator/dodgeball_throw`)
+    sees what was asked for as well as what was computed - including `launchSpeed`, which differs from `speed` when the slider's speed was too
     slow to reach the base and was raised.
     """
     throw = throw.clamped()
@@ -286,4 +286,4 @@ def throw_payload(throw: DodgeballThrow, gravity: float = GRAVITY) -> Dict[str, 
             "impactMomentum": round(impact_momentum(throw, gravity), 6),
         }
     }
-    # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_ros2/src/fsm/DodgeballThrowParser.cpp:dodgeball_payload_keys)
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/src/DodgeballThrowParser.cpp:dodgeball_payload_keys)

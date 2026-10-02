@@ -45,7 +45,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <humanoid_common_mpc/gait/ModeSequenceTemplate.h>
 
 #include <ocs2_oc/synchronized_module/SolverSynchronizedModule.h>
+#include "absl/base/thread_annotations.h"
 #include "absl/status/statusor.h"
+#include "absl/synchronization/mutex.h"
 #include "humanoid_common_mpc/common/MpcRobotModelBase.h"
 #include "humanoid_common_mpc/reference_manager/BreakFrequencyAlphaFilter.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
@@ -128,7 +130,18 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
   /** The gait the manager is in, by name of the gait file ("stance", "walk", ...). Solver thread. */
   const std::string& getCurrentGaitCommand() const { return currentGaitCommand_; }
 
+  /**
+   * The operator's command, normalized (velocities in [-1, 1] of the command limits, the pelvis height in meters),
+   * scaled by the command limits and kept for the next solve. Thread-safe: the MPC node calls it on the bus's IO thread
+   * for every operator/walking_velocity_command while the solver thread runs preSolverRun().
+   */
   virtual void setAndScaleVelocityCommand(const WalkingVelocityCommand& rawVelocityCommand);
+
+  /**
+   * The scaled command the next solve starts from (the last setAndScaleVelocityCommand()), before the command filter
+   * and the acceleration ramps. Thread-safe; the MPC node sends it with every policy (ViewerAnnotations).
+   */
+  virtual WalkingVelocityCommand getScaledWalkingVelocityCommand();
 
   static bool transitionToFasterGait(const vector4_t& velCommandVec, const vector6_t& baseVelocity, const GaitModeStateConfig& cfg);
 
@@ -198,8 +211,6 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
 
   size_t currentGaitMode_{0};
 
-  virtual WalkingVelocityCommand getScaledWalkingVelocityCommand() { return velocityCommand_; }
-
   WalkingVelocityCommand scaleWalkingVelocityCommand(const WalkingVelocityCommand& rawVelocityCommand) const;
 
   std::shared_ptr<SwitchedModelReferenceManager> switchedModelReferenceManagerPtr_;
@@ -220,7 +231,9 @@ class ProceduralMpcMotionManager : public SolverSynchronizedModule {
 
   // The operator's command filtered on the solver time; off unless reference.yaml sets a break frequency.
   BreakFrequencyAlphaFilter velocityCommandFilter_{vector4_t::Zero()};
-  WalkingVelocityCommand velocityCommand_;
+  // Written by the thread that receives the operator's commands, read by the solver thread.
+  absl::Mutex velocityCommandMutex_;
+  WalkingVelocityCommand velocityCommand_ ABSL_GUARDED_BY(velocityCommandMutex_);
 
   // Acceleration-limited velocity reference (setVelocityCommandAccelerationLimits)
   scalar_t maxLinearAcceleration_ = 0.0;   // [m/s^2] <= 0: off

@@ -30,15 +30,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/common/ModelSettings.h"
 
-#include <boost/optional.hpp>
-#include <boost/property_tree/info_parser.hpp>
-#include <boost/property_tree/ptree.hpp>
-
 #include <exception>
 #include <iterator>
+#include <optional>
 #include <stdexcept>
 
 #include <ocs2_core/misc/LoadData.h>
+#include <ocs2_core/misc/PropertyTree.h>
 #include <cassert>
 
 #ifndef CHECK
@@ -147,18 +145,18 @@ absl::Span<const ModelSettings::ContactImplicitKey> ModelSettings::contactImplic
 
 absl::StatusOr<bool> ModelSettings::loadInterfaceVerbose(absl::string_view configFile) {
   const std::string file(configFile);
-  boost::property_tree::ptree pt;
+  PropertyTree pt;
   try {
     loadData::readPropertyTree(file, pt);
   } catch (const std::exception& error) {
     return absl::NotFoundError(absl::StrCat("[ModelSettings] cannot read ", kInterfaceVerboseKey, " from ", file, ": ", error.what()));
   }
-  const boost::optional<boost::property_tree::ptree&> child = pt.get_child_optional(std::string(kInterfaceVerboseKey));
-  if (!child) {
+  const PropertyTree* child = pt.findChild(kInterfaceVerboseKey);
+  if (child == nullptr) {
     return false;
   }
-  const boost::optional<bool> verbose = child->get_value_optional<bool>();
-  if (!verbose) {
+  const std::optional<bool> verbose = child->getValueOptional<bool>();
+  if (!verbose.has_value()) {
     return absl::InvalidArgumentError(absl::StrCat("[ModelSettings] ", kInterfaceVerboseKey, " in ", file, " is '", child->data(),
                                                    "', which is not a bool: write true or false."));
   }
@@ -166,7 +164,7 @@ absl::StatusOr<bool> ModelSettings::loadInterfaceVerbose(absl::string_view confi
 }
 
 ModelSettings::ModelSettings(const std::string& configFile, const std::string& urdfFile, const std::string& mpcName, bool verbose) {
-  boost::property_tree::ptree pt;
+  PropertyTree pt;
   loadData::readPropertyTree(configFile, pt);
 
   std::string prefix{"model_settings."};
@@ -190,7 +188,7 @@ ModelSettings::ModelSettings(const std::string& configFile, const std::string& u
   modelFolderCppAd = absl::StrCat("cppad_code_gen/cppad_", mpcName, robotName);
   // The folder is derived, and the task files used to carry a model_settings.modelFolderCppAd that nothing read. Say so
   // rather than ignore it, so that nobody edits it expecting the libraries to move.
-  if (pt.get_child_optional(absl::StrCat(prefix, "modelFolderCppAd"))) {
+  if (pt.findChild(absl::StrCat(prefix, "modelFolderCppAd")) != nullptr) {
     LOG(WARNING) << "[ModelSettings] " << prefix << "modelFolderCppAd is not read: the CppAD libraries are built under " << modelFolderCppAd
                  << " (the centroidal MPC adds a sub-folder per contact input parameterization). Delete the key from " << configFile << ".";
   }

@@ -30,11 +30,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/gait/GaitSchedule.h"
 
+#include <algorithm>
+#include <memory>
+#include <stdexcept>
+#include <string>
+#include <utility>
+#include <vector>
+
 #include <ocs2_core/misc/Lookup.h>
 
 #include <ocs2_core/misc/LoadData.h>
-#include <boost/property_tree/info_parser.hpp>
-#include <boost/property_tree/ptree.hpp>
 
 #include "absl/log/log.h"
 

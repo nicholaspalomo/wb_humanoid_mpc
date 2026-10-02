@@ -10,9 +10,10 @@ Copyright (c) 2022, Halodi Robotics AS. All rights reserved.
 
 #include <pinocchio/fwd.hpp>
 
-#include <filesystem>
 #include <functional>
 #include <iostream>
+#include <string>
+#include <string_view>
 
 #include <pinocchio/algorithm/crba.hpp>
 #include <pinocchio/algorithm/frames.hpp>
@@ -31,7 +32,7 @@ Copyright (c) 2022, Halodi Robotics AS. All rights reserved.
 #include <ocs2_robotic_tools/common/RotationTransforms.h>
 #include <ocs2_robotic_tools/common/SkewSymmetricMatrix.h>
 
-#include <ament_index_cpp/get_package_share_directory.hpp>
+#include "robot_core/ResourcePaths.h"
 
 #include "absl/log/globals.h"
 #include "absl/log/initialize.h"
@@ -40,9 +41,9 @@ Copyright (c) 2022, Halodi Robotics AS. All rights reserved.
 using namespace ocs2;
 using namespace ocs2::humanoid;
 
-constexpr std::string_view kRobotModelPackagePath = "drc_atlas_description";
-constexpr std::string_view kUrdfFileName = "urdf/atlas.urdf";
-constexpr std::string_view kTaskConfigPath = "/../config/mpc/task.yaml";
+// Relative to the repository root.
+constexpr std::string_view kUrdfFile = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf";
+constexpr std::string_view kTaskFile = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml";
 constexpr int kStateDim = 34;
 constexpr double kNominalBaseHeight = 0.8415;
 
@@ -154,18 +155,9 @@ int main(int argc, char** argv) {
   // stderr anyway; with it the default stderr threshold is ERROR, so the INFO records have to be asked for.
   absl::InitializeLog();
   absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
-  const std::string path(__FILE__);
-  const std::string dir = path.substr(0, path.find_last_of("/"));
-
-  std::string urdfFile;
-  try {
-    urdfFile = ament_index_cpp::get_package_share_directory(std::string(kRobotModelPackagePath)) +
-               std::filesystem::path::preferred_separator + std::string(kUrdfFileName);
-  } catch (const std::exception& e) {
-    throw std::runtime_error("Failed to get package share directory: drc_atlas_description. Error: " + std::string(e.what()));
-  }
-
-  const std::string taskFile = dir + std::string(kTaskConfigPath);
+  // From the binary's runfiles (BUILD `data`), so `bazel run` and a run from .bazel/bin read the same files.
+  const std::string urdfFile = robot::resolveResourcePath(kUrdfFile).value();
+  const std::string taskFile = robot::resolveResourcePath(kTaskFile).value();
 
   LOG(INFO) << "urdf filename: " << urdfFile;
 
@@ -187,7 +179,7 @@ int main(int argc, char** argv) {
   printFrameRotation(pin_interface, q, rightFootFrameName);
 
   /// Test custom model
-  ModelSettings modelSettings(taskFile, urdfFile, "test_pinocchio", "true");
+  ModelSettings modelSettings(taskFile, urdfFile, "test_pinocchio", /*verbose=*/true);
 
   pin_interface = createCustomPinocchioInterface(taskFile, urdfFile, modelSettings);
 

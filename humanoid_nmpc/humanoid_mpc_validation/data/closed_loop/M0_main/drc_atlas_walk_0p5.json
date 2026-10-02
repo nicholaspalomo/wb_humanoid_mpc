@@ -1,0 +1,125 @@
+{
+  "schema": "humanoid_mpc_validation.closed_loop_metrics.v1",
+  "label": "M0_main",
+  "robot": "drc_atlas",
+  "formulation": "centroidal",
+  "scenario": "walk_0p5",
+  "provenance": {
+    "git_commit": "c331ddd76dcf3917bdd9d0578eee6f518a915ba8",
+    "worktree_state": "2010 changed paths, diff sha256 428fb8a4730b76da",
+    "machine": "Intel(R) Core(TM) Ultra 7 265K, 20 logical cores, 30.2 GiB",
+    "configuration_sha256": {
+      "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml": "319308979e616723fbb1d1775569c44682f1629607fca7e8af72660b40cbaad3",
+      "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.yaml": "abb74884f324533f2559accbefa92d81118552c1a708efe44e52dd75a3696822",
+      "humanoid_nmpc/humanoid_common_mpc/config/command/gait.yaml": "df9b8154d7fe9939bc45541ee5163049b392c44880e774c5ea85653ae1ce9897",
+      "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/controller/joint_pd_gains.yaml": "9121b6f5acb120a4e1d77a72c173b34f881edfe01d87c6ffa04a61ebc393a43c",
+      "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf": "b5a9f7eb23c937b47c4b418dc50eb2ba6c0de3ff20032b6f9b0a87db45d08ac2",
+      "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.xml": "6c34ba31f53b810acdb0ed889623b72bbf734ab7f709d7cd628b017cac76a4c8",
+      "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/contact_planning.yaml": "64717ebc74d7c4a115cd19edf06e01473151d4323f8c8168f2c6aaf87b9942b0"
+    }
+  },
+  "settings": {
+    "mpc_frequency_hz": 50,
+    "mrt_frequency_hz": 100,
+    "simulation_time_step_s": 0.0005,
+    "control_period_s": 0.01,
+    "solver_threads": 8,
+    "solve_latency": "none: a solve's policy is in use from the next control cycle",
+    "joint_pd_settle_time_s": 1,
+    "entry_end_time_s": 3.030000000000179,
+    "gantry_release_time_s": 3.530000000000346,
+    "standing_time_s": 2,
+    "command_start_time_s": 5.529999999999655,
+    "command_duration_s": 17,
+    "command_limits": [1.2, 0.25, 1],
+    "command_saturated": false,
+    "scenario_description": "0.5 m/s forward for 15 s, then at rest"
+  },
+  "evaluation": {
+    "start_time_s": 5.5304999999996545,
+    "end_time_s": 22.520499999992865,
+    "control_cycles": 1700,
+    "solves": 850
+  },
+  "survival": {
+    "survived": true,
+    "fall_time_s": null,
+    "fall_reason": ""
+  },
+  "base_height": {
+    "mean_m": 0.9001669603987863,
+    "std_m": 0.006276509880153478,
+    "rms_error_m": 0.00800407845281579
+  },
+  "tilt": {
+    "rms_rad": 0.04254955247193984,
+    "max_rad": 0.07515482936072092
+  },
+  "velocity": {
+    "rms_error_mps": 0.21411161190637956
+  },
+  "yaw_rate": {
+    "rms_error_radps": 0.05148341470899214
+  },
+  "heading": {
+    "cumulative_final_rad": -0.006205635203293857,
+    "cumulative_max_rad": 0.022904349311199147,
+    "cumulative_min_rad": -0.018147805491787423
+  },
+  "stance_foot_slip": {
+    "max_m": 0.004203997626203766,
+    "rms_m": 0.0016187193537449728,
+    "stance_phases": 44
+  },
+  "joint_torque": {
+    "rms_nm": 63.86803268590071
+  },
+  "initial_state_gap": {
+    "max_rotation_rad": 0.015438994401408942,
+    "max_rotation_time_s": 21.90049999999431,
+    "max_norm": 0.17978246378326482
+  },
+  "quaternion_norm": {
+    "max_deviation": null
+  },
+  "non_finite_values": 0,
+  "solve_time_ms": {
+    "total": {
+      "mean": 6.401854192941181,
+      "p50": 6.382908,
+      "p99": 6.901518,
+      "max": 7.98778
+    },
+    "lq_approximation": {
+      "mean": 2.6718767411764657,
+      "p50": 2.673576,
+      "p99": 2.897925,
+      "max": 3.159109
+    },
+    "solve_qp": {
+      "mean": 2.5859703776470604,
+      "p50": 2.56546,
+      "p99": 2.860205,
+      "max": 2.914212
+    },
+    "linesearch": {
+      "mean": 0.40503328000000033,
+      "p50": 0.38856,
+      "p99": 0.771327,
+      "max": 1.023592
+    },
+    "compute_controller": {
+      "mean": 0.47827116000000064,
+      "p50": 0.473723,
+      "p99": 0.55525,
+      "max": 0.577427
+    }
+  },
+  "failures": {
+    "failed_solves": 0,
+    "resets_served": 0,
+    "full_resets_served": 0,
+    "simulator_resets": 0,
+    "unhealthy_cycles": 0
+  }
+}

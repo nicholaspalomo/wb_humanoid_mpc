@@ -1,0 +1,77 @@
+# ==============================================================================
+# The robot side of the distributed runtime in its container (tools/deploy/README.md)
+#
+# The robot process of one robot configuration, from the robot-runtime image (docker/Dockerfile), with what its
+# realtime loop needs: the host's network for the bus, SCHED_FIFO and locked memory, and optionally pinned cores. The
+# same file runs on the robot's computer (`make deploy-robot`, the systemd unit wb-humanoid-robot@<robot>) and, with
+# docker-compose.robot.sim.yaml, in simulation on the laptop (`make launch-<robot>-sim`): simulation mirrors the
+# hardware.
+#
+#   ROBOT=drc_atlas docker compose -f docker-compose.robot.yaml up
+#
+# Settings, from the environment or the .env file next to this file (deploy_robot.sh writes it on the robot):
+#   ROBOT                       the robot configuration (required): drc_atlas, engineai_sa01, unitree_g1, unitree_g1_wb,
+#                               unitree_r1
+#   WB_ROBOT_IMAGE              the image (default wb-humanoid-robot:latest)
+#   WB_ROBOT_NETWORK_SOURCE     the network file mounted read-only into the container (default the shipped localhost
+#                               network)
+#   WB_ROBOT_CPUSET             the cores the container may use, e.g. "2-5" (default all)
+#   WB_ROBOT_MEMORY_LIMIT       its memory cap, without swap (default 4g)
+#   WB_ROBOT_RESTART            the restart policy (default unless-stopped)
+#   WB_ROBOT_<NAME>             the launch file's variables (below); empty: the launch file's value
+#   NETEM, NETEM_INTERFACE      tc-netem on the bus's packets, with docker-compose.robot.netem.yaml (NET_ADMIN)
+# ==============================================================================
+
+name: wb-humanoid-robot
+
+services:
+  robot:
+    image: ${WB_ROBOT_IMAGE:-wb-humanoid-robot:latest}
+    # The bus binds and connects at the network file's addresses on the host's own interfaces, as a process outside a
+    # container would; no port to publish or map.
+    network_mode: host
+    # tini as PID 1: it forwards `docker stop`'s SIGTERM to the entry point, which the robot process replaces, and reaps.
+    init: true
+    restart: ${WB_ROBOT_RESTART:-unless-stopped}
+    stop_grace_period: 20s
+    # SCHED_FIFO for the realtime thread and mlockall for its memory (--realtime_priority); the limits below let the
+    # process use them, the capabilities let it raise them. Nothing else: no privileged mode.
+    cap_add:
+      - SYS_NICE
+      - IPC_LOCK
+    ulimits:
+      rtprio: 99
+      memlock: -1
+    cpuset: "${WB_ROBOT_CPUSET:-}"
+    # LINT.IfChange(robot_memory_limit)
+    # A cap and no swap beyond it (AGENTS.md, "Builds share one machine's memory"): a leak ends inside the container
+    # instead of pushing the robot's computer into swap, which no realtime loop survives.
+    mem_limit: ${WB_ROBOT_MEMORY_LIMIT:-4g}
+    memswap_limit: ${WB_ROBOT_MEMORY_LIMIT:-4g}
+    # LINT.ThenChange(//tools/deploy/README.md:robot_memory_limit)
+    environment:
+      ROBOT: ${ROBOT:?set ROBOT to the robot configuration (drc_atlas, engineai_sa01, unitree_g1, unitree_g1_wb, unitree_r1)}
+      # LINT.IfChange(robot_environment)
+      WB_ROBOT_NETWORK_FILE: /etc/wb-humanoid-robot/network.textproto
+      WB_ROBOT_BACKEND: ${WB_ROBOT_BACKEND:-}
+      WB_ROBOT_HEADLESS: ${WB_ROBOT_HEADLESS:-}
+      WB_ROBOT_REALTIME_PRIORITY: ${WB_ROBOT_REALTIME_PRIORITY:-}
+      WB_ROBOT_REALTIME_CORES: ${WB_ROBOT_REALTIME_CORES:-}
+      WB_ROBOT_BACKEND_CORES: ${WB_ROBOT_BACKEND_CORES:-}
+      # LINT.ThenChange(//tools/deploy/README.md:robot_environment, //tools/deploy/test_deploy_files.py:robot_environment)
+      NETEM: ${NETEM:-}
+      NETEM_INTERFACE: ${NETEM_INTERFACE:-lo}
+    # Without swarm, docker compose implements a file config as a read-only bind mount of the file on the machine it
+    # runs on (the deployment directory); the robot reads it when it starts.
+    configs:
+      - source: network
+        target: /etc/wb-humanoid-robot/network.textproto
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+configs:
+  network:
+    file: ${WB_ROBOT_NETWORK_SOURCE:-./config/ipc/network.textproto}

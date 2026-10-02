@@ -31,6 +31,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_core/control/FeedforwardController.h>
 #include <ocs2_core/control/LinearController.h>
+#include <ocs2_core/control/ManifoldLinearController.h>
 
 #include "absl/log/log.h"
 #include "absl/status/status.h"
@@ -106,11 +107,11 @@ absl::Status MPC_MRT_Interface::advanceMpc() {
   // measure the delay in running MPC
   mpcTimer_.startTimer();
 
-  SystemObservation currentObservation;
   {
     std::lock_guard<std::mutex> lock(observationMutex_);
-    currentObservation = currentObservation_;
+    solverObservation_ = currentObservation_;
   }
+  const SystemObservation& currentObservation = solverObservation_;
 
   bool controllerIsUpdated;
 
@@ -187,6 +188,11 @@ void MPC_MRT_Interface::copyToBuffer(const SystemObservation& mpcInitObservation
 /******************************************************************************************************/
 /******************************************************************************************************/
 matrix_t MPC_MRT_Interface::getLinearFeedbackGain(scalar_t time) {
+  // On a state manifold the gain acts on the tangent: u = u* + K (x (-) xbar).
+  if (const ManifoldLinearController* manifoldController =
+          dynamic_cast<const ManifoldLinearController*>(this->getPolicy().controllerPtr_.get())) {
+    return manifoldController->getFeedbackGain(time);
+  }
   auto controller = dynamic_cast<LinearController*>(this->getPolicy().controllerPtr_.get());
   if (controller == nullptr) {
     throw std::runtime_error("[MPC_MRT_Interface::getLinearFeedbackGain] Feedback gains only available with linear controller!");

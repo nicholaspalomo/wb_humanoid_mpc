@@ -42,7 +42,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
-#include <ament_index_cpp/get_package_share_directory.hpp>
 #include <pinocchio/algorithm/center-of-mass.hpp>
 #include <pinocchio/algorithm/frames.hpp>
 #include <pinocchio/algorithm/kinematics.hpp>
@@ -51,7 +50,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
-#include "absl/strings/str_cat.h"
 
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_centroidal_mpc/cost/DcmTerminalCost.h"
@@ -63,6 +61,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/execution/PlannedComOverride.h"
 #include "humanoid_common_mpc/contact_planning/execution/PlannedHeadingOverride.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "robot_core/ResourcePaths.h"
 
 namespace ocs2::humanoid {
 namespace {
@@ -157,11 +156,9 @@ class WarningLog {
 class HlipPlanningIntegrationTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    const std::string configDir = ament_index_cpp::get_package_share_directory("drc_atlas_centroidal_mpc");
-    const std::string descriptionDir = ament_index_cpp::get_package_share_directory("drc_atlas_description");
-    const std::string taskFile = absl::StrCat(configDir, "/config/mpc/task.yaml");
-    referenceFile_ = absl::StrCat(configDir, "/config/command/reference.yaml");
-    urdfFile_ = absl::StrCat(descriptionDir, "/urdf/atlas.urdf");
+    const std::string taskFile = robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml").value();
+    referenceFile_ = robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.yaml").value();
+    urdfFile_ = robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf").value();
 
     const std::function<std::string(const std::string&)> readFile = [](const std::string& path) {
       std::ifstream in(path);

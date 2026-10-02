@@ -32,6 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <pinocchio/fwd.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cppad/cg.hpp>
 #include <iostream>
@@ -432,6 +433,11 @@ inline std::vector<vector3_t> computeContactsCoP(const vector_t& state,
 /// @param quat Quaternion
 ///
 /// @return vector3_t (euler_z, euler_y,euler_x)
+///
+/// The sine of the pitch is clamped to [-1, 1] before the asin. At a pitch of +-90 degrees it is 1 in exact
+/// arithmetic, but rounding can carry it past 1 - for (0, sqrt(0.5), 0, sqrt(0.5)) it is 1 + 2^-52 - and asin is then
+/// NaN, which would reach the MPC's initial state through the MRT. Inside [-1, 1] the clamp returns its argument
+/// unchanged, so every orientation that converted before converts to the same bits.
 
 static inline vector3_t quaternionToEulerZYX(const quaternion_t& quat) {
   scalar_t w = quat.w();
@@ -442,7 +448,8 @@ static inline vector3_t quaternionToEulerZYX(const quaternion_t& quat) {
   // Yaw (Z axis rotation)
   scalar_t yaw = std::atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z));
   // Pitch (Y axis rotation)
-  scalar_t pitch = std::asin(2.0 * (w * y - z * x));
+  const scalar_t sinPitch = std::clamp(2.0 * (w * y - z * x), -1.0, 1.0);
+  scalar_t pitch = std::asin(sinPitch);
   // Roll (X axis rotation)
   scalar_t roll = std::atan2(2.0 * (w * x + y * z), 1.0 - 2.0 * (x * x + y * y));
 

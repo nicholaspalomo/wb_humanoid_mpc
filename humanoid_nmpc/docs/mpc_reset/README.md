@@ -47,8 +47,9 @@ side had seven faults:
                                                                                        !hasOutstandingReset()
 ```
 
-`MPC_BASE::reset()` is where the reset lives, so every path gets it: the MRT joint controllers through
-`MPC_MRT_Interface`, and the split MPC/MRT nodes through `MPC_ROS_Interface` and its `/mpc_reset` service.
+`MPC_BASE::reset()` is where the reset lives, so every path gets it: the MPC node through its `MpcServer`, which
+serves the reset requests the robot's observations carry (`humanoid_mpc_ipc`), and the controller tests' in-process
+solver through `MPC_MRT_Interface`.
 `MPC_BASE::resetSolver()` (`MPC_MRT_Interface::resetMpcSolver()`) resets the solver alone, for the resets of section 3
 that must not change what the robot is doing. What each component clears in the full reset, keeping only its
 configuration:
@@ -81,8 +82,10 @@ manager restarts its command ramp and lifts a gait-change hold-off timed on the 
 
 ## 3. The MRT joint controllers
 
-Both controllers (`CentroidalMpcMrtJointController`, `WBMpcMrtJointController`) use `MpcResetSupervisor`
-(`humanoid_common_mpc/mrt/`) for the hand-over with their solver thread.
+Both controllers (`CentroidalMpcMrtJointController`, `WBMpcMrtJointController`) reach their MPC through an `MpcLink`
+(`humanoid_common_mpc/mrt/MpcLink.h`), whose `MpcResetSupervisor` (`humanoid_common_mpc/mrt/`) is the hand-over with
+whatever solves: the MPC node behind the remote link in every simulation and on the robot
+(`docs/distributed_runtime/README.md`), and `InProcessMpcLink` in the controller tests and the lockstep closed loop of `humanoid_mpc_validation` (its solver thread, or the iterations its caller runs). The controller supplies the reset target; the link serves the resets.
 
 <!-- LINT.IfChange(controller_reset_events) -->
 | Event | Reset | Until a policy of the new epoch is in use |
@@ -106,8 +109,8 @@ computes no MPC action and runs no check against the policy.
 
 ## 4. The gantry catch in the MuJoCo sims
 
-`SimFallRecovery` (`humanoid_common_mpc_ros2/fsm/`, free of ROS) runs once per control cycle in both sim loops, after the
-operator's commands:
+`SimFallRecovery` (`humanoid_common_mpc_app/robot/`) runs once per control cycle on the realtime thread of the robot
+process with the MuJoCo backend, after the operator's commands:
 
 <!-- LINT.IfChange(settle_sequence) -->
 ```
@@ -130,21 +133,21 @@ operator's commands:
 
         until it is over, WB_MPC is refused: the mode stays JOINT_PD and one line says why
 ```
-<!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_ros2/include/humanoid_common_mpc_ros2/fsm/SimFallRecovery.h:settle_defaults) -->
+<!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/include/humanoid_common_mpc_app/robot/SimFallRecovery.h:settle_defaults) -->
 
 The lift is what lets JOINT_PD bring the legs back to the nominal posture: caught at its standing height the robot's
 feet stay loaded where they landed. The entry into `WB_MPC` then resets the MPC from a robot standing still at the
 nominal posture. The operator's `LOCK_GANTRY` of a robot that did not fall is a discontinuity without a sequence;
 unlocking the gantry ends a sequence.
 
-Task keys (`config/mpc/task.yaml`, simulation only, tied to both sim loops):
+Task keys (`config/mpc/task.yaml`, simulation only, read by the robot process for its MuJoCo backend):
 
 <!-- LINT.IfChange(sim_fall_recovery_keys) -->
 | Key | Meaning |
 | --- | --- |
 | `simMaxBaseTiltAngle` | [rad] tilt past which the robot is caught; 0 disables the catch |
 | `simGantryCatchLift` | [m] how far the gantry lifts a caught robot to settle it; 0 skips the sequence and accepts WB_MPC at once. Every robot ships 0.15. |
-<!-- LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc_ros2/src/CentroidalMpcRobotSim.cpp:sim_fall_recovery_keys, //humanoid_nmpc/humanoid_wb_mpc_ros2/src/WBMpcRobotSim.cpp:sim_fall_recovery_keys) -->
+<!-- LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/src/RobotProcessSettings.cpp:sim_fall_recovery_keys) -->
 
 Rest is judged on joint positions, not joint velocities: with the shipped DRC Atlas JOINT_PD gains an unloaded ankle
 chatters at the simulator's step rate (the damping gain exceeds the explicit-integration limit 2 I / dt of a free foot),
@@ -168,9 +171,10 @@ cached library of the old residual is never loaded in its place.
 
 `WBMpcMrtJointController` gained the modes of the centroidal one: ZERO_TORQUE, JOINT_PD (the nominal posture with the
 gravity torques of the base-held robot), GRAVITY_COMP, SAFETY (the shared decay law of
-`humanoid_common_mpc/mrt/SafetyDecay.h`) and WB_MPC with the hold of section 3. `WBMpcRobotSim` now hands it the FSM
-mode and the nominal posture: JOINT_PD, GRAVITY_COMP and SAFETY used to leave the whole-body MPC driving a robot caught
-on the gantry. Its reset target has two knots and carries the weight on both feet.
+`humanoid_common_mpc/mrt/SafetyDecay.h`) and WB_MPC with the hold of section 3. The robot process
+(`humanoid_common_mpc_app/robot`) hands it the FSM mode and the nominal posture every cycle, as the ROS-era
+`WBMpcRobotSim` came to: JOINT_PD, GRAVITY_COMP and SAFETY used to leave the whole-body MPC driving a robot caught on
+the gantry. Its reset target has two knots and carries the weight on both feet.
 
 ## 7. Tests
 
@@ -184,4 +188,4 @@ on the gantry. Its reset target has two knots and carries the weight on both fee
 | `//humanoid_nmpc/humanoid_centroidal_mpc:testFootYawResidual` | parity with the old residual, finite generated derivatives at a yaw of exactly zero (and none for the old residual), the swing-foot cost at the reset pose |
 | `//humanoid_nmpc/humanoid_centroidal_mpc:testMpcResetSolverStack` | the real SQP solver: after 11 s of trotting and a full reset the stack solves as a fresh one - the first policy bit for bit, and every solve of the walk that follows to the precision two fresh stacks agree to; every solve after the reset at the initial pose succeeds, the first policy stands where the robot is, and the robot walks again after a rewound clock |
 | `//humanoid_nmpc/humanoid_wb_mpc:testWBMpcMrtJointController` | the whole-body controller can be destroyed, JOINT_PD, the entry hold and the reset target, the back-off |
-| `//humanoid_nmpc/humanoid_common_mpc_ros2:testSimFallRecovery` | against the real simulator: every simulator reset, tilt catch and lock is one discontinuity; the settle sequence runs to completion before WB_MPC is accepted |
+| `//humanoid_nmpc/humanoid_common_mpc_app/robot:test_sim_fall_recovery` | against the real simulator: every simulator reset, tilt catch and lock is one discontinuity; the settle sequence runs to completion before WB_MPC is accepted |

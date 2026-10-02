@@ -58,6 +58,11 @@ GaussNewtonDDP::GaussNewtonDDP(ddp::Settings ddpSettings, const RolloutBase& rol
   Eigen::initParallel();
 
   // check OCP
+  if (optimalControlProblem.stateManifoldPtr != nullptr) {
+    throw std::runtime_error(
+        "[GaussNewtonDDP] DDP does not support a state manifold (a.k.a. stateManifoldPtr): its rollouts, value function and "
+        "controller work on the ambient state. Use the SQP solver, or a flat state.");
+  }
   if (!optimalControlProblem.stateEqualityConstraintPtr->empty()) {
     throw std::runtime_error(
         "[GaussNewtonDDP] DDP does not support intermediate state-only equality constraints (a.k.a. stateEqualityConstraintPtr), instead "

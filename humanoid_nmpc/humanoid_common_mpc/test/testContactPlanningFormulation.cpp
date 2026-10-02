@@ -67,6 +67,15 @@ bool anyMentions(const std::vector<std::string>& warnings, const std::string& te
   return false;
 }
 
+/** The number of non-overlapping occurrences of `text` in `haystack`. */
+size_t countOccurrences(const std::string& haystack, const std::string& text) {
+  size_t count = 0;
+  for (size_t position = haystack.find(text); position != std::string::npos; position = haystack.find(text, position + text.size())) {
+    ++count;
+  }
+  return count;
+}
+
 std::string joinWarnings(const std::vector<std::string>& warnings) {
   std::string out;
   for (const std::string& warning : warnings) absl::StrAppend(&out, "\n  - ", warning);
@@ -754,7 +763,7 @@ TEST(ContactPlanningConfigFile, StructuredLayoutRejectsAnUnknownTermInAList) {
 }
 
 TEST(ContactPlanningConfigFile, AValueOfTheWrongTypeIsRejectedNamingItsKey) {
-  // loadPtreeValue reports only the type it failed to convert to; the loader has to add which key it was reading.
+  // The loader names the key it was reading, as the task file spells it, whatever loadPtreeValue's own message says.
   const std::string file = writeTemp("bad_value_contact_planning.yaml",
                                      "contact_planning:\n"
                                      "  planner:\n"
@@ -762,7 +771,11 @@ TEST(ContactPlanningConfigFile, AValueOfTheWrongTypeIsRejectedNamingItsKey) {
   const absl::StatusOr<ContactPlanningConfig> loaded = loadContactPlanningConfigStatus(file, "contact_planning.", /*verbose=*/false);
   std::remove(file.c_str());
   EXPECT_EQ(loaded.status().code(), absl::StatusCode::kInvalidArgument);
-  EXPECT_TRUE(absl::StrContains(loaded.status().message(), "contact_planning.planner.dt")) << loaded.status().message();
+  const std::string message(loaded.status().message());
+  EXPECT_TRUE(absl::StrContains(message, "contact_planning.planner.dt cannot be read")) << message;
+  // PropertyTree::get() also appends the path to its own message; the status names the key once, not twice.
+  EXPECT_EQ(countOccurrences(message, "contact_planning.planner.dt"), size_t{1}) << message;
+  EXPECT_TRUE(absl::StrContains(message, "\"fast\"")) << "the message quotes the value that did not convert: " << message;
 }
 
 TEST(ContactPlanningConfigFile, AnUnreadableFileIsAStatusNotAnException) {

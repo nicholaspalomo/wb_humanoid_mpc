@@ -1,0 +1,52 @@
+# proto-file: tools/launch/proto/launch_file.proto
+# proto-message: launch_proto.LaunchFile
+#
+# An example launch file for tools/launch, with every field of the schema (README.md). Its tests run it.
+#
+# It stands in for a deployment split over two machines: a required robot process that finishes after a few cycles,
+# and two laptop processes that run until they are stopped. Placeholders are plain shell commands, so the file runs
+# anywhere:
+#
+#   bazel run //tools/launch -- tools/launch/examples/example.launch.textproto --dry_run
+#   bazel run //tools/launch -- tools/launch/examples/example.launch.textproto --set cycles=5
+#   bazel run //tools/launch -- tools/launch/examples/example.launch.textproto --machine laptop    # until Ctrl-C
+#
+# Strings take double or single quotes; single quotes save escaping the double quotes of a shell command.
+
+variables { name: "cycles" value: "3" }
+variables { name: "greeting" value: "hello" }
+# A variable may refer to other variables; {repo_root} is built in.
+variables { name: "banner" value: "{greeting} from {repo_root}" }
+
+shutdown {
+  sigint_grace_period: 2.0
+  sigterm_grace_period: 1.0
+}
+
+processes {
+  name: "robot_loop"
+  machine: MACHINE_ROBOT
+  command: [
+    "sh",
+    "-c",
+    'i=0; while [ "$i" -lt {cycles} ]; do i=$((i + 1)); echo "{greeting} from the robot, cycle $i"; sleep 0.1; done'
+  ]
+  required: true
+}
+
+processes {
+  name: "mpc"
+  machine: MACHINE_LAPTOP
+  command: ["sh", "-c", 'echo "$GREETING from the laptop"; exec sleep 60']
+  env { name: "GREETING" value: "{greeting}" }
+  delay: 0.1
+}
+
+processes {
+  name: "viewer"
+  machine: MACHINE_LAPTOP
+  command: ["sh", "-c", 'echo "{banner}"; exec sleep 60']
+  required: false
+  terminal: false
+  delay: 0.2
+}

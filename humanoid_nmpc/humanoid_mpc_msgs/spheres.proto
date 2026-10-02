@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package humanoid_mpc_msgs;
+
+import "humanoid_mpc_msgs/color.proto";
+import "humanoid_mpc_msgs/vector3.proto";
+import "nproto/options.proto";
+
+// Spheres (Rerun Points3D with radii).
+// Next ID: 5
+message Spheres {
+  option (nproto.generate_struct) = "ocs2::humanoid::msgs::Spheres";
+
+  reserved 5 to max;
+
+  string path = 1;
+  repeated Vector3 centers = 2;
+  // One radius for all, or one per sphere.
+  repeated float radii = 3;
+  repeated Color colors = 4;
+}

@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package humanoid_mpc_msgs;
+
+import "humanoid_mpc_msgs/arrows.proto";
+import "humanoid_mpc_msgs/line_strips.proto";
+import "humanoid_mpc_msgs/robot_model_instance.proto";
+import "humanoid_mpc_msgs/spheres.proto";
+import "nproto/options.proto";
+
+// Topic viz/scene. Every message carries every path it ever draws (empty when there is nothing to draw), so that
+// what is no longer true disappears.
+// Next ID: 6
+message VisualizationScene {
+  option (nproto.generate_struct) = "ocs2::humanoid::msgs::VisualizationScene";
+
+  reserved 6 to max;
+
+  // Robot clock [s] of the observation drawn.
+  double time = 1;
+  repeated RobotModelInstance robots = 2;
+  repeated Arrows arrows = 3;
+  repeated Spheres spheres = 4;
+  repeated LineStrips line_strips = 5;
+}

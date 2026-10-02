@@ -50,8 +50,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <urdf_parser/urdf_parser.h>
 #include <yaml-cpp/yaml.h>
 
-#include <ament_index_cpp/get_package_share_directory.hpp>
-
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -64,6 +62,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/Types.h"
 #include "humanoid_common_mpc/cost/ComAndAcomTrackingCost.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
+#include "robot_core/ResourcePaths.h"
 
 namespace ocs2::humanoid {
 namespace {
@@ -97,10 +96,10 @@ struct AcceptanceNumbers {
 struct AcomRobotCase {
   /// model_settings.robotName, which is also the name the network is registered under.
   const char* robotName;
-  /// Ament package holding config/mpc/task.yaml (and contact_planning.yaml, where the robot has one).
+  /// Robot config package, relative to the repository root, holding config/mpc/task.yaml (and contact_planning.yaml
+  /// where the robot has one).
   const char* configPackage;
-  /// Ament package holding the URDF, and the URDF's path inside it.
-  const char* descriptionPackage;
+  /// The robot's URDF, relative to the repository root.
   const char* urdfFile;
   /**
    * Whether the network is good enough to run in closed loop. A network that is not must stay switched off in the
@@ -142,23 +141,28 @@ std::ostream& operator<<(std::ostream& stream, const AcomRobotCase& robotCase) {
  */
 // LINT.IfChange(acom_acceptance_robots)
 const AcomRobotCase kAcomRobotCases[] = {
-    {"atlas", "drc_atlas_centroidal_mpc", "drc_atlas_description", "urdf/atlas.urdf", /*validatedForClosedLoop=*/true,
+    {"atlas", "robot_models/drc_atlas/drc_atlas_centroidal_mpc", "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf",
+     /*validatedForClosedLoop=*/true,
      /*measured=*/{0.219, 0.375, 0.042, 0.138}, /*bounds=*/{0.30, 0.50, 0.08, 0.25}},
-    {"engineai_sa01", "engineai_sa01_centroidal_mpc", "engineai_sa01_description", "urdf/zq_sa01.urdf", /*validatedForClosedLoop=*/false,
+    {"engineai_sa01", "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
+     "robot_models/engineai_sa01/engineai_sa01_description/urdf/zq_sa01.urdf", /*validatedForClosedLoop=*/false,
      /*measured=*/{0.508, 1.62, 0.127, 0.647}, /*bounds=*/{0.60, 1.95, 0.15, 0.80}},
-    {"g1", "g1_centroidal_mpc", "g1_description", "urdf/g1_29dof.urdf", /*validatedForClosedLoop=*/false,
+    {"g1", "robot_models/unitree_g1/g1_centroidal_mpc", "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf",
+     /*validatedForClosedLoop=*/false,
      /*measured=*/{0.402, 1.33, 0.072, 0.238}, /*bounds=*/{0.48, 1.60, 0.09, 0.30}},
 };
 // clang-format off
 // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/acom/AngularCenterOfMass.cpp:acom_robot_dispatch, //humanoid_nmpc/humanoid_common_mpc/BUILD.bazel:acom_acceptance_data, //humanoid_learning/acom/README.md:acom_acceptance_numbers, //robot_models/drc_atlas/README.md:acom_status, //robot_models/unitree_g1/README.md:acom_status, //robot_models/engineai_sa01/README.md:acom_status)
 // clang-format on
 
+/** The robot's task file, from the test's runfiles. */
 std::string taskFileOf(const AcomRobotCase& robotCase) {
-  return absl::StrCat(ament_index_cpp::get_package_share_directory(robotCase.configPackage), "/config/mpc/task.yaml");
+  return robot::resolveResourcePath(absl::StrCat(robotCase.configPackage, "/config/mpc/task.yaml")).value();
 }
 
+/** The robot's URDF, from the test's runfiles. */
 std::string urdfFileOf(const AcomRobotCase& robotCase) {
-  return absl::StrCat(ament_index_cpp::get_package_share_directory(robotCase.descriptionPackage), "/", robotCase.urdfFile);
+  return robot::resolveResourcePath(robotCase.urdfFile).value();
 }
 
 /**

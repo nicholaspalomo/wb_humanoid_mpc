@@ -30,10 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/cost/EndEffectorKinematicCostHelpers.h"
 
-#include <boost/property_tree/info_parser.hpp>
-#include <boost/property_tree/ptree.hpp>
-
 #include <ocs2_core/misc/LoadData.h>
+#include <ocs2_core/misc/PropertyTree.h>
 
 #include "absl/log/log.h"
 
@@ -51,7 +49,7 @@ vector12_t EndEffectorKinematicsWeights::toVector() {
 /******************************************************************************************************/
 
 EndEffectorKinematicsWeights EndEffectorKinematicsWeights::getWeights(const std::string& taskFile, const std::string prefix, bool verbose) {
-  boost::property_tree::ptree pt;
+  PropertyTree pt;
   loadData::readPropertyTree(taskFile, pt);
 
   // Load all weights

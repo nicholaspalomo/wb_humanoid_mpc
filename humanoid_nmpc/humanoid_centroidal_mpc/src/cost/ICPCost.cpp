@@ -46,6 +46,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <pinocchio/multibody/data.hpp>
 #include <pinocchio/multibody/model.hpp>
 
+#include <ocs2_core/misc/LoadData.h>
+#include <ocs2_core/misc/PropertyTree.h>
 #include <ocs2_pinocchio_interface/PinocchioStateInputMapping.h>
 
 #include "absl/log/log.h"
@@ -137,7 +139,7 @@ vector_t ICPCost::getParameters(scalar_t time, const TargetTrajectories& targetT
 /******************************************************************************************************/
 
 vector2_t ICPCost::getWeights(const std::string& taskFile, const std::string prefix, bool verbose) {
-  boost::property_tree::ptree pt;
+  PropertyTree pt;
   loadData::readPropertyTree(taskFile, pt);
 
   // Load all weights

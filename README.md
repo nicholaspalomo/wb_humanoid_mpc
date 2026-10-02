@@ -40,7 +40,7 @@ flowchart LR
     subgraph rt["Runtime"]
         MRT["MRT joint controller<br/>inverse dynamics + PD tracking"]
         SIM["MuJoCo simulation or robot"]
-        TEL["Telemetry<br/>PlotJuggler"]
+        TEL["Visualization & telemetry<br/>Rerun"]
     end
 
     VEL --> MM
@@ -72,7 +72,7 @@ Both replaced a top-level boolean (`useDcmTerminalCost`, `useContactPlanning`); 
 
 ## 🦾 Supported Robot Models
 
-| Robot Platform | Centroidal NMPC | Whole-Body NMPC | MuJoCo Physics Sim | RViz Dummy Sim |
+| Robot Platform | Centroidal NMPC | Whole-Body NMPC | MuJoCo Physics Sim | Dummy Sim |
 |---|:---:|:---:|:---:|:---:|
 | **Unitree G1** | ✅ | ✅ | ✅ | ✅ |
 | **Unitree R1** | ✅ | — | ✅ | ✅ |
@@ -99,7 +99,7 @@ git clone https://github.com/1x-technologies/wb-humanoid-mpc.git
 cd wb-humanoid-mpc
 ```
 
-> **Note:** The repository uses **Bazel 9.x** with `bzlmod` for hermetic dependency management. ROS 2 packages and dependencies are built directly within the Bazel workspace.
+> **Note:** The repository uses **Bazel 9.x** with `bzlmod` for hermetic dependency management. There is no ROS: the robot, the MPC and the operator tools are separate processes on a ZeroMQ + Protocol Buffers bus, and Rerun draws the robot, the plan and the plots ([humanoid_nmpc/docs/distributed_runtime/README.md](humanoid_nmpc/docs/distributed_runtime/README.md)).
 
 ### 2. Environment Setup
 
@@ -132,11 +132,13 @@ The recommended way to develop and run the simulation is using the provided Dock
 </details>
 
 <details>
-<summary><b>Option C: Local Installation (Ubuntu 24.04 / ROS 2 Jazzy)</b></summary>
+<summary><b>Option C: Local Installation (Ubuntu 24.04)</b></summary>
 
-Ensure **ROS 2 Jazzy** is installed on your machine. Then install system packages and Bazelisk:
+Install Pinocchio from robotpkg into `/opt/openrobots`, then the system packages and Bazelisk, as the dev image does
+(`docker/Dockerfile`):
 ```bash
-envsubst < dependencies.txt | xargs sudo apt-get install -y --no-install-recommends
+sudo sh docker/install_robotpkg.sh
+grep -v '^\s*#' dependencies.txt | envsubst | xargs sudo apt-get install -y --no-install-recommends
 curl -sSL -o /usr/local/bin/bazel https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64
 sudo chmod +x /usr/local/bin/bazel
 make install-hooks
@@ -172,55 +174,61 @@ make clean-all    # Deep clean including external caches
 
 ## 🖥️ Launching Simulations
 
+### How it runs
+The robot and the MPC are separate processes on a ZeroMQ + Protocol Buffers bus, as on hardware: the **robot process**
+(the realtime loop: MuJoCo as its backend, the MRT joint controller, the FSM) runs on the robot's computer, the **MPC
+node**, the **remote-control GUI** and the **Rerun bridge** on the laptop
+([architecture](humanoid_nmpc/docs/distributed_runtime/README.md)). Simulation mirrors that: `make launch-<robot>-sim`
+starts the robot process in the `robot-sim` container - the robot's own slim image and compose file, with its
+`SCHED_FIFO` and locked memory, plus only the MuJoCo viewer's GL - and the laptop side in the dev container, over the
+remote MPC link. Starting a container takes the host's Docker, so run the `-sim` targets **on the host** (Linux); they
+build and run the laptop side inside the dev container through `docker exec` (`DEV_CONTAINER=`). The dummy-sim and
+sandbox targets run anywhere.
+
+**After the switch from ROS, recreate the dev container.** A dev container created from the old ROS image has no
+Pinocchio in `/opt/openrobots` and cannot build this checkout (`tools/deploy/in_dev_container.sh` says so): rebuild it
+from `docker/Dockerfile` and `docker-compose.yaml` (Dev Containers: **Rebuild Container**, or
+`docker compose up -d --build --force-recreate` on the host) before using the launch and deployment targets.
+
 ### Visualization Options
-- **Local Linux:** GUI windows (MuJoCo / RViz / Controller GUI) render via X11 forwarding.
-- **macOS / Remote SSH:** Use the `-vnc` targets to stream the desktop directly to your browser. Navigate to **`http://localhost:6080/vnc.html`** and click **Connect**. See the [Visualization Guide](.devcontainer/README.md) for full details.
+- **Local Linux:** GUI windows (MuJoCo viewer / Rerun / Controller GUI) draw on the display of the shell the target
+  runs in. From the host, allow the containers on it once: `xhost +SI:localuser:root +SI:localuser:$(id -un)`.
+- **Remote SSH (Linux host):** Use the `-vnc` targets to stream the desktop directly to your browser. Navigate to **`http://localhost:6080/vnc.html`** and click **Connect**. See the [Visualization Guide](.devcontainer/README.md) for full details.
+- **macOS (Docker Desktop):** the containers do not share a host network there, so the MuJoCo `-sim` targets do not
+  run; use `make launch-<robot>-dummy-sim-vnc` and the sandbox targets, which run entirely in the dev container.
+- **Rerun in a browser:** add `RERUN_SINK=serve_web` and open **`http://localhost:9090`**.
 
 ### Launch Targets
 
-#### 1. Unitree G1
-```bash
-# Centroidal MPC
-make launch-g1-sim-vnc          # MuJoCo Physics Sim (Browser / macOS / Remote)
-make launch-g1-dummy-sim-vnc    # RViz Dummy Sim (Browser / macOS / Remote)
-make launch-g1-sim              # MuJoCo Physics Sim (Native X11)
-make launch-g1-dummy-sim        # RViz Dummy Sim (Native X11)
+<!-- LINT.IfChange(launch_targets) -->
+For every robot configuration - `g1` (Unitree G1, centroidal MPC), `wb-g1` (G1, whole-body MPC), `drc-atlas`, `r1`
+(Unitree R1), `sa01` (EngineAI SA01):
 
-# Whole-Body Dynamics MPC
-make launch-wb-g1-sim-vnc       # MuJoCo Physics Sim (Browser / macOS / Remote)
-make launch-wb-g1-dummy-sim-vnc # RViz Dummy Sim (Browser / macOS / Remote)
-make launch-wb-g1-sim           # MuJoCo Physics Sim (Native X11)
-make launch-wb-g1-dummy-sim     # RViz Dummy Sim (Native X11)
+```bash
+make launch-drc-atlas-sim             # MuJoCo sim: robot-sim container + MPC, GUI and Rerun bridge (run on the host)
+make launch-drc-atlas-sim-vnc         # ... on the VNC desktop (Browser / Remote SSH; not on macOS: Docker Desktop)
+make launch-drc-atlas-dummy-sim       # the MPC against the dummy simulator (the MPC model's own rollout)
+make launch-drc-atlas-dummy-sim-vnc
+make launch-drc-atlas-sandbox-vnc     # the URDF in Rerun with a slider per joint (not for wb-g1: use g1)
+make launch-drc-atlas-sim NETEM="delay 3ms 1ms loss 0.5%"   # the bus over a delayed, lossy link (tc netem)
+make launch-drc-atlas-sim HEADLESS=true RERUN_SINK=serve_web
 ```
 
-#### 2. Unitree R1
+On a real robot (the robot's computer needs only Docker; [tools/deploy](tools/deploy/README.md)):
+
 ```bash
-make launch-r1-sim-vnc         # MuJoCo Physics Sim (Browser / macOS / Remote)
-make launch-r1-dummy-sim-vnc   # RViz Dummy Sim (Browser / macOS / Remote)
-make launch-r1-sim             # MuJoCo Physics Sim (Native X11)
-make launch-r1-dummy-sim       # RViz Dummy Sim (Native X11)
-make launch-r1-sandbox-vnc     # Interactive URDF Model Viewer
+cp config/ipc/two_machine.example.textproto my_network.textproto     # both machines' addresses
+make deploy-robot ROBOT=drc_atlas HOST=<robot ssh host> NETWORK=my_network.textproto SERVICE=enable
+make launch-drc-atlas-mpc NETWORK=my_network.textproto               # the laptop side
+make launch-drc-atlas-robot HOST=<robot ssh host>                    # or the robot side in the foreground
 ```
 
-#### 3. DRC Atlas
-```bash
-make launch-drc-atlas-sim-vnc       # MuJoCo Physics Sim (Browser / macOS / Remote)
-make launch-drc-atlas-dummy-sim-vnc # RViz Dummy Sim (Browser / macOS / Remote)
-make launch-drc-atlas-sim           # MuJoCo Physics Sim (Native X11)
-make launch-drc-atlas-dummy-sim     # RViz Dummy Sim (Native X11)
-make launch-drc-atlas-sandbox-vnc   # Interactive URDF Model Viewer
-```
+`make help` lists the targets and their variables; `make rerun-viewer` / `make rerun-web` start a bridge on its own,
+`make ipc-list`, `make ipc-echo TOPIC=mpc/status` and `make ipc-hz TOPIC=robot/mpc_observation` inspect the bus.
+<!-- LINT.ThenChange(//Makefile:launch_targets, //Makefile:robot_configurations) -->
 
-#### 4. EngineAI SA01
-```bash
-make launch-sa01-sim-vnc         # MuJoCo Physics Sim (Browser / macOS / Remote)
-make launch-sa01-dummy-sim-vnc   # RViz Dummy Sim (Browser / macOS / Remote)
-make launch-sa01-sim             # MuJoCo Physics Sim (Native X11)
-make launch-sa01-dummy-sim       # RViz Dummy Sim (Native X11)
-make launch-sa01-sandbox-vnc     # Interactive URDF Model Viewer
-```
-
-> **Cleanup Tip:** Run `make kill-sims` at any time to clean up any orphaned simulation, publisher, or ROS 2 background processes.
+> **Cleanup Tip:** Run `make kill-sims` at any time to stop what a launch target left running: its launcher, the
+> robot-sim container and a NETEM qdisc.
 
 ---
 
@@ -236,9 +244,9 @@ Simulations launch in a safe **Zero-Torque Mode** suspended on a virtual gantry 
 | `WB_MPC` / `MPC_ACTIVE` | Active Whole-Body / Centroidal MPC solver closed-loop control. |
 | `LOCK_GANTRY` / `UNLOCK_GANTRY` | Suspends or releases the virtual gantry holding the floating base. |
 
-State transitions are managed natively over ROS 2 topics:
-- **Command Topic:** `/humanoid/fsm_command` (`std_msgs/msg/String`)
-- **State Topic:** `/humanoid/fsm_state` (`std_msgs/msg/String`, Transient Local QoS): `<mode>,GANTRY_LOCKED|GANTRY_UNLOCKED,<controller resets>` (formatFsmState() in SimFsmBridge.cpp; the remote control re-centers its joysticks on a transition into a passive mode, a new lock and a new reset, see humanoid_nmpc/remote_control/README.md)
+State transitions travel on the IPC bus (`humanoid_nmpc/humanoid_mpc_ipc/include/humanoid_mpc_ipc/Topics.h`):
+- **Command Topic:** `operator/fsm_command` (`humanoid_mpc_msgs.FsmCommand`: the command and a sequence number)
+- **State Topic:** `robot/fsm_state` (`humanoid_mpc_msgs.FsmState`: `mode`, `gantry_locked`, `controller_resets`, `mpc_healthy`), published on every change and at 2 Hz, so a GUI that starts late learns the current state (the remote control re-centers its joysticks on a transition into a passive mode, a new lock and a new reset, see humanoid_nmpc/remote_control/README.md)
 
 ### Teleoperation & Root Height Control
 - Use the **Robot Base Controller GUI** or connect an **Xbox Controller** to command velocity vectors ($v_x, v_y, \omega_z$).
@@ -255,7 +263,7 @@ The joystick GUI (`base_velocity_controller_gui`) features a dark-themed tabbed 
    - Adjust root pelvis height and virtual gantry suspension.
    - Switch supervisory FSM modes (`ZERO_TORQUE`, `JOINT_PD`, `GRAVITY_COMP`, `WB_MPC`, `SAFETY`).
    - Checkbox selecting the simulator's cheater contact estimator (task file `contactEstimator: cheater_sim` on, `always_in_contact` off), applied live through the parameter topic.
-   - Instant-launch **PlotJuggler** pre-configured with telemetry stream tabs.
+   - **Open Rerun viewer** starts the Rerun bridge, which opens the native viewer with the 3D scene and the plot tabs.
 
 2. **⚙️ Joint PD Gains Tuning (`joint_pd_gains.yaml`):**
    - Individual real-time sliders and numeric input boxes for joint proportional ($K_p$) and derivative ($K_d$) feedback gains.
@@ -277,7 +285,8 @@ Each robot model's MPC task configuration file (`task.yaml`) includes runtime fl
 
 ```yaml
 # Simulation & Telemetry Configuration
-enableTelemetry: true        # Enable high-rate ROS 2 telemetry publishing for PlotJuggler
+telemetrySinks: [bus]        # Where the robot process sends robot/state, by name; [] turns the telemetry off
+telemetryFrequency: 100      # [Hz] robot/state, decimated from the control loop
 enableOnlineTuning: true     # Enable runtime parameter and gain tuning in Controller GUI
 
 # Targeted Pinocchio frames for telemetry logging (position, orientation, twist, accel, wrench)
@@ -288,55 +297,48 @@ telemetryFrames:
   - "torso_link"
 ```
 
-- **`enableTelemetry`:** When `false`, the C++ simulation node completely skips instantiating and publishing the telemetry bridge, eliminating overhead. In the Joystick GUI, the **PlotJuggler** button will also be disabled.
+- **`telemetrySinks`:** The telemetry sinks of the robot process, by name (`humanoid_nmpc/humanoid_common_mpc_app/robot/README.md`): `bus` publishes every sample on `robot/state`; an empty list turns the telemetry off, and the realtime loop then samples nothing. The retired boolean `enableTelemetry` is refused at start-up with this replacement.
 - **`enableOnlineTuning`:** When `false`, the GUI disables all sliders, quick multipliers, and YAML save buttons in both the **⚙️ Joint PD Gains** and **📈 MPC Parameters** tabs, displaying an orange safety badge `🔒 Online Tuning Disabled`.
 - **`telemetryFrames`:** Optional targeted list of Pinocchio frames to monitor. The telemetry engine automatically computes forward kinematics, spatial twists, frame accelerations, and contact wrenches for both measured and MPC desired states.
 
 ---
 
-### 📊 Real-Time Telemetry & PlotJuggler
+### 📊 Real-Time Visualization & Telemetry (Rerun)
 
-Simulations automatically launch **PlotJuggler** in its own dedicated noVNC browser window (`http://localhost:6082/vnc.html`), keeping the main simulation desktop (`http://localhost:6080/vnc.html`) focused on **RViz2** and the **Base Controller GUI**:
+The Rerun bridge (`humanoid_nmpc/humanoid_rerun_viewer`) draws the robot, the MPC's plan and the telemetry plots in
+[Rerun](https://rerun.io). It only subscribes to the bus, so it runs on any machine of the network file:
 
 ```bash
-# Launch PlotJuggler in its dedicated noVNC window (Display :100, port 6082):
-make plotjuggler-vnc
+# Native viewer (in the container it opens on the VNC desktop)
+bazel run //humanoid_nmpc/humanoid_rerun_viewer -- --urdf robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf
 
-# Or launch PlotJuggler on your current active display:
-make plotjuggler
+# Web viewer at http://localhost:9090
+bazel run //humanoid_nmpc/humanoid_rerun_viewer -- --urdf <robot.urdf> --rerun_sink serve_web
 ```
-*(Or click the **📊 PlotJuggler** button in the Base Controller GUI)*.
+*(Or click **Open Rerun viewer** in the Base Controller GUI.)*
 
-#### Pre-Configured Telemetry Layout Tabs
-1. **Base Pose & Euler Angles:** Robot actual floating-base position and orientation (Roll, Pitch, Yaw in degrees) vs. MPC planned trajectory.
-2. **Base Twist:** Actual base linear ($v_x, v_y, v_z$) and angular ($\omega_x, \omega_y, \omega_z$) velocities vs. MPC target velocities.
-3. **Contact Forces:** Commanded 3D foot contact forces from MPC vs. simulated sensor forces measured directly from MuJoCo foot force sensors.
-4. **Joint Dynamics:** Current joint positions, velocities, applied motor torques, and MPC target position/velocity trajectories.
-5. **Generalized Coordinates (Pinocchio):** Full-order generalized coordinates ($q$), velocities ($v$), and forces ($\tau$) for both measured robot state and MPC desired trajectory, formatted per degree-of-freedom.
-6. **Frame Kinematics & Acceleration:** Cartesian position, orientation, linear/angular velocity, acceleration, and contact wrenches for targeted Pinocchio frames (e.g. feet, pelvis, torso).
+#### Plot Tabs
+1. **Base Pose & Euler:** the measured floating-base position and orientation (roll, pitch, yaw) against the MPC's reference.
+2. **Base Twist:** the measured base linear and angular velocities against the reference.
+3. **Contact Forces:** the MPC's planned foot contact forces against the forces the simulator's foot sensors measure.
+4. **Joint Dynamics:** joint positions, velocities and efforts against the applied joint targets.
+5. **Generalized Coordinates (Pinocchio):** generalized coordinates and velocities, measured against the reference.
+6. **Frame Kinematics & Acceleration:** the feet's vertical acceleration and velocity, measured against the reference.
 
-#### Published ROS 2 Telemetry Topics
-| Topic Pattern | Type | Description |
+Further tabs plot the complete groups: every degree of freedom (measured, reference and the MPC's plan), every tracked
+frame of `telemetryFrames`, both contact wrenches and the MPC observation, and the status of the robot loop and the MPC.
+
+#### Telemetry on the Bus
+| Topic | Message | Description |
 |---|---|---|
-| `/robot/generalized_coordinates/[dof_name]` | `std_msgs/msg/Float64` | Measured robot generalized coordinate for specified DOF (e.g. `base_z`, joint angles) |
-| `/robot/generalized_velocities/[dof_name]` | `std_msgs/msg/Float64` | Measured robot generalized velocity for specified DOF |
-| `/robot/generalized_forces/[dof_name]` | `std_msgs/msg/Float64` | Measured / applied generalized force for specified DOF |
-| `/mpc/desired/generalized_coordinates/[dof_name]` | `std_msgs/msg/Float64` | MPC desired generalized coordinate for specified DOF |
-| `/mpc/desired/generalized_velocities/[dof_name]` | `std_msgs/msg/Float64` | MPC desired generalized velocity for specified DOF |
-| `/mpc/desired/generalized_forces/[dof_name]` | `std_msgs/msg/Float64` | MPC desired feedforward torque / force for specified DOF |
-| `/robot/frames/[frame_name]/pose` | `geometry_msgs/msg/PoseStamped` | Forward kinematics pose of targeted frame |
-| `/robot/frames/[frame_name]/euler` | `geometry_msgs/msg/Vector3Stamped` | Orientation of targeted frame (Roll, Pitch, Yaw) |
-| `/robot/frames/[frame_name]/twist` | `geometry_msgs/msg/TwistStamped` | Spatial twist (linear & angular velocity) of frame |
-| `/robot/frames/[frame_name]/accel` | `geometry_msgs/msg/AccelStamped` | Linear and angular acceleration of targeted frame |
-| `/robot/frames/[frame_name]/wrench` | `geometry_msgs/msg/WrenchStamped` | Measured contact wrench acting at frame |
-| `/mpc/desired/frames/[frame_name]/*` | Various | MPC desired pose, euler, twist, accel, wrench at frame |
-| `/joint_states` | `sensor_msgs/msg/JointState` | Current robot joint positions, velocities, and applied torques |
-| `/mpc/joint_targets` | `sensor_msgs/msg/JointState` | MPC target joint positions, velocities, and feedforward torques |
-| `/robot/base_pose`, `/robot/base_euler`, `/robot/base_twist` | Various | Measured floating-base position, euler, and twist |
-| `/mpc/target_base_pose`, `_euler`, `_twist` | Various | MPC optimal reference base position, euler, and twist |
-| `/mpc/contact_wrench/left`, `/mpc/contact_wrench/right` | `geometry_msgs/msg/WrenchStamped` | Left & right foot contact wrenches commanded by MPC |
-| `/sensors/contact_wrench/left`, `/right` | `geometry_msgs/msg/WrenchStamped` | Measured foot contact wrenches from simulation |
-| `/mpc/observation` | `ocs2_ros2_msgs/msg/MpcObservation` | Latest full system observation tracked by MPC solver |
+| `robot/state` | `humanoid_mpc_msgs.RobotStateSample` | the robot process's measured state, joint actions and contact wrenches, every telemetry period (`telemetrySinks: [bus]`) |
+| `viz/telemetry` | `humanoid_mpc_msgs.TelemetrySeries` | the plots' series, one message per `robot/state` sample, from the MPC node's visualization publisher |
+| `viz/scene` | `humanoid_mpc_msgs.VisualizationScene` | the robot instances (measured, terminal state, terminal target) and the markers of the plan |
+| `robot/mpc_observation` | `humanoid_mpc_msgs.MpcObservation` | the observation the MPC solves from (`mpc_observation_logger` records it to CSV) |
+| `mpc/status`, `robot/loop_timing`, `robot/fsm_state` | `MpcStatus`, `LoopTiming`, `FsmState` | the solver's health, the realtime loop's timing and the FSM |
+
+The entity paths and series names are tabulated in [the bridge's README](humanoid_nmpc/humanoid_rerun_viewer/README.md);
+`bazel run //tools/ipc:ipc_tool -- list` shows what is on the bus.
 
 ---
 

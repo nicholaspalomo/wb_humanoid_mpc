@@ -23,17 +23,15 @@ Preprocessor lines (#define bodies included) are not checked.
 import argparse
 import os
 import re
-import subprocess
 import sys
 from typing import Iterable, List, NamedTuple, Optional, Tuple
 
-NOLINT = "NOLINT(argument-comment)"
+from tools.hooks import check_types
+from tools.hooks import cpp_source
+from tools.hooks import lint_files
 
-CPP_EXTENSIONS = (".cpp", ".cc", ".cxx", ".h", ".hh", ".hpp", ".hxx")
-# Third-party code this repository vendors: not ours to restyle.
-# LINT.IfChange(vendored_dirs)
-VENDORED_DIRS = ("lib/ocs2/", "lib/mujoco_vendor/", "tools/ifttt-lint/")
-# LINT.ThenChange(//tools/hooks/lint_code.py:vendored_dirs)
+NAME = "argument-comment"
+NOLINT = "NOLINT(argument-comment)"
 NOLINTNEXTLINE = "NOLINTNEXTLINE(argument-comment)"
 
 # Words that are followed by a parenthesis without being a call.
@@ -173,11 +171,7 @@ CONVENTIONAL_TYPE_PATTERNS = [
 ]
 
 
-class Token(NamedTuple):
-    kind: str  # "ident", "number", "punct", "comment", "string"
-    text: str
-    line: int
-    col: int
+Token = cpp_source.Token
 
 
 class Violation(NamedTuple):
@@ -196,128 +190,10 @@ class Violation(NamedTuple):
         )
 
 
-_NUMBER = re.compile(
-    r"""
-    (?:0[xX][0-9a-fA-F']+(?:\.[0-9a-fA-F']*)?(?:[pP][+-]?\d+)?   # hexadecimal (and hex float)
-      |0[bB][01']+                                               # binary
-      |(?:\d[\d']*\.?[\d']*|\.\d[\d']*)(?:[eE][+-]?\d+)?         # decimal and floating point
-    )[a-zA-Z_]*                                                   # suffix (u, l, f, ...) or user-defined literal
-    """,
-    re.VERBOSE,
-)
 _STANDARD_SUFFIX = re.compile(
     r"^(?:[uU](?:ll|LL|l|L|z|Z)?|(?:ll|LL|l|L|z|Z)[uU]?|[fFlL])?$"
 )
 _ARGUMENT_COMMENT = re.compile(r"^/\*\s*[A-Za-z_]\w*\s*=\s*\*/$")
-_PUNCT2 = (
-    "::",
-    "->",
-    "<<",
-    ">>",
-    "<=",
-    ">=",
-    "==",
-    "!=",
-    "&&",
-    "||",
-    "++",
-    "--",
-    "+=",
-    "-=",
-    "*=",
-    "/=",
-)
-
-
-def tokenize(source: str) -> List[Token]:
-    """Splits C++ source into tokens, skipping preprocessor lines and keeping block comments."""
-    tokens: List[Token] = []
-    i, line, col = 0, 1, 1
-    n = len(source)
-    at_line_start = True
-
-    def advance(count: int) -> None:
-        nonlocal i, line, col
-        for _ in range(count):
-            if source[i] == "\n":
-                line += 1
-                col = 1
-            else:
-                col += 1
-            i += 1
-
-    while i < n:
-        c = source[i]
-        if c == "\n":
-            at_line_start = True
-            advance(1)
-            continue
-        if c in " \t\r\f\v":
-            advance(1)
-            continue
-        # Preprocessor directive: skip it and its continuation lines.
-        if c == "#" and at_line_start:
-            while i < n:
-                if source[i] == "\\" and i + 1 < n and source[i + 1] == "\n":
-                    advance(2)
-                    continue
-                if source[i] == "\n":
-                    break
-                advance(1)
-            continue
-        at_line_start = False
-        start_line, start_col = line, col
-        if source.startswith("//", i):
-            end = source.find("\n", i)
-            end = n if end < 0 else end
-            tokens.append(Token("comment", source[i:end], start_line, start_col))
-            advance(end - i)
-            continue
-        if source.startswith("/*", i):
-            end = source.find("*/", i + 2)
-            end = n if end < 0 else end + 2
-            tokens.append(Token("comment", source[i:end], start_line, start_col))
-            advance(end - i)
-            continue
-        raw = re.match(r'(?:u8|u|U|L)?R"([^()\\\s]{0,16})\(', source[i:])
-        if raw:
-            terminator = ")" + raw.group(1) + '"'
-            end = source.find(terminator, i + raw.end())
-            end = n if end < 0 else end + len(terminator)
-            tokens.append(Token("string", source[i:end], start_line, start_col))
-            advance(end - i)
-            continue
-        prefix = re.match(r"(?:u8|u|U|L)?[\"']", source[i:])
-        if prefix:
-            quote = prefix.group(0)[-1]
-            j = i + prefix.end()
-            while j < n and source[j] != quote:
-                j += 2 if source[j] == "\\" else 1
-            end = min(j + 1, n)
-            tokens.append(Token("string", source[i:end], start_line, start_col))
-            advance(end - i)
-            continue
-        if c.isdigit() or (c == "." and i + 1 < n and source[i + 1].isdigit()):
-            match = _NUMBER.match(source, i)
-            text = match.group(0) if match else c
-            tokens.append(Token("number", text, start_line, start_col))
-            advance(len(text))
-            continue
-        if c.isalpha() or c == "_":
-            match = re.match(r"[A-Za-z_]\w*", source[i:])
-            tokens.append(Token("ident", match.group(0), start_line, start_col))
-            advance(match.end())
-            continue
-        two = source[i : i + 2]
-        if two in _PUNCT2:
-            tokens.append(Token("punct", two, start_line, start_col))
-            advance(2)
-            continue
-        tokens.append(Token("punct", c, start_line, start_col))
-        advance(1)
-    return tokens
-
-
 _OPEN = {"(": ")", "[": "]", "{": "}"}
 _CLOSE = frozenset(_OPEN.values())
 
@@ -432,16 +308,9 @@ def _has_argument_comment(argument: List[Token]) -> bool:
     return False
 
 
-def check_source(source: str, path: str = "<source>") -> List[Violation]:
-    tokens = tokenize(source)
-    lines = source.splitlines()
-    suppressed = set()
-    for number, text in enumerate(lines, start=1):
-        if NOLINT in text:
-            suppressed.add(number)
-        if NOLINTNEXTLINE in text:
-            suppressed.add(number + 1)
-
+def unsuppressed_violations(source: str, path: str = "<source>") -> List[Violation]:
+    """Every bare literal argument in `source`, whatever NOLINT markers it carries (the registry applies those)."""
+    tokens = cpp_source.tokenize(source)
     # Line comments are irrelevant to the analysis; block comments stay, to see argument comments.
     code = [t for t in tokens if not (t.kind == "comment" and t.text.startswith("//"))]
     violations: List[Violation] = []
@@ -502,12 +371,23 @@ def check_source(source: str, path: str = "<source>") -> List[Violation]:
             if text is None or _has_argument_comment(argument):
                 continue
             first = next(t for t in argument if t.kind != "comment")
-            if first.line in suppressed:
-                continue
             violations.append(
                 Violation(path, first.line, first.col, callee, text, position)
             )
     return violations
+
+
+def check_source(source: str, path: str = "<source>") -> List[Violation]:
+    """The violations of `source` that no `NOLINT(argument-comment)` or `NOLINTNEXTLINE(argument-comment)` exempts."""
+    suppressed = set()
+    for number, text in enumerate(source.splitlines(), start=1):
+        if NOLINT in text:
+            suppressed.add(number)
+        if NOLINTNEXTLINE in text:
+            suppressed.add(number + 1)
+    return [
+        v for v in unsuppressed_violations(source, path) if v.line not in suppressed
+    ]
 
 
 def check_files(paths: Iterable[str], root: str) -> List[Violation]:
@@ -524,21 +404,42 @@ def check_staged(repository: str) -> List[Violation]:
     This is what the pre-commit hook runs: it judges exactly what is about to be committed, a partial `git add -p`
     included, and only the files the commit touches, so a commit is never blocked by a file it does not change.
     """
-
-    def git(*args: str) -> str:
-        return subprocess.run(
-            ["git", "-C", repository, *args], capture_output=True, text=True, check=True
-        ).stdout
-
-    staged = git("diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z").split(
-        "\0"
-    )
     violations: List[Violation] = []
-    for path in staged:
-        if not path.endswith(CPP_EXTENSIONS) or path.startswith(VENDORED_DIRS):
+    for path in lint_files.staged_files(repository):
+        if not path.endswith(
+            lint_files.CPP_EXTENSIONS
+        ) or not lint_files.is_first_party(path):
             continue
-        violations += check_source(git("show", ":" + path), path)
+        violations += check_source(lint_files.staged_source(repository, path), path)
     return violations
+
+
+def _findings(source: str, path: str) -> List[check_types.Finding]:
+    return [
+        check_types.Finding(
+            v.path,
+            v.line,
+            v.col,
+            NAME,
+            f"bare literal `{v.literal}` as argument {v.position} of `{v.callee}(...)`: name it with an argument "
+            f"comment, `/*parameterName=*/{v.literal}`, with the name from the callee's declaration (Google C++ style, "
+            "Function argument comments).",
+        )
+        for v in unsuppressed_violations(source, path)
+    ]
+
+
+CHECKS = [
+    check_types.Check(
+        name=NAME,
+        languages=frozenset({check_types.Language.CPP}),
+        scope=lint_files.Scope.FIRST_PARTY,
+        check_source=_findings,
+        description="literal arguments carry a /*parameterName=*/ comment (AGENTS.md; Google C++ style).",
+        hint="Write /*parameterName=*/ in front of each literal, with the name from the callee's declaration "
+        "(tools/hooks/argument_comments.py says what is exempt).",
+    )
+]
 
 
 def main(argv: Optional[List[str]] = None) -> int:

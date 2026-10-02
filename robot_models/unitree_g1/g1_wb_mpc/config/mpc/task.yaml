@@ -1,7 +1,11 @@
 # Simulation & Telemetry Configuration
-enableTelemetry: true        # Enable high-rate ROS 2 telemetry publishing for PlotJuggler
-telemetryFrequency: 100      # [Hz] Telemetry publishing frequency (decimated from MRT loop)
-# MuJoCo simulator only (mujoco_sim.launch.py). The viewer's contact timeline ('b' toggles it) shows, per contact point,
+# Where the robot process sends its telemetry (robot/state), by name (TelemetrySinkRegistry.h): bus publishes it on
+# the IPC bus for the visualization publisher, the Rerun bridge and ipc_tool; [] turns the telemetry off.
+# LINT.IfChange(telemetry_sinks)
+telemetrySinks: [bus]
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/include/humanoid_common_mpc_app/robot/TelemetrySinkRegistry.h:telemetry_sink_names)
+telemetryFrequency: 100      # [Hz] robot/state, decimated from the control loop
+# MuJoCo backend of the robot process only. The viewer's contact timeline ('b' toggles it) shows, per contact point,
 # the contact state the executed MPC policy plans against the simulator's ground truth over a sliding window of time.
 simContactTimelineWindow: 5.0          # [s] width of the sliding window
 simContactForceThreshold: 5.0          # [N] normal force above which a contact point counts as touching (ground truth)
@@ -21,7 +25,7 @@ simContactForceThreshold: 5.0          # [N] normal force above which a contact 
 # LINT.IfChange(sim_fall_recovery)
 simMaxBaseTiltAngle: 1.0                # [rad] 0 disables
 simGantryCatchLift: 0.15  # [m] 0 skips the settle sequence
-# LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc_ros2/src/WBMpcRobotSim.cpp:sim_fall_recovery_keys)
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/src/RobotProcessSettings.cpp:sim_fall_recovery_keys)
 # Measured contact state of the controller, by name (robot_model/ContactEstimatorRegistry.h): the MPC observation mode and
 # which planned contact wrenches the inverse dynamics projects into feedforward torques. One of:
 #   cheater_sim        the ground truth of the physics (normal force above simContactForceThreshold); required for the
@@ -84,12 +88,25 @@ simVisualizations:
 # LINT.ThenChange(//robot_runtime/mujoco_sim_interface/src/visualization/VisualizationRegistry.cpp:visualization_names)
 enableOnlineTuning: true     # Enable runtime parameter and gain tuning in Controller GUI
 
+# The visualization publisher of the MPC node (humanoid_nmpc/humanoid_common_mpc_app/visualization/README.md), read at
+# start-up. rerunSceneFrequency bounds how often the Rerun scene (robots and markers) is sent; the plots follow every
+# robot/state sample. telemetryFrames are the frames whose pose, twist, acceleration and wrench are plotted, measured,
+# reference and plan; rerunPlanFrames (the contact frames when absent) those whose planned paths the scene draws.
+# LINT.IfChange(visualization_keys)
+rerunSceneFrequency: 30      # [Hz] viz/scene at most this often
 # Targeted Pinocchio frames for telemetry logging (position, orientation, twist, accel, wrench)
 telemetryFrames:
   - "foot_l_contact"
   - "foot_r_contact"
   - "pelvis"
   - "torso_link"
+rerunPlanFrames:
+  - "foot_l_contact"
+  - "foot_r_contact"
+  - "mid360_link"
+  - "left_hand_palm_joint"
+  - "right_hand_palm_joint"
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/visualization/include/humanoid_common_mpc_app/visualization/VisualizationConfig.h:visualization_task_keys)
 
 # MPC Problem Formulation Tasks
 hard_constraints:
@@ -473,6 +490,11 @@ Q_final:
   "(57,57)": 0.02  # right_elbow_joint
 
 
+# The weights the swing-foot cost has always applied. Until the loader was fixed (EndEffectorDynamicsWeights::getWeights)
+# it wrote the lin_acceleration_* and ang_acceleration_* keys over the velocity weights and left the acceleration
+# weights at their defaults of 0.01, so the values this block used to list were never applied: lin_velocity 50/50/0,
+# ang_velocity 100/100/100, lin_acceleration 5/5/0, ang_acceleration 2/2/2. Restoring them is a re-tuning, to be
+# validated in MuJoCo.
 task_space_foot_cost_weights:
   pos_x: 0.0
   pos_y: 0.0
@@ -480,18 +502,18 @@ task_space_foot_cost_weights:
   orientation_x: 10000.0
   orientation_y: 10000.0
   orientation_z: 0.0
-  lin_velocity_x: 50.0
-  lin_velocity_y: 50.0
+  lin_velocity_x: 5.0
+  lin_velocity_y: 5.0
   lin_velocity_z: 0.0
-  ang_velocity_x: 100.0
-  ang_velocity_y: 100.0
-  ang_velocity_z: 100.0
-  lin_acceleration_x: 5.0
-  lin_acceleration_y: 5.0
-  lin_acceleration_z: 0.0
-  ang_acceleration_x: 2.0
-  ang_acceleration_y: 2.0
-  ang_acceleration_z: 2.0
+  ang_velocity_x: 2.0
+  ang_velocity_y: 2.0
+  ang_velocity_z: 2.0
+  lin_acceleration_x: 0.01
+  lin_acceleration_y: 0.01
+  lin_acceleration_z: 0.01
+  ang_acceleration_x: 0.01
+  ang_acceleration_y: 0.01
+  ang_acceleration_z: 0.01
 
 contacts:
   contact_frame_translation:

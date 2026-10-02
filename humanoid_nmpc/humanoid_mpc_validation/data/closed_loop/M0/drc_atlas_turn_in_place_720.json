@@ -1,0 +1,125 @@
+{
+  "schema": "humanoid_mpc_validation.closed_loop_metrics.v1",
+  "label": "M0",
+  "robot": "drc_atlas",
+  "formulation": "centroidal",
+  "scenario": "turn_in_place_720",
+  "provenance": {
+    "git_commit": "c331ddd76dcf3917bdd9d0578eee6f518a915ba8",
+    "worktree_state": "1175 changed paths, diff sha256 d39e5c3748764584",
+    "machine": "Intel(R) Core(TM) Ultra 7 265K, 20 logical cores, 30.2 GiB",
+    "configuration_sha256": {
+      "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml": "c39d0e12f8f1945d74c085a464c1921cfdf7bef24e454f9a78f7d42e6e8c37f1",
+      "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.yaml": "abb74884f324533f2559accbefa92d81118552c1a708efe44e52dd75a3696822",
+      "humanoid_nmpc/humanoid_common_mpc/config/command/gait.yaml": "df9b8154d7fe9939bc45541ee5163049b392c44880e774c5ea85653ae1ce9897",
+      "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/controller/joint_pd_gains.yaml": "9121b6f5acb120a4e1d77a72c173b34f881edfe01d87c6ffa04a61ebc393a43c",
+      "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf": "b5a9f7eb23c937b47c4b418dc50eb2ba6c0de3ff20032b6f9b0a87db45d08ac2",
+      "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.xml": "6c34ba31f53b810acdb0ed889623b72bbf734ab7f709d7cd628b017cac76a4c8",
+      "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/contact_planning.yaml": "64717ebc74d7c4a115cd19edf06e01473151d4323f8c8168f2c6aaf87b9942b0"
+    }
+  },
+  "settings": {
+    "mpc_frequency_hz": 50,
+    "mrt_frequency_hz": 100,
+    "simulation_time_step_s": 0.0005,
+    "control_period_s": 0.01,
+    "solver_threads": 8,
+    "solve_latency": "none: a solve's policy is in use from the next control cycle",
+    "joint_pd_settle_time_s": 1,
+    "entry_end_time_s": 3.020000000000176,
+    "gantry_release_time_s": 3.520000000000343,
+    "standing_time_s": 2,
+    "command_start_time_s": 5.51999999999966,
+    "command_duration_s": 52.26548245743669,
+    "command_limits": [1.2, 0.25, 1],
+    "command_saturated": false,
+    "scenario_description": "+0.5 rad/s in place through 720 degrees, -0.5 rad/s back, then at rest"
+  },
+  "evaluation": {
+    "start_time_s": 5.52049999999966,
+    "end_time_s": 57.780500000093866,
+    "control_cycles": 5227,
+    "solves": 2614
+  },
+  "survival": {
+    "survived": true,
+    "fall_time_s": null,
+    "fall_reason": ""
+  },
+  "base_height": {
+    "mean_m": 0.8987709540425921,
+    "std_m": 0.005779256664599131,
+    "rms_error_m": 0.006793491029571604
+  },
+  "tilt": {
+    "rms_rad": 0.04925272307619861,
+    "max_rad": 0.08078130897649051
+  },
+  "velocity": {
+    "rms_error_mps": 0.07212056257158451
+  },
+  "yaw_rate": {
+    "rms_error_radps": 0.48027021960620697
+  },
+  "heading": {
+    "cumulative_final_rad": -0.03580973843974024,
+    "cumulative_max_rad": 0.21753492585432,
+    "cumulative_min_rad": -0.04580022835096398
+  },
+  "stance_foot_slip": {
+    "max_m": 0.001393962450562067,
+    "rms_m": 0.0005699209092443295,
+    "stance_phases": 61
+  },
+  "joint_torque": {
+    "rms_nm": 54.144786351180954
+  },
+  "initial_state_gap": {
+    "max_rotation_rad": 0.005952797485532518,
+    "max_rotation_time_s": 30.94049999997324,
+    "max_norm": 0.1256694578765757
+  },
+  "quaternion_norm": {
+    "max_deviation": null
+  },
+  "non_finite_values": 0,
+  "solve_time_ms": {
+    "total": {
+      "mean": 6.375622173297632,
+      "p50": 6.364248,
+      "p99": 7.165555,
+      "max": 9.880287
+    },
+    "lq_approximation": {
+      "mean": 2.6229588848508008,
+      "p50": 2.63055,
+      "p99": 3.017578,
+      "max": 3.572093
+    },
+    "solve_qp": {
+      "mean": 2.618398777352721,
+      "p50": 2.589295,
+      "p99": 2.935482,
+      "max": 5.011418
+    },
+    "linesearch": {
+      "mean": 0.3807759548584543,
+      "p50": 0.383104,
+      "p99": 0.609648,
+      "max": 1.026498
+    },
+    "compute_controller": {
+      "mean": 0.48654895447589847,
+      "p50": 0.480749,
+      "p99": 0.561048,
+      "max": 1.123189
+    }
+  },
+  "failures": {
+    "failed_solves": 0,
+    "resets_served": 0,
+    "full_resets_served": 0,
+    "simulator_resets": 0,
+    "unhealthy_cycles": 0
+  }
+}

@@ -38,8 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <pinocchio/multibody/model.hpp>
 
 #include <ocs2_core/misc/LoadData.h>
-#include <boost/property_tree/info_parser.hpp>
-#include <boost/property_tree/ptree.hpp>
+#include <ocs2_core/misc/PropertyTree.h>
 
 namespace ocs2::humanoid {
 
@@ -151,7 +150,7 @@ ad_vector_t FootCollisionConstraint::constraintFunction(ad_scalar_t time, const 
 /******************************************************************************************************/
 
 FootCollisionConstraint::Config FootCollisionConstraint::loadFootCollisionConstraintConfig(const std::string taskFile, bool verbose) {
-  boost::property_tree::ptree pt;
+  PropertyTree pt;
   loadData::readPropertyTree(taskFile, pt);
   const std::string prefix = "collision_constraint.";
 

@@ -58,6 +58,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 
+#include "humanoid_common_mpc/mrt/InProcessMpcLink.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
@@ -90,7 +91,11 @@ std::string runfilePath(absl::string_view relativePath) {
 /** The G1 whole-body controller around a scripted solver, and the robot it controls. */
 class WholeBodyHarness {
  public:
-  WholeBodyHarness()
+  /**
+   * With InProcessMpcLink::Execution::kCaller the controller's link starts no solver thread: the test runs its
+   * iterations (link().runSolverIteration()), as the lockstep closed loop of humanoid_mpc_validation does.
+   */
+  explicit WholeBodyHarness(InProcessMpcLink::Execution execution = InProcessMpcLink::Execution::kSolverThread)
       : taskFile_(runfilePath("robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.yaml")),
         urdfFile_(runfilePath("robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf")),
         modelSettings_(taskFile_, urdfFile_, "wb_mpc_", /*verbose=*/false),
@@ -104,13 +109,22 @@ class WholeBodyHarness {
     loadData::loadEigenMatrix(taskFile_, "initialState", initialState_);
     mpcJointIndices_ = description_.getJointIndices(modelSettings_.mpcModelJointNames);
     setState(initialState_);
-    controller_ =
-        std::make_unique<WBMpcMrtJointController>(description_, modelSettings_, mpc_, pinocchioInterface_, /*mpcDesiredFrequency=*/1000.0);
+    if (execution == InProcessMpcLink::Execution::kCaller) {
+      InProcessMpcLink::Config config;
+      config.execution = execution;
+      controller_ = std::make_unique<WBMpcMrtJointController>(
+          description_, modelSettings_, InProcessMpcLink::factory(mpc_, std::move(config), &link_), pinocchioInterface_);
+    } else {
+      controller_ = std::make_unique<WBMpcMrtJointController>(description_, modelSettings_, mpc_, pinocchioInterface_,
+                                                              /*mpcDesiredFrequency=*/1000.0);
+    }
   }
 
   ~WholeBodyHarness() { controller_.reset(); }
 
   WBMpcMrtJointController& controller() { return *controller_; }
+  /** The controller's link, for a harness built with InProcessMpcLink::Execution::kCaller. */
+  InProcessMpcLink& link() { return *link_; }
   std::unique_ptr<WBMpcMrtJointController>& controllerPtr() { return controller_; }
   mpc_test::ScriptedMpc& mpc() { return mpc_; }
   const WBAccelMpcRobotModel<scalar_t>& model() const { return model_; }
@@ -144,6 +158,12 @@ class WholeBodyHarness {
     const std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
     while (!controller_->ready() && std::chrono::steady_clock::now() < deadline) std::this_thread::sleep_for(std::chrono::milliseconds(1));
     ASSERT_TRUE(controller_->ready()) << "the solver thread produced no policy";
+  }
+
+  /** startMpcThread() at the current time on a caller's link: it serves the start-up reset and starts no thread. */
+  void startWithoutThread() {
+    robotState_.setTime(time_);
+    controller_->startMpcThread(robotState_);
   }
 
   const robot::model::RobotJointAction& cycle(std::chrono::microseconds pause = std::chrono::microseconds(500)) {
@@ -186,6 +206,7 @@ class WholeBodyHarness {
   vector_t initialState_;
   std::vector<size_t> mpcJointIndices_;
   scalar_t time_ = 1.0;
+  InProcessMpcLink* link_ = nullptr;  // the controller's, with InProcessMpcLink::Execution::kCaller
   std::unique_ptr<WBMpcMrtJointController> controller_;
 };
 
@@ -321,6 +342,49 @@ TEST(WBMpcMrtJointController, EnteringWbMpcResetsTheMpcAndHoldsJointPdUntilAPoli
   for (size_t foot = 0; foot < N_CONTACTS; ++foot) verticalForce += harness.model().getContactForce(target.inputTrajectory[0], foot)(2);
   PinocchioInterface pinocchioInterface = harness.pinocchioInterface();
   EXPECT_NEAR(verticalForce, pinocchio::computeTotalMass(pinocchioInterface.getModel()) * 9.81, 1e-6);
+}
+
+TEST(WBMpcMrtJointController, WithoutASolverThreadTheCallersIterationsServeResetsAndFailuresOnItsClock) {
+  // The lockstep closed loop of humanoid_mpc_validation runs the controller on a link without a solver thread: nothing
+  // is solved, reset or held off but what the caller's iterations do.
+  WholeBodyHarness harness(InProcessMpcLink::Execution::kCaller);
+  std::vector<scalar_t> nominal(harness.description().getNumJoints(), 0.0);
+  harness.controller().setNominalJointPositions(nominal);
+  harness.controller().setControlMode("JOINT_PD");
+  harness.startWithoutThread();
+  EXPECT_FALSE(harness.controller().ready()) << "the start-up reset solves nothing";
+  InProcessMpcLink::SolverIterationResult iteration = harness.link().runSolverIteration();
+  ASSERT_TRUE(iteration.status.ok()) << iteration.status;
+  EXPECT_EQ(iteration.retryDelay.count(), 0.0);
+  EXPECT_TRUE(harness.controller().ready());
+  EXPECT_EQ(harness.controller().getResetSupervisor().numResetsServed(), 0u) << "the start-up reset is not a requested one";
+
+  // The entry into WB_MPC holds until an iteration serves its reset and solves.
+  harness.cycle(std::chrono::microseconds(0));
+  harness.controller().setControlMode("WB_MPC");
+  for (int k = 0; k < 50; ++k) harness.cycle(std::chrono::microseconds(0));
+  EXPECT_TRUE(harness.controller().isHolding());
+  EXPECT_EQ(harness.controller().getResetSupervisor().numResetsServed(), 0u);
+  ASSERT_TRUE(harness.link().runSolverIteration().status.ok());
+  EXPECT_EQ(harness.controller().getResetSupervisor().numResetsServed(), 1u);
+  harness.cycle(std::chrono::microseconds(0));
+  EXPECT_FALSE(harness.controller().isHolding()) << "the policy solved after the entry is in use";
+
+  // Persistent failures back off; the caller waits the delay out on its own clock.
+  harness.mpc().solver().failEverySolve(true);
+  const size_t maxFailures = harness.controller().getResetSupervisor().getConfig().maxConsecutiveFailures;
+  for (size_t failure = 1; failure <= maxFailures; ++failure) {
+    iteration = harness.link().runSolverIteration();
+    EXPECT_FALSE(iteration.status.ok());
+    if (failure < maxFailures) {
+      EXPECT_EQ(iteration.retryDelay.count(), 0.0) << "failure " << failure;
+    }
+  }
+  EXPECT_GT(iteration.retryDelay.count(), 0.0);
+  EXPECT_FALSE(harness.controller().isMpcHealthy());
+  harness.mpc().solver().failEverySolve(false);
+  EXPECT_TRUE(harness.link().runSolverIteration().status.ok());
+  EXPECT_TRUE(harness.controller().isMpcHealthy());
 }
 
 TEST(WBMpcMrtJointController, RepeatedFailuresBackOffAndHoldJointPd) {

@@ -56,7 +56,9 @@ class TimeTriggeredRollout : public RolloutBase {
   ~TimeTriggeredRollout() override = default;
   TimeTriggeredRollout(const TimeTriggeredRollout&) = delete;
   TimeTriggeredRollout& operator=(const TimeTriggeredRollout&) = delete;
-  TimeTriggeredRollout* clone() const override { return new TimeTriggeredRollout(*systemDynamicsPtr_, this->settings()); }
+  TimeTriggeredRollout* clone() const override;
+
+  bool supportsStateManifold() const override { return true; }
 
   /** Returns the underlying dynamics. */
   ControlledSystemBase* systemDynamicsPtr() { return systemDynamicsPtr_.get(); }

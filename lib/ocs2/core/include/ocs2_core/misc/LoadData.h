@@ -30,62 +30,46 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
 #include <Eigen/Dense>
+#include <algorithm>
 #include <iostream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
-#include <boost/property_tree/info_parser.hpp>
-#include <boost/property_tree/ptree.hpp>
-
 #include <yaml-cpp/yaml.h>
+
+#include "absl/strings/string_view.h"
+
+#include <ocs2_core/misc/PropertyTree.h>
 
 namespace ocs2 {
 namespace loadData {
 
 /**
- * Helper: recursively convert a YAML::Node into a boost::property_tree::ptree.
- * - Scalar nodes become leaf values.
+ * Helper: recursively convert a YAML::Node into a PropertyTree, appending to `pt`.
+ * - Scalar nodes become leaf values (the scalar text, verbatim).
  * - Map nodes become named children.
  * - Sequence nodes become children keyed by "[0]", "[1]", etc.
  *   (matching the OCS2 INFO-format indexing convention).
+ * - Null nodes are ignored (they produce an empty node).
  */
-inline void yamlToPropertyTree(const YAML::Node& node, boost::property_tree::ptree& pt) {
-  if (node.IsScalar()) {
-    pt.put_value(node.as<std::string>());
-  } else if (node.IsMap()) {
-    for (const auto& kv : node) {
-      boost::property_tree::ptree child;
-      yamlToPropertyTree(kv.second, child);
-      pt.push_back({kv.first.as<std::string>(), child});
-    }
-  } else if (node.IsSequence()) {
-    for (size_t i = 0; i < node.size(); ++i) {
-      boost::property_tree::ptree child;
-      yamlToPropertyTree(node[i], child);
-      pt.push_back({"[" + std::to_string(i) + "]", child});
-    }
-  }
-  // Null nodes are ignored (produce empty ptree).
-}
+void yamlToPropertyTree(const YAML::Node& node, PropertyTree& pt);
 
 /**
- * Reads a property tree from a config file, auto-detecting the format by extension.
- * - .yaml / .yml  → parsed via yaml-cpp, then converted to ptree
- * - anything else  → parsed via boost::property_tree::read_info()
+ * Reads a property tree from a YAML config file (extension .yaml or .yml), appending to `pt`.
+ *
+ * @throws std::invalid_argument when `filename` has another extension. The Boost INFO format of upstream OCS2 is no
+ *         longer read.
+ * @throws YAML::Exception when the file cannot be opened or does not parse.
  */
-inline void readPropertyTree(const std::string& filename, boost::property_tree::ptree& pt) {
-  const auto dot = filename.rfind('.');
-  if (dot != std::string::npos) {
-    const std::string ext = filename.substr(dot);
-    if (ext == ".yaml" || ext == ".yml") {
-      YAML::Node root = YAML::LoadFile(filename);
-      yamlToPropertyTree(root, pt);
-      return;
-    }
-  }
-  // Default: Boost INFO format
-  boost::property_tree::read_info(filename, pt);
-}
+void readPropertyTree(const std::string& filename, PropertyTree& pt);
+
+/**
+ * Reads a property tree from YAML text held in memory, as readPropertyTree() reads a file, appending to `pt`.
+ *
+ * @throws YAML::Exception when the text does not parse.
+ */
+void readPropertyTreeFromString(absl::string_view yamlText, PropertyTree& pt);
 
 /**
  * Print settings option
@@ -120,16 +104,17 @@ static inline void printValue(std::ostream& stream, const T& value, const std::s
  * @param[in] pt: Fully initialized tree object
  * @param[out] value: The value to be read (unchanged if tree does not contain a corresponding entry)
  * @param[in] name: Property field name
- * @param[in] verbose: Whether or not to print the extreacted value (or error)
+ * @param[in] verbose: Whether or not to print the extracted value (or error)
  * @param[in] printWidth: Optional argument to change the width of the aligned printout
+ * @throws PropertyTreeBadData when the entry is present but does not convert to T; a missing entry is not an error.
  */
 template <typename T>
-inline void loadPtreeValue(const boost::property_tree::ptree& pt, T& value, const std::string& name, bool verbose, long printWidth = 80) {
+inline void loadPtreeValue(const PropertyTree& pt, T& value, const std::string& name, bool verbose, long printWidth = 80) {
   bool updated = true;
 
   try {
     value = pt.get<T>(name);
-  } catch (const boost::property_tree::ptree_bad_path&) {
+  } catch (const PropertyTreeBadPath&) {
     updated = false;
   }
 
@@ -143,16 +128,14 @@ inline void loadPtreeValue(const boost::property_tree::ptree& pt, T& value, cons
  * An auxiliary function to check if the property tree has a certain value
  *
  * @param[in] pt: Fully initialized tree object
- * @param[in] name: Property field name
+ * @param[in] name: The key of an IMMEDIATE child of `pt` (not a path)
  */
-
-inline bool containsPtreeValueFind(const boost::property_tree::ptree& pt, const std::string& name) {
-  return pt.find(name) != pt.not_found();
+inline bool containsPtreeValueFind(const PropertyTree& pt, const std::string& name) {
+  return pt.find(name) != pt.end();
 }
 
 /**
- * An auxiliary function which loads value of the c++ data types from a file. The file uses property tree data structure with INFO format
- * (refer to https://www.boost.org/doc/libs/1_65_1/doc/html/property_tree.html).
+ * An auxiliary function which loads value of the c++ data types from a YAML file.
  *
  * @param [in] filename: File name which contains the configuration data.
  * @param [in] dataName: The key name assigned to the data in the config file.
@@ -160,25 +143,22 @@ inline bool containsPtreeValueFind(const boost::property_tree::ptree& pt, const 
  */
 template <typename cpp_data_t>
 inline void loadCppDataType(const std::string& filename, const std::string& dataName, cpp_data_t& value) {
-  boost::property_tree::ptree pt;
+  PropertyTree pt;
   readPropertyTree(filename, pt);
 
   value = pt.get<cpp_data_t>(dataName);
 }
 
 /**
- * An auxiliary function which loads an Eigen matrix from a file. The file uses property tree data structure with INFO format (refer to
- * www.goo.gl/fV3yWA).
+ * An auxiliary function which loads an Eigen matrix from a YAML file.
  *
  * It has the following format:	<br>
- * matrixName	<br>
- * {	<br>
- *   scaling 1e+0				<br>
- *   (0,0) value    ; M(0,0)	<br>
- *   (1,0) value    ; M(1,0)	<br>
- *   (0,1) value    ; M(0,1)	<br>
- *   (1,1) value    ; M(1,1)	<br>
- * } 	<br>
+ * matrixName:	<br>
+ *   scaling: 1e+0				<br>
+ *   (0,0): value    # M(0,0)	<br>
+ *   (1,0): value    # M(1,0)	<br>
+ *   (0,1): value    # M(0,1)	<br>
+ *   (1,1): value    # M(1,1)	<br>
  *
  * If a value for a specific element is not defined it will set by default to zero.
  *
@@ -197,11 +177,11 @@ inline void loadEigenMatrix(const std::string& filename, const std::string& matr
     throw std::runtime_error("[loadEigenMatrix] Loading empty matrix \"" + matrixName + "\" is not allowed.");
   }
 
-  boost::property_tree::ptree pt;
+  PropertyTree pt;
   readPropertyTree(filename, pt);
 
-  const scalar_t scaling = pt.get<scalar_t>(matrixName + ".scaling", 1.0);
-  const scalar_t defaultValue = pt.get<scalar_t>(matrixName + ".default", 0.0);
+  const scalar_t scaling = pt.get<scalar_t>(matrixName + ".scaling", /*defaultValue=*/1.0);
+  const scalar_t defaultValue = pt.get<scalar_t>(matrixName + ".default", /*defaultValue=*/0.0);
 
   size_t numFailed = 0;
   for (size_t i = 0; i < rows; i++) {
@@ -217,7 +197,7 @@ inline void loadEigenMatrix(const std::string& filename, const std::string& matr
     }
   }
 
-  if (numFailed == matrix.size()) {
+  if (static_cast<Eigen::Index>(numFailed) == matrix.size()) {
     throw std::runtime_error("[loadEigenMatrix] Could not load matrix \"" + matrixName + "\" from file \"" + filename + "\".");
   } else if (numFailed > 0) {
     std::cerr << "WARNING: Loaded at least one default value in matrix: \"" + matrixName + "\"\n";
@@ -226,7 +206,7 @@ inline void loadEigenMatrix(const std::string& filename, const std::string& matr
 
 template <typename T>
 inline void loadStdVector(const std::string& filename, const std::string& topicName, std::vector<T>& loadVector, bool verbose = true) {
-  boost::property_tree::ptree pt;
+  PropertyTree pt;
   readPropertyTree(filename, pt);
 
   std::vector<T> backup;

@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package humanoid_mpc_msgs;
+
+import "nproto/options.proto";
+
+// Topic robot/fsm_state. Published on every change and periodically, so an operator that connects late learns the
+// current state (the ROS version relied on a latched topic for this).
+// Next ID: 5
+message FsmState {
+  option (nproto.generate_struct) = "ocs2::humanoid::msgs::FsmState";
+
+  reserved 5 to max;
+
+  string mode = 1;
+  bool gantry_locked = 2;
+  // Controller resets so far; the GUI re-centers its joysticks when it changes.
+  uint64 controller_resets = 3;
+  // False while the MPC solver keeps failing or the MPC link is down (the controller then holds JOINT_PD).
+  bool mpc_healthy = 4;
+}

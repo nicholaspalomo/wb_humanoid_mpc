@@ -56,8 +56,8 @@ using ReferenceFileReloader = std::function<void(const std::string&)>;
  * register: they used to repeat the wiring by hand, and the MuJoCo simulator node never registered the reference.yaml
  * reloaders the SQP node did, so a command limit saved from the GUI reached one node and not the other.
  *
- * The node still subscribes the updater to the parameter topic (subscribe()) and registers it with the solver
- * (addSynchronizedModule), which need its ROS node and its solver. Returns the InvalidArgument of an updater that
+ * The node still subscribes the updater to the parameter topic (operator/mpc_parameters, on its bus) and registers it
+ * with the solver (addSynchronizedModule), which need the node's bus and its solver. Returns the InvalidArgument of an updater that
  * cannot be sized to the interface's input.
  */
 absl::StatusOr<std::shared_ptr<MpcParameterUpdaterModule>> makeCentroidalMpcParameterUpdater(

@@ -617,8 +617,8 @@ TEST(LocomotionHeuristics, LoaderReturnsAStatusForAnUnparseableNumber) {
   const absl::StatusOr<LocomotionHeuristicConfig> config = loadLocomotionHeuristicConfig(file);
   ASSERT_FALSE(config.ok());
   EXPECT_EQ(config.status().code(), absl::StatusCode::kInvalidArgument);
-  // Naming the KEY and the offending TEXT, among forty keys - which the blanket catch this replaced could not do,
-  // because ptree_bad_data's own message says only "conversion of data to type d failed".
+  // Naming the KEY and the offending TEXT, among forty keys, in the loader's own message: the loader's contract, not
+  // the wording of the PropertyTreeBadData it catches.
   const std::string message(config.status().message());
   EXPECT_NE(message.find("orientation_compensation.rollOffset"), std::string::npos) << message;
   EXPECT_NE(message.find("0.0.1"), std::string::npos) << message;

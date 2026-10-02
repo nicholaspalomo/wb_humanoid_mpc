@@ -7,6 +7,8 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import american_spelling  # noqa: E402
 
+from tools.hooks import check_test_support  # noqa: E402
+
 
 def fixed(text):
     return american_spelling.fix_source(text)[0]
@@ -70,11 +72,26 @@ class AmericanSpellingTest(unittest.TestCase):
         self.assertIn("write `center`", str(findings[0]))
 
     def test_the_linter_runs_it(self):
-        with open(
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), "lint_code.py")
-        ) as f:
-            lint = f.read()
-        self.assertIn("american_spelling.check_files(", lint)
+        check_test_support.assert_check_behaves(
+            self, "american-spelling", "x = 1\n# the centre of mass\n", "src/a.py"
+        )
+        check_test_support.assert_check_behaves(
+            self, "american-spelling", "int x;\n// the centre of mass\n", "src/a.cpp"
+        )
+        check = check_test_support.assert_registered(self, "american-spelling")
+        # Robot model files are upstream data, and the checker's own word list is British on purpose.
+        self.assertEqual(
+            check_test_support.findings(
+                "american-spelling", "<centre/>\n", "robot_models/x.urdf"
+            ),
+            [],
+        )
+        self.assertEqual(
+            check_test_support.findings(
+                "american-spelling", "centre\n", "tools/hooks/american_spelling.py"
+            ),
+            [],
+        )
 
 
 if __name__ == "__main__":

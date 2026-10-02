@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package humanoid_mpc_msgs;
+
+import "humanoid_mpc_msgs/reset_requests.proto";
+import "humanoid_mpc_msgs/system_observation.proto";
+import "nproto/options.proto";
+
+// Next ID: 4
+message MpcObservation {
+  option (nproto.generate_struct) = "ocs2::humanoid::msgs::MpcObservation";
+
+  reserved 4 to max;
+
+  SystemObservation observation = 1;
+  ResetRequests resets = 2;
+  // Control cycles since the robot process started; lets the MPC side count lost observations.
+  uint64 sequence = 3;
+}

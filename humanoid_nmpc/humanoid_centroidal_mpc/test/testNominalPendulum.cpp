@@ -31,15 +31,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdlib>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <string>
 #include <vector>
 
-#include <boost/optional.hpp>
-#include <boost/property_tree/ptree.hpp>
-
 #include <ocs2_centroidal_model/FactoryFunctions.h>
 #include <ocs2_core/misc/LoadData.h>
+#include <ocs2_core/misc/PropertyTree.h>
 #include <pinocchio/algorithm/center-of-mass.hpp>
 #include <pinocchio/algorithm/frames.hpp>
 #include <pinocchio/algorithm/kinematics.hpp>
@@ -100,9 +99,9 @@ std::string runfilePath(absl::string_view relativePath) {
 }
 
 /** An optional scalar of a YAML tree, 0 when absent. */
-scalar_t valueOr0(const boost::property_tree::ptree& tree, const std::string& key) {
-  const boost::optional<scalar_t> value = tree.get_optional<scalar_t>(key);
-  return value ? *value : 0.0;
+scalar_t valueOr0(const PropertyTree& tree, const std::string& key) {
+  const std::optional<scalar_t> value = tree.getOptional<scalar_t>(key);
+  return value.has_value() ? *value : 0.0;
 }
 
 /** The rounding derive_parameters.py prints a derived number with (four decimals). */
@@ -171,8 +170,8 @@ class NominalPendulum : public ::testing::TestWithParam<CentroidalRobot> {
   CentroidalModelInfo info_;
   std::unique_ptr<CentroidalMpcRobotModel<scalar_t>> robotModel_;
   vector_t initialState_;
-  boost::property_tree::ptree taskTree_;
-  boost::property_tree::ptree planningTree_;
+  PropertyTree taskTree_;
+  PropertyTree planningTree_;
 };
 
 }  // namespace
@@ -249,7 +248,7 @@ TEST_P(NominalPendulum, EveryShippedPendulumNumberIsTheModels) {
   if (override > 0.0) {
     EXPECT_NEAR(override, model, kRounding4) << GetParam().name << ": capture_point.comHeightOverride is not the model's pendulum";
   }
-  const scalar_t gravity = taskTree_.get<scalar_t>("locomotion_heuristics.capture_point.gravity", /*default_value=*/9.81);
+  const scalar_t gravity = taskTree_.get<scalar_t>("locomotion_heuristics.capture_point.gravity", /*defaultValue=*/9.81);
   for (const std::string& key : {std::string("forwardPerCrossTerm"), std::string("lateralPerCrossTerm")}) {
     const scalar_t lean = valueOr0(taskTree_, absl::StrCat("locomotion_heuristics.high_speed_turning.", key));
     if (lean > 0.0) {

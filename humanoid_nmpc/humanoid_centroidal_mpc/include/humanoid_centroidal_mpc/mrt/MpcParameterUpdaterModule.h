@@ -39,10 +39,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
-#include <rclcpp/rclcpp.hpp>
-#include <std_msgs/msg/string.hpp>
-
+#include "absl/base/thread_annotations.h"
 #include "absl/status/statusor.h"
+#include "absl/synchronization/mutex.h"
 
 #include <ocs2_mpc/MPC_BASE.h>
 #include <ocs2_oc/oc_problem/OptimalControlProblem.h>
@@ -65,8 +64,8 @@ namespace ocs2::humanoid {
  *
  * Supports two update pathways:
  *   1. File-watching: detects task.yaml changes on disk (~1 Hz polling).
- *   2. ROS topic: subscribes to /mpc_parameter_updates (std_msgs/String)
- *      for real-time slider-driven updates without touching the YAML file.
+ *   2. enqueueParameterUpdate(): a whole task file handed over as text, for real-time slider-driven updates without
+ *      touching the YAML file. The transport is the caller's (the MPC node forwards operator/mpc_parameters).
  */
 class MpcParameterUpdaterModule : public SolverSynchronizedModule {
  public:
@@ -74,7 +73,8 @@ class MpcParameterUpdaterModule : public SolverSynchronizedModule {
    * Builds the updater, or returns the InvalidArgument that says which argument is inconsistent.
    *
    * @param mpcPtr             MPC whose SqpSolver OCPs are updated in place (may be nullptr; updates are then skipped).
-   * @param taskFile           task.yaml watched for changes; also the base name of the temp file used for topic updates.
+   * @param taskFile           task.yaml watched for changes; also the base name of the temp file enqueued updates are
+   *                           parsed from.
    * @param stateDim           Dimension of the OCP state.
    * @param inputDim           Dimension of the OCP input, i.e. the input layout the solver actually optimizes over. With
    *                           basis-vector contact inputs this is the basis-space dimension, not the wrench-space one.
@@ -111,15 +111,16 @@ class MpcParameterUpdaterModule : public SolverSynchronizedModule {
   ~MpcParameterUpdaterModule() override = default;
 
   /**
-   * Subscribe to the /mpc_parameter_updates ROS topic for real-time
-   * parameter updates from the GUI (without writing to task.yaml).
+   * Hands the updater the text of a whole task file (as the tuning GUI publishes it on operator/mpc_parameters), to be
+   * applied by the next preSolverRun() exactly as an edit of the task file on disk would be, without writing task.yaml.
+   * Thread-safe, for any thread but the solver's; a document enqueued before the previous one was applied replaces it.
    */
-  void subscribe(rclcpp::Node::SharedPtr node);
+  void enqueueParameterUpdate(std::string yamlText) ABSL_LOCKS_EXCLUDED(pendingMutex_);
 
   /**
    * Registers the contact planner module (may be nullptr) so that its configuration is hot-reloadable as well: the
    * `contact_planning` block of contact_planning.yaml next to the task file (watched like the task file), or of the task
-   * file itself when the block still lives there, and of the YAML published on the parameter topic.
+   * file itself when the block still lives there, and of the YAML handed to enqueueParameterUpdate().
    */
   void setContactPlannerModule(std::shared_ptr<ContactPlannerModule> contactPlannerModule) {
     contactPlannerModulePtr_ = std::move(contactPlannerModule);
@@ -150,7 +151,7 @@ class MpcParameterUpdaterModule : public SolverSynchronizedModule {
   }
 
   /**
-   * The `contactEstimator` name of the last YAML applied since this was last called (task file or parameter topic), or
+   * The `contactEstimator` name of the last YAML applied since this was last called (task file or enqueued update), or
    * nullopt when none carried the key. The estimator itself belongs to the MRT joint controller and is swapped on its
    * control thread, so the simulator node polls this from its loop and resolves the name through its
    * ContactEstimatorRegistry. Thread-safe.
@@ -210,9 +211,6 @@ class MpcParameterUpdaterModule : public SolverSynchronizedModule {
    */
   void recordControllerSettings(const std::string& yamlFile);
 
-  /** ROS topic callback — stores the incoming YAML string for the solver thread. */
-  void topicCallback(const std_msgs::msg::String::SharedPtr msg);
-
   MPC_BASE* mpcPtr_;
   const std::string taskFile_;
   const std::string urdfFile_;
@@ -245,11 +243,10 @@ class MpcParameterUpdaterModule : public SolverSynchronizedModule {
   std::optional<std::string> pendingContactEstimator_;
   std::optional<ContactWrenchGate::Config> pendingContactWrenchGate_;
 
-  // ROS topic state
-  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr subscription_;
-  std::mutex pendingMutex_;
-  std::string pendingYamlContent_;
-  std::atomic<bool> hasNewTopicData_{false};
+  // The update enqueued by enqueueParameterUpdate() and not yet applied.
+  absl::Mutex pendingMutex_;
+  std::string pendingYamlText_ ABSL_GUARDED_BY(pendingMutex_);
+  std::atomic<bool> hasPendingUpdate_{false};
 };
 
 }  // namespace ocs2::humanoid

@@ -34,10 +34,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
-#include <boost/property_tree/ptree.hpp>
-
 #include <ocs2_centroidal_model/FactoryFunctions.h>
 #include <ocs2_core/misc/LoadData.h>
+#include <ocs2_core/misc/PropertyTree.h>
 
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
@@ -147,8 +146,8 @@ class ShippedContactPlanningFile : public ::testing::TestWithParam<ShippedPlanne
 
   std::string plannerFile_;
   std::string taskFile_;
-  boost::property_tree::ptree plannerTree_;
-  boost::property_tree::ptree taskTree_;
+  PropertyTree plannerTree_;
+  PropertyTree taskTree_;
   ContactPlanningConfig fileConfig_;  // as the file writes it
   ContactPlanningConfig config_;      // with a comHeight of 0 resolved to the model's pendulum
   scalar_t modelComHeight_ = 0.0;
@@ -169,7 +168,7 @@ TEST_P(ShippedContactPlanningFile, TheLoaderReadsTheValuesTheFileWrites) {
   EXPECT_DOUBLE_EQ(fileConfig_.shared.comHeight, plannerTree_.get<scalar_t>("contact_planning.shared.comHeight"));
   EXPECT_DOUBLE_EQ(config_.hlip.sspDuration, plannerTree_.get<scalar_t>("contact_planning.hlip.sspDuration"));
   EXPECT_DOUBLE_EQ(config_.hlip.stepWidth, plannerTree_.get<scalar_t>("contact_planning.hlip.stepWidth"));
-  EXPECT_EQ(config_.formulation.execution.size(), plannerTree_.get_child("contact_planning.execution").size());
+  EXPECT_EQ(config_.formulation.execution.size(), plannerTree_.getChild("contact_planning.execution").size());
 }
 
 /**

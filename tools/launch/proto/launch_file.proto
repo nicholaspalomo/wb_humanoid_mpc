@@ -1,0 +1,90 @@
+syntax = "proto3";
+
+package launch_proto;
+
+import "nproto/options.proto";
+
+// A launch file of tools/launch (tools/launch/README.md): the processes of one deployment, the machine each runs on,
+// and the variables their commands are written with. Launch files are textprotos of this message, e.g.
+// tools/launch/examples/example.launch.textproto.
+//
+// The launcher parses the file strictly with protobuf's text format, so an unknown field, a value of the wrong type
+// or a syntax error is an error naming the file, the line and the column. It then validates the processes and
+// substitutes the variables; those errors name the process or the variable.
+//
+// LINT.IfChange(launch_file_schema)
+// Next ID: 4
+message LaunchFile {
+  option (nproto.generate_struct) = "robot::launch::LaunchFile";
+
+  reserved 4 to max;
+
+  // The machines of the hardware split. `--machine robot` / `--machine laptop` starts the processes of one of them.
+  enum Machine {
+    MACHINE_UNSPECIFIED = 0;
+    // The robot's realtime computer: state estimation and the whole-body controller.
+    MACHINE_ROBOT = 1;
+    // The operator's laptop: the MPC, the GUI and the viewer.
+    MACHINE_LAPTOP = 2;
+  }
+
+  // A variable that `{name}` in a command argument or an environment value is replaced by.
+  // Next ID: 3
+  message Variable {
+    reserved 3 to max;
+
+    // A Python identifier, unique in the file. `repo_root` is built in and cannot be declared.
+    string name = 1;
+    // May refer to other variables: "{config_dir}/mpc/task.yaml".
+    string value = 2;
+  }
+
+  // How long each teardown stage waits before the next, stronger signal. The command line overrides both.
+  // Next ID: 3
+  message Shutdown {
+    reserved 3 to max;
+
+    // Seconds after SIGINT before SIGTERM; 5 when unset.
+    optional double sigint_grace_period = 1;
+    // Seconds after SIGTERM before SIGKILL; 3 when unset.
+    optional double sigterm_grace_period = 2;
+  }
+
+  // One process, started in the repository root.
+  // Next ID: 8
+  message Process {
+    reserved 8 to max;
+
+    // An environment variable added to the launcher's environment for this process.
+    // Next ID: 3
+    message EnvironmentVariable {
+      reserved 3 to max;
+
+      // An environment variable name: letters, digits and '_', not starting with a digit. Unique in the process.
+      string name = 1;
+      // May refer to variables.
+      string value = 2;
+    }
+
+    // Unique in the file: letters, digits, '_', '.' and '-'. It prefixes the process's output.
+    string name = 1;
+    // Required.
+    Machine machine = 2;
+    // The program and its arguments, one entry each: no shell parsing is done. Paths are relative to the repository
+    // root. Required.
+    repeated string command = 3;
+    repeated EnvironmentVariable env = 4;
+    // When it exits, everything stops, and a failure sets the launcher's exit status.
+    bool required = 5;
+    // Run inside the launcher's --terminal_command (keyboard teleoperation).
+    bool terminal = 6;
+    // Seconds after start-up before the process starts.
+    double delay = 7;
+  }
+
+  repeated Variable variables = 1;
+  Shutdown shutdown = 2;
+  // Started in this order, each after its delay. At least one.
+  repeated Process processes = 3;
+}
+// LINT.ThenChange(//tools/launch/README.md:launch_file_schema, //tools/launch/README.md:machines)

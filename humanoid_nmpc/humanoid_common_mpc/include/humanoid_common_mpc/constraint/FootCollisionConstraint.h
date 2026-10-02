@@ -64,12 +64,13 @@ class FootCollisionConstraint final : public StateConstraintCppAd {
     std::string leftFootFrame2{"foot_l_contact_collision_p_2"};
     std::string rightFootFrame2{"foot_r_contact_collision_p_2"};
 
-    scalar_t footCollisionSphereRadius;
+    // 0 when the task file does not set it (the loader leaves a missing key at its default).
+    scalar_t footCollisionSphereRadius{0.0};
 
     // Knee
     std::string leftKneeFrame;
     std::string rightKneeFrame;
-    scalar_t kneeCollisionSphereRadius;
+    scalar_t kneeCollisionSphereRadius{0.0};
   };
 
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW

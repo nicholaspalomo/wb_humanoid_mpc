@@ -64,8 +64,9 @@ install/
 bazel-*
 .bazel/
 .bazel-cache/
-.bazel_ros_install/
 MODULE.bazel.lock
+# The copy of the source tree that the ROS-era setup_env.sh made; an old checkout may still hold it.
+.bazel_ros_install/
 
 # CppAD generated code (runtime)
 cppad_code_gen/
@@ -87,3 +88,13 @@ user.bazelrc
 
 # The lock tools/bazel takes so that the builds of every container on the machine take turns
 .bazel_machine.lock
+
+# The lock the heavy steps of tools/hooks/lint_code.py (cpplint, pylint, mypy) take turns through, and mypy's cache
+# LINT.IfChange(lint_lock)
+.lint_machine.lock
+# LINT.ThenChange(//tools/hooks/lint_code.py:lint_lock)
+.mypy_cache/
+
+# The robot deployment's working files: the bundle copied out of Bazel for docker build, and the PID of a launch
+# target's laptop side (tools/deploy).
+.deploy/

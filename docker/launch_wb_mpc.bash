@@ -2,8 +2,11 @@
 #
 # Usage:
 #
-# $ cd ~/your_colcon_ws/src/wb_humanoid_mpc/docker
-# $ ./launch_wb_mpc.bash    # Launch the WB Humanoid MPC Docker container
+# $ cd wb_humanoid_mpc/docker
+# $ ./launch_wb_mpc.bash    # Launch the WB Humanoid MPC Docker container (built by ./image_build.bash)
+#
+# The container shares the host's network (--net host), so the ZeroMQ bus ports, Rerun's ports and the VNC ports need
+# no publishing, and GUI apps draw on the host's X display when DISPLAY is set.
 #
 # (Cross reference this file with the "run" section of ../.devcontainer/devcontainer.json)
 #
@@ -46,7 +49,6 @@ else
     --privileged \
     -u ubuntu \
     -e DISPLAY="${DISPLAY:-:99}" \
-    -e QT_X11_NO_MITSHM=1 \
     -e XAUTHORITY="${XAUTH:-/tmp/.docker.xauth}" \
     -e XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp}" \
     -v /tmp/.X11-unix:/tmp/.X11-unix:rw \

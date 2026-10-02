@@ -115,8 +115,9 @@ VectorFunctionLinearApproximation EndEffectorDynamicsAccelerationsConstraint::ge
 
   linearApproximation.f = config_.b;
 
-  // Orientation error gains are ignored for now
-  // This is equal with assuming that the bottom 3 rows of Ax are zero.
+  // The position goes through the top-left 3x3 block of Ax and the orientation error with respect to the ground plane
+  // through the bottom-right one. The two off-diagonal blocks are not read, so this is the linearization of getValue(),
+  // which applies all of Ax, only for a block-diagonal Ax - the form WBMpcInterface::getStanceFootConstraint builds.
   if (config_.Ax.size() > 0) {
     const auto positionApprox = endEffectorDynamicsPtr_->getPositionLinearApproximation(state).front();
     const auto orientationApprox =

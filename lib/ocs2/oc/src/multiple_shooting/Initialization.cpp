@@ -34,7 +34,7 @@ namespace multiple_shooting {
 
 void initializeStateInputTrajectories(const vector_t& initState, const std::vector<AnnotatedTime>& timeDiscretization,
                                       const PrimalSolution& primalSolution, Initializer& initializer, vector_array_t& stateTrajectory,
-                                      vector_array_t& inputTrajectory) {
+                                      vector_array_t& inputTrajectory, const StateManifold* stateManifold) {
   const int N = static_cast<int>(timeDiscretization.size()) - 1;  // // size of the input trajectory
   stateTrajectory.clear();
   stateTrajectory.reserve(N + 1);
@@ -52,7 +52,7 @@ void initializeStateInputTrajectories(const vector_t& initState, const std::vect
   // Initial state
   const scalar_t initTime = getIntervalStart(timeDiscretization[0]);
   if (initTime < interpolateStateTill) {
-    stateTrajectory.push_back(LinearInterpolation::interpolate(initTime, primalSolution.timeTrajectory_, primalSolution.stateTrajectory_));
+    stateTrajectory.push_back(interpolateStateTrajectory(stateManifold, initTime, primalSolution.timeTrajectory_, primalSolution.stateTrajectory_));
   } else {
     stateTrajectory.push_back(initState);
   }
@@ -70,7 +70,7 @@ void initializeStateInputTrajectories(const vector_t& initState, const std::vect
       if (time > interpolateInputTill || nextTime > interpolateStateTill) {  // Using initializer
         std::tie(input, nextState) = initializeIntermediateNode(initializer, time, nextTime, stateTrajectory.back());
       } else {  // interpolate previous solution
-        std::tie(input, nextState) = initializeIntermediateNode(primalSolution, time, nextTime);
+        std::tie(input, nextState) = initializeIntermediateNode(primalSolution, time, nextTime, stateManifold);
       }
       inputTrajectory.push_back(std::move(input));
       stateTrajectory.push_back(std::move(nextState));

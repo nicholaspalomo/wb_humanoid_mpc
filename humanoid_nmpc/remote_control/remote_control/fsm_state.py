@@ -27,16 +27,15 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ****************************************************************************"""
 
-"""The state the FSM publishes on `/humanoid/fsm_state`, and when the remote control re-centers its joysticks.
+"""The state the robot publishes on robot/fsm_state, and when the remote control re-centers its joysticks.
 
-Free of Tk and ROS, so that test/test_fsm_state.py covers it headless; the Base Controller tab is a thin shell over it.
+Free of Tk, so that test/test_fsm_state.py covers it headless; the Base Controller tab is a thin shell over it.
 
-THE MESSAGE is `<mode>,<gantry>,<controller resets>`, written by SimFsmBridge (formatFsmState() in SimFsmBridge.cpp):
-`<mode>` is a ControlMode name, `<gantry>` is GANTRY_LOCKED or GANTRY_UNLOCKED, and `<controller resets>` counts the
-controller resets the simulation loop made since it started - every discontinuity of the plant after which the
-controller starts again from where the robot is (SimFallRecovery::Cycle::discontinuity): a catch, a LOCK_GANTRY, and a
-reset the simulator made on its own thread. The two trailing fields are optional here, so that a publisher of the older
-two- or one-field form still drives the mode selector.
+THE MESSAGE is humanoid_mpc_msgs.FsmState (fsm_state.proto): `mode` is a ControlMode name, `gantry_locked` says
+whether the gantry holds the robot, and `controller_resets` counts the controller resets the robot made since it
+started - every discontinuity of the plant after which the controller starts again from where the robot is
+(SimFallRecovery::Cycle::discontinuity): a catch, a LOCK_GANTRY, and a reset the simulator made on its own thread. The
+robot publishes it on every change and periodically, so a GUI that connects late learns the current state.
 
 RE-CENTERING. A stick left forward is a walking command the operator is still giving, whether or not the controller is
 executing it. The sticks are therefore released whenever the robot stops being walked by the MPC through no motion of
@@ -49,47 +48,35 @@ walked the robot on a command nobody meant to give.
 from dataclasses import dataclass
 from typing import Optional
 
+from humanoid_mpc_msgs import fsm_state_pb2
 from remote_control.humanoid_finite_state_machine import ControlMode, PASSIVE_MODES
 
-# LINT.IfChange(fsm_state_format)
-#: The gantry field of the message.
-GANTRY_LOCKED = "GANTRY_LOCKED"
-GANTRY_UNLOCKED = "GANTRY_UNLOCKED"
-#: The separator of the fields.
-SEPARATOR = ","
-# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_ros2/src/fsm/SimFsmBridge.cpp:fsm_state_format)
+#: The mode names a message may carry.
+_MODE_NAMES = frozenset(control_mode.value for control_mode in ControlMode)
 
 
 @dataclass(frozen=True)
 class FsmState:
-    """One `/humanoid/fsm_state` message. A field the message does not carry is None."""
+    """One robot/fsm_state message, as the GUI follows it."""
 
     mode: str
-    gantry_locked: Optional[bool] = None
-    controller_resets: Optional[int] = None
+    gantry_locked: bool
+    controller_resets: int
 
 
-def parse_fsm_state(text: str) -> Optional[FsmState]:
-    """The state `text` carries, or None when its mode is not a ControlMode name.
-
-    A gantry field other than GANTRY_LOCKED / GANTRY_UNLOCKED, or a reset count that is not a non-negative integer, is
-    read as absent rather than failing the whole message: the mode it carries is still the FSM's.
-    """
-    fields = [field.strip() for field in text.split(SEPARATOR)]
-    mode = fields[0]
-    if mode not in {control_mode.value for control_mode in ControlMode}:
+# LINT.IfChange(fsm_state_format)
+def from_message(message: fsm_state_pb2.FsmState) -> Optional[FsmState]:
+    """The state `message` carries, or None when its mode is not a ControlMode name (the GUI then ignores it)."""
+    if message.mode not in _MODE_NAMES:
         return None
-    gantry_locked = None
-    if len(fields) >= 2 and fields[1] in (GANTRY_LOCKED, GANTRY_UNLOCKED):
-        gantry_locked = fields[1] == GANTRY_LOCKED
-    controller_resets = None
-    # ASCII digits only: str.isdigit() also accepts characters such as "²" that int() refuses, which would raise out of
-    # the Tk callback instead of reading the count as absent.
-    if len(fields) >= 3 and fields[2].isascii() and fields[2].isdigit():
-        controller_resets = int(fields[2])
     return FsmState(
-        mode=mode, gantry_locked=gantry_locked, controller_resets=controller_resets
+        mode=message.mode,
+        gantry_locked=bool(message.gantry_locked),
+        controller_resets=int(message.controller_resets),
     )
+
+
+# LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_msgs/fsm_state.proto)
 
 
 def should_recenter(previous: Optional[FsmState], current: FsmState) -> bool:
@@ -106,8 +93,5 @@ def should_recenter(previous: Optional[FsmState], current: FsmState) -> bool:
     if current.gantry_locked and (previous is None or not previous.gantry_locked):
         return True
     return (
-        previous is not None
-        and previous.controller_resets is not None
-        and current.controller_resets is not None
-        and current.controller_resets != previous.controller_resets
+        previous is not None and current.controller_resets != previous.controller_resets
     )

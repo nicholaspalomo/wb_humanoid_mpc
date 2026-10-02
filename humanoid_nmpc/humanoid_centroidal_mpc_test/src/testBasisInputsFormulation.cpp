@@ -43,7 +43,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <unistd.h>
 
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -59,8 +58,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <Eigen/Eigenvalues>
 
-#include <boost/property_tree/ptree.hpp>
-
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
@@ -69,8 +66,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_core/PreComputation.h>
 #include <ocs2_core/cost/QuadraticStateInputCost.h>
 #include <ocs2_core/misc/LoadData.h>
-
-#include <ament_index_cpp/get_package_share_directory.hpp>
+#include <ocs2_core/misc/PropertyTree.h>
 
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_centroidal_mpc/dynamics/CentroidalDynamicsAD.h"
@@ -83,6 +79,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
+#include "robot_core/ResourcePaths.h"
 
 namespace ocs2::humanoid {
 namespace {
@@ -102,57 +99,11 @@ struct AtlasFiles {
   std::string referenceFile;
 };
 
-std::optional<std::string> firstExistingPath(const std::vector<std::string>& candidates) {
-  for (const std::string& candidate : candidates) {
-    std::error_code ec;
-    if (std::filesystem::exists(candidate, ec)) {
-      return candidate;
-    }
-  }
-  return std::nullopt;
-}
-
-/** The first of `root + "/" + relativePath` over the roots that exists. */
-std::optional<std::string> firstExistingPathUnder(const std::vector<std::string>& roots, const std::string& relativePath) {
-  std::vector<std::string> candidates;
-  for (const std::string& root : roots) {
-    candidates.emplace_back(absl::StrCat(root, "/", relativePath));
-  }
-  return firstExistingPath(candidates);
-}
-
-/**
- * Locates the DRC Atlas task/URDF/reference files.
- *
- * Under `bazel test` the data files live in the runfiles tree, which is also the working directory, so those copies
- * are preferred: they are symlinks into the checkout and therefore always current. The ament index (populated by
- * setup_env.sh from a *copy* of the source tree) is only a fallback because that copy can be stale.
- */
+/** The DRC Atlas task, URDF and reference files, from the test's runfiles (BUILD `_TEST_DATA`). */
 AtlasFiles locateAtlasFiles() {
-  const std::string taskRel = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml";
-  const std::string referenceRel = "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.yaml";
-  const std::string urdfRel = "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf";
-
-  std::vector<std::string> roots;
-  if (const char* srcDir = std::getenv("TEST_SRCDIR")) {
-    roots.emplace_back(absl::StrCat(srcDir, "/_main"));
-    roots.emplace_back(absl::StrCat(srcDir, "/wb_humanoid_mpc"));
-  }
-  roots.emplace_back(std::filesystem::current_path().string());
-  roots.emplace_back("/wb_humanoid_mpc_ws/workspace/wb_humanoid_mpc");
-
-  const std::optional<std::string> taskFile = firstExistingPathUnder(roots, taskRel);
-  const std::optional<std::string> referenceFile = firstExistingPathUnder(roots, referenceRel);
-  const std::optional<std::string> urdfFile = firstExistingPathUnder(roots, urdfRel);
-  if (taskFile && referenceFile && urdfFile) {
-    return AtlasFiles{*taskFile, *urdfFile, *referenceFile};
-  }
-
-  // Fallback: installed / ament-indexed packages (requires AMENT_PREFIX_PATH, which .bazelrc forwards to tests).
-  const std::string configDir = ament_index_cpp::get_package_share_directory("drc_atlas_centroidal_mpc");
-  const std::string descriptionDir = ament_index_cpp::get_package_share_directory("drc_atlas_description");
-  return AtlasFiles{absl::StrCat(configDir, "/config/mpc/task.yaml"), absl::StrCat(descriptionDir, "/urdf/atlas.urdf"),
-                    absl::StrCat(configDir, "/config/command/reference.yaml")};
+  return AtlasFiles{robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml").value(),
+                    robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf").value(),
+                    robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.yaml").value()};
 }
 
 /******************************************************************************************************/
@@ -724,7 +675,7 @@ TEST_F(BasisInputsFormulationTest, BasisGeneratorsStayInsideTheWrenchCone) {
   // constraint is skipped, so this is the only thing standing between the MPC and an unbounded friction force.
   ContactWrenchConeConstraint::Config coneConfig;
   const std::string prefix = "contacts.contactWrenchConeSoftConstraint.";
-  boost::property_tree::ptree pt;
+  PropertyTree pt;
   loadData::readPropertyTree(h.taskFile, pt);
   loadData::loadPtreeValue(pt, coneConfig.frictionCoefficient, absl::StrCat(prefix, "frictionCoefficient"), /*verbose=*/false);
   loadData::loadPtreeValue(pt, coneConfig.torsionalFrictionCoefficient, absl::StrCat(prefix, "torsionalFrictionCoefficient"),

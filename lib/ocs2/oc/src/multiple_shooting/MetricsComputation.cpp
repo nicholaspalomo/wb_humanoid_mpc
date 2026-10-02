@@ -97,7 +97,11 @@ Metrics computeIntermediateMetrics(OptimalControlProblem& optimalControlProblem,
                                    const vector_t& x, const vector_t& x_next, const vector_t& u) {
   // Dynamics
   auto dynamicsViolation = discretizer(*optimalControlProblem.dynamicsPtr, t, x, u, dt);
-  dynamicsViolation -= x_next;
+  if (optimalControlProblem.stateManifoldPtr == nullptr) {
+    dynamicsViolation -= x_next;
+  } else {
+    dynamicsViolation = optimalControlProblem.stateManifoldPtr->difference(x_next, dynamicsViolation);
+  }
 
   // Precomputation
   constexpr auto request = Request::Cost + Request::SoftConstraint + Request::Constraint;
@@ -125,7 +129,11 @@ Metrics computeEventMetrics(OptimalControlProblem& optimalControlProblem, scalar
 
   // Dynamics
   auto dynamicsViolation = optimalControlProblem.dynamicsPtr->computeJumpMap(t, x);
-  dynamicsViolation -= x_next;
+  if (optimalControlProblem.stateManifoldPtr == nullptr) {
+    dynamicsViolation -= x_next;
+  } else {
+    dynamicsViolation = optimalControlProblem.stateManifoldPtr->difference(x_next, dynamicsViolation);
+  }
 
   return computePreJumpMetrics(optimalControlProblem, t, x, std::move(dynamicsViolation));
 }

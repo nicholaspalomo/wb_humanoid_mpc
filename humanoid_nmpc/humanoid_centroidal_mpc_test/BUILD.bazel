@@ -9,14 +9,10 @@ package(default_visibility = ["//visibility:public"])
 _TEST_DEPS = [
     ":humanoid_centroidal_mpc_test_headers",
     "//humanoid_nmpc/humanoid_centroidal_mpc",
-    "//humanoid_nmpc/humanoid_centroidal_mpc_ros2:humanoid_centroidal_mpc_dummy_sim_node",
-    "//humanoid_nmpc/humanoid_common_mpc_ros2",
+    "//robot_runtime/robot_core:resource_paths",
     "//robot_runtime/robot_model",
     "@eigen",
-    "@boost",
     "@pinocchio",
-    "@ros2_rclcpp",
-    "@ros2_ament_index_cpp",
     "@abseil-cpp//absl/status",
     "@abseil-cpp//absl/status:statusor",
     "@abseil-cpp//absl/strings",
@@ -34,10 +30,6 @@ _TEST_DATA = [
 
 _TEST_COPTS = [
     "-std=c++20",
-    "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-    "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-    "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
 ]
 
 cc_test(
@@ -96,17 +88,6 @@ cc_test(
 )
 
 cc_test(
-    name = "test_pinocchio_telemetry_publisher",
-    # Private DDS domain: the test subscribes to global topic names, and a simulator or another test on the
-    # default domain 0 would otherwise feed it their messages (and receive the test's).
-    env = {"ROS_DOMAIN_ID": "111"},
-    size = "small",
-    srcs = ["src/testPinocchioTelemetryPublisher.cpp"],
-    copts = _TEST_COPTS,
-    data = _TEST_DATA,
-    deps = _TEST_DEPS,
-)
-cc_test(
     name = "test_mpc_parameter_updater_module",
     size = "large",
     srcs = ["src/testMpcParameterUpdaterModule.cpp"],
@@ -114,6 +95,21 @@ cc_test(
     data = _TEST_DATA,
     deps = _TEST_DEPS + ["@abseil-cpp//absl/log:scoped_mock_log"],
 )
+# The controller's observation, passive modes and WB_MPC hold allocate nothing; a binary of its own, because the
+# allocation counter replaces malloc for the whole binary.
+cc_test(
+    name = "test_centroidal_mpc_mrt_joint_controller_allocations",
+    size = "small",
+    srcs = ["src/testCentroidalMpcMrtJointControllerAllocations.cpp"],
+    copts = _TEST_COPTS,
+    data = _TEST_DATA,
+    linkstatic = True,
+    deps = _TEST_DEPS + [
+        "//humanoid_nmpc/humanoid_common_mpc:null_mpc_link",
+        "//robot_runtime/robot_realtime:allocation_counter",
+    ],
+)
+
 cc_test(
     name = "test_centroidal_mpc_mrt_joint_controller",
     size = "small",
@@ -156,6 +152,11 @@ cc_test(
 
 cc_library(
     name = "humanoid_centroidal_mpc_test_headers",
+    testonly = True,
     hdrs = glob(["include/**"], allow_empty = True),
     includes = ["include"],
+    deps = [
+        "//humanoid_nmpc/humanoid_centroidal_mpc",
+        "//robot_runtime/robot_core:resource_paths",
+    ],
 )

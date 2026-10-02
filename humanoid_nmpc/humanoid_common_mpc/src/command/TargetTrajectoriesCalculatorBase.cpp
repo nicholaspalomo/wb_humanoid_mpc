@@ -72,7 +72,9 @@ void TargetTrajectoriesCalculatorBase::reloadCommandLimits(const std::string& re
   load("maxDisplacementVelocityY", maxDisplacementVelocityY_);
   load("maxDeltaPelvisHeight", maxDeltaPelvisHeight_);
   load("maxRotationVelocity", maxRotationVelocity_);
-  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_ros2/src/ros_comm/VelocityCommandKeyboardPublisher.cpp:keyboard_command_limits)
+  // clang-format off
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/teleop/src/KeyboardVelocityCommand.cpp:keyboard_command_limits)
+  // clang-format on
 }
 
 /******************************************************************************************************/

@@ -30,7 +30,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
 End-to-end parameter live-update coverage test for DRC Atlas task.yaml.
 
-Tests the YAML update pipeline WITHOUT requiring tkinter, ROS2, or the C++ runtime.
+Tests the YAML update pipeline WITHOUT requiring tkinter, the IPC bus, or the C++ runtime.
 For every tunable parameter in task.yaml, we verify:
 
   1. The UI slider key (dot-separated path) can be split into a valid key_path.

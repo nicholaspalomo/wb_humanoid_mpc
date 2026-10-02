@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -53,6 +54,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_centroidal_model/ModelHelperFunctions.h>
 #include <ocs2_core/misc/LoadData.h>
 #include <ocs2_core/misc/Numerics.h>
+#include <ocs2_core/misc/PropertyTree.h>
 #include <ocs2_core/penalties/Penalties.h>
 #include <ocs2_core/soft_constraint/StateInputSoftConstraint.h>
 #include <ocs2_core/soft_constraint/StateSoftConstraint.h>
@@ -97,10 +99,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/common/BasisInputsMappingDecorator.h"
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
-
-// Boost
-#include <boost/optional.hpp>
-#include <boost/property_tree/ptree.hpp>
 
 namespace ocs2::humanoid {
 
@@ -208,6 +206,21 @@ absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> CentroidalMpcInterface::
   return interface;
 }
 
+absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> CentroidalMpcInterface::CreateControllerModels(const std::string& taskFile,
+                                                                                                       const std::string& urdfFile,
+                                                                                                       const std::string& referenceFile) {
+  RETURN_IF_ERROR(checkInputFileExists("task file", taskFile));
+  RETURN_IF_ERROR(checkInputFileExists("URDF file", urdfFile));
+  RETURN_IF_ERROR(checkInputFileExists("reference file", referenceFile));
+  ASSIGN_OR_RETURN(const bool verbose, ModelSettings::loadInterfaceVerbose(taskFile));
+  std::unique_ptr<CentroidalMpcInterface> interface(new CentroidalMpcInterface(taskFile, urdfFile, referenceFile, verbose));
+  // The first two steps of Create(), which the robot models and the effective model need; the reference manager and
+  // the problem, which tape and load the CppAD libraries, are the MPC's.
+  RETURN_IF_ERROR(interface->setupModels());
+  RETURN_IF_ERROR(interface->setupContactInputParameterization());
+  return interface;
+}
+
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
@@ -219,16 +232,16 @@ namespace {
  * not parse as a T is an InvalidArgument naming the key, where loadData::loadPtreeValue would throw.
  */
 template <typename T>
-absl::Status loadOptionalTaskFileValue(const boost::property_tree::ptree& pt, absl::string_view key, T& value, bool verbose) {
-  const boost::optional<const boost::property_tree::ptree&> child = pt.get_child_optional(std::string(key));
-  if (!child) {
+absl::Status loadOptionalTaskFileValue(const PropertyTree& pt, absl::string_view key, T& value, bool verbose) {
+  const PropertyTree* child = pt.findChild(key);
+  if (child == nullptr) {
     if (verbose) {
       LOG(INFO) << "[CentroidalMpcInterface] " << key << " = " << value << " (default)";
     }
     return absl::OkStatus();
   }
-  const boost::optional<T> parsed = child->get_value_optional<T>();
-  if (!parsed) {
+  const std::optional<T> parsed = child->getValueOptional<T>();
+  if (!parsed.has_value()) {
     return absl::InvalidArgumentError(
         absl::StrCat("[CentroidalMpcInterface] ", key, " is '", child->data(), "', which is not a value of the expected type."));
   }
@@ -274,7 +287,7 @@ absl::Status CentroidalMpcInterface::setupContactInputParameterization() {
   basisGeneratorSet_ = basisMatrices[0].generatorSet();
   ASSIGN_OR_RETURN(const ContactWrenchConeConstraint::Config coneConfig, ContactWrenchConeConstraint::loadConfig(taskFile_));
 
-  boost::property_tree::ptree pt;
+  PropertyTree pt;
   loadData::readPropertyTree(taskFile_, pt);
 
   // The regularization of the lambda block of the input cost: M has a non-trivial null space, so M^T R M alone leaves
@@ -474,7 +487,7 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
   // rather than CHECK-aborting inside a term constructor or turning a penalty into a reward, whenever the formulation
   // that reads them is listed.
   {
-    boost::property_tree::ptree taskTree;
+    PropertyTree taskTree;
     loadData::readPropertyTree(taskFile_, taskTree);
     RETURN_IF_ERROR(checkContactImplicitBlockKeys(taskTree));
   }
@@ -506,7 +519,7 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
   // The `mu` of the wrench parameterization's cone, which the un-gated barrier is compared against below.
   scalar_t wrenchConeBarrierMu = 0.0;
   if (usesContactBasisVectorInputs()) {
-    boost::property_tree::ptree barrierPt;
+    PropertyTree barrierPt;
     loadData::readPropertyTree(taskFile_, barrierPt);
     // LINT.IfChange(basis_barrier_yaml_path)
     const std::string barrierPrefix = "contacts.basisNonNegativityBarrier.";
@@ -663,7 +676,7 @@ absl::Status CentroidalMpcInterface::setupOptimalControlProblem() {
   if (formulationTasks.hasCost(MpcCostType::TaskSpaceFootCost)) {
     footTrackingCostWeights = EndEffectorKinematicsWeights::getWeights(taskFile_, "task_space_foot_cost_weights.", verbose_);
     try {
-      boost::property_tree::ptree pt;
+      PropertyTree pt;
       loadData::readPropertyTree(taskFile_, pt);
       loadData::loadPtreeValue(pt, footCostActiveInStance, "task_space_foot_cost_weights.activeInStance", verbose_);
     } catch (...) {
@@ -930,7 +943,7 @@ std::unique_ptr<StateInputConstraint> CentroidalMpcInterface::getNormalVelocityC
 /******************************************************************************************************/
 /******************************************************************************************************/
 std::unique_ptr<StateInputConstraint> CentroidalMpcInterface::getJointMimicConstraint(size_t mimicIndex) {
-  boost::property_tree::ptree pt;
+  PropertyTree pt;
   loadData::readPropertyTree(taskFile_, pt);
   std::string prefix;
   if (mimicIndex == 0) {
@@ -969,12 +982,12 @@ std::unique_ptr<StateInputConstraint> CentroidalMpcInterface::getJointMimicConst
 void CentroidalMpcInterface::addTaskSpaceKinematicsCosts(
     const PinocchioStateInputMapping<ad_scalar_t>& pinocchioMappingCppAd,
     const PinocchioEndEffectorKinematicsCppAd::update_pinocchio_interface_callback& velocityUpdateCallback) {
-  boost::property_tree::ptree pt;
+  PropertyTree pt;
   loadData::readPropertyTree(taskFile_, pt);
 
-  boost::property_tree::ptree task_space_costs_pt = pt.get_child("task_space_costs");
+  const PropertyTree& task_space_costs_pt = pt.getChild("task_space_costs");
 
-  for (const boost::property_tree::ptree::value_type& taskSpaceCost : task_space_costs_pt) {
+  for (const PropertyTree::value_type& taskSpaceCost : task_space_costs_pt) {
     const std::string& costName = taskSpaceCost.first;
     std::string linkName;
 

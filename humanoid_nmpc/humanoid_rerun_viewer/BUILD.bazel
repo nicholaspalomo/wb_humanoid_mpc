@@ -1,0 +1,185 @@
+load("@operator_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
+
+# humanoid_rerun_viewer - the Rerun bridge: draws the IPC bus's viz/scene, viz/telemetry and status messages in Rerun
+# (README.md, humanoid_nmpc/docs/distributed_runtime/README.md "Visualization with Rerun").
+#
+#   bazel run //humanoid_nmpc/humanoid_rerun_viewer -- --urdf <robot.urdf> [--rerun_sink spawn|connect|serve_web|save]
+
+package(default_visibility = ["//visibility:public"])
+
+# `import humanoid_rerun_viewer`: the package directory is python/humanoid_rerun_viewer.
+py_library(
+    name = "humanoid_rerun_viewer_lib",
+    srcs = glob(["python/humanoid_rerun_viewer/*.py"]),
+    imports = ["python"],
+    deps = [
+        "//humanoid_nmpc/humanoid_mpc_ipc:topics_py",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_py_proto",
+        "//robot_runtime/robot_ipc:robot_ipc_py",
+        requirement("numpy"),
+        requirement("protobuf"),
+        # Arrow record batches of the plots (scalar_batcher.FrameBatcher); rerun-sdk's own dependency.
+        requirement("pyarrow"),
+        requirement("pyzmq"),
+        # Not requirement("rerun-sdk"): see the rerun_sdk whl_mods in MODULE.bazel. It carries the native viewer too
+        # (rerun_cli/rerun), which the spawn sink starts.
+        "@operator_deps//rerun_sdk:rerun",
+    ],
+)
+
+# The remote_control GUI starts this binary from the checkout's build output (its "Open Rerun viewer" button).
+# LINT.IfChange(bridge_binary)
+py_binary(
+    name = "humanoid_rerun_viewer",
+    srcs = ["viewer_main.py"],
+    main = "viewer_main.py",
+    deps = [":humanoid_rerun_viewer_lib"],
+)
+# LINT.ThenChange(//humanoid_nmpc/remote_control/remote_control/rerun_viewer.py:rerun_bridge_binary)
+
+# The model sandbox: a URDF drawn without an MPC, at its nominal joint positions or at those of a slider per joint
+# (README.md, "The model sandbox"); its scene goes to the bridge above over viz/scene.
+#   bazel run //humanoid_nmpc/humanoid_rerun_viewer:model_sandbox -- --urdf <robot.urdf> [--joint_source nominal]
+py_binary(
+    name = "model_sandbox",
+    srcs = ["python/humanoid_rerun_viewer/model_sandbox.py"],
+    main = "python/humanoid_rerun_viewer/model_sandbox.py",
+    deps = [":humanoid_rerun_viewer_lib"],
+)
+
+# ==============================================================================
+# Tests
+# ==============================================================================
+
+# Synthetic messages that follow the contracts, a small URDF package, and a reader of .rrd files.
+py_library(
+    name = "test_support",
+    testonly = True,
+    srcs = [
+        "test/rrd_contents.py",
+        "test/synthetic_messages.py",
+    ],
+    imports = ["test"],
+    deps = [":humanoid_rerun_viewer_lib"],
+)
+
+_ROBOT_DESCRIPTIONS = [
+    "//robot_models/drc_atlas/drc_atlas_description",
+    "//robot_models/engineai_sa01/engineai_sa01_description",
+    "//robot_models/unitree_g1/g1_description",
+    "//robot_models/unitree_r1/unitree_r1_description",
+]
+
+# URDF parsing and package:// resolution, on a sample package and on every URDF of robot_models/.
+py_test(
+    name = "test_urdf_model",
+    size = "small",
+    srcs = ["test/test_urdf_model.py"],
+    data = _ROBOT_DESCRIPTIONS,
+    deps = [":test_support"],
+)
+
+# The static robot model per instance: meshes, primitives, tints.
+py_test(
+    name = "test_robot_meshes",
+    size = "small",
+    srcs = ["test/test_robot_meshes.py"],
+    data = ["//robot_models/engineai_sa01/engineai_sa01_description"],
+    deps = [":test_support"],
+)
+
+# The telemetry contract's panels plot series of its own groups and README.md tabulates it; the scene and status
+# contracts are consistent.
+py_test(
+    name = "test_contracts",
+    size = "small",
+    srcs = ["test/test_contracts.py"],
+    data = ["README.md"],
+    deps = [":test_support"],
+)
+
+py_test(
+    name = "test_blueprint",
+    size = "small",
+    srcs = ["test/test_blueprint.py"],
+    deps = [":test_support"],
+)
+
+py_test(
+    name = "test_scalar_batcher",
+    size = "small",
+    srcs = ["test/test_scalar_batcher.py"],
+    deps = [":test_support"],
+)
+
+# The handlers, driven directly with synthetic messages; the recording is read back from an .rrd file.
+py_test(
+    name = "test_bridge",
+    size = "small",
+    srcs = ["test/test_bridge.py"],
+    deps = [":test_support"],
+)
+
+py_test(
+    name = "test_rerun_sinks",
+    size = "small",
+    srcs = ["test/test_rerun_sinks.py"],
+    deps = [":test_support"],
+)
+
+# A process of its own, so that a hang of rerun-sdk's serve_grpc() (rerun_sinks.py) shows as this test's timeout.
+py_test(
+    name = "test_serve_web_sink",
+    size = "small",
+    srcs = ["test/test_serve_web_sink.py"],
+    deps = [":test_support"],
+)
+
+# Scene and telemetry published on a loopback bus with robot_ipc, bridged into an .rrd file; and the binary itself,
+# stopped with SIGINT and SIGTERM.
+py_test(
+    name = "test_end_to_end",
+    size = "medium",
+    srcs = ["test/test_end_to_end.py"],
+    data = [":humanoid_rerun_viewer"],
+    env = {"RERUN_VIEWER_BINARY": "$(rootpath :humanoid_rerun_viewer)"},
+    deps = [":test_support"],
+)
+
+# What the bridge costs per message at the contract's size; prints the measurements.
+py_test(
+    name = "test_bridge_cost",
+    size = "small",
+    srcs = ["test/test_bridge_cost.py"],
+    deps = [":test_support"],
+)
+
+# The forward kinematics of the model sandbox: a small URDF by hand, every shipped robot's rigid-body properties.
+py_test(
+    name = "test_urdf_kinematics",
+    size = "small",
+    srcs = ["test/test_urdf_kinematics.py"],
+    data = _ROBOT_DESCRIPTIONS,
+    deps = [":test_support"],
+)
+
+# The model sandbox: positions, scene, publishing, its binary over a loopback bus, and the slider window (Tk, on the
+# caller's display or an Xvfb of the test's own, as the remote_control tests run it).
+py_test(
+    name = "test_model_sandbox",
+    size = "small",
+    srcs = ["test/test_model_sandbox.py"],
+    data = ["//robot_models/unitree_g1/g1_description"],
+    # The variables operator_test_support.requires_display reads, as remote_control's Tk tests inherit them.
+    # LINT.IfChange(tk_environment)
+    env_inherit = [
+        "CI",
+        "DISPLAY",
+    ],
+    # LINT.ThenChange(//humanoid_nmpc/remote_control/test/operator_test_support.py:tk_environment)
+    deps = [
+        ":test_support",
+        "//humanoid_nmpc/remote_control:test_support",
+    ],
+)

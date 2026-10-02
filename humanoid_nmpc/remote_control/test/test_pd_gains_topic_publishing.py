@@ -28,11 +28,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ****************************************************************************"""
 
 """
-Tests for the ROS topic-based PD gains publishing pipeline.
+Tests for the bus-based PD gains publishing pipeline.
 
-Verifies the decoupling between real-time PD gain updates (via ROS topic)
-and explicit YAML file saves (via "Save to YAML" button).  The tests use a mock
-publisher to capture published messages without requiring a running ROS graph.
+Verifies the decoupling between real-time PD gain updates (a YamlDocument on operator/pd_gains) and explicit YAML
+file saves (via the "Save to YAML" button). The tests give the tab the GUI's publisher over a bus that records, and
+assert on the messages that would have gone out.
 """
 
 import os
@@ -40,55 +40,30 @@ import shutil
 import tempfile
 import unittest
 
+import yaml
+
+from humanoid_mpc_ipc import topics
+from humanoid_mpc_msgs import yaml_document_pb2
+from operator_test_support import RecordingPublisher, repo_path, requires_display
 from remote_control.tk_app.yaml_editor_utils import load_yaml_safe
 
 
-class MockPublisher:
-    """Stand-in for rclpy Publisher that records published messages."""
-
-    def __init__(self):
-        self.messages = []
-
-    def publish(self, msg):
-        self.messages.append(msg)
-
-    @property
-    def last_data(self):
-        if not self.messages:
-            return None
-        return self.messages[-1].data
-
-    @property
-    def publish_count(self):
-        return len(self.messages)
-
-
-class MockStringMsg:
-    """Minimal stand-in for std_msgs.msg.String."""
-
-    def __init__(self):
-        self.data = ""
-
-
+@requires_display
 class TestPdGainsTopicPublishing(unittest.TestCase):
     """Test suite verifying that JointPdGainsTab publishes slider values to a
-    ROS topic without modifying joint_pd_gains.yaml on disk."""
+    topic without modifying joint_pd_gains.yaml on disk."""
 
     @classmethod
     def setUpClass(cls):
-        cls.repo_root = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "../../..")
-        )
-        cls.atlas_pd_gains_file = os.path.join(
-            cls.repo_root,
-            "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/controller/joint_pd_gains.yaml",
+        cls.atlas_pd_gains_file = repo_path(
+            "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/controller/joint_pd_gains.yaml"
         )
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
         self.tmp_pd_file = os.path.join(self.tmpdir, "joint_pd_gains.yaml")
         shutil.copy2(self.atlas_pd_gains_file, self.tmp_pd_file)
-        self.mock_publisher = MockPublisher()
+        self.mock_publisher = RecordingPublisher(topics.OPERATOR_PD_GAINS)
         # Snapshot file content to detect unintended writes
         with open(self.tmp_pd_file, "r") as f:
             self.original_content = f.read()
@@ -165,7 +140,7 @@ class TestPdGainsTopicPublishing(unittest.TestCase):
             self.assertFalse(
                 self._file_was_modified(),
                 "joint_pd_gains.yaml should NOT be modified by slider changes — "
-                "only the ROS topic should be used",
+                "only the topic should be used",
             )
         finally:
             root.destroy()
@@ -403,7 +378,7 @@ class TestPdGainsTopicPublishing(unittest.TestCase):
 
             # The published message should be parseable YAML
             self.assertGreater(self.mock_publisher.publish_count, 0)
-            yaml_str = self.mock_publisher.last_data
+            yaml_str = self.mock_publisher.last_yaml
 
             # Write to temp file and parse (same as C++ side does)
             tmp_parse = os.path.join(self.tmpdir, "parse_test.yaml")
@@ -453,6 +428,41 @@ class TestPdGainsTopicPublishing(unittest.TestCase):
             # Cancel it to avoid interference
             tab.after_cancel(tab._debounce_publish_id)
             tab._debounce_publish_id = None
+        finally:
+            root.destroy()
+
+    def test_the_message_is_a_yaml_document_with_the_file_and_the_sliders(self):
+        """What goes on operator/pd_gains is a YamlDocument carrying exactly the YAML text the tab builds."""
+        import tkinter as tk
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            tab = self._create_tab(root)
+            key = list(tab.slider_rows.keys())[0]
+            row = tab.slider_rows[key]
+            row.set_value(row.get_value() * 1.5)
+            tab._publish_to_topic()
+
+            self.assertEqual(self.mock_publisher.publish_count, 1)
+            message = self.mock_publisher.last_message
+            self.assertIsInstance(message, yaml_document_pb2.YamlDocument)
+            self.assertEqual(
+                self.mock_publisher.bus.published[0][0], topics.OPERATOR_PD_GAINS
+            )
+            self.assertEqual(message.yaml, tab._build_yaml_with_slider_values())
+            # The file's document, with the slider's value in it.
+            published = yaml.safe_load(message.yaml)
+            self.assertEqual(set(published), set(load_yaml_safe(self.tmp_pd_file)))
+            node = published
+            for part in key.split("."):
+                node = node[part.strip("\"'")]
+            # Written with six significant digits (yaml_editor_utils._format_yaml_scalar).
+            self.assertAlmostEqual(
+                float(node),
+                row.get_value(),
+                delta=1e-5 * max(1.0, abs(row.get_value())),
+            )
         finally:
             root.destroy()
 

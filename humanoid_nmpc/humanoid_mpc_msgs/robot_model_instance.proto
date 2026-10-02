@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package humanoid_mpc_msgs;
+
+import "humanoid_mpc_msgs/pose.proto";
+import "nproto/options.proto";
+
+// One copy of the robot model: the world pose of every URDF link the model knows. The bridge loads the URDF's meshes
+// once per instance name and moves them with these poses.
+// Next ID: 4
+message RobotModelInstance {
+  option (nproto.generate_struct) = "ocs2::humanoid::msgs::RobotModelInstance";
+
+  reserved 4 to max;
+
+  // "measured", "terminal_state" (the last node of the MPC plan) or "terminal_target" (the reference at that time).
+  string name = 1;
+  repeated string link_names = 2;
+  repeated Pose link_poses = 3;
+}

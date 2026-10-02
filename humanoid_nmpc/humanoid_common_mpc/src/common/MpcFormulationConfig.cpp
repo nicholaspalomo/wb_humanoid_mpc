@@ -38,8 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
-#include <boost/optional.hpp>
-#include <boost/property_tree/ptree.hpp>
+#include <ocs2_core/misc/PropertyTree.h>
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/log.h"
@@ -384,17 +383,16 @@ absl::Status validateContactImplicitConfig(const ModelSettings::ContactImplicitC
   return absl::OkStatus();
 }
 
-absl::Status checkContactImplicitBlockKeys(const boost::property_tree::ptree& taskTree) {
-  const boost::optional<const boost::property_tree::ptree&> block =
-      taskTree.get_child_optional(std::string(ModelSettings::kContactImplicitBlock));
-  if (!block) {
+absl::Status checkContactImplicitBlockKeys(const PropertyTree& taskTree) {
+  const PropertyTree* block = taskTree.findChild(ModelSettings::kContactImplicitBlock);
+  if (block == nullptr) {
     return absl::OkStatus();
   }
   std::vector<std::string> knownKeys;
   for (const ModelSettings::ContactImplicitKey& key : ModelSettings::contactImplicitKeys()) {
     knownKeys.emplace_back(key.name);
   }
-  for (const boost::property_tree::ptree::value_type& entry : *block) {
+  for (const PropertyTree::value_type& entry : *block) {
     const std::string& name = entry.first;
     if (std::find(knownKeys.begin(), knownKeys.end(), name) != knownKeys.end()) {
       continue;

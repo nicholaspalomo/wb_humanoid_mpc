@@ -30,10 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_wb_mpc/cost/EndEffectorDynamicsCostHelpers.h"
 
-#include <boost/property_tree/info_parser.hpp>
-#include <boost/property_tree/ptree.hpp>
-
 #include <ocs2_core/misc/LoadData.h>
+#include <ocs2_core/misc/PropertyTree.h>
 
 #include "absl/log/log.h"
 
@@ -51,7 +49,7 @@ VECTOR18_T<scalar_t> EndEffectorDynamicsWeights::toVector() {
 /******************************************************************************************************/
 
 EndEffectorDynamicsWeights EndEffectorDynamicsWeights::getWeights(const std::string& taskFile, const std::string prefix, bool verbose) {
-  boost::property_tree::ptree pt;
+  PropertyTree pt;
   loadData::readPropertyTree(taskFile, pt);
 
   // Load all weights
@@ -106,31 +104,13 @@ EndEffectorDynamicsWeights EndEffectorDynamicsWeights::getWeights(const std::str
   weights.contactOrientationErrorWeight = vector3_t(orientation_x, orientation_y, orientation_z);
   weights.contactLinearVelocityErrorWeight = vector3_t(lin_velocity_x, lin_velocity_y, lin_velocity_z);
   weights.contactAngularVelocityErrorWeight = vector3_t(ang_velocity_x, ang_velocity_y, ang_velocity_z);
-  weights.contactLinearVelocityErrorWeight = vector3_t(lin_acceleration_x, lin_acceleration_y, lin_acceleration_z);
-  weights.contactAngularVelocityErrorWeight = vector3_t(ang_acceleration_x, ang_acceleration_y, ang_acceleration_z);
+  // Each key into its own field. The acceleration keys used to be written over the velocity weights, which left the
+  // acceleration weights at their defaults and the velocity keys unread; the G1 whole-body task file now carries the
+  // values that were in effect (see its task_space_foot_cost_weights block).
+  weights.contactLinearAccelerationErrorWeight = vector3_t(lin_acceleration_x, lin_acceleration_y, lin_acceleration_z);
+  weights.contactAngularAccelerationErrorWeight = vector3_t(ang_acceleration_x, ang_acceleration_y, ang_acceleration_z);
 
   return weights;
 }
-
-/******************************************************************************************************/
-/******************************************************************************************************/
-/******************************************************************************************************/
-
-template <typename SCALAR_T>
-VECTOR18_T<SCALAR_T> computeTaskSpaceErrors(const EndEffectorDynamicsCostElement<SCALAR_T>& current,
-                                            const EndEffectorDynamicsCostElement<SCALAR_T>& reference) {
-  const VECTOR3_T<SCALAR_T> orientationError = quaternionDistance<SCALAR_T>(current.getOrientation(), reference.getOrientation());
-
-  VECTOR18_T<SCALAR_T> errors;
-  errors << (current.getPosition() - reference.getPosition()), orientationError,
-      (current.getLinearVelocity() - reference.getLinearVelocity()), (current.getAngularVelocity() - reference.getAngularVelocity()),
-      (current.getLinearAcceleration() - reference.getLinearAcceleration()),
-      (current.getAngularAcceleration() - reference.getAngularAcceleration());
-  return errors;
-}
-template VECTOR18_T<scalar_t> computeTaskSpaceErrors(const EndEffectorDynamicsCostElement<scalar_t>& current,
-                                                     const EndEffectorDynamicsCostElement<scalar_t>& reference);
-template VECTOR18_T<ad_scalar_t> computeTaskSpaceErrors(const EndEffectorDynamicsCostElement<ad_scalar_t>& current,
-                                                        const EndEffectorDynamicsCostElement<ad_scalar_t>& reference);
 
 }  // namespace ocs2::humanoid

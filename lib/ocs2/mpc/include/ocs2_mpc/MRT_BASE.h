@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_core/Types.h>
 #include <ocs2_core/control/ControllerBase.h>
+#include <ocs2_core/manifold/StateManifold.h>
 #include <ocs2_core/misc/LinearInterpolation.h>
 #include <ocs2_core/reference/ModeSchedule.h>
 #include <ocs2_core/reference/TargetTrajectories.h>
@@ -113,6 +114,16 @@ class MRT_BASE {
    * @param rolloutPtr: The rollout object to be used
    */
   void initRollout(const RolloutBase* rolloutPtr);
+
+  /**
+   * Sets the manifold the state lives on (nullptr, the default, for a flat state). evaluatePolicy() then interpolates the
+   * planned state along it (a slerp on every quaternion block) instead of linearly. The policy itself evaluates its
+   * feedback on the manifold already (ManifoldLinearController). Not reset by reset().
+   */
+  void setStateManifold(std::shared_ptr<const StateManifold> stateManifold) { stateManifoldPtr_ = std::move(stateManifold); }
+
+  /** The manifold the state lives on, or nullptr. */
+  const std::shared_ptr<const StateManifold>& getStateManifold() const { return stateManifoldPtr_; }
 
   /**
    * @brief Evaluates the controller
@@ -212,6 +223,7 @@ class MRT_BASE {
 
   // variables needed for policy evaluation
   std::unique_ptr<RolloutBase> rolloutPtr_;
+  std::shared_ptr<const StateManifold> stateManifoldPtr_;
 
   std::vector<std::shared_ptr<MrtObserver>> observerPtrArray_;
 };

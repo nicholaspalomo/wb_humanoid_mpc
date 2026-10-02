@@ -53,9 +53,11 @@ import shutil
 import tempfile
 import unittest
 
+from operator_test_support import requires_display
 from remote_control.tk_app.yaml_editor_utils import load_yaml_safe
 
 
+@requires_display
 class TestDrcAtlasParameterCoverage(unittest.TestCase):
     """
     Verify that every single parameter in the DRC Atlas task.yaml is exposed

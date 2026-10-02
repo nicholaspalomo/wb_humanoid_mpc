@@ -9,13 +9,30 @@ module(
 # External Dependencies via bzlmod
 # ==============================================================================
 
-bazel_dep(name = "rules_cc", version = "0.2.17")
+# protobuf 36, libzmq and cppzmq all require rules_cc >= 0.2.18.
+bazel_dep(name = "rules_cc", version = "0.2.18")
 bazel_dep(name = "rules_foreign_cc", version = "0.14.0")
 bazel_dep(name = "rules_python", version = "1.7.0")
 bazel_dep(name = "googletest", version = "1.17.0")
 bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "magic_enum", version = "0.9.7")
 bazel_dep(name = "abseil-cpp", version = "20250814.1")
+
+# ==============================================================================
+# IPC: Protocol Buffers messages over ZeroMQ (humanoid_nmpc/docs/distributed_runtime)
+# ==============================================================================
+# Bazel 9 with protobuf >= 34 uses the prebuilt protoc of the release (the prefer_prebuilt_protoc flag defaults to
+# true), so protoc itself is not compiled. The C++ generator (protoc-gen-cpp) and the C++ runtime are, so that the
+# C++ gencode always matches the runtime it links against.
+#
+# The Python gencode of protoc 36.0 is version 7.36.0 and refuses an older runtime, so the protobuf wheel of the
+# operator_deps hub below is pinned to exactly that version.
+# LINT.IfChange(protobuf_version)
+bazel_dep(name = "protobuf", version = "36.0.bcr.1")
+# LINT.ThenChange(//tools/python/operator_requirements.txt:protobuf_version)
+
+bazel_dep(name = "libzmq", version = "4.3.5.bcr.7")
+bazel_dep(name = "cppzmq", version = "4.10.0.bcr.3")
 
 # ==============================================================================
 # Python Toolchain & MuJoCo RL Dependencies (rules_python)
@@ -33,20 +50,67 @@ pip.parse(
     python_version = "3.11",
     requirements_lock = "//humanoid_learning:requirements_lock.txt",
 )
-use_repo(pip, "rl_deps")
+
+# rerun-sdk installs its packages under site-packages/rerun_sdk/ and puts that directory on sys.path with
+# rerun_sdk.pth, a file Bazel's Python rules never read, so requirement("rerun-sdk") alone cannot `import rerun`. This
+# adds a library to the wheel's repository that puts the directory on the path through `imports`, and the hub exposes
+# it as @operator_deps//rerun_sdk:rerun. Depend on that label rather than on requirement("rerun-sdk").
+pip.whl_mods(
+    additive_build_content = """\
+load("@rules_python//python:py_library.bzl", "py_library")
+
+py_library(
+    name = "rerun",
+    imports = ["site-packages/rerun_sdk"],
+    visibility = ["//visibility:public"],
+    deps = [":pkg"],
+)
+""",
+    hub_name = "operator_deps_whl_mods",
+    whl_name = "rerun_sdk",
+)
+use_repo(pip, "operator_deps_whl_mods")
+
+# The operator tools on the laptop (remote_control GUI, teleoperation, Rerun bridge, tools/ipc) and the Python side
+# of the IPC bus. Lock regenerated with `bazel run //tools/python:operator_requirements.update`.
+pip.parse(
+    extra_hub_aliases = {"rerun_sdk": ["rerun"]},
+    hub_name = "operator_deps",
+    python_version = "3.11",
+    requirements_lock = "//tools/python:operator_requirements_lock.txt",
+    whl_modifications = {"@operator_deps_whl_mods//:rerun_sdk.json": "rerun_sdk"},
+)
+
+# The lint tools of tools/hooks/lint_code.py (cpplint, pylint, mypy, isort and black), from the same hashed lock the dev
+# image and CI's format job install, so that //tools/hooks:test_lint_tool_configs runs the real tools hermetically.
+# Lock regenerated with `bazel run //tools/hooks:lint_requirements.update`.
+pip.parse(
+    hub_name = "lint_deps",
+    python_version = "3.11",
+    requirements_lock = "//tools/hooks:lint_requirements_lock.txt",
+)
+use_repo(pip, "lint_deps", "operator_deps", "rl_deps")
+
+# py_proto_library links the generated *_pb2 modules against the protobuf wheel of operator_deps (the upb C
+# extension) instead of protobuf's pure-Python runtime built from source, so a binary has exactly one
+# google.protobuf on its path.
+register_toolchains("//tools/python:python_proto_toolchain")
 
 # ==============================================================================
 # System Library Repositories (non-bzlmod)
 # ==============================================================================
-# These are configured in MODULE.bazel extensions below, pointing to
-# system-installed libraries (Eigen, Boost, Pinocchio, ROS2, etc.)
+# bazel/system_libs.bzl wraps the libraries the dev image installs (docker/Dockerfile, dependencies.txt): Eigen,
+# yaml-cpp, GLFW, GLEW and urdfdom from Ubuntu, Pinocchio from robotpkg in /opt/openrobots
+# (docker/install_robotpkg.sh), and builds blasfeo and hpipm from source.
+#
+# @boost is registered by the same extension but deliberately not imported here: only @pinocchio, a repository of that
+# extension, can name it, so a project target that lists @boost fails as an unknown repository.
 
 # LINT.IfChange(system_repositories)
 system_libs = use_extension("//bazel:extensions.bzl", "system_libs")
 use_repo(
     system_libs,
     "eigen",
-    "boost",
     "pinocchio",
     "glfw",
     "glew",
@@ -54,22 +118,5 @@ use_repo(
     "blasfeo",
     "hpipm",
     "yaml_cpp",
-    "ocs2_ros2_msgs_repo",
-    "humanoid_mpc_msgs_repo",
-    # ROS2 system packages
-    "ros2_rclcpp",
-    "ros2_ament_index_cpp",
-    "ros2_std_msgs",
-    "ros2_geometry_msgs",
-    "ros2_visualization_msgs",
-    "ros2_sensor_msgs",
-    "ros2_tf2_ros",
-    "ros2_tf2_eigen",
-    "ros2_kdl_parser",
-    "ros2_interactive_markers",
-    "ros2_rcl_interfaces",
-    "ros2_builtin_interfaces",
-    "ros2_unique_identifier_msgs",
-    "ros2_rosidl",
 )
-# LINT.ThenChange(//bazel/system_libs.bzl:system_repositories, //bazel/ros2.bzl:ros2_packages)
+# LINT.ThenChange(//bazel/system_libs.bzl:system_repositories)

@@ -1,0 +1,53 @@
+# proto-file: tools/launch/proto/launch_file.proto
+# proto-message: launch_proto.LaunchFile
+#
+# The robot side of the EngineAI SA01, centroidal MPC: the robot process, which runs on the robot's realtime computer
+# (humanoid_nmpc/docs/distributed_runtime/README.md, "Deployment"). Its backend is chosen by name; until a hardware
+# backend exists it is the MuJoCo simulator, which simulation runs in the same topology.
+#
+#   make launch-sa01-sim    # with mpc.textproto, the robot side in the robot-sim container
+#   make deploy-robot ROBOT=engineai_sa01 HOST=<robot>    # the robot-runtime image runs this file, as launch/engineai_sa01.sh
+#   bazel run //tools/launch -- robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/launch/robot.textproto --machine robot
+#
+# In the robot-runtime image every variable below is the environment variable WB_ROBOT_<NAME>
+# (docker-compose.robot.yaml, tools/deploy/README.md).
+
+# LINT.IfChange(robot_variables)
+variables { name: "bin_dir" value: ".bazel/bin" }
+variables { name: "robot_dir" value: "robot_models/engineai_sa01" }
+variables { name: "config_dir" value: "{robot_dir}/engineai_sa01_centroidal_mpc/config" }
+variables { name: "task_file" value: "{config_dir}/mpc/task.yaml" }
+variables { name: "reference_file" value: "{config_dir}/command/reference.yaml" }
+variables { name: "urdf_file" value: "{robot_dir}/engineai_sa01_description/urdf/zq_sa01.urdf" }
+variables { name: "mjcf_file" value: "{robot_dir}/engineai_sa01_description/urdf/zq_sa01.xml" }
+variables { name: "network_file" value: "config/ipc/network.textproto" }
+# The robot backend, by name (humanoid_nmpc/humanoid_common_mpc_app/robot/README.md, "The backends").
+variables { name: "backend" value: "mujoco" }
+# The MuJoCo backend without its viewer. The robot-runtime image, which has no GL, sets it to true.
+variables { name: "headless" value: "false" }
+# SCHED_FIFO priority of the realtime thread, with the memory locked; 0 = the time-sharing scheduler.
+variables { name: "realtime_priority" value: "80" }
+# Cores of the realtime thread and of the backend's threads: default, none, or a list such as 4,5.
+variables { name: "realtime_cores" value: "default" }
+variables { name: "backend_cores" value: "default" }
+# LINT.ThenChange(//docker-compose.robot.yaml:robot_environment, //tools/deploy/README.md:robot_environment)
+
+processes {
+  name: "robot"
+  machine: MACHINE_ROBOT
+  command: [
+    "{bin_dir}/humanoid_nmpc/humanoid_centroidal_mpc_app/humanoid_centroidal_mpc_robot",
+    "--robot_name=engineai_sa01",
+    "--task_file={task_file}",
+    "--reference_file={reference_file}",
+    "--urdf_file={urdf_file}",
+    "--mjcf_file={mjcf_file}",
+    "--network_config={network_file}",
+    "--backend={backend}",
+    "--headless={headless}",
+    "--realtime_priority={realtime_priority}",
+    "--realtime_cores={realtime_cores}",
+    "--backend_cores={backend_cores}"
+  ]
+  required: true
+}

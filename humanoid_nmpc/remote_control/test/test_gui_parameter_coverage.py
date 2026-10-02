@@ -41,6 +41,7 @@ import os
 import unittest
 from typing import Set
 
+from operator_test_support import requires_display
 from remote_control.tk_app.yaml_editor_utils import load_yaml_safe
 from remote_control.tk_app.yaml_param_tree import tunables as read_tunables
 
@@ -74,6 +75,7 @@ def normalized(keys) -> Set[str]:
     return {key.replace('"', "") for key in keys}
 
 
+@requires_display
 class TestGuiParameterCoverage(unittest.TestCase):
     def test_every_task_parameter_has_a_slider(self):
         import tkinter as tk
@@ -143,6 +145,7 @@ class TestGuiParameterCoverage(unittest.TestCase):
                 )
 
 
+@requires_display
 class TestGeneratedFromTheFile(unittest.TestCase):
     """The GUI follows the configuration, including parts of it that did not exist when this code was written."""
 

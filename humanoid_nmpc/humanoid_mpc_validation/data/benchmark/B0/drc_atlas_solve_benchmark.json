@@ -1,0 +1,101 @@
+{
+  "schema": "humanoid_mpc_validation.solve_benchmark.v1",
+  "label": "B0",
+  "robot": "drc_atlas",
+  "formulation": "centroidal",
+  "provenance": {
+    "git_commit": "c331ddd76dcf3917bdd9d0578eee6f518a915ba8",
+    "worktree_state": "1175 changed paths, diff sha256 13855b2a7a290aa5",
+    "machine": "Intel(R) Core(TM) Ultra 7 265K, 20 logical cores, 30.2 GiB",
+    "configuration_sha256": {
+      "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml": "c39d0e12f8f1945d74c085a464c1921cfdf7bef24e454f9a78f7d42e6e8c37f1",
+      "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.yaml": "abb74884f324533f2559accbefa92d81118552c1a708efe44e52dd75a3696822",
+      "humanoid_nmpc/humanoid_common_mpc/config/command/gait.yaml": "df9b8154d7fe9939bc45541ee5163049b392c44880e774c5ea85653ae1ce9897",
+      "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/controller/joint_pd_gains.yaml": "9121b6f5acb120a4e1d77a72c173b34f881edfe01d87c6ffa04a61ebc393a43c",
+      "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf": "b5a9f7eb23c937b47c4b418dc50eb2ba6c0de3ff20032b6f9b0a87db45d08ac2",
+      "robot_models/drc_atlas/drc_atlas_description/urdf/atlas.xml": "6c34ba31f53b810acdb0ed889623b72bbf734ab7f709d7cd628b017cac76a4c8",
+      "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/contact_planning.yaml": "64717ebc74d7c4a115cd19edf06e01473151d4323f8c8168f2c6aaf87b9942b0",
+      "humanoid_nmpc/humanoid_mpc_validation/data/benchmark/states/drc_atlas_walk_0p5_states.txt": "576df4dfbfd508c73e40b300701f918955eb008d0fb4b31bfa65ba919f4c9dfd"
+    }
+  },
+  "settings": {
+    "solver_threads": 8,
+    "mpc_frequency_hz": 50,
+    "recorded_states": 300,
+    "warmup_solves": 25,
+    "repeats": 3,
+    "timed_solves": 825,
+    "failed_solves": 0
+  },
+  "solve_time_ms": {
+    "total": {
+      "mean": 6.3892154981818186,
+      "p50": 6.343108,
+      "p99": 8.431875,
+      "max": 8.746373
+    },
+    "lq_approximation": {
+      "mean": 2.708585328484845,
+      "p50": 2.721023,
+      "p99": 2.947437,
+      "max": 3.393921
+    },
+    "solve_qp": {
+      "mean": 2.542648578181818,
+      "p50": 2.535542,
+      "p99": 2.774779,
+      "max": 3.075323
+    },
+    "linesearch": {
+      "mean": 0.3862130884848485,
+      "p50": 0.377498,
+      "p99": 0.574569,
+      "max": 0.630884
+    },
+    "compute_controller": {
+      "mean": 0.4642358048484847,
+      "p50": 0.461349,
+      "p99": 0.528763,
+      "max": 0.552117
+    }
+  },
+  "real_time": {
+    "mpc_period_ms": 20,
+    "p99_fraction_of_period": 0.42159375
+  },
+  "tape_operation_counts": {
+    "cppad_centroidal_mpc_atlas/basis11_05bee4540d9a43eb/FootCollisionConstraint": 552,
+    "cppad_centroidal_mpc_atlas/basis11_05bee4540d9a43eb/dcmTerminalCost_p11": 472,
+    "cppad_centroidal_mpc_atlas/basis11_05bee4540d9a43eb/dynamics_basis11_05bee4540d9a43eb_flow_map": 3914,
+    "cppad_centroidal_mpc_atlas/basis11_05bee4540d9a43eb/dynamics_basis11_05bee4540d9a43eb_guard_surfaces": 40,
+    "cppad_centroidal_mpc_atlas/basis11_05bee4540d9a43eb/dynamics_basis11_05bee4540d9a43eb_jump_map": 39,
+    "cppad_centroidal_mpc_atlas/basis11_05bee4540d9a43eb/foot_l_contact_ExternalTorqueQuadraticCost": 534,
+    "cppad_centroidal_mpc_atlas/basis11_05bee4540d9a43eb/foot_l_contact_TaskSpaceKinematicsCost_yawRefHalfAngle": 4141,
+    "cppad_centroidal_mpc_atlas/basis11_05bee4540d9a43eb/foot_l_contact_angular_velocity": 3787,
+    "cppad_centroidal_mpc_atlas/basis11_05bee4540d9a43eb/foot_l_contact_orientation": 230,
+    "cppad_centroidal_mpc_atlas/basis11_05bee4540d9a43eb/foot_l_contact_orientationError": 249,
+    "cppad_centroidal_mpc_atlas/basis11_05bee4540d9a43eb/foot_l_contact_orientation_wrt_plane": 198,
+    "cppad_centroidal_mpc_atlas/basis11_05bee4540d9a43eb/foot_l_contact_position": 210,
+    "cppad_centroidal_mpc_atlas/basis11_05bee4540d9a43eb/foot_l_contact_twist": 4015,
+    "cppad_centroidal_mpc_atlas/basis11_05bee4540d9a43eb/foot_l_contact_velocity": 4003,
+    "cppad_centroidal_mpc_atlas/basis11_05bee4540d9a43eb/foot_r_contact_ExternalTorqueQuadraticCost": 534,
+    "cppad_centroidal_mpc_atlas/basis11_05bee4540d9a43eb/foot_r_contact_TaskSpaceKinematicsCost_yawRefHalfAngle": 4141,
+    "cppad_centroidal_mpc_atlas/basis11_05bee4540d9a43eb/foot_r_contact_angular_velocity": 3788,
+    "cppad_centroidal_mpc_atlas/basis11_05bee4540d9a43eb/foot_r_contact_orientation": 230,
+    "cppad_centroidal_mpc_atlas/basis11_05bee4540d9a43eb/foot_r_contact_orientationError": 249,
+    "cppad_centroidal_mpc_atlas/basis11_05bee4540d9a43eb/foot_r_contact_orientation_wrt_plane": 198,
+    "cppad_centroidal_mpc_atlas/basis11_05bee4540d9a43eb/foot_r_contact_position": 210,
+    "cppad_centroidal_mpc_atlas/basis11_05bee4540d9a43eb/foot_r_contact_twist": 4015,
+    "cppad_centroidal_mpc_atlas/basis11_05bee4540d9a43eb/foot_r_contact_velocity": 4003,
+    "cppad_centroidal_mpc_atlas/basis11_05bee4540d9a43eb/icp_Cost": 488,
+    "cppad_centroidal_mpc_atlas/basis11_05bee4540d9a43eb/utorso_KinematicsQuadraticCost": 4012,
+    "cppad_centroidal_mpc_atlas/basis11_05bee4540d9a43eb/utorso_angular_velocity": 3710,
+    "cppad_centroidal_mpc_atlas/basis11_05bee4540d9a43eb/utorso_orientation": 167,
+    "cppad_centroidal_mpc_atlas/basis11_05bee4540d9a43eb/utorso_orientationError": 186,
+    "cppad_centroidal_mpc_atlas/basis11_05bee4540d9a43eb/utorso_orientation_wrt_plane": 135,
+    "cppad_centroidal_mpc_atlas/basis11_05bee4540d9a43eb/utorso_position": 97,
+    "cppad_centroidal_mpc_atlas/basis11_05bee4540d9a43eb/utorso_twist": 3906,
+    "cppad_centroidal_mpc_atlas/basis11_05bee4540d9a43eb/utorso_velocity": 3884
+  },
+  "total_tape_operations": 56337
+}

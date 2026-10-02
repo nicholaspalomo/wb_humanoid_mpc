@@ -1,5 +1,4 @@
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
-load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
 # mujoco_sim_interface - MuJoCo simulation interface library
 
@@ -41,7 +40,6 @@ cc_library(
         "//robot_runtime/robot_core",
         "//robot_runtime/robot_model",
         "@eigen",
-        "@boost",
         "@abseil-cpp//absl/log:check",
         "@abseil-cpp//absl/log:log",
         "@abseil-cpp//absl/log:globals",
@@ -52,18 +50,6 @@ cc_library(
         "@urdf",
         "@glfw",
         "@glew",
-        "@ros2_ament_index_cpp",
-    ],
-)
-
-cc_binary(
-    name = "mujoco_sim_no_torques",
-    srcs = ["exe/mujocoSimNoTorques.cpp"],
-    copts = ["-std=c++20"],
-    deps = [
-        ":mujoco_sim_interface",
-        "@boost",
-        "@glfw",
     ],
 )
 
@@ -109,6 +95,25 @@ cc_test(
     data = ["//robot_models/drc_atlas/drc_atlas_description"],
     deps = [
         ":mujoco_sim_interface",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The torque switch: no action applied before the torques came back on is executed, and only the physics thread writes
+# the damping it swaps.
+cc_test(
+    name = "test_mujoco_sim_interface_torque_switch",
+    size = "small",
+    srcs = ["test/testMujocoSimInterfaceTorqueSwitch.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+    ],
+    data = ["//robot_models/drc_atlas/drc_atlas_description"],
+    deps = [
+        ":mujoco_sim_interface",
+        "//robot_runtime/robot_model",
         "@googletest//:gtest_main",
     ],
 )

@@ -59,6 +59,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 
+#include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
@@ -81,9 +82,28 @@ class CentroidalMpcInterface final : public RobotInterface {
                                                                         const std::string& urdfFile,
                                                                         const std::string& referenceFile);
 
+  /**
+   * The models an MRT joint controller needs and nothing else, for a robot process whose MPC runs elsewhere (the MPC
+   * node, over the bus): the model and solver settings, the Pinocchio model, the centroidal model info, the robot models
+   * (the effective one included, the basis-vector decorator under contactInputParameterization: basis_vectors), the
+   * initial state and the nominal pendulum length. No reference manager and no optimal control problem: nothing is
+   * taped, generated or loaded with CppAD. getOptimalControlProblem(), getInitializer(), getRollout() and the reference
+   * manager, contact planner and locomotion-heuristic getters must not be used on it (hasOptimalControlProblem() is
+   * false); every other getter is the same as on an interface of Create().
+   */
+  static absl::StatusOr<std::unique_ptr<CentroidalMpcInterface>> CreateControllerModels(const std::string& taskFile,
+                                                                                        const std::string& urdfFile,
+                                                                                        const std::string& referenceFile);
+
   ~CentroidalMpcInterface() override = default;
 
-  const OptimalControlProblem& getOptimalControlProblem() const override { return *problemPtr_; }
+  /** False for an interface of CreateControllerModels(). */
+  bool hasOptimalControlProblem() const { return problemPtr_ != nullptr; }
+
+  const OptimalControlProblem& getOptimalControlProblem() const override {
+    CHECK(problemPtr_ != nullptr) << "[CentroidalMpcInterface] built by CreateControllerModels(): there is no optimal control problem";
+    return *problemPtr_;
+  }
 
   // CAREFUL: This function is not const, so it can easily be abused. It is currently only for gui purposes. Use with care!
   OptimalControlProblem& getOptimalControlProblemRef() const { return *problemPtr_; }
@@ -100,12 +120,18 @@ class CentroidalMpcInterface final : public RobotInterface {
    * pendulum length a dcm_terminal_cost.comHeight or a contact_planning.yaml shared.comHeight of 0 stands for.
    */
   scalar_t getNominalComHeight() const { return nominalComHeight_; }
-  const RolloutBase& getRollout() const { return *rolloutPtr_; }
+  const RolloutBase& getRollout() const {
+    CHECK(rolloutPtr_ != nullptr) << "[CentroidalMpcInterface] built by CreateControllerModels(): there is no rollout";
+    return *rolloutPtr_;
+  }
   PinocchioInterface& getPinocchioInterface() { return *pinocchioInterfacePtr_; }
   const CentroidalModelInfo& getCentroidalModelInfo() const { return centroidalModelInfo_; }
   std::shared_ptr<SwitchedModelReferenceManager> getSwitchedModelReferenceManagerPtr() const { return referenceManagerPtr_; }
 
-  const CentroidalWeightCompInitializer& getInitializer() const override { return *initializerPtr_; }
+  const CentroidalWeightCompInitializer& getInitializer() const override {
+    CHECK(initializerPtr_ != nullptr) << "[CentroidalMpcInterface] built by CreateControllerModels(): there is no initializer";
+    return *initializerPtr_;
+  }
   std::shared_ptr<ReferenceManagerInterface> getReferenceManagerPtr() const override { return referenceManagerPtr_; }
 
   const CentroidalMpcRobotModel<scalar_t>& getMpcRobotModel() const { return *mpcRobotModelPtr_; }

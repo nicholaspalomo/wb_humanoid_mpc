@@ -1,0 +1,236 @@
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("@rules_python//python:defs.bzl", "py_test")
+
+# humanoid_common_mpc_app/visualization - the visualization publisher of the MPC process (README.md): viz/scene and
+# viz/telemetry for the Rerun bridge, computed on a low-priority thread from the MPC's observation and policy and the
+# robot's robot/state samples, never on the robot's realtime thread. Works with every formulation (MpcRobotModelBase) and
+# robot.
+
+package(default_visibility = ["//visibility:public"])
+
+# No -Wpedantic: Abseil's int128.h, which absl/status pulls in, would print a hundred warnings per file.
+_COPTS = [
+    "-std=c++20",
+    "-Wall",
+    "-Wextra",
+    "-Werror=return-type",
+]
+
+cc_library(
+    name = "visualization",
+    srcs = [
+        "src/EulerAngles.cpp",
+        "src/PolicySnapshot.cpp",
+        "src/RobotStateDecoder.cpp",
+        "src/SceneBuilder.cpp",
+        "src/TelemetryBuilder.cpp",
+        "src/VisualizationConfig.cpp",
+        "src/VisualizationModel.cpp",
+        "src/VisualizationPublisher.cpp",
+    ],
+    hdrs = [
+        "include/humanoid_common_mpc_app/visualization/EulerAngles.h",
+        "include/humanoid_common_mpc_app/visualization/PolicySnapshot.h",
+        "include/humanoid_common_mpc_app/visualization/RobotStateDecoder.h",
+        "include/humanoid_common_mpc_app/visualization/SceneBuilder.h",
+        "include/humanoid_common_mpc_app/visualization/SceneContract.h",
+        "include/humanoid_common_mpc_app/visualization/TelemetryBuilder.h",
+        "include/humanoid_common_mpc_app/visualization/VisualizationConfig.h",
+        "include/humanoid_common_mpc_app/visualization/VisualizationModel.h",
+        "include/humanoid_common_mpc_app/visualization/VisualizationPublisher.h",
+    ],
+    copts = _COPTS,
+    includes = ["include"],
+    deps = [
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_mpc_ipc",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_nproto",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_oc",
+        "//lib/ocs2:ocs2_pinocchio_interface",
+        "//lib/ocs2:ocs2_robotic_tools",
+        "//robot_runtime/robot_core",
+        "//robot_runtime/robot_ipc",
+        "//robot_runtime/robot_realtime",
+        "@abseil-cpp//absl/base:core_headers",
+        "@abseil-cpp//absl/container:flat_hash_map",
+        "@abseil-cpp//absl/container:flat_hash_set",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/synchronization",
+        "@abseil-cpp//absl/time",
+        "@eigen",
+        "@pinocchio",
+        "@protobuf",
+        "@yaml_cpp",
+    ],
+)
+
+# ==============================================================================
+# Tests
+# ==============================================================================
+
+# The shipped robot configurations the tests build their models from.
+_ROBOT_DATA = [
+    "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+    "//robot_models/drc_atlas/drc_atlas_description",
+    "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
+    "//robot_models/engineai_sa01/engineai_sa01_description",
+    "//robot_models/unitree_g1/g1_centroidal_mpc",
+    "//robot_models/unitree_g1/g1_description",
+    "//robot_models/unitree_g1/g1_wb_mpc",
+    "//robot_models/unitree_r1/unitree_r1_centroidal_mpc",
+    "//robot_models/unitree_r1/unitree_r1_description",
+]
+
+# A robot's MPC model in each formulation, and synthetic observations, policies and robot/state samples for it.
+cc_library(
+    name = "test_robot",
+    testonly = True,
+    srcs = ["test/VisualizationTestRobot.cpp"],
+    hdrs = ["test/VisualizationTestRobot.h"],
+    copts = _COPTS,
+    strip_include_prefix = "test",
+    deps = [
+        ":visualization",
+        "//humanoid_nmpc/humanoid_centroidal_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+        "//humanoid_nmpc/humanoid_wb_mpc",
+        "//lib/ocs2:ocs2_centroidal_model",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_oc",
+        "//lib/ocs2:ocs2_pinocchio_interface",
+        "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/log:check",
+        "@abseil-cpp//absl/status:statusor",
+        "@eigen",
+        "@pinocchio",
+    ],
+)
+
+_TEST_DEPS = [
+    ":test_robot",
+    ":visualization",
+    "//humanoid_nmpc/humanoid_common_mpc",
+    "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+    "//humanoid_nmpc/humanoid_mpc_msgs:messages_nproto",
+    "//lib/ocs2:ocs2_core",
+    "//lib/ocs2:ocs2_mpc",
+    "//lib/ocs2:ocs2_oc",
+    "//lib/ocs2:ocs2_pinocchio_interface",
+    "@abseil-cpp//absl/container:flat_hash_map",
+    "@abseil-cpp//absl/container:flat_hash_set",
+    "@abseil-cpp//absl/status",
+    "@abseil-cpp//absl/status:statusor",
+    "@abseil-cpp//absl/strings",
+    "@eigen",
+    "@googletest//:gtest_main",
+    "@pinocchio",
+]
+
+# The task-file keys: defaults, values, refusals; every shipped task file loads and names frames its model has.
+cc_test(
+    name = "test_visualization_config",
+    size = "small",
+    srcs = ["test/testVisualizationConfig.cpp"],
+    copts = _COPTS,
+    data = _ROBOT_DATA,
+    deps = _TEST_DEPS,
+)
+
+# The robot/state sample in the MPC's terms: base, joints by name, actions, refusals; and the Euler angles.
+cc_test(
+    name = "test_robot_state_decoder",
+    size = "small",
+    srcs = ["test/testRobotStateDecoder.cpp"],
+    copts = _COPTS,
+    data = _ROBOT_DATA,
+    deps = _TEST_DEPS,
+)
+
+# The scene of synthetic observations and policies in every formulation: paths, counts, and positions against an
+# independently built Pinocchio model.
+cc_test(
+    name = "test_scene_builder",
+    size = "small",
+    srcs = ["test/testSceneBuilder.cpp"],
+    copts = _COPTS,
+    data = _ROBOT_DATA,
+    deps = _TEST_DEPS,
+)
+
+# The telemetry series against hand-computed values for simple states, and its layout against the contract.
+cc_test(
+    name = "test_telemetry_builder",
+    size = "small",
+    srcs = ["test/testTelemetryBuilder.cpp"],
+    copts = _COPTS,
+    data = _ROBOT_DATA,
+    deps = _TEST_DEPS,
+)
+
+# The thread contract: feeding never blocks, a slow publisher drops samples instead of queuing them, one series per
+# sample, the scene's rate, start and stop; and robot/state to viz/telemetry over a loopback bus.
+cc_test(
+    name = "test_visualization_publisher",
+    size = "small",
+    srcs = ["test/testVisualizationPublisher.cpp"],
+    copts = _COPTS,
+    data = _ROBOT_DATA,
+    deps = _TEST_DEPS + [
+        "//humanoid_nmpc/humanoid_mpc_ipc",
+        "//robot_runtime/robot_ipc",
+        "@abseil-cpp//absl/synchronization",
+        "@abseil-cpp//absl/time",
+    ],
+)
+
+# Publishes the G1's scene and telemetry from synthetic data on a bus bound to an ephemeral port (printed as
+# "PORT <n>"), for :test_end_to_end.
+cc_binary(
+    name = "visualization_publisher_driver",
+    testonly = True,
+    srcs = ["test/VisualizationPublisherDriver.cpp"],
+    copts = _COPTS,
+    data = _ROBOT_DATA,
+    deps = [
+        ":test_robot",
+        ":visualization",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_oc",
+        "//robot_runtime/robot_ipc",
+        "@abseil-cpp//absl/flags:flag",
+        "@abseil-cpp//absl/flags:parse",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/log:check",
+        "@abseil-cpp//absl/log:initialize",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/time",
+    ],
+)
+
+# The publisher -> the bus -> the Rerun bridge with its save sink: the entity paths of the contracts are in the .rrd.
+py_test(
+    name = "test_end_to_end",
+    size = "medium",
+    srcs = ["test/test_end_to_end.py"],
+    data = [
+        ":visualization_publisher_driver",
+        "//robot_models/unitree_g1/g1_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_description",
+    ],
+    env = {"VISUALIZATION_PUBLISHER_DRIVER": "$(rootpath :visualization_publisher_driver)"},
+    main = "test/test_end_to_end.py",
+    deps = ["//humanoid_nmpc/humanoid_rerun_viewer:test_support"],
+)

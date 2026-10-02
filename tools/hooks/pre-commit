@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# Git Pre-Commit Hook — Automatic formatting & IFTTT cross-file directive linting
+# Git Pre-Commit Hook — IFTTT directives, automatic formatting, and the linter on the staged files
 # ==============================================================================
 set -e
 
@@ -9,7 +9,7 @@ cd "$REPO_ROOT"
 
 echo "🔍 Pre-Commit Hook: Running IFTTT cross-file directive linter..."
 if [ -f "tools/hooks/check_ifttt.py" ]; then
-    python3 tools/hooks/check_ifttt.py
+    python3 -m tools.hooks.check_ifttt
 fi
 
 echo "🔍 Pre-Commit Hook: Running code formatter (make format)..."
@@ -38,13 +38,14 @@ if [ -n "$STAGED_FILES" ]; then
     fi
 fi
 
-# Literal arguments must say what they are: `f(file, /*contactIndex=*/0)`, not `f(file, 0)` (Google C++ style). Checked
-# on the STAGED version of the C++ files this commit touches, after formatting has been staged above, so the commit is
-# judged as it will be recorded and a file it does not change can never block it.
-echo "🔍 Pre-Commit Hook: Checking argument comments on literal arguments in the staged C++ files..."
-if ! python3 tools/hooks/argument_comments.py --git-staged; then
-    echo "❌ Commit blocked: give each literal argument above an argument comment, /*parameter_name=*/, with the name"
-    echo "   from the callee's declaration (or // NOLINT(argument-comment) where it is self-evident), then stage and commit."
+# The linter on the files this commit touches, after formatting has been staged above: the token checks of
+# tools/hooks/checks.py (argument comments, Boost, spelling, the .proto layout, NOLINT markers, ...) read the STAGED
+# version, so the commit is judged as it will be recorded and a file it does not change can never block it; cpplint,
+# pylint and mypy read the staged paths' working-tree files. Each failing check prints what to do about it.
+echo "🔍 Pre-Commit Hook: Running the linter on the staged files (python3 -m tools.hooks.lint_code --git-staged)..."
+if ! python3 -m tools.hooks.lint_code --git-staged; then
+    echo "❌ Commit blocked: fix the findings above (each check says how, and a justified exception is"
+    echo "   NOLINT(<check>): <reason> on its line), then stage and commit."
     exit 1
 fi
 

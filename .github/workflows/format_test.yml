@@ -23,10 +23,11 @@ jobs:
       with:
         python-version: '3.12'
 
-    - name: Install Python formatters
+    - name: Install Python formatters and lint tools
       run: |
         python -m pip install --upgrade pip
         pip install black==24.2.0
+        pip install --require-hashes -r tools/hooks/lint_requirements_lock.txt
 
     - name: Install clang-format
       run: |
@@ -64,12 +65,12 @@ jobs:
           echo "✅ No formatting changes needed"
         fi
 
-    # The repository's linter: IFTTT directives, whitespace, clang-format, black and the Google-style argument comments
-    # on literal arguments (tools/hooks/argument_comments.py). Run after `make format`, so a failure here is a rule the
-    # formatter cannot fix.
+    # The repository's linter (make lint): IFTTT directives, whitespace, clang-format, black, the token checks of
+    # tools/hooks/checks.py, cpplint, pylint and mypy. Run after `make format`, so a failure here is a rule the formatter
+    # cannot fix. GitHub sets CI=true, so a lint tool missing from the lock's install is an error here.
     - name: Run linter
       id: lint
-      run: python3 tools/hooks/lint_code.py
+      run: python3 -m tools.hooks.lint_code
 
     - name: Display formatting instructions
       if: steps.format-check.outputs.changes == 'true'

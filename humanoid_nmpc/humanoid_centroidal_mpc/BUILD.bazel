@@ -21,6 +21,7 @@ cc_library(
         "src/command/CentroidalMpcTargetTrajectoriesCalculator.cpp",
         "src/mrt/CentroidalMpcMrtJointController.cpp",
         "src/mrt/CentroidalMpcParameterUpdater.cpp",
+        "src/mrt/CentroidalMpcResetTarget.cpp",
         "src/mrt/MpcParameterUpdaterModule.cpp",
     ],
     hdrs = glob(["include/**"], allow_empty = True),
@@ -31,21 +32,18 @@ cc_library(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     deps = [
         "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_mpc_ipc:realtime_policy_evaluator",
         "//robot_runtime/robot_model",
         "//lib/ocs2:ocs2_core",
         "//lib/ocs2:ocs2_centroidal_model",
-        "//lib/ocs2:ocs2_ros2_interfaces",
         "//lib/ocs2:ocs2_ddp",
         "//lib/ocs2:ocs2_mpc",
         "//lib/ocs2:ocs2_sqp",
         "//lib/ocs2:ocs2_pinocchio_interface",
+        "@abseil-cpp//absl/base:core_headers",
         "@abseil-cpp//absl/container:flat_hash_map",
         "@abseil-cpp//absl/log:check",
         "@abseil-cpp//absl/log:log",
@@ -53,12 +51,9 @@ cc_library(
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/synchronization",
         "@eigen",
-        "@boost",
         "@pinocchio",
-        "@ros2_rclcpp",
-        "@ros2_std_msgs",
-        "@ros2_ament_index_cpp",
     ],
 )
 
@@ -74,10 +69,6 @@ cc_test(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     data = [
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
@@ -85,13 +76,12 @@ cc_test(
     ],
     deps = [
         ":humanoid_centroidal_mpc",
+        "//robot_runtime/robot_core:resource_paths",
         "@abseil-cpp//absl/log:scoped_mock_log",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
-        "@ros2_rclcpp",
-        "@ros2_std_msgs",
     ],
 )
 
@@ -106,10 +96,6 @@ cc_test(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     data = [
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
@@ -136,10 +122,6 @@ cc_test(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     data = [
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
@@ -147,8 +129,8 @@ cc_test(
     ],
     deps = [
         ":humanoid_centroidal_mpc",
+        "//robot_runtime/robot_core:resource_paths",
         "@googletest//:gtest_main",
-        "@ros2_ament_index_cpp",
     ],
 )
 
@@ -162,10 +144,6 @@ cc_test(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     data = [
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
@@ -174,11 +152,11 @@ cc_test(
     deps = [
         ":humanoid_centroidal_mpc",
         ":problem_fingerprint",
+        "//robot_runtime/robot_core:resource_paths",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
-        "@ros2_ament_index_cpp",
     ],
 )
 
@@ -195,12 +173,8 @@ cc_library(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
-    strip_include_prefix = "test",
+    includes = ["test"],
     deps = [
         ":humanoid_centroidal_mpc",
         "//lib/ocs2:ocs2_oc",
@@ -222,10 +196,6 @@ cc_test(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     # LINT.IfChange(formulation_names_data)
     data = [
@@ -259,10 +229,6 @@ cc_test(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     # LINT.IfChange(shipped_contact_planning_files_data)
     data = [
@@ -293,10 +259,6 @@ cc_test(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     # LINT.IfChange(nominal_pendulum_data)
     data = [
@@ -329,10 +291,6 @@ cc_test(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     data = [
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
@@ -340,11 +298,11 @@ cc_test(
     ],
     deps = [
         ":humanoid_centroidal_mpc",
+        "//robot_runtime/robot_core:resource_paths",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
-        "@ros2_ament_index_cpp",
     ],
 )
 
@@ -360,10 +318,6 @@ cc_test(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     data = [
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
@@ -388,10 +342,6 @@ cc_test(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     data = [
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
@@ -399,11 +349,11 @@ cc_test(
     ],
     deps = [
         ":humanoid_centroidal_mpc",
+        "//robot_runtime/robot_core:resource_paths",
         "@abseil-cpp//absl/log:scoped_mock_log",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
-        "@ros2_ament_index_cpp",
     ],
 )
 
@@ -425,19 +375,15 @@ cc_library(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
-    strip_include_prefix = "test",
+    includes = ["test"],
     deps = [
         ":humanoid_centroidal_mpc",
+        "//robot_runtime/robot_core:resource_paths",
         "@abseil-cpp//absl/log:check",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest",
-        "@ros2_ament_index_cpp",
     ],
 )
 
@@ -451,10 +397,6 @@ cc_test(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     data = [
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
@@ -462,11 +404,11 @@ cc_test(
     ],
     deps = [
         ":humanoid_centroidal_mpc",
+        "//robot_runtime/robot_core:resource_paths",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
-        "@ros2_ament_index_cpp",
     ],
 )
 
@@ -480,10 +422,6 @@ cc_test(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     data = [
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
@@ -493,7 +431,6 @@ cc_test(
         ":contact_test_support",
         ":humanoid_centroidal_mpc",
         "@googletest//:gtest_main",
-        "@ros2_ament_index_cpp",
     ],
 )
 
@@ -507,10 +444,6 @@ cc_test(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     deps = [
         ":humanoid_centroidal_mpc",
@@ -528,10 +461,6 @@ cc_test(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     data = [
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
@@ -547,7 +476,6 @@ cc_test(
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
-        "@ros2_ament_index_cpp",
     ],
 )
 
@@ -564,10 +492,6 @@ cc_test(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     data = [
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
@@ -575,9 +499,9 @@ cc_test(
     ],
     deps = [
         ":humanoid_centroidal_mpc",
+        "//robot_runtime/robot_core:resource_paths",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
-        "@ros2_ament_index_cpp",
     ],
 )
 
@@ -591,10 +515,6 @@ cc_test(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     data = [
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
@@ -602,8 +522,8 @@ cc_test(
     ],
     deps = [
         ":humanoid_centroidal_mpc",
+        "//robot_runtime/robot_core:resource_paths",
         "@googletest//:gtest_main",
-        "@ros2_ament_index_cpp",
     ],
 )
 
@@ -617,10 +537,6 @@ cc_test(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     data = [
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
@@ -628,8 +544,8 @@ cc_test(
     ],
     deps = [
         ":humanoid_centroidal_mpc",
+        "//robot_runtime/robot_core:resource_paths",
         "@googletest//:gtest_main",
-        "@ros2_ament_index_cpp",
     ],
 )
 
@@ -642,10 +558,6 @@ cc_test(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     data = [
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
@@ -654,14 +566,12 @@ cc_test(
     deps = [
         ":humanoid_centroidal_mpc",
         "//humanoid_nmpc/humanoid_common_mpc",
-        "//humanoid_nmpc/humanoid_common_mpc_ros2",
+        "//robot_runtime/robot_core:resource_paths",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
-        "@ros2_ament_index_cpp",
-        "@ros2_std_msgs",
     ],
 )
 
@@ -678,12 +588,8 @@ cc_library(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
-    strip_include_prefix = "test",
+    includes = ["test"],
     deps = [
         ":humanoid_centroidal_mpc",
         "//lib/ocs2:ocs2_mpc_test_support",
@@ -705,10 +611,6 @@ cc_test(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     data = [
         "//humanoid_nmpc/humanoid_common_mpc:gait_config",
@@ -736,10 +638,6 @@ cc_test(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     data = [
         "//humanoid_nmpc/humanoid_common_mpc:gait_config",
@@ -767,10 +665,6 @@ cc_test(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     data = [
         "//humanoid_nmpc/humanoid_common_mpc:gait_config",
@@ -786,8 +680,71 @@ cc_test(
     ],
 )
 
+# The joint PD gains of CentroidalMpcMrtJointController set from other threads: taken into use by the next control cycle
+# without an allocation of its own, a malformed document refused on the caller's thread, the gains file watched by
+# pollPdGainsFile(). A target of its own, because the allocation counter replaces malloc for the whole binary.
+cc_test(
+    name = "testMrtJointControllerPdGains",
+    size = "small",
+    srcs = ["test/testMrtJointControllerPdGains.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+    ],
+    data = [
+        "//humanoid_nmpc/humanoid_common_mpc:gait_config",
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    linkstatic = True,
+    deps = [
+        ":humanoid_centroidal_mpc",
+        ":reference_stack_support",
+        "//humanoid_state_estimation/humanoid_state_estimator:allocation_counter",
+        "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The reset target of the centroidal MPC (CentroidalMpcResetTarget.h): its properties, and that it is what the MRT joint
+# controller hands its MPC link and what the in-process link resets the MPC to, so that the MPC node, which calls it
+# itself, resets to the same target.
+cc_test(
+    name = "testCentroidalMpcResetTarget",
+    size = "small",
+    srcs = ["test/testCentroidalMpcResetTarget.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+    ],
+    data = [
+        "//humanoid_nmpc/humanoid_common_mpc:gait_config",
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":humanoid_centroidal_mpc",
+        ":reference_stack_support",
+        "//lib/ocs2:ocs2_centroidal_model",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_mpc_test_support",
+        "//lib/ocs2:ocs2_robotic_tools",
+        "//robot_runtime/robot_model",
+        "@googletest//:gtest_main",
+    ],
+)
+
 # The yaw residual of the swing-foot cost: the wrapped yaw error at every non-singular orientation, and finite
-# derivatives at a yaw of exactly zero, where the atan2 it replaced had none. Generates the foot cost's CppAD library.
+# derivatives at a yaw of exactly zero, where the atan2 it replaced had none; and the cost's parameters, which read the
+# reference manager and not the solver's target. Generates the foot cost's CppAD library.
 cc_test(
     name = "testFootYawResidual",
     size = "large",
@@ -798,10 +755,6 @@ cc_test(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     data = [
         "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
@@ -812,7 +765,6 @@ cc_test(
         ":humanoid_centroidal_mpc",
         "@googletest//:gtest_main",
         "@pinocchio",
-        "@ros2_ament_index_cpp",
     ],
 )
 
@@ -829,10 +781,6 @@ cc_test(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     data = [
         "//humanoid_nmpc/humanoid_common_mpc:gait_config",
@@ -848,5 +796,30 @@ cc_test(
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@googletest//:gtest_main",
+    ],
+)
+
+# CentroidalMpcInterface::CreateControllerModels(), the models of a remote MPC's robot process: no reference manager and
+# no optimal control problem, the effective model of the contact input parameterization. Builds no CppAD model.
+cc_test(
+    name = "testCentroidalMpcInterfaceControllerModels",
+    size = "small",
+    srcs = ["test/testCentroidalMpcInterfaceControllerModels.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Werror=return-type",
+    ],
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/drc_atlas/drc_atlas_description",
+    ],
+    deps = [
+        ":humanoid_centroidal_mpc",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@googletest//:gtest_main",
+        "@pinocchio",
     ],
 )

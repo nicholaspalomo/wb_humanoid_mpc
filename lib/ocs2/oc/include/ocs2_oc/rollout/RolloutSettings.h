@@ -75,17 +75,15 @@ struct Settings {
 
 /**
  * This function loads the "rollout::Settings" variables from a config file. This file contains the settings for the Rollout algorithms.
- * Here, we use the INFO format which was created specifically for the property tree library (refer to www.goo.gl/fV3yWA).
+ * The file is YAML (extension .yaml or .yml), read by loadData::readPropertyTree(), which refuses any other format.
  *
  * It has the following format: <br>
- * rollout  <br>
- * {  <br>
- *   absTolODE                value   <br>
- *   relTolODE                value   <br>
- *   maxNumStepsPerSecond     value   <br>
- *   timeStep                 value   <br>
+ * rollout:  <br>
+ *   AbsTolODE:                value   <br>
+ *   RelTolODE:                value   <br>
+ *   maxNumStepsPerSecond:     value   <br>
+ *   timeStep:                 value   <br>
  *   (and so on for the other fields) <br>
- * }  <br>
  *
  * If a value for a specific field is not defined it will set to the default value defined in "rollout::Settings".
  *

@@ -30,7 +30,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/contact/ContactPolygon.h"
 
-#include <boost/property_tree/ptree.hpp>
+#include <string>
+#include <vector>
 
 namespace ocs2::humanoid {
 

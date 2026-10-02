@@ -13,8 +13,6 @@
 #   test_tools/qp_solver/ (was ocs2_test_tools/ocs2_qp_solver)
 #   pinocchio/pinocchio_interface/ (was ocs2_pinocchio/ocs2_pinocchio_interface)
 #   pinocchio/centroidal_model/    (was ocs2_pinocchio/ocs2_centroidal_model)
-#   ros2_msgs/     (was ocs2_ros2_msgs)
-#   ros2_interfaces/ (was ocs2_ros2_interfaces)
 
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
@@ -28,12 +26,6 @@ package(default_visibility = ["//visibility:public"])
 _OCS2_COPTS = [
     "-std=c++20",
     "-pthread",
-    "-DBOOST_ALL_DYN_LINK",
-    "-DBOOST_SPIRIT_THREADSAFE",
-    "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-    "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-    "-DBOOST_VARIANT_LIMIT_TYPES=50",
-    "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     "-fopenmp",
     "-Wno-ignored-attributes",
     "-fPIC",
@@ -43,12 +35,6 @@ _OCS2_LINKOPTS = [
     "-lpthread",
     "-ldl",
     "-fopenmp",
-]
-
-# Pinocchio-specific compile options
-_PINOCCHIO_COPTS = _OCS2_COPTS + [
-    "-DPINOCCHIO_URDFDOM_TYPEDEF_SHARED_PTR",
-    "-DPINOCCHIO_URDFDOM_USE_STD_SHARED_PTR",
 ]
 
 # ==============================================================================
@@ -62,24 +48,57 @@ cc_library(
 )
 
 # ==============================================================================
-# 2. ocs2_core
+# 2. ocs2_core_types and ocs2_core
 # ==============================================================================
+
+# The value types of ocs2_core (scalar_t, vector_t, matrix_t and the function approximations) and the linear algebra
+# their checks use, with nothing but Eigen: no CppAD, no integrators, no YAML. Code that needs only the types, such as
+# the state estimator, depends on this rather than on ocs2_core, which re-exports it.
+_OCS2_CORE_TYPES_SRCS = [
+    "core/src/Types.cpp",
+    "core/src/misc/LinearAlgebra.cpp",
+]
+
+_OCS2_CORE_TYPES_HDRS = [
+    "core/include/ocs2_core/NumericTraits.h",
+    "core/include/ocs2_core/Types.h",
+    "core/include/ocs2_core/misc/LinearAlgebra.h",
+    "core/include/ocs2_core/misc/randomMatrices.h",
+]
+
+cc_library(
+    name = "ocs2_core_types",
+    srcs = _OCS2_CORE_TYPES_SRCS,
+    hdrs = _OCS2_CORE_TYPES_HDRS,
+    copts = _OCS2_COPTS,
+    includes = ["core/include"],
+    linkopts = _OCS2_LINKOPTS,
+    deps = ["@eigen"],
+)
 
 cc_library(
     name = "ocs2_core",
     srcs = glob(
         ["core/src/**/*.cpp"],
-        exclude = ["core/src/**/test/**", "core/src/lintTarget.cpp"],
+        exclude = ["core/src/**/test/**"] + _OCS2_CORE_TYPES_SRCS,
         allow_empty = True,
     ),
-    hdrs = glob(["core/include/**"], allow_empty = True),
+    hdrs = glob(
+        ["core/include/**"],
+        exclude = _OCS2_CORE_TYPES_HDRS,
+        allow_empty = True,
+    ),
     copts = _OCS2_COPTS,
     includes = ["core/include"],
     linkopts = _OCS2_LINKOPTS,
     deps = [
+        ":ocs2_core_types",
         ":ocs2_thirdparty",
+        "@abseil-cpp//absl/log:check",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
         "@eigen",
-        "@boost",
         "@yaml_cpp",
     ],
 )
@@ -92,7 +111,7 @@ cc_library(
     name = "ocs2_oc",
     srcs = glob(
         ["oc/src/**/*.cpp"],
-        exclude = ["oc/src/**/test/**", "oc/src/lintTarget.cpp"],
+        exclude = ["oc/src/**/test/**"],
         allow_empty = True,
     ),
     hdrs = glob(["oc/include/**"], allow_empty = True),
@@ -102,8 +121,8 @@ cc_library(
     deps = [
         ":ocs2_core",
         ":ocs2_thirdparty",
+        "@abseil-cpp//absl/log:check",
         "@eigen",
-        "@boost",
     ],
 )
 
@@ -115,7 +134,7 @@ cc_library(
     name = "ocs2_robotic_tools",
     srcs = glob(
         ["robotic_tools/src/**/*.cpp"],
-        exclude = ["robotic_tools/src/**/test/**", "robotic_tools/src/lintTarget.cpp"],
+        exclude = ["robotic_tools/src/**/test/**"],
         allow_empty = True,
     ),
     hdrs = glob(["robotic_tools/include/**"], allow_empty = True),
@@ -127,7 +146,6 @@ cc_library(
         ":ocs2_oc",
         ":ocs2_thirdparty",
         "@eigen",
-        "@boost",
     ],
 )
 
@@ -139,7 +157,7 @@ cc_library(
     name = "ocs2_mpc",
     srcs = glob(
         ["mpc/src/**/*.cpp"],
-        exclude = ["mpc/src/**/test/**", "mpc/src/lintTarget.cpp"],
+        exclude = ["mpc/src/**/test/**"],
         allow_empty = True,
     ),
     hdrs = glob(["mpc/include/**"], allow_empty = True),
@@ -153,7 +171,6 @@ cc_library(
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/strings",
         "@eigen",
-        "@boost",
     ],
 )
 
@@ -176,7 +193,6 @@ cc_library(
         ":ocs2_core",
         ":ocs2_oc",
         "@eigen",
-        "@boost",
     ],
 )
 
@@ -188,22 +204,10 @@ cc_library(
     name = "ocs2_ddp",
     srcs = glob(
         ["ddp/src/**/*.cpp"],
-        exclude = [
-            "ddp/src/**/test/**",
-            "ddp/src/unsupported/**",
-            "ddp/src/DDP_DataCollector.cpp",
-            "ddp/src/lintTarget.cpp",
-        ],
+        exclude = ["ddp/src/**/test/**"],
         allow_empty = True,
     ),
-    hdrs = glob(
-        ["ddp/include/**"],
-        exclude = [
-            "ddp/include/**/unsupported/**",
-            "ddp/include/**/DDP_DataCollector.h",
-        ],
-        allow_empty = True,
-    ),
+    hdrs = glob(["ddp/include/**"], allow_empty = True),
     copts = _OCS2_COPTS,
     includes = ["ddp/include"],
     linkopts = _OCS2_LINKOPTS,
@@ -213,7 +217,6 @@ cc_library(
         ":ocs2_mpc",
         ":ocs2_qp_solver",
         "@eigen",
-        "@boost",
     ],
 )
 
@@ -262,10 +265,10 @@ cc_library(
         ":ocs2_mpc",
         ":ocs2_qp_solver",
         ":ocs2_hpipm_catkin",
+        "@abseil-cpp//absl/log",
         "@blasfeo",
         "@hpipm",
         "@eigen",
-        "@boost",
     ],
 )
 
@@ -281,7 +284,7 @@ cc_library(
         allow_empty = True,
     ),
     hdrs = glob(["pinocchio/pinocchio_interface/include/**"], allow_empty = True),
-    copts = _PINOCCHIO_COPTS,
+    copts = _OCS2_COPTS,
     includes = ["pinocchio/pinocchio_interface/include"],
     linkopts = _OCS2_LINKOPTS,
     deps = [
@@ -292,7 +295,23 @@ cc_library(
         "@pinocchio",
         "@urdf",
         "@eigen",
-        "@boost",
+    ],
+)
+
+# PinocchioEndEffectorKinematics on a model whose configuration is larger than its velocity (an unbounded revolute joint,
+# nq = 3, nv = 2): the frame Jacobians are sized by nv, and the linearizations are the derivatives of the values.
+cc_test(
+    name = "test_end_effector_kinematics_tangent_jacobians",
+    size = "small",
+    srcs = ["pinocchio/pinocchio_interface/test/testEndEffectorKinematicsTangentJacobians.cpp"],
+    copts = _OCS2_COPTS,
+    linkopts = _OCS2_LINKOPTS,
+    deps = [
+        ":ocs2_core",
+        ":ocs2_pinocchio_interface",
+        "@eigen",
+        "@googletest//:gtest_main",
+        "@pinocchio",
     ],
 )
 
@@ -308,7 +327,7 @@ cc_library(
         allow_empty = True,
     ),
     hdrs = glob(["pinocchio/centroidal_model/include/**"], allow_empty = True),
-    copts = _PINOCCHIO_COPTS,
+    copts = _OCS2_COPTS,
     includes = ["pinocchio/centroidal_model/include"],
     linkopts = _OCS2_LINKOPTS,
     deps = [
@@ -318,57 +337,6 @@ cc_library(
         "@pinocchio",
         "@urdf",
         "@eigen",
-        "@boost",
-    ],
-)
-
-# ==============================================================================
-# 13. ocs2_self_collision (DISABLED - requires hpp-fcl, replaced by coal in Jazzy)
-# ==============================================================================
-# Not used by any downstream humanoid_nmpc package.
-# To re-enable: port from hpp-fcl to coal API.
-
-# ==============================================================================
-# 14. ocs2_ros2_msgs (pre-generated headers + type support from colcon install)
-# ==============================================================================
-
-alias(
-    name = "ocs2_ros2_msgs",
-    actual = "@ocs2_ros2_msgs_repo//:ocs2_ros2_msgs",
-)
-
-# ==============================================================================
-# 15. ocs2_ros2_interfaces
-# ==============================================================================
-
-cc_library(
-    name = "ocs2_ros2_interfaces",
-    srcs = glob(
-        ["ros2_interfaces/src/**/*.cpp"],
-        exclude = [
-            "ros2_interfaces/src/**/test/**",
-            "ros2_interfaces/src/lintTarget.cpp",
-            "ros2_interfaces/src/multiplot/MultiplotRemap.cpp",
-        ],
-        allow_empty = True,
-    ),
-    hdrs = glob(["ros2_interfaces/include/**"], allow_empty = True),
-    copts = _OCS2_COPTS,
-    includes = ["ros2_interfaces/include"],
-    linkopts = _OCS2_LINKOPTS,
-    deps = [
-        ":ocs2_core",
-        ":ocs2_ddp",
-        ":ocs2_oc",
-        ":ocs2_mpc",
-        ":ocs2_ros2_msgs",
-        "@ros2_rclcpp",
-        "@ros2_std_msgs",
-        "@ros2_geometry_msgs",
-        "@ros2_visualization_msgs",
-        "@ros2_interactive_markers",
-        "@eigen",
-        "@boost",
     ],
 )
 
@@ -406,6 +374,65 @@ cc_test(
     ],
 )
 
+# The upstream tests of the value types and the linear algebra, built against ocs2_core_types alone: the target is
+# self-contained only while this links without ocs2_core.
+cc_test(
+    name = "test_core_types",
+    size = "small",
+    srcs = [
+        "core/test/misc/testLinearAlgebra.cpp",
+        "core/test/testTypes.cpp",
+    ],
+    copts = _OCS2_COPTS,
+    deps = [
+        ":ocs2_core_types",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "test_property_tree",
+    size = "small",
+    srcs = ["core/test/misc/testPropertyTree.cpp"],
+    copts = _OCS2_COPTS,
+    deps = [
+        ":ocs2_core",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "test_integrators",
+    size = "small",
+    srcs = ["core/test/integration/testIntegrators.cpp"],
+    copts = _OCS2_COPTS,
+    deps = [
+        ":ocs2_core",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The upstream OCS2 integration tests.
+cc_test(
+    name = "test_integration",
+    size = "small",
+    srcs = [
+        "core/test/integration/IntegrationTest.cpp",
+        "core/test/integration/TrapezoidalIntegrationTest.cpp",
+        "core/test/integration/testRungeKuttaDormandPrince5.cpp",
+        "core/test/integration/testSensitivityIntegrator.cpp",
+    ],
+    copts = _OCS2_COPTS,
+    deps = [
+        ":ocs2_core",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
 cc_test(
     name = "test_load_data_yaml",
     size = "small",
@@ -415,8 +442,204 @@ cc_test(
     deps = [
         ":ocs2_core",
         "@eigen",
-        "@boost",
         "@yaml_cpp",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The upstream hybrid SLQ test: a mass bouncing on a wall, through StateTriggeredRollout. Its reference trajectory is
+# extended with the native ODE45 stepper, which replaced the odeint one it used.
+cc_test(
+    name = "test_bouncing_mass",
+    size = "small",
+    srcs = [
+        "ddp/test/bouncingmass/BouncingMassTest.cpp",
+        "ddp/test/bouncingmass/OverallReference.cpp",
+        "ddp/test/bouncingmass/Reference.cpp",
+        "ddp/test/include/ocs2_ddp/test/bouncingmass/OverallReference.h",
+        "ddp/test/include/ocs2_ddp/test/bouncingmass/Reference.h",
+        "ddp/test/include/ocs2_ddp/test/bouncingmass/SystemModel.h",
+    ],
+    copts = _OCS2_COPTS,
+    includes = ["ddp/test/include"],
+    deps = [
+        ":ocs2_core",
+        ":ocs2_ddp",
+        ":ocs2_oc",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# Bitwise parity of the flat SQP path: the solve of a nonlinear toy problem, recorded before the manifold support was
+# added, must come out with the same bits when the problem has no state manifold.
+cc_test(
+    name = "test_sqp_flat_parity",
+    size = "small",
+    srcs = ["sqp/sqp/test/testSqpFlatParity.cpp"],
+    copts = _OCS2_COPTS,
+    # LINT.IfChange(sqp_flat_parity_data)
+    data = [
+        "sqp/sqp/test/data/sqp_flat_parity_golden.txt",
+        "sqp/sqp/test/data/sqp_flat_parity_golden_colcon_hpipm.txt",
+    ],
+    # LINT.ThenChange(//lib/ocs2/sqp/sqp/test/testSqpFlatParity.cpp:golden_path)
+    deps = [
+        ":ocs2_core",
+        ":ocs2_oc",
+        ":ocs2_sqp",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# ==============================================================================
+# State manifold (humanoid_nmpc/docs/quaternion_base_orientation/README.md, section 2.4 and 2.7)
+# ==============================================================================
+
+# A rigid body with a unit-quaternion attitude and taped (CppAD, no code generation) nonlinear terms on it, for the
+# tests of the manifold machinery.
+cc_library(
+    name = "ocs2_manifold_test_support",
+    testonly = True,
+    hdrs = [
+        "oc/test/include/ocs2_oc/test/RigidBodyAttitudeDynamics.h",
+        "oc/test/include/ocs2_oc/test/TapedFunction.h",
+        "oc/test/include/ocs2_oc/test/TapedRigidBodyTerms.h",
+    ],
+    copts = _OCS2_COPTS,
+    includes = ["oc/test/include"],
+    deps = [
+        ":ocs2_core",
+        "@eigen",
+    ],
+)
+
+cc_test(
+    name = "test_state_manifold",
+    size = "small",
+    srcs = ["core/test/manifold/testStateManifold.cpp"],
+    copts = _OCS2_COPTS,
+    deps = [
+        ":ocs2_core",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "test_manifold_linear_controller",
+    size = "small",
+    srcs = ["core/test/control/testManifoldLinearController.cpp"],
+    copts = _OCS2_COPTS,
+    deps = [
+        ":ocs2_core",
+        "@abseil-cpp//absl/log:check",
+        "@abseil-cpp//absl/status:statusor",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# Generates and compiles three small CppAD libraries: exclusive, so that its compiler runs do not overlap other tests.
+cc_test(
+    name = "test_cppad_library_dimension_check",
+    size = "medium",
+    srcs = ["core/test/automatic_differentiation/testCppAdLibraryDimensionCheck.cpp"],
+    copts = _OCS2_COPTS,
+    tags = ["exclusive"],
+    deps = [
+        ":ocs2_core",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "test_cppad_library_observer",
+    size = "medium",
+    srcs = ["core/test/automatic_differentiation/testCppAdLibraryObserver.cpp"],
+    copts = _OCS2_COPTS,
+    tags = ["exclusive"],
+    deps = [
+        ":ocs2_core",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "test_manifold_projection",
+    size = "small",
+    srcs = [
+        "oc/test/multiple_shooting/testManifoldProjection.cpp",
+        "oc/test/multiple_shooting/testManifoldShootingHelpers.cpp",
+    ],
+    copts = _OCS2_COPTS,
+    deps = [
+        ":ocs2_core",
+        ":ocs2_manifold_test_support",
+        ":ocs2_oc",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "test_time_triggered_rollout_manifold",
+    size = "small",
+    srcs = ["oc/test/rollout/testTimeTriggeredRolloutManifold.cpp"],
+    copts = _OCS2_COPTS,
+    deps = [
+        ":ocs2_core",
+        ":ocs2_manifold_test_support",
+        ":ocs2_oc",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "test_mrt_state_manifold",
+    size = "small",
+    srcs = ["mpc/test/testMrtStateManifold.cpp"],
+    copts = _OCS2_COPTS,
+    deps = [
+        ":ocs2_core",
+        ":ocs2_mpc",
+        ":ocs2_oc",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "test_ddp_state_manifold_guard",
+    size = "small",
+    srcs = ["ddp/test/testDdpStateManifoldGuard.cpp"],
+    copts = _OCS2_COPTS,
+    deps = [
+        ":ocs2_core",
+        ":ocs2_ddp",
+        ":ocs2_manifold_test_support",
+        ":ocs2_oc",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The SQP on SO(3) in closed loop: a 720 degree turn of a rigid body with a unit-quaternion attitude.
+cc_test(
+    name = "test_sqp_on_so3",
+    size = "medium",
+    srcs = ["sqp/sqp/test/testSqpOnSO3.cpp"],
+    copts = _OCS2_COPTS,
+    deps = [
+        ":ocs2_core",
+        ":ocs2_manifold_test_support",
+        ":ocs2_oc",
+        ":ocs2_sqp",
+        "@eigen",
         "@googletest//:gtest_main",
     ],
 )

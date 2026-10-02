@@ -29,15 +29,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicConfig.h"
 
-#include <boost/property_tree/ptree.hpp>
-
 #include <cmath>
+#include <optional>
 #include <stdexcept>
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <ocs2_core/misc/LoadData.h>
+#include <ocs2_core/misc/PropertyTree.h>
 
 #include "absl/log/log.h"
 #include "absl/status/status.h"
@@ -49,8 +50,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace ocs2::humanoid {
 
 namespace {
-
-using boost::property_tree::ptree;
 
 /** True for the "[0]", "[1]", ... keys loadData::yamlToPropertyTree() gives the children of a YAML sequence. */
 bool isSequenceIndex(absl::string_view key) {
@@ -69,10 +68,10 @@ bool isSequenceIndex(absl::string_view key) {
  * uncommenting a name produces a valid sequence. (A flow `base_pose: []` followed by an uncommented `- name` is not
  * YAML at all.)
  */
-absl::StatusOr<std::vector<std::string>> readList(const ptree& block, absl::string_view key) {
+absl::StatusOr<std::vector<std::string>> readList(const PropertyTree& block, absl::string_view key) {
   std::vector<std::string> list;
-  const boost::optional<const ptree&> child = block.get_child_optional(std::string(key));
-  if (!child) return list;
+  const PropertyTree* child = block.findChild(key);
+  if (child == nullptr) return list;
   // A YAML sequence converts to a node with children and NO data of its own, a scalar to one with data and no
   // children, and a map to one with children whose keys are the map's. All three used to read as "no heuristic",
   // which is right only for the first (and for a null, which is what a list whose entries are all commented out
@@ -83,7 +82,7 @@ absl::StatusOr<std::vector<std::string>> readList(const ptree& block, absl::stri
         absl::StrCat("[LocomotionHeuristicConfig] locomotion_heuristics.", key, " must be a list of heuristic names, but is the scalar '",
                      child->data(), "'. Write it as a YAML sequence: `", key, ":\n    - <name>`, or `", key, ": []` for none."));
   }
-  for (const std::pair<const std::string, ptree>& item : *child) {
+  for (const std::pair<const std::string, PropertyTree>& item : *child) {
     // loadData::yamlToPropertyTree() keys a sequence's children "[0]", "[1]", ...; a map's children keep their own
     // keys. Anything that is not an index is therefore a map where a list belongs.
     if (!isSequenceIndex(item.first)) {
@@ -100,8 +99,8 @@ absl::StatusOr<std::vector<std::string>> readList(const ptree& block, absl::stri
                                                      item.second.begin()->first, "'). Did you write `- ", item.second.begin()->first,
                                                      ":` with a trailing colon? Write `- ", item.second.begin()->first, "`."));
     }
-    // An item with neither data nor children is a dash followed only by a comment; ptree cannot tell that from an
-    // empty string, and it names nothing either way.
+    // An item with neither data nor children is a dash followed only by a comment; the property tree cannot tell that
+    // from an empty string, and it names nothing either way.
     const std::string value = item.second.data();
     if (!value.empty()) list.push_back(value);
   }
@@ -112,17 +111,17 @@ absl::StatusOr<std::vector<std::string>> readList(const ptree& block, absl::stri
  * Reads one scalar of the block into `target`, leaving it untouched when the key is absent, and returns an error that
  * names the key and the offending text when it is present but not a number.
  *
- * loadPtreeValue() catches only the missing-key case; a present value that does not parse throws ptree_bad_data, whose
- * message names neither the key nor the value. Caught here, per key, so that `rollOffset: 0.0.1` is reported as
- * exactly that rather than as "conversion of data to type d failed" somewhere among forty keys.
+ * loadPtreeValue() catches only the missing-key case; a present value that does not parse throws PropertyTreeBadData.
+ * Caught here, per key, so that `rollOffset: 0.0.1` comes back as a status naming the file, the key and the text,
+ * rather than as an exception out of a loader whose contract is to return one.
  */
 absl::Status loadScalar(
-    const ptree& pt, absl::string_view prefix, scalar_t& target, absl::string_view key, absl::string_view file, bool verbose) {
+    const PropertyTree& pt, absl::string_view prefix, scalar_t& target, absl::string_view key, absl::string_view file, bool verbose) {
   const std::string path = absl::StrCat(prefix, key);
   try {
     loadData::loadPtreeValue(pt, target, path, verbose);
   } catch (const std::exception& /*exception*/) {
-    const boost::optional<std::string> text = pt.get_optional<std::string>(path);
+    const std::optional<std::string> text = pt.getOptional<std::string>(path);
     return absl::InvalidArgumentError(absl::StrCat("[LocomotionHeuristicConfig] ", path, " in '", file, "' is '",
                                                    text.has_value() ? *text : std::string("?"), "', which is not a number."));
   }
@@ -292,16 +291,16 @@ absl::Status LocomotionHeuristicConfig::validate() const {
 absl::StatusOr<LocomotionHeuristicConfig> loadLocomotionHeuristicConfig(absl::string_view taskFile, bool verbose) {
   LocomotionHeuristicConfig config;
   const std::string taskFilePath(taskFile);
-  ptree pt;
+  PropertyTree pt;
   try {
     loadData::readPropertyTree(taskFilePath, pt);
   } catch (const std::exception& exception) {
     return absl::NotFoundError(absl::StrCat("[LocomotionHeuristicConfig] failed to read '", taskFilePath, "': ", exception.what()));
   }
 
-  const ptree& constPt = pt;
-  const boost::optional<const ptree&> block = constPt.get_child_optional(kLocomotionHeuristicsBlockKey);
-  if (!block) {
+  const PropertyTree& constPt = pt;
+  const PropertyTree* block = constPt.findChild(kLocomotionHeuristicsBlockKey);
+  if (block == nullptr) {
     // A task file without the block is a robot that has not been given the layer, and the default configuration is an
     // exact no-op. This is deliberately silent even when verbose: it is the state of every robot in the repository
     // until someone opts one of them in, and a start-up warning that fires on every launch of every robot is noise.

@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package robot_ipc_proto;
+
+import "nproto/options.proto";
+
+// The nodes of the ZeroMQ bus (robot_runtime/robot_ipc/README.md): the schema of the network file,
+// config/ipc/network.textproto. Every process that publishes binds one PUB socket at the endpoint of its node; every
+// process that subscribes connects one SUB socket to the endpoint of every node.
+//
+// Both loaders (robot_ipc/NetworkConfig.h and robot_ipc.load_network_config) parse the file strictly: an unknown
+// field, a value of the wrong type or a syntax error is an error that names the file, the line and the column. They
+// then validate the nodes, and an error names the node.
+// Next ID: 2
+message NetworkConfig {
+  option (nproto.generate_struct) = "robot::ipc::msgs::NetworkConfig";
+
+  reserved 2 to max;
+
+  // One node of the bus.
+  // Next ID: 5
+  message Node {
+    reserved 5 to max;
+
+    // The node name a process publishes as (--ipc_node), e.g. "robot": letters, digits, '_' and '-'. Unique.
+    string name = 1;
+    // The address the other processes connect to, and the one this node binds unless bind_host is set: an IPv4
+    // address or a host name, without a scheme or a port. "0.0.0.0" (or "*") binds every interface, and the other
+    // processes then connect over loopback, which only suits a single machine. Required.
+    string host = 2;
+    // The TCP port, in [1, 65535]. Required.
+    uint32 port = 3;
+    // The interface to bind instead of host, e.g. "0.0.0.0" on a machine whose peers know its address. Empty: host.
+    string bind_host = 4;
+  }
+
+  // In the order the subscribers connect to them.
+  repeated Node nodes = 1;
+}

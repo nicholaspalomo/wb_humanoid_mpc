@@ -22,7 +22,7 @@ cc_library(
     copts = _COPTS,
     deps = [
         "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
-        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "@abseil-cpp//absl/container:flat_hash_map",
         "@abseil-cpp//absl/functional:function_ref",
         "@abseil-cpp//absl/status",
@@ -46,7 +46,7 @@ cc_test(
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/types:span",
         "@eigen",
-        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "@googletest//:gtest_main",
     ],
 )
@@ -78,7 +78,7 @@ cc_test(
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@eigen",
-        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
         "@googletest//:gtest_main",
     ],
 )
@@ -97,6 +97,6 @@ cc_binary(
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@eigen",
-        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_core_types",
     ],
 )

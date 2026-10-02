@@ -37,7 +37,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_centroidal_model/FactoryFunctions.h>
 #include <ocs2_core/misc/LoadData.h>
-#include <ament_index_cpp/get_package_share_directory.hpp>
 #include <pinocchio/algorithm/center-of-mass.hpp>
 #include <pinocchio/algorithm/frames.hpp>
 #include <pinocchio/algorithm/kinematics.hpp>
@@ -56,6 +55,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
+#include "robot_core/ResourcePaths.h"
 
 namespace ocs2::humanoid {
 
@@ -74,11 +74,9 @@ class PlannedDcmReferenceManager final : public SwitchedModelReferenceManager {
 class DcmTerminalCostTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    const std::string configDir = ament_index_cpp::get_package_share_directory("drc_atlas_centroidal_mpc");
-    const std::string descriptionDir = ament_index_cpp::get_package_share_directory("drc_atlas_description");
-    taskFile_ = configDir + "/config/mpc/task.yaml";
-    referenceFile_ = configDir + "/config/command/reference.yaml";
-    urdfFile_ = descriptionDir + "/urdf/atlas.urdf";
+    taskFile_ = robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml").value();
+    referenceFile_ = robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.yaml").value();
+    urdfFile_ = robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf").value();
 
     modelSettings_ = std::make_unique<ModelSettings>(taskFile_, urdfFile_, "testDcmTerminalCost_", /*verbose=*/false);
     pinocchioInterface_ = std::make_unique<PinocchioInterface>(

@@ -44,8 +44,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <pinocchio/multibody/data.hpp>
 #include <pinocchio/multibody/model.hpp>
 
-#include <ament_index_cpp/get_package_share_directory.hpp>
-
 #include <ocs2_centroidal_model/CentroidalModelInfo.h>
 #include <ocs2_centroidal_model/FactoryFunctions.h>
 #include <ocs2_pinocchio_interface/PinocchioInterface.h>
@@ -67,6 +65,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact/ContactWrenchConeBasisMatrix.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
+#include "robot_core/ResourcePaths.h"
 
 namespace ocs2::humanoid {
 namespace {
@@ -140,13 +139,11 @@ vector6_t rotateWrench(const matrix3_t& R, const vector6_t& wrench) {
 class BasisInputsModelDecoratorTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    // Resolve config paths from the installed drc_atlas packages
-    const std::string configDir = ament_index_cpp::get_package_share_directory("drc_atlas_centroidal_mpc");
-    const std::string descriptionDir = ament_index_cpp::get_package_share_directory("drc_atlas_description");
-
-    const std::string taskFile = absl::StrCat(configDir, "/config/mpc/task.yaml");
-    const std::string referenceFile = absl::StrCat(configDir, "/config/command/reference.yaml");
-    const std::string urdfFile = absl::StrCat(descriptionDir, "/urdf/atlas.urdf");
+    // The DRC Atlas files, from the test's runfiles.
+    const std::string taskFile = robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml").value();
+    const std::string referenceFile =
+        robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.yaml").value();
+    const std::string urdfFile = robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf").value();
 
     // Create model settings and pinocchio interface — stored as members to avoid dangling references.
     // MpcRobotModelBase stores modelSettings as `const ModelSettings&`, so the object must outlive the model.
@@ -751,10 +748,9 @@ TEST_F(BasisInputsModelDecoratorTest, BasisDynamicsValidationNamesTheKeyToChange
   EXPECT_TRUE(CentroidalDynamicsBasisInputsAD::validate(*pinocchioInterface_, *centroidalModelInfo_, *modelSettings_, bases).ok());
 
   // A contact frame the URDF does not have. Create() must report it instead of compiling a tape around a bad index.
-  const std::string configDir = ament_index_cpp::get_package_share_directory("drc_atlas_centroidal_mpc");
-  const std::string descriptionDir = ament_index_cpp::get_package_share_directory("drc_atlas_description");
-  ModelSettings brokenSettings(absl::StrCat(configDir, "/config/mpc/task.yaml"), absl::StrCat(descriptionDir, "/urdf/atlas.urdf"),
-                               "basis_decorator_test", /*verbose=*/false);
+  const std::string taskFile = robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml").value();
+  const std::string urdfFile = robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf").value();
+  ModelSettings brokenSettings(taskFile, urdfFile, "basis_decorator_test", /*verbose=*/false);
   brokenSettings.contactNames[1] = "no_such_frame";
   const absl::StatusOr<std::unique_ptr<CentroidalDynamicsBasisInputsAD>> missingFrame =
       CentroidalDynamicsBasisInputsAD::Create(*pinocchioInterface_, *centroidalModelInfo_, "dynamics", brokenSettings, bases);

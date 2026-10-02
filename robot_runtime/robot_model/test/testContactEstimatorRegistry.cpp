@@ -89,8 +89,8 @@ TEST_F(ContactEstimatorRegistryTest, registersTheRobotModelEstimatorsAndCreatesT
   RobotDescription description(urdfPath_.string());
   RobotState state(description, /*contactSize=*/2);
   state.setContactFlag(/*index=*/0, /*contactFlag=*/false);
-  EXPECT_EQ(registry.create("robot_state")->estimateContactFlags(state), (std::vector<bool>{false, true}));
-  EXPECT_EQ(registry.create("always_in_contact")->estimateContactFlags(state), (std::vector<bool>{true, true}));
+  EXPECT_EQ(estimateContactFlags(*registry.create("robot_state"), state), (std::vector<bool>{false, true}));
+  EXPECT_EQ(estimateContactFlags(*registry.create("always_in_contact"), state), (std::vector<bool>{true, true}));
   EXPECT_EQ(registry.create("always_in_contact")->getName(), "AlwaysInContactEstimator");
 }
 

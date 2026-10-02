@@ -298,6 +298,7 @@ MujocoSimInterface::MujocoSimInterface(const MujocoSimConfig& config, const std:
   originalDofDamping_.assign(mujocoModel_->dof_damping, mujocoModel_->dof_damping + mujocoModel_->nv);
   // Boost damping for smooth ragdoll settling. Robot joints only: the root's six dofs and the ball's are skipped.
   setRobotJointDamping(mujocoModel_, dodgeballBodyId_, kRagdollJointDamping);
+  ragdollDampingApplied_ = true;
 
   // Initialize lock-free triple buffer for sim→render state transfer.
   // Each slot holds an MjState with its own mjData copy.
@@ -318,22 +319,28 @@ MujocoSimInterface::MujocoSimInterface(const MujocoSimConfig& config, const std:
 /******************************************************************************************************/
 
 void MujocoSimInterface::enableTorques() {
-  // Restore original dof_damping for MPC active control
-  if (!originalDofDamping_.empty()) {
-    for (int i = 0; i < mujocoModel_->nv; ++i) {
-      mujocoModel_->dof_damping[i] = originalDofDamping_[i];
-    }
-  }
-  zeroTorqueMode_ = false;
+  // First the latched action: an action applied before the torques went off must never reach the actuators.
+  discardAppliedJointAction();
+  zeroTorqueMode_.store(false);
 }
 
 void MujocoSimInterface::disableTorques() {
-  // Boost joint damping for smooth ragdoll settling
-  if (originalDofDamping_.empty()) {
-    originalDofDamping_.assign(mujocoModel_->dof_damping, mujocoModel_->dof_damping + mujocoModel_->nv);
+  zeroTorqueMode_.store(true);
+}
+
+void MujocoSimInterface::applyTorqueSwitch() {
+  const bool zeroTorque = zeroTorqueMode_.load();
+  if (zeroTorque == ragdollDampingApplied_) return;
+  if (zeroTorque) {
+    // Boost joint damping for smooth ragdoll settling.
+    setRobotJointDamping(mujocoModel_, dodgeballBodyId_, kRagdollJointDamping);
+  } else {
+    // Restore the original dof_damping for active control.
+    for (size_t i = 0; i < originalDofDamping_.size(); ++i) {
+      mujocoModel_->dof_damping[i] = originalDofDamping_[i];
+    }
   }
-  setRobotJointDamping(mujocoModel_, dodgeballBodyId_, kRagdollJointDamping);
-  zeroTorqueMode_ = true;
+  ragdollDampingApplied_ = zeroTorque;
 }
 
 /******************************************************************************************************/
@@ -610,7 +617,19 @@ void MujocoSimInterface::updateThreadSafeRobotState() {
 
   robotStateInternal_.setTime(mujocoData_->time);  // Todo Manu: should mujoco be the source of time?
 
-  threadSafeRobotState_.set(robotStateInternal_);
+  publishRobotState(robotStateInternal_);
+
+  // The foot sensors of the same step, for takeMeasuredFootForces().
+  MeasuredFootForces& forces = footForceBuffer_.writeSlot();
+  forces.left = footSensorForce(left_foot_sensor_addr_);
+  forces.right = footSensorForce(right_foot_sensor_addr_);
+  footForceBuffer_.publishWrite();
+}
+
+vector3_t MujocoSimInterface::footSensorForce(size_t sensorAddress) const {
+  if (sensorAddress == kNoSensor) return vector3_t::Zero();
+  return vector3_t(mujocoData_->sensordata[sensorAddress], mujocoData_->sensordata[sensorAddress + 1],
+                   mujocoData_->sensordata[sensorAddress + 2]);
 }
 
 /******************************************************************************************************/
@@ -643,14 +662,17 @@ void MujocoSimInterface::updateMetrics() {
 /******************************************************************************************************/
 
 void MujocoSimInterface::simulationStep() {
-  if (zeroTorqueMode_.load()) {
+  // The torque switch of another thread takes effect here, on the thread that owns the model.
+  applyTorqueSwitch();
+  // The newest action, unless the torques are off or it was applied before they came back on (enableTorques()).
+  const bool actionCurrent = takeJointAction(robotJointActionInternal_);
+  if (ragdollDampingApplied_ || !actionCurrent) {
     // Zero-torque / ragdoll mode: zero all actuator commands.
     // Joint damping is handled by MuJoCo's native dof_damping (boosted on entry).
     for (int i = 0; i < mujocoModel_->nu; ++i) {
       mujocoData_->ctrl[i] = 0.0;
     }
   } else {
-    threadSafeRobotJointAction_.copy_value(robotJointActionInternal_);
     for (size_t i = 0; i < nActuators_; ++i) {
       joint_index_t idx = activeRobotActuatorIndices_[i];
       const robot::model::JointAction& jointAction = robotJointActionInternal_.at(idx).value();
@@ -909,17 +931,15 @@ void MujocoSimInterface::copyContactTimeline(std::vector<ContactTimelineSample>&
 }
 
 void MujocoSimInterface::throwDodgeball(const DodgeballThrow& throwCommand) {
-  std::lock_guard<std::mutex> lock(dodgeballMutex_);
   // A second throw before the first has been picked up replaces it rather than queueing: the button is a one-shot
   // and an operator pressing it twice in one control cycle means "throw now", not "throw twice".
-  pendingDodgeball_ = throwCommand;
+  dodgeballMailbox_.writeSlot() = throwCommand;
+  dodgeballMailbox_.publishWrite();
 }
 
 void MujocoSimInterface::cancelDodgeball() {
-  {
-    std::lock_guard<std::mutex> lock(dodgeballMutex_);
-    pendingDodgeball_.reset();
-  }
+  // Taking a staged throw without using it drops it.
+  dodgeballMailbox_.acquireRead();
   scheduledImpactTime_ = -1.0;
   parkProjectile();
   if (dodgeballImpulseApplied_ && robotRootBodyId() >= 0) {
@@ -952,9 +972,8 @@ void MujocoSimInterface::applyDodgeball() {
   }
 
   std::optional<DodgeballThrow> staged;
-  {
-    std::lock_guard<std::mutex> lock(dodgeballMutex_);
-    staged.swap(pendingDodgeball_);
+  if (dodgeballMailbox_.acquireRead()) {
+    staged = dodgeballMailbox_.readSlot();
   }
 
   if (staged.has_value()) {
@@ -1132,20 +1151,15 @@ void MujocoSimInterface::copyTargetContactPatches(std::vector<TargetContactPatch
   out = targetContactPatches_;
 }
 
-vector3_t MujocoSimInterface::getLeftFootMeasuredForce() const {
-  if (left_foot_sensor_addr_ != static_cast<size_t>(-1) && mujocoData_ != nullptr) {
-    return vector3_t(mujocoData_->sensordata[left_foot_sensor_addr_], mujocoData_->sensordata[left_foot_sensor_addr_ + 1],
-                     mujocoData_->sensordata[left_foot_sensor_addr_ + 2]);
-  }
-  return vector3_t::Zero();
+void MujocoSimInterface::takeMeasuredFootForces(vector3_t& left, vector3_t& right) {
+  footForceBuffer_.acquireRead();
+  const MeasuredFootForces& forces = footForceBuffer_.readSlot();
+  left = forces.left;
+  right = forces.right;
 }
 
-vector3_t MujocoSimInterface::getRightFootMeasuredForce() const {
-  if (right_foot_sensor_addr_ != static_cast<size_t>(-1) && mujocoData_ != nullptr) {
-    return vector3_t(mujocoData_->sensordata[right_foot_sensor_addr_], mujocoData_->sensordata[right_foot_sensor_addr_ + 1],
-                     mujocoData_->sensordata[right_foot_sensor_addr_ + 2]);
-  }
-  return vector3_t::Zero();
+std::vector<double> MujocoSimInterface::actuatorControlsForTesting() const {
+  return std::vector<double>(mujocoData_->ctrl, mujocoData_->ctrl + mujocoModel_->nu);
 }
 
 }  // namespace robot::mujoco_sim_interface

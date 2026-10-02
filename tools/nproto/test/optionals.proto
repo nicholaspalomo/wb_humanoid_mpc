@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package nproto_test;
+
+import "nproto/options.proto";
+import "tools/nproto/test/outer.proto";
+import "tools/nproto/test/scalars.proto";
+import "tools/nproto/test/severity.proto";
+
+// proto3 `optional` fields keep their presence as std::optional; the others do not.
+// Next ID: 12
+message Optionals {
+  option (nproto.generate_struct) = "nproto::test::Optionals";
+
+  reserved 12 to max;
+
+  optional double maybe_double = 1;
+  optional int32 maybe_int32 = 2;
+  optional uint64 maybe_uint64 = 3;
+  optional bool maybe_bool = 4;
+  optional string maybe_string = 5;
+  optional bytes maybe_bytes = 6;
+  optional Severity maybe_severity = 7;
+  optional Scalars maybe_scalars = 8;
+  optional Outer.Kind maybe_kind = 9;
+  double plain_double = 10;
+  Scalars plain_scalars = 11;
+}

@@ -1,22 +1,204 @@
+load("@lint_deps//:requirements.bzl", lint_requirement = "requirement")
 load("@rules_python//python:defs.bzl", "py_library", "py_test")
+load("@rules_python//python:pip.bzl", "compile_pip_requirements")
 
-# The repository's lint checks that are plain Python, so that `bazel test //...` - and with it CI - exercises them.
+# The repository's lint checks and formatters, plain Python, so that `bazel test //...` - and with it CI - exercises
+# them. They run from the repository root as modules (`python3 -m tools.hooks.lint_code`) and import each other as
+# `from tools.hooks import ...`.
+
+# ----------------------------------------------------------------------------------------------------------------------
+# Shared infrastructure
+# ----------------------------------------------------------------------------------------------------------------------
+py_library(
+    name = "lint_files",
+    srcs = ["lint_files.py"],
+    # The clang-tidy collector groups findings by Bazel package, and its tests check the aspect's file lists against
+    # this one.
+    visibility = ["//tools/clang_tidy:__pkg__"],
+)
+
+py_library(
+    name = "check_types",
+    srcs = ["check_types.py"],
+    deps = [":lint_files"],
+)
+
+py_library(
+    name = "cpp_source",
+    srcs = ["cpp_source.py"],
+)
+
+py_library(
+    name = "nolint",
+    srcs = ["nolint.py"],
+    deps = [
+        ":check_types",
+        ":cpp_source",
+    ],
+)
+
+# The registry: every check module below, concatenated.
+py_library(
+    name = "checks",
+    srcs = ["checks.py"],
+    deps = [
+        ":american_spelling",
+        ":argument_comments",
+        ":boost_usage",
+        ":check_types",
+        ":cpp_google_style",
+        ":cpp_totw",
+        ":include_style",
+        ":inclusive_language",
+        ":lint_files",
+        ":no_auto",
+        ":nolint",
+        ":pointer_nullability",
+        ":proto_file_layout",
+        ":proto_next_id",
+        ":python_docstrings",
+        ":python_imports",
+        ":python_language",
+        ":todo_format",
+    ],
+)
+
+py_library(
+    name = "lint_code",
+    srcs = ["lint_code.py"],
+    deps = [
+        ":check_types",
+        ":checks",
+        ":lint_files",
+    ],
+)
+
+py_library(
+    name = "format_code",
+    srcs = ["format_code.py"],
+    deps = [
+        ":check_types",
+        ":checks",
+        ":lint_files",
+    ],
+)
+
+py_library(
+    name = "check_ifttt",
+    srcs = ["check_ifttt.py"],
+)
+
+# What the test of every check asserts: registration, NOLINT, the staged mode, the scope and the fix.
+py_library(
+    name = "check_test_support",
+    testonly = True,
+    srcs = ["check_test_support.py"],
+    data = ["pre-commit"],
+    visibility = ["//tools/clang_tidy:__pkg__"],
+    deps = [
+        ":check_types",
+        ":checks",
+        ":lint_code",
+        ":lint_files",
+    ],
+)
+
+py_test(
+    name = "test_lint_files",
+    size = "small",
+    srcs = ["test_lint_files.py"],
+    deps = [
+        ":check_test_support",
+        ":lint_files",
+    ],
+)
+
+py_test(
+    name = "test_cpp_source",
+    size = "small",
+    srcs = ["test_cpp_source.py"],
+    deps = [":cpp_source"],
+)
+
+py_test(
+    name = "test_nolint",
+    size = "small",
+    srcs = ["test_nolint.py"],
+    deps = [":nolint"],
+)
+
+py_test(
+    name = "test_checks",
+    size = "small",
+    srcs = ["test_checks.py"],
+    deps = [
+        ":check_test_support",
+        ":check_types",
+        ":checks",
+        ":lint_code",
+    ],
+)
+
+py_test(
+    name = "test_lint_code",
+    size = "small",
+    srcs = ["test_lint_code.py"],
+    deps = [
+        ":check_test_support",
+        ":checks",
+        ":lint_code",
+    ],
+)
+
+# The Makefile, the pre-commit hook and CI run the hooks as modules from the repository root.
+py_test(
+    name = "test_lint_entry_points",
+    size = "small",
+    srcs = ["test_lint_entry_points.py"],
+    data = [
+        "pre-commit",
+        "//:.github/workflows/format_test.yml",
+        "//:Makefile",
+    ],
+    deps = [
+        ":check_ifttt",
+        ":check_test_support",
+        ":format_code",
+        ":lint_code",
+        ":python_imports",
+    ],
+)
+
+# ----------------------------------------------------------------------------------------------------------------------
+# The checks
+# ----------------------------------------------------------------------------------------------------------------------
 py_library(
     name = "argument_comments",
     srcs = ["argument_comments.py"],
+    deps = [
+        ":check_types",
+        ":cpp_source",
+        ":lint_files",
+    ],
 )
 
 py_test(
     name = "test_argument_comments",
     size = "small",
     srcs = ["test_argument_comments.py"],
-    data = ["pre-commit"],
-    deps = [":argument_comments"],
+    deps = [
+        ":argument_comments",
+        ":check_test_support",
+    ],
 )
 
 py_library(
     name = "include_style",
     srcs = ["include_style.py"],
+    deps = [
+        ":check_types",
+        ":lint_files",
+    ],
 )
 
 py_test(
@@ -24,24 +206,333 @@ py_test(
     size = "small",
     srcs = ["test_include_style.py"],
     data = [
-        "lint_code.py",
         "//:dependencies.txt",
         "//:docker/Dockerfile",
+        "//:docker/install_robotpkg.sh",
     ],
-    deps = [":include_style"],
+    deps = [
+        ":check_test_support",
+        ":include_style",
+    ],
 )
 
 py_library(
     name = "american_spelling",
     srcs = ["american_spelling.py"],
+    deps = [
+        ":check_types",
+        ":lint_files",
+    ],
 )
 
 py_test(
     name = "test_american_spelling",
     size = "small",
     srcs = ["test_american_spelling.py"],
-    data = ["lint_code.py"],
-    deps = [":american_spelling"],
+    deps = [
+        ":american_spelling",
+        ":check_test_support",
+    ],
+)
+
+py_library(
+    name = "boost_usage",
+    srcs = ["boost_usage.py"],
+    deps = [
+        ":check_types",
+        ":cpp_source",
+        ":lint_files",
+        ":nolint",
+    ],
+)
+
+# The project is Boost-free; this keeps it so. It reads the shipped system_libs.bzl to check that the @pinocchio target
+# is the only exemption.
+py_test(
+    name = "test_boost_usage",
+    size = "small",
+    srcs = ["test_boost_usage.py"],
+    data = ["//bazel:system_libs.bzl"],
+    deps = [
+        ":boost_usage",
+        ":check_test_support",
+    ],
+)
+
+py_library(
+    name = "proto_file_layout",
+    srcs = ["proto_file_layout.py"],
+    deps = [
+        ":check_types",
+        ":lint_files",
+        ":proto_next_id",
+    ],
+)
+
+py_test(
+    name = "test_proto_file_layout",
+    size = "small",
+    srcs = ["test_proto_file_layout.py"],
+    deps = [
+        ":check_test_support",
+        ":proto_file_layout",
+    ],
+)
+
+py_library(
+    name = "proto_next_id",
+    srcs = ["proto_next_id.py"],
+    deps = [
+        ":check_types",
+        ":lint_files",
+    ],
+)
+
+py_test(
+    name = "test_proto_next_id",
+    size = "small",
+    srcs = ["test_proto_next_id.py"],
+    deps = [
+        ":check_test_support",
+        ":proto_next_id",
+    ],
+)
+
+# The checks of the Google style guides and the Tips of the Week (AGENTS.md "Style guides").
+py_library(
+    name = "pointer_nullability",
+    srcs = ["pointer_nullability.py"],
+    deps = [
+        ":check_types",
+        ":cpp_source",
+        ":lint_files",
+    ],
+)
+
+py_test(
+    name = "test_pointer_nullability",
+    size = "small",
+    srcs = ["test_pointer_nullability.py"],
+    data = ["//:.clang-format"],
+    deps = [
+        ":check_test_support",
+        ":pointer_nullability",
+    ],
+)
+
+py_library(
+    name = "no_auto",
+    srcs = ["no_auto.py"],
+    deps = [
+        ":check_types",
+        ":cpp_source",
+        ":lint_files",
+    ],
+)
+
+py_test(
+    name = "test_no_auto",
+    size = "small",
+    srcs = ["test_no_auto.py"],
+    deps = [
+        ":check_test_support",
+        ":no_auto",
+    ],
+)
+
+py_library(
+    name = "cpp_google_style",
+    srcs = ["cpp_google_style.py"],
+    deps = [
+        ":check_types",
+        ":cpp_source",
+        ":lint_files",
+    ],
+)
+
+py_test(
+    name = "test_cpp_google_style",
+    size = "small",
+    srcs = ["test_cpp_google_style.py"],
+    deps = [
+        ":check_test_support",
+        ":check_types",
+        ":cpp_google_style",
+    ],
+)
+
+py_library(
+    name = "cpp_totw",
+    srcs = ["cpp_totw.py"],
+    deps = [
+        ":check_types",
+        ":cpp_source",
+        ":lint_files",
+    ],
+)
+
+py_test(
+    name = "test_cpp_totw",
+    size = "small",
+    srcs = ["test_cpp_totw.py"],
+    deps = [
+        ":check_test_support",
+        ":check_types",
+        ":checks",
+        ":cpp_totw",
+    ],
+)
+
+py_library(
+    name = "todo_format",
+    srcs = ["todo_format.py"],
+    deps = [
+        ":check_types",
+        ":lint_files",
+        ":nolint",
+    ],
+)
+
+py_test(
+    name = "test_todo_format",
+    size = "small",
+    srcs = ["test_todo_format.py"],
+    deps = [
+        ":check_test_support",
+        ":todo_format",
+    ],
+)
+
+py_library(
+    name = "inclusive_language",
+    srcs = ["inclusive_language.py"],
+    deps = [
+        ":check_types",
+        ":lint_files",
+    ],
+)
+
+py_test(
+    name = "test_inclusive_language",
+    size = "small",
+    srcs = ["test_inclusive_language.py"],
+    deps = [
+        ":check_test_support",
+        ":inclusive_language",
+    ],
+)
+
+py_library(
+    name = "python_imports",
+    srcs = ["python_imports.py"],
+    deps = [
+        ":check_types",
+        ":lint_files",
+    ],
+)
+
+py_test(
+    name = "test_python_imports",
+    size = "small",
+    srcs = ["test_python_imports.py"],
+    deps = [
+        ":check_test_support",
+        ":python_imports",
+    ],
+)
+
+py_library(
+    name = "python_docstrings",
+    srcs = ["python_docstrings.py"],
+    deps = [
+        ":check_types",
+        ":lint_files",
+    ],
+)
+
+py_test(
+    name = "test_python_docstrings",
+    size = "small",
+    srcs = ["test_python_docstrings.py"],
+    deps = [
+        ":check_test_support",
+        ":python_docstrings",
+    ],
+)
+
+py_library(
+    name = "python_language",
+    srcs = ["python_language.py"],
+    deps = [
+        ":check_types",
+        ":lint_files",
+    ],
+)
+
+py_test(
+    name = "test_python_language",
+    size = "small",
+    srcs = ["test_python_language.py"],
+    deps = [
+        ":check_test_support",
+        ":checks",
+        ":python_language",
+    ],
+)
+
+# ----------------------------------------------------------------------------------------------------------------------
+# The tools' versions
+# ----------------------------------------------------------------------------------------------------------------------
+# The lint tools' hashed lock. Regenerate it with: bazel run //tools/hooks:lint_requirements.update
+compile_pip_requirements(
+    name = "lint_requirements",
+    src = "lint_requirements.txt",
+    requirements_txt = "lint_requirements_lock.txt",
+    tags = ["manual"],
+)
+
+# The configurations work with the real tools, from the lock (the @lint_deps hub), hermetically.
+py_test(
+    name = "test_lint_tool_configs",
+    size = "small",
+    srcs = ["test_lint_tool_configs.py"],
+    data = [
+        "//:.clang-format",
+        "//:.isort.cfg",
+        "//:.pylintrc",
+        "//:CPPLINT.cfg",
+        "//:mypy.ini",
+    ],
+    deps = [
+        ":check_test_support",
+        ":lint_code",
+        lint_requirement("black"),
+        lint_requirement("cpplint"),
+        lint_requirement("isort"),
+        lint_requirement("mypy"),
+        lint_requirement("pylint"),
+    ],
+)
+
+# The dev image, CI's format job and Bazel install the same lock, and every installer the same clang-tidy.
+py_test(
+    name = "test_lint_tool_versions",
+    size = "small",
+    srcs = ["test_lint_tool_versions.py"],
+    data = [
+        "lint_requirements.txt",
+        "lint_requirements_lock.txt",
+        "//:.github/workflows/build_test.yml",
+        "//:.github/workflows/format_test.yml",
+        "//:MODULE.bazel",
+        "//:docker/Dockerfile",
+        "//:docker/install_llvm_tools.sh",
+        "//tools/clang_tidy:run_clang_tidy.sh",
+    ],
+    deps = [
+        ":check_test_support",
+        ":lint_code",
+    ],
 )
 
 # CI's format check runs the formatters the dev container runs, at pinned versions.
@@ -52,5 +543,35 @@ py_test(
     data = [
         "//:.github/workflows/format_test.yml",
         "//:docker/Dockerfile",
+    ],
+)
+
+# First-party BUILD files keep headers at their source paths, which the clang-tidy aspect's header filter matches. It
+# reads every BUILD file of the checkout, which it finds through MODULE.bazel's runfiles link.
+py_test(
+    name = "test_first_party_build_files",
+    size = "small",
+    srcs = ["test_first_party_build_files.py"],
+    data = ["//:MODULE.bazel"],
+    deps = [
+        ":check_test_support",
+        ":lint_files",
+    ],
+)
+
+# AGENTS.md names only checks that exist: registry checks, clang-tidy checks of the sweep (which holds the enforced ones
+# too) and the GCC flags of bazel/copts.bzl.
+py_test(
+    name = "test_agents_style_sections",
+    size = "small",
+    srcs = ["test_agents_style_sections.py"],
+    data = [
+        "//:AGENTS.md",
+        "//bazel:copts.bzl",
+        "//tools/clang_tidy:sweep.clang-tidy",
+    ],
+    deps = [
+        ":check_test_support",
+        ":checks",
     ],
 )

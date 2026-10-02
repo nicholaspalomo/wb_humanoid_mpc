@@ -32,13 +32,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <system_error>
 #include <utility>
 
-#include <boost/property_tree/ptree.hpp>
-
 #include <ocs2_core/misc/LoadData.h>
+#include <ocs2_core/misc/PropertyTree.h>
 
 #include "absl/log/log.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
+#include "absl/strings/strip.h"
 #include "humanoid_common_mpc/common/StatusMacros.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlannerFactory.h"
 #include "humanoid_common_mpc/contact_planning/hlip/HlipContactPlanner.h"
@@ -458,8 +458,6 @@ std::string resolveContactPlanningConfigFile(const std::string& taskFile) {
 
 namespace {
 
-using boost::property_tree::ptree;
-
 /** Keys of the previous, flat layout: their presence directly under the block identifies a file that was not migrated. */
 constexpr std::array<const char*, 61> kLegacyKeys{"dt",
                                                   "numNodes",
@@ -530,18 +528,18 @@ constexpr std::array<const char*, 11> kStructuredKeys{"planner",          "share
 
 /** The keys of `keys` present directly under `block`, in the order of `keys`. */
 template <size_t N>
-std::vector<std::string> presentKeys(const ptree& block, const std::array<const char*, N>& keys) {
+std::vector<std::string> presentKeys(const PropertyTree& block, const std::array<const char*, N>& keys) {
   std::vector<std::string> present;
   for (const char* key : keys) {
-    if (block.get_child_optional(key)) present.emplace_back(key);
+    if (block.findChild(key) != nullptr) present.emplace_back(key);
   }
   return present;
 }
 
-bool hasAnyTermBlock(const ptree& block) {
+bool hasAnyTermBlock(const PropertyTree& block) {
   for (const TermKind kind : allTermKinds()) {
     for (const std::string& name : knownTermNames(kind)) {
-      if (block.get_child_optional(name)) return true;
+      if (block.findChild(name) != nullptr) return true;
     }
   }
   return false;
@@ -549,11 +547,12 @@ bool hasAnyTermBlock(const ptree& block) {
 
 /**
  * Reads the keys of one file into a configuration. The first value that does not parse is kept as the loader's status,
- * naming its key; loadPtreeValue itself only reports the type it failed to convert to.
+ * which leads with the key it was reading, then says which data did not convert to which type, as in
+ * `contact_planning.planner.dt cannot be read: conversion of data "fast" to type "double" failed`.
  */
 class KeyLoader {
  public:
-  KeyLoader(const ptree& pt, absl::string_view prefix, bool verbose) : pt_(pt), prefix_(prefix), verbose_(verbose) {}
+  KeyLoader(const PropertyTree& pt, absl::string_view prefix, bool verbose) : pt_(pt), prefix_(prefix), verbose_(verbose) {}
 
   /** Overwrites `value` with `key` when the file has it; a missing key keeps the value it had. */
   template <typename T>
@@ -561,8 +560,11 @@ class KeyLoader {
     const std::string path = absl::StrCat(prefix_, key);
     try {
       loadData::loadPtreeValue(pt_, value, path, verbose_);
-    } catch (const boost::property_tree::ptree_error& error) {
-      if (status_.ok()) status_ = absl::InvalidArgumentError(absl::StrCat(path, " cannot be read: ", error.what()));
+    } catch (const PropertyTreeError& error) {
+      // PropertyTree::get() ends its message with " (<path>)"; the status already leads with the path, so that suffix
+      // is dropped rather than naming the key twice.
+      const absl::string_view reason = absl::StripSuffix(error.what(), absl::StrCat(" (", path, ")"));
+      if (status_.ok()) status_ = absl::InvalidArgumentError(absl::StrCat(path, " cannot be read: ", reason));
     }
   }
 
@@ -574,7 +576,7 @@ class KeyLoader {
    * omitted.
    */
   void slack(absl::string_view term, const SlackPenalty& sharedDefault, std::optional<SlackPenalty>& slack) {
-    if (!pt_.get_child_optional(absl::StrCat(prefix_, term, ".slack"))) return;
+    if (pt_.findChild(absl::StrCat(prefix_, term, ".slack")) == nullptr) return;
     SlackPenalty penalty = sharedDefault;
     (*this)(penalty.quadratic, absl::StrCat(term, ".slack.quadratic"));
     (*this)(penalty.linear, absl::StrCat(term, ".slack.linear"));
@@ -584,25 +586,26 @@ class KeyLoader {
   const absl::Status& status() const { return status_; }
 
  private:
-  const ptree& pt_;
+  const PropertyTree& pt_;
   const std::string prefix_;
   const bool verbose_;
   absl::Status status_;
 };
 
 /** Replaces `target` with the YAML sequence under `key` when the block has that key; an absent key keeps the default. */
-void loadList(const ptree& block, const char* key, std::vector<std::string>& target) {
-  const boost::optional<const ptree&> child = block.get_child_optional(key);
-  if (!child) return;
+void loadList(const PropertyTree& block, const char* key, std::vector<std::string>& target) {
+  const PropertyTree* child = block.findChild(key);
+  if (child == nullptr) return;
   std::vector<std::string> list;
-  for (const ptree::value_type& item : *child) {
+  for (const PropertyTree::value_type& item : *child) {
     const std::string value = item.second.data();
     if (!value.empty()) list.push_back(value);
   }
   target = std::move(list);
 }
 
-absl::Status loadStructured(const ptree& pt, const ptree& block, absl::string_view prefix, ContactPlanningConfig& config, bool verbose) {
+absl::Status loadStructured(
+    const PropertyTree& pt, const PropertyTree& block, absl::string_view prefix, ContactPlanningConfig& config, bool verbose) {
   KeyLoader load(pt, prefix, verbose);
   // LINT.IfChange(contact_planning_keys)
   PlannerSettings& p = config.planner;
@@ -714,7 +717,7 @@ absl::StatusOr<ContactPlanningConfig> loadContactPlanningConfigStatus(absl::stri
                                                                       bool verbose,
                                                                       bool validate) {
   const std::string file(yamlFile);
-  ptree pt;
+  PropertyTree pt;
   try {
     loadData::readPropertyTree(file, pt);
   } catch (const std::exception& error) {
@@ -727,14 +730,13 @@ absl::StatusOr<ContactPlanningConfig> loadContactPlanningConfigStatus(absl::stri
   }
   // "contact_planning." -> "contact_planning"
   const std::string blockKey = prefix.empty() ? std::string() : std::string(prefix.substr(0, prefix.size() - 1));
-  boost::optional<const ptree&> block;
+  const PropertyTree* block = nullptr;
   if (blockKey.empty()) {
-    block = pt;
+    block = &pt;
   } else {
-    const boost::optional<const ptree&> child = std::as_const(pt).get_child_optional(blockKey);
-    if (child) block = *child;
+    block = std::as_const(pt).findChild(blockKey);
   }
-  if (block) {
+  if (block != nullptr) {
     const std::vector<std::string> legacy = presentKeys(*block, kLegacyKeys);
     if (!legacy.empty()) {
       const bool structured = !presentKeys(*block, kStructuredKeys).empty() || hasAnyTermBlock(*block);

@@ -44,7 +44,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <utility>
 #include <vector>
 
-#include <ament_index_cpp/get_package_share_directory.hpp>
 #include <pinocchio/algorithm/center-of-mass.hpp>
 #include <pinocchio/algorithm/centroidal.hpp>
 #include <pinocchio/algorithm/frames.hpp>
@@ -69,6 +68,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/locomotion_heuristics/LocomotionHeuristicLayer.h"
 #include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
+#include "robot_core/ResourcePaths.h"
 
 namespace ocs2::humanoid {
 
@@ -205,10 +205,16 @@ class RestoreCoefficientsFromFileOnExit {
  */
 class LocomotionHeuristicIntegrationTest : public ::testing::Test {
  protected:
-  static std::string configDir() { return ament_index_cpp::get_package_share_directory("drc_atlas_centroidal_mpc"); }
-  static std::string urdfFile() { return ament_index_cpp::get_package_share_directory("drc_atlas_description") + "/urdf/atlas.urdf"; }
-  static std::string referenceFile() { return configDir() + "/config/command/reference.yaml"; }
-  static std::string shippedTaskFile() { return configDir() + "/config/mpc/task.yaml"; }
+  // The DRC Atlas files, from the test's runfiles.
+  static std::string urdfFile() {
+    return robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf").value();
+  }
+  static std::string referenceFile() {
+    return robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.yaml").value();
+  }
+  static std::string shippedTaskFile() {
+    return robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml").value();
+  }
 
   static std::string readFile(const std::string& path) {
     std::ifstream in(path);

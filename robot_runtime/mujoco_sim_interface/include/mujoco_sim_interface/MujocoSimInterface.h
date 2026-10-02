@@ -159,7 +159,7 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
    * How many times the simulator has put the robot back in its initial state: reset(), the automatic reset when the
    * base drops below the floor limit, and the recovery from a numerically unstable step. A change is a discontinuity of
    * the plant that no controller can observe from the state alone, so a control loop compares this against the value it
-   * saw in its PREVIOUS cycle and resets its controller when it moves (SimFallRecovery in humanoid_common_mpc_ros2).
+   * saw in its PREVIOUS cycle and resets its controller when it moves (SimFallRecovery in humanoid_common_mpc_app/robot).
    * Both automatic resets also lock the gantry, but they do it on the simulation thread at any moment of the control
    * cycle, and when the gantry was locked already they change nothing else a loop could see: watching the lock alone
    * misses them, and only this count reports every one.
@@ -198,9 +198,17 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   bool isGantryLocked() const { return isGantryLocked_.load(); }
   double getGantryHeight() const { return gantryHeight_.load(); }
 
-  /// Zero-torque mode: when enabled, all actuator commands are zeroed in simulationStep().
-  /// The sim starts in zero-torque mode by default to allow the MPC solver to warm up.
-  /// enableTorques/disableTorques also swap MuJoCo's dof_damping for smooth ragdoll behavior.
+  /**
+   * Zero-torque mode: while it is on, simulationStep() commands no actuator. The sim starts in it, so that the MPC
+   * solver can warm up. Switching it swaps MuJoCo's dof_damping as well (the boosted ragdoll damping while the torques
+   * are off).
+   *
+   * Callable from any thread, and realtime-safe: the switch is an atomic, and the physics thread writes dof_damping
+   * before its next step, so that no other thread writes the model while mj_step reads it. enableTorques() also discards
+   * the joint action latched from before the torques went off (RobotHWInterfaceBase::discardAppliedJointAction()): the
+   * actuators stay at zero until the next applyJointAction(), instead of executing an action of another mode for up to
+   * a control period.
+   */
   bool isZeroTorqueMode() const { return zeroTorqueMode_.load(); }
   void enableTorques();
   void disableTorques();
@@ -216,8 +224,18 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
 
   const MujocoSimConfig& getConfig() const { return config_; }
 
-  vector3_t getLeftFootMeasuredForce() const;
-  vector3_t getRightFootMeasuredForce() const;
+  /**
+   * The forces the feet's force sensors measured in the newest physics step [N] (zero without a sensor), as the
+   * physics thread published them. For one consumer thread (the robot process's realtime loop); lock-free, and it reads
+   * no mjData, which the physics thread writes meanwhile.
+   */
+  void takeMeasuredFootForces(vector3_t& left, vector3_t& right);
+
+  /**
+   * The actuator commands (mjData::ctrl) of the last step. For tests that step the simulation themselves: it reads mjData
+   * without synchronization, so it must not be called while the thread startSim() started is running.
+   */
+  std::vector<double> actuatorControlsForTesting() const;
 
   /// Ground-truth contact detection and the contact timeline (see MujocoUtils.h).
   bool hasContactDetection() const { return !contactBodyIds_.empty(); }
@@ -229,6 +247,10 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   void setTargetContactFlags(const std::vector<bool>& flags);
   /// Ground truth of the last simulation step, one flag per contact point (false where unresolved).
   std::vector<bool> getGroundTruthContactFlags() const;
+  /// The same, as bits (bit i: contact point i touches), and the number of contact points it covers. Lock-free and
+  /// allocation-free, for the control thread.
+  uint32_t getGroundTruthContactMask() const { return groundTruthContactMask_.load(); }
+  size_t getNumDetectedContactPoints() const { return contactBodyIds_.size(); }
   /// Snapshot of the timeline for the render thread, oldest sample first.
   void copyContactTimeline(std::vector<ContactTimelineSample>& out) const;
 
@@ -254,7 +276,8 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   };
 
   /**
-   * Throws a dodgeball at the robot's base. Callable from any thread; takes effect on the simulation thread.
+   * Throws a dodgeball at the robot's base. Callable from one thread at a time (the robot process's realtime loop);
+   * lock-free, and takes effect on the simulation thread.
    *
    * TWO PATHS, decided by whether `simProjectile` named a ball for this scene.
    *
@@ -317,6 +340,12 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   void setSimState(const model::RobotState& robotState);
 
   void updateThreadSafeRobotState();
+
+  /// Simulation thread only: brings dof_damping in line with the torque switch, when it changed since the last step.
+  void applyTorqueSwitch();
+
+  /// Simulation thread only: the force a foot force sensor at `sensorAddress` reads; zero for kNoSensor.
+  vector3_t footSensorForce(size_t sensorAddress) const;
 
   void simulationLoop();
 
@@ -387,7 +416,16 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   /// True when the step just taken produced a state MuJoCo flagged as bad, or one that is not finite.
   bool stepWentUnstable();
   std::atomic<bool> zeroTorqueMode_{true};  // Start in zero-torque mode by default
+  /// Simulation thread only: whether dof_damping holds the ragdoll damping of zero-torque mode (applyTorqueSwitch()).
+  bool ragdollDampingApplied_{true};
   std::vector<mjtNum> originalDofDamping_;  // Saved dof_damping values for restore on enableTorques
+
+  /// The feet's measured forces of the newest step, from the simulation thread to takeMeasuredFootForces().
+  struct MeasuredFootForces {
+    vector3_t left = vector3_t::Zero();
+    vector3_t right = vector3_t::Zero();
+  };
+  TripleBuffer<MeasuredFootForces> footForceBuffer_;
 
   /// Lock-free triple buffer for sim→render state transfer.
   /// Initialized lazily after MuJoCo model is loaded (requires mjModel* for MjState allocation).
@@ -410,10 +448,10 @@ class MujocoSimInterface : public robot::model::RobotHWInterfaceBase {
   ContactTimeline contactTimeline_;
   mutable std::mutex targetPatchMutex_;
   std::vector<TargetContactPatch> targetContactPatches_;  // written by the control thread, drawn by the renderer
-  /// Staged by throwDodgeball() from any thread, taken by the simulation thread on its next step. Separate from the
-  /// FSM command's own staging so that a throw and a mode change cannot overwrite one another.
-  mutable std::mutex dodgeballMutex_;
-  std::optional<DodgeballThrow> pendingDodgeball_;
+  /// Staged by throwDodgeball(), taken by the simulation thread on its next step: the newest throw replaces one that
+  /// was not taken yet. Lock-free, so that the realtime loop never waits for the physics thread. Separate from the FSM
+  /// command's own staging so that a throw and a mode change cannot overwrite one another.
+  TripleBuffer<DodgeballThrow> dodgeballMailbox_;
   /// Resolved into the world frame and scheduled once the simulation thread has seen it. Only that thread touches
   /// these, so they need no lock.
   double scheduledImpulseWorld_[3]{0.0, 0.0, 0.0};  // [N s]

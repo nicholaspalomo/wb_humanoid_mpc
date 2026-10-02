@@ -46,6 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_wb_mpc/common/WBAccelMpcRobotModel.h"
 #include "humanoid_wb_mpc/end_effector/EndEffectorDynamics.h"
 
+#include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 
@@ -67,9 +68,26 @@ class WBMpcInterface final : public RobotInterface {
                                                                 const std::string& urdfFile,
                                                                 const std::string& referenceFile);
 
+  /**
+   * The models an MRT joint controller needs and nothing else, for a robot process whose MPC runs elsewhere (the MPC
+   * node, over the bus): the model and solver settings, the Pinocchio model, the robot models, the reference manager
+   * built on them and the initial state. No optimal control problem: nothing is taped, generated or loaded with CppAD.
+   * getOptimalControlProblem(), getInitializer() and getRollout() must not be used on it (hasOptimalControlProblem() is
+   * false).
+   */
+  static absl::StatusOr<std::unique_ptr<WBMpcInterface>> CreateControllerModels(const std::string& taskFile,
+                                                                                const std::string& urdfFile,
+                                                                                const std::string& referenceFile);
+
   ~WBMpcInterface() override = default;
 
-  const OptimalControlProblem& getOptimalControlProblem() const override { return *problemPtr_; }
+  /** False for an interface of CreateControllerModels(). */
+  bool hasOptimalControlProblem() const { return problemPtr_ != nullptr; }
+
+  const OptimalControlProblem& getOptimalControlProblem() const override {
+    CHECK(problemPtr_ != nullptr) << "[WBMpcInterface] built by CreateControllerModels(): there is no optimal control problem";
+    return *problemPtr_;
+  }
 
   const ModelSettings& modelSettings() const { return modelSettings_; }
   const ddp::Settings& ddpSettings() const { return ddpSettings_; }
@@ -82,11 +100,17 @@ class WBMpcInterface final : public RobotInterface {
   const std::string& getReferenceFile() const { return referenceFile_; }
 
   const vector_t& getInitialState() const { return initialState_; }
-  const RolloutBase& getRollout() const { return *rolloutPtr_; }
+  const RolloutBase& getRollout() const {
+    CHECK(rolloutPtr_ != nullptr) << "[WBMpcInterface] built by CreateControllerModels(): there is no rollout";
+    return *rolloutPtr_;
+  }
   PinocchioInterface& getPinocchioInterface() { return *pinocchioInterfacePtr_; }
   std::shared_ptr<SwitchedModelReferenceManager> getSwitchedModelReferenceManagerPtr() const { return referenceManagerPtr_; }
 
-  const WeightCompInitializer& getInitializer() const override { return *initializerPtr_; }
+  const WeightCompInitializer& getInitializer() const override {
+    CHECK(initializerPtr_ != nullptr) << "[WBMpcInterface] built by CreateControllerModels(): there is no initializer";
+    return *initializerPtr_;
+  }
   std::shared_ptr<ReferenceManagerInterface> getReferenceManagerPtr() const override { return referenceManagerPtr_; }
 
   const WBAccelMpcRobotModel<scalar_t>& getMpcRobotModel() const { return *mpcRobotModelPtr_; }

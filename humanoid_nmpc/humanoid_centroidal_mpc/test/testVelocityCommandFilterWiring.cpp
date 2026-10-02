@@ -41,6 +41,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include <ocs2_core/misc/LoadData.h>
+#include <ocs2_core/misc/PropertyTree.h>
 
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
@@ -103,7 +104,7 @@ class VelocityCommandFilterWiringTest : public ::testing::Test {
   scalar_t scaledCommand() const { return kRawCommand * maxDisplacementVelocityX_; }
 
   void SetUp() override {
-    boost::property_tree::ptree pt;
+    PropertyTree pt;
     loadData::readPropertyTree(stack_.referenceFile(), pt);
     maxDisplacementVelocityX_ = pt.get<scalar_t>("maxDisplacementVelocityX");
     stack_.command(kRawCommand);

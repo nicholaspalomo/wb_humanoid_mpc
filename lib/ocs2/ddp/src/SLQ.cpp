@@ -55,8 +55,7 @@ SLQ::SLQ(ddp::Settings ddpSettings, const RolloutBase& rollout, const OptimalCon
   riccatiIntegratorPtrStock_.reserve(settings().nThreads_);
 
   const auto integratorType = settings().backwardPassIntegratorType_;
-  if (integratorType != IntegratorType::ODE45 && integratorType != IntegratorType::BULIRSCH_STOER &&
-      integratorType != IntegratorType::ODE45_OCS2 && integratorType != IntegratorType::RK4) {
+  if (integratorType != IntegratorType::ODE45 && integratorType != IntegratorType::ODE45_OCS2 && integratorType != IntegratorType::RK4) {
     throw(std::runtime_error("Unsupported Riccati equation integrator type: " +
                              integrator_type::toString(settings().backwardPassIntegratorType_)));
   }

@@ -46,7 +46,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_centroidal_model/ModelHelperFunctions.h>
 #include <ocs2_core/misc/LoadData.h>
 #include <ocs2_pinocchio_interface/PinocchioEndEffectorKinematicsCppAd.h>
-#include <ament_index_cpp/get_package_share_directory.hpp>
 
 #include "absl/strings/str_cat.h"
 
@@ -58,6 +57,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
 #include "humanoid_common_mpc/contact/FootprintCornerHeights.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
+#include "robot_core/ResourcePaths.h"
 
 namespace ocs2::humanoid {
 namespace {
@@ -74,11 +74,10 @@ constexpr scalar_t kDerivativeTol = 1e-5;
 class RelaxedContactConstraintsTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    const std::string configDir = ament_index_cpp::get_package_share_directory("drc_atlas_centroidal_mpc");
-    const std::string descriptionDir = ament_index_cpp::get_package_share_directory("drc_atlas_description");
-    const std::string taskFile = absl::StrCat(configDir, "/config/mpc/task.yaml");
-    const std::string referenceFile = absl::StrCat(configDir, "/config/command/reference.yaml");
-    const std::string urdfFile = absl::StrCat(descriptionDir, "/urdf/atlas.urdf");
+    const std::string taskFile = robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml").value();
+    const std::string referenceFile =
+        robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.yaml").value();
+    const std::string urdfFile = robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf").value();
 
     modelSettings_ = std::make_unique<ModelSettings>(taskFile, urdfFile, "testRelaxedContactConstraints_", /*verbose=*/false);
     modelSettings_->recompileLibrariesCppAd = false;
@@ -361,7 +360,7 @@ TEST_F(RelaxedContactConstraintsTest, SlipMeasuredAtTheSoleCenterChargesEdgeRock
   const std::vector<std::string>& jointNames = modelSettings_->mpcModelJointNames;
   const std::vector<std::string> legJoints = {"l_leg_hpz", "l_leg_hpx", "l_leg_hpy", "l_leg_kny", "l_leg_aky", "l_leg_akx"};
   const ContactRectangle footprint = ContactRectangle::loadContactRectangle(
-      absl::StrCat(ament_index_cpp::get_package_share_directory("drc_atlas_centroidal_mpc"), "/config/mpc/task.yaml"), *modelSettings_,
+      robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml").value(), *modelSettings_,
       CONTACT_LEFT_INDEX, /*verbose=*/false);
   constexpr scalar_t kRockRate = 1.0;  // [rad/s]
 
