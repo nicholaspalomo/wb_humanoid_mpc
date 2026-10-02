@@ -7,6 +7,8 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import argument_comments  # noqa: E402
 
+from tools.hooks import check_test_support  # noqa: E402
+
 
 def flagged(source):
     """The (callee, literal, position) of every violation in `source`."""
@@ -263,17 +265,15 @@ class StagedModeTest(unittest.TestCase):
 
 class PreCommitHookTest(unittest.TestCase):
     def test_the_hook_runs_the_staged_check_after_formatting_and_fails_on_it(self):
-        hook_path = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "pre-commit"
+        # The hook runs the registry's checks on the staged files, after the formatter's changes are staged.
+        check_test_support.assert_hook_runs_the_linter(self)
+        check_test_support.assert_check_behaves(
+            self,
+            "argument-comment",
+            "void g() {\n  f(a, 0);\n}\n",
+            "src/a.cpp",
+            clean="void g() {\n  f(a, /*index=*/0);\n}\n",
         )
-        with open(hook_path) as f:
-            hook = f.read()
-        check = "python3 tools/hooks/argument_comments.py --git-staged"
-        self.assertIn("if ! " + check + "; then", hook)
-        # After the formatter's changes are staged, so the check sees what is committed.
-        self.assertLess(hook.index('git add "$file"'), hook.index(check))
-        after = hook[hook.index(check) :]
-        self.assertLess(after.index("exit 1"), after.index("completed successfully"))
 
 
 class CommandLineTest(unittest.TestCase):

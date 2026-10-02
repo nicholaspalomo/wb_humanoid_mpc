@@ -40,8 +40,8 @@ namespace robot::model {
  */
 class AlwaysInContactEstimator final : public ContactEstimator {
  public:
-  std::vector<bool> estimateContactFlags(const RobotState& robotState) override {
-    return std::vector<bool>(robotState.getContactFlags().size(), true);
+  void estimateContactFlags(const RobotState& robotState, std::vector<bool>& flags) override {
+    flags.assign(robotState.getContactFlags().size(), true);
   }
 
   std::string getName() const override { return "AlwaysInContactEstimator"; }

@@ -47,6 +47,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_core/misc/Display.h>
 #include <ocs2_core/misc/LoadData.h>
 #include <ocs2_core/misc/Numerics.h>
+#include <ocs2_core/misc/PropertyTree.h>
 #include <ocs2_core/penalties/Penalties.h>
 #include <ocs2_core/soft_constraint/StateInputSoftConstraint.h>
 #include <ocs2_oc/synchronized_module/SolverSynchronizedModule.h>
@@ -151,6 +152,19 @@ absl::StatusOr<std::unique_ptr<WBMpcInterface>> WBMpcInterface::Create(const std
   std::unique_ptr<WBMpcInterface> interface(new WBMpcInterface(taskFile, urdfFile, referenceFile, verbose));
   RETURN_IF_ERROR(interface->setupModels());
   RETURN_IF_ERROR(interface->setupOptimalControlProblem());
+  return interface;
+}
+
+absl::StatusOr<std::unique_ptr<WBMpcInterface>> WBMpcInterface::CreateControllerModels(const std::string& taskFile,
+                                                                                       const std::string& urdfFile,
+                                                                                       const std::string& referenceFile) {
+  RETURN_IF_ERROR(checkInputFileExists("task file", taskFile));
+  RETURN_IF_ERROR(checkInputFileExists("URDF file", urdfFile));
+  RETURN_IF_ERROR(checkInputFileExists("reference file", referenceFile));
+  ASSIGN_OR_RETURN(const bool verbose, ModelSettings::loadInterfaceVerbose(taskFile));
+  std::unique_ptr<WBMpcInterface> interface(new WBMpcInterface(taskFile, urdfFile, referenceFile, verbose));
+  // The models only; the problem, which tapes and loads the CppAD libraries, is the MPC's.
+  RETURN_IF_ERROR(interface->setupModels());
   return interface;
 }
 
@@ -370,7 +384,7 @@ std::unique_ptr<StateInputConstraint> WBMpcInterface::getStanceFootConstraint(co
 /******************************************************************************************************/
 /******************************************************************************************************/
 std::unique_ptr<StateInputConstraint> WBMpcInterface::getJointMimicConstraint(size_t mimicIndex) {
-  boost::property_tree::ptree pt;
+  PropertyTree pt;
   loadData::readPropertyTree(taskFile_, pt);
   std::string prefix;
   if (mimicIndex == 0) {

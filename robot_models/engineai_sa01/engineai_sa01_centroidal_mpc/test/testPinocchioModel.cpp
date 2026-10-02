@@ -7,9 +7,10 @@ Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 
 #include <pinocchio/fwd.hpp>
 
-#include <filesystem>
 #include <iomanip>
 #include <iostream>
+#include <string>
+#include <string_view>
 
 #include <pinocchio/algorithm/center-of-mass.hpp>
 #include <pinocchio/algorithm/frames.hpp>
@@ -22,7 +23,7 @@ Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 
-#include <ament_index_cpp/get_package_share_directory.hpp>
+#include "robot_core/ResourcePaths.h"
 
 #include "absl/log/globals.h"
 #include "absl/log/initialize.h"
@@ -31,9 +32,9 @@ Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 using namespace ocs2;
 using namespace ocs2::humanoid;
 
-constexpr std::string_view kRobotModelPackagePath = "engineai_sa01_description";
-constexpr std::string_view kUrdfFileName = "urdf/zq_sa01.urdf";
-constexpr std::string_view kTaskConfigPath = "/../config/mpc/task.yaml";
+// Relative to the repository root.
+constexpr std::string_view kUrdfFile = "robot_models/engineai_sa01/engineai_sa01_description/urdf/zq_sa01.urdf";
+constexpr std::string_view kTaskFile = "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml";
 
 // SA01 is a legs-only biped. The floating base is a JointModelTranslation + JointModelSphericalZYX composite
 // (createPinocchioModel.cpp getBaseJointcomposite), so it contributes SIX configuration variables - x, y, z and the
@@ -123,18 +124,9 @@ int main() {
   // stderr anyway; with it the default stderr threshold is ERROR, so the INFO records have to be asked for.
   absl::InitializeLog();
   absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
-  const std::string path(__FILE__);
-  const std::string dir = path.substr(0, path.find_last_of("/"));
-
-  std::string urdfFile;
-  try {
-    urdfFile = ament_index_cpp::get_package_share_directory(std::string(kRobotModelPackagePath)) +
-               std::filesystem::path::preferred_separator + std::string(kUrdfFileName);
-  } catch (const std::exception& e) {
-    throw std::runtime_error("Failed to get package share directory: engineai_sa01_description. Error: " + std::string(e.what()));
-  }
-
-  const std::string taskFile = dir + std::string(kTaskConfigPath);
+  // From the binary's runfiles (BUILD `data`), so `bazel run` and a run from .bazel/bin read the same files.
+  const std::string urdfFile = robot::resolveResourcePath(kUrdfFile).value();
+  const std::string taskFile = robot::resolveResourcePath(kTaskFile).value();
 
   LOG(INFO) << "urdf filename: " << urdfFile;
 
@@ -149,7 +141,7 @@ int main() {
   printFramePlacements(pin_interface, q);
 
   /// The model the MPC actually uses: the fixed joints of task.yaml removed and the contact frames added.
-  ModelSettings modelSettings(taskFile, urdfFile, "test_pinocchio", "true");
+  ModelSettings modelSettings(taskFile, urdfFile, "test_pinocchio", /*verbose=*/true);
   pin_interface = createCustomPinocchioInterface(taskFile, urdfFile, modelSettings);
   LOG(INFO) << "Custom PinocchioInterface initialized ";
   printModelDimensionality(pin_interface);

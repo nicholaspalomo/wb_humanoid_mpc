@@ -29,9 +29,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """Unit tests for the dodgeball throw geometry and for the tab that publishes it.
 
-The geometry tests are headless by construction - `remote_control.tk_app.dodgeball` imports neither Tk nor ROS - and
-are where the angle conventions, the gravity compensation and the wire format are actually pinned. The widget tests
-build a real `Tk` root and withdraw it, which is what test_base_controller_contact_estimator.py already does, and
+The geometry tests are headless by construction - `remote_control.tk_app.dodgeball` imports neither Tk nor the bus -
+and are where the angle conventions, the gravity compensation and the wire format are actually pinned. The widget
+tests build a real `Tk` root and withdraw it, which is what test_base_controller_contact_estimator.py already does, and
 skip themselves where no display is available so the file is still runnable over ssh.
 """
 
@@ -42,6 +42,9 @@ import unittest
 
 import yaml
 
+from humanoid_mpc_ipc import topics
+from humanoid_mpc_msgs import yaml_document_pb2
+from operator_test_support import RecordingPublisher, requires_display
 from remote_control.tk_app.dodgeball import (
     AZIMUTH_RANGE_DEG,
     arrival_velocity,
@@ -61,24 +64,6 @@ from remote_control.tk_app.dodgeball import (
     spawn_offset,
     throw_payload,
 )
-
-
-class MockPublisher:
-    """Stand-in for an rclpy Publisher that records what was published."""
-
-    def __init__(self):
-        self.messages = []
-
-    def publish(self, msg):
-        self.messages.append(msg)
-
-    @property
-    def last_data(self):
-        return self.messages[-1].data if self.messages else None
-
-    @property
-    def publish_count(self):
-        return len(self.messages)
 
 
 def _norm(vector):
@@ -410,13 +395,14 @@ class TestThrowPayload(unittest.TestCase):
         )
 
     def test_the_payload_has_exactly_the_keys_the_simulator_reads_and_documents(self):
-        # The golden payload is what the C++ parser's test reads (humanoid_common_mpc_ros2/test/data). If the GUI's
+        # The golden payload is what the C++ parser's test reads (humanoid_common_mpc_app/robot/test/data). If the GUI's
         # keys drift from it, this fails here; if the parser's do, its own test fails there.
         golden_path = os.path.join(
             os.path.dirname(os.path.abspath(__file__)),
             "..",
             "..",
-            "humanoid_common_mpc_ros2",
+            "humanoid_common_mpc_app",
+            "robot",
             "test",
             "data",
             "dodgeball_payload.yaml",
@@ -435,21 +421,9 @@ class TestThrowPayload(unittest.TestCase):
         self.assertEqual(produced, golden)
 
 
-def _tk_available():
-    try:
-        import tkinter as tk
-
-        root = tk.Tk()
-        root.withdraw()
-        root.destroy()
-        return True
-    except Exception:  # noqa: BLE001 - any failure here means no usable display
-        return False
-
-
-@unittest.skipUnless(_tk_available(), "no usable Tk display")
+@requires_display
 class TestDodgeballTab(unittest.TestCase):
-    """The widget itself, built against a withdrawn Tk root and a mock publisher."""
+    """The widget itself, built against a withdrawn Tk root and the GUI's publisher over a bus that records."""
 
     def setUp(self):
         import tkinter as tk
@@ -458,7 +432,7 @@ class TestDodgeballTab(unittest.TestCase):
 
         self.root = tk.Tk()
         self.root.withdraw()
-        self.publisher = MockPublisher()
+        self.publisher = RecordingPublisher(topics.OPERATOR_DODGEBALL_THROW)
         self.tab = DodgeballTab(self.root, throw_publisher=self.publisher)
 
     def tearDown(self):
@@ -481,7 +455,10 @@ class TestDodgeballTab(unittest.TestCase):
         self.tab.throw()
 
         self.assertEqual(self.publisher.publish_count, 1)
-        ball = yaml.safe_load(self.publisher.last_data)["dodgeball"]
+        self.assertIsInstance(
+            self.publisher.last_message, yaml_document_pb2.YamlDocument
+        )
+        ball = yaml.safe_load(self.publisher.last_yaml)["dodgeball"]
         self.assertAlmostEqual(ball["azimuthDeg"], 90.0, places=3)
         self.assertAlmostEqual(ball["distance"], 4.0, places=3)
         self.assertAlmostEqual(
@@ -555,24 +532,21 @@ class TestDodgeballTab(unittest.TestCase):
         self.assertIn("Thrown", status)
         self.assertIn("1.75 kg", status)
 
-    def test_the_topic_is_the_one_the_simulator_subscribes_to(self):
-        # Read out of the bridge's C++ source, so a topic renamed on either side of the wire fails here.
+    def test_the_topic_is_the_operator_dodgeball_throw_topic(self):
+        # The tab's constant, the publisher the GUI hands it and the README's topic (test_operator_topics.py) agree.
         from remote_control.tk_app.dodgeball_tab import DodgeballTab
 
-        bridge = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)),
-            "..",
-            "..",
-            "humanoid_common_mpc_ros2",
-            "src",
-            "fsm",
-            "SimFsmBridge.cpp",
+        self.assertEqual(DodgeballTab.TOPIC_NAME, topics.OPERATOR_DODGEBALL_THROW)
+        self.assertEqual(self.publisher.topic, DodgeballTab.TOPIC_NAME)
+
+    def test_the_published_text_is_the_payload_dumped_in_order(self):
+        # The YAML text is the contract with the simulator's parser (DodgeballThrowParser.cpp): the payload's keys, in
+        # the order throw_payload() writes them, in block style.
+        payload = self.tab.throw()
+        self.assertEqual(
+            self.publisher.last_yaml,
+            yaml.dump(payload, default_flow_style=False, sort_keys=False),
         )
-        with open(bridge) as source:
-            text = source.read()
-        subscription = text[text.index("dodgeballSub_ = ") :]
-        topic = subscription[subscription.index('"') + 1 :]
-        self.assertEqual(DodgeballTab.TOPIC_NAME, topic[: topic.index('"')])
 
     def test_the_default_ball_is_a_dodgeball_and_not_a_cannonball(self):
         self.assertAlmostEqual(
@@ -595,7 +569,7 @@ class TestDodgeballTab(unittest.TestCase):
         self.tab.mass_row.set_value(2.25)
         self.tab.speed_row.set_value(10.0)
         self.tab.throw()
-        ball = yaml.safe_load(self.publisher.last_data)["dodgeball"]
+        ball = yaml.safe_load(self.publisher.last_yaml)["dodgeball"]
         self.assertAlmostEqual(ball["mass"], 2.25, places=4)
         self.assertAlmostEqual(
             ball["impactMomentum"],

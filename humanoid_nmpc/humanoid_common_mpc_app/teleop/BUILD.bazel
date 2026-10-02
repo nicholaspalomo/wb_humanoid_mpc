@@ -1,0 +1,101 @@
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+
+# humanoid_common_mpc_app/teleop - the keyboard velocity teleoperation of the C++ era on the IPC bus: a walking command
+# typed as a line, published on operator/walking_velocity_command as the bus node "teleop". See README.md.
+
+package(default_visibility = ["//visibility:public"])
+
+# No -Wpedantic: Abseil's int128.h, which absl/status pulls in, would print a hundred warnings per file.
+_COPTS = [
+    "-std=c++20",
+    "-Wall",
+    "-Wextra",
+    "-Werror=return-type",
+]
+
+cc_library(
+    name = "teleop",
+    srcs = [
+        "src/KeyboardVelocityCommand.cpp",
+        "src/LineReader.cpp",
+        "src/VelocityCommandRepeater.cpp",
+    ],
+    hdrs = [
+        "include/humanoid_common_mpc_app/teleop/KeyboardVelocityCommand.h",
+        "include/humanoid_common_mpc_app/teleop/LineReader.h",
+        "include/humanoid_common_mpc_app/teleop/VelocityCommandRepeater.h",
+    ],
+    copts = _COPTS,
+    includes = ["include"],
+    deps = [
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_mpc_ipc",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+        "//lib/ocs2:ocs2_core",
+        "//robot_runtime/robot_ipc",
+        "@abseil-cpp//absl/base:core_headers",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/synchronization",
+        "@abseil-cpp//absl/time",
+        "@eigen",
+    ],
+)
+
+# LINT.IfChange(teleop_binary)
+# bazel run //humanoid_nmpc/humanoid_common_mpc_app/teleop:velocity_keyboard_command -- --reference_file=<reference.yaml>
+cc_binary(
+    name = "velocity_keyboard_command",
+    srcs = ["src/VelocityKeyboardCommandMain.cpp"],
+    copts = _COPTS,
+    deps = [
+        ":teleop",
+        "//humanoid_nmpc/humanoid_common_mpc:humanoid_common_mpc_types",
+        "//humanoid_nmpc/humanoid_common_mpc_app/node:node_process",
+        "//robot_runtime/robot_ipc",
+        "@abseil-cpp//absl/flags:flag",
+        "@abseil-cpp//absl/flags:parse",
+        "@abseil-cpp//absl/flags:usage",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/log:globals",
+        "@abseil-cpp//absl/log:initialize",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+    ],
+)
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/teleop/README.md:teleop_binary, //humanoid_nmpc/docs/distributed_runtime/README.md:process_table)
+
+# The command limits of every shipped reference.yaml, a typed line, the normalized command, reading lines without
+# blocking a shutdown, and the 25 Hz republication on a loopback bus.
+cc_test(
+    name = "test_keyboard_velocity_command",
+    size = "small",
+    srcs = ["test/testKeyboardVelocityCommand.cpp"],
+    copts = _COPTS,
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+        "//robot_models/unitree_r1/unitree_r1_centroidal_mpc",
+    ],
+    deps = [
+        ":teleop",
+        "//humanoid_nmpc/humanoid_mpc_ipc",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_cc_proto",
+        "//robot_runtime/robot_core:resource_paths",
+        "//robot_runtime/robot_ipc",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/synchronization",
+        "@abseil-cpp//absl/time",
+        "@googletest//:gtest_main",
+    ],
+)

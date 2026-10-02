@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package humanoid_mpc_msgs;
+
+import "humanoid_mpc_msgs/color.proto";
+import "humanoid_mpc_msgs/vector3.proto";
+import "nproto/options.proto";
+
+// Next ID: 3
+message LineStrip {
+  option (nproto.generate_struct) = "ocs2::humanoid::msgs::LineStrip";
+
+  reserved 3 to max;
+
+  repeated Vector3 points = 1;
+  Color color = 2;
+}

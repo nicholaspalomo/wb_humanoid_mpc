@@ -1,0 +1,137 @@
+load("@operator_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
+load(":clang_tidy.bzl", "clang_tidy_args", "clang_tidy_selftest")
+
+# clang-tidy as a Bazel aspect (README.md): `make lint-tidy`, `make lint-tidy-sweep` and `make lint-tidy-fix` build
+# with the configurations of .bazelrc (`--config=clang-tidy*`), and these scripts turn the build's reports into the
+# result or apply its fix-its. Nothing in //... runs clang-tidy, so `bazel build //...` and `bazel test //...` work
+# without it; the self-test that does is `manual`.
+
+exports_files([
+    "clang_tidy.bzl",
+    "run_clang_tidy.sh",
+    "sweep.clang-tidy",
+])
+
+py_library(
+    name = "clang_tidy_report",
+    srcs = ["clang_tidy_report.py"],
+    deps = ["//tools/hooks:lint_files"],
+)
+
+py_library(
+    name = "clang_tidy_apply",
+    srcs = ["clang_tidy_apply.py"],
+    deps = [
+        ":clang_tidy_report",
+        requirement("pyyaml"),
+    ],
+)
+
+py_library(
+    name = "clang_tidy_selftest_lib",
+    srcs = ["clang_tidy_selftest.py"],
+    deps = [
+        ":clang_tidy_apply",
+        ":clang_tidy_report",
+    ],
+)
+
+py_binary(
+    name = "clang_tidy_selftest",
+    srcs = ["clang_tidy_selftest.py"],
+    deps = [":clang_tidy_selftest_lib"],
+)
+
+# Lints the fixtures of testdata/ with every candidate check and fails unless the findings and the applied fix-its are
+# the expected ones. Needs clang-tidy (docker/install_llvm_tools.sh tidy); `make lint-tidy` builds it.
+clang_tidy_selftest(
+    name = "selftest",
+    configs = [
+        "sweep.clang-tidy",
+        "//:.clang-tidy",
+    ],
+    expected = ["//tools/clang_tidy/testdata:expected"],
+    fixtures = [
+        "//tools/clang_tidy/testdata:braces",
+        "//tools/clang_tidy/testdata:clean",
+        "//tools/clang_tidy/testdata:ctad",
+        "//tools/clang_tidy/testdata:discarded_status",
+        "//tools/clang_tidy/testdata:explicit_constructor",
+        "//tools/clang_tidy/testdata:member_init",
+        "//tools/clang_tidy/testdata:rename",
+    ],
+    golden = ["//tools/clang_tidy/testdata:renamed_files"],
+    golden_prefix = "tools/clang_tidy/testdata/renamed/",
+    renamed_prefix = "tools/clang_tidy/testdata/rename/",
+    tags = ["manual"],
+)
+
+# The arguments of the aspect's actions, written without running clang-tidy, for test_clang_tidy_aspect.py: the
+# fixtures as the self-test lints them, the same fixtures as `//...` would (not at all), and a package with generated
+# headers checked into the tree.
+clang_tidy_args(
+    name = "fixture_arguments",
+    targets = [
+        "//tools/clang_tidy/testdata:discarded_status",
+        "//tools/clang_tidy/testdata:explicit_constructor",
+        "//tools/clang_tidy/testdata:generated",
+        "//tools/clang_tidy/testdata:rename",
+    ],
+)
+
+clang_tidy_args(
+    name = "fixture_arguments_in_repository_scope",
+    scope = "repository",
+    targets = [
+        "//tools/clang_tidy/testdata:discarded_status",
+        "//tools/clang_tidy/testdata:rename",
+    ],
+)
+
+clang_tidy_args(
+    name = "generated_header_arguments",
+    scope = "repository",
+    targets = ["//humanoid_nmpc/humanoid_common_mpc"],
+)
+
+py_test(
+    name = "test_clang_tidy_aspect",
+    size = "small",
+    srcs = ["test_clang_tidy_aspect.py"],
+    data = [
+        "clang_tidy.bzl",
+        ":fixture_arguments",
+        ":fixture_arguments_in_repository_scope",
+        ":generated_header_arguments",
+    ],
+    deps = [":clang_tidy_report"],
+)
+
+py_test(
+    name = "test_clang_tidy_config",
+    size = "small",
+    srcs = ["test_clang_tidy_config.py"],
+    data = [
+        "clang_tidy.bzl",
+        "sweep.clang-tidy",
+        "//:.clang-tidy",
+        "//:MODULE.bazel",
+    ],
+    deps = [
+        "//tools/hooks:check_test_support",
+        "//tools/hooks:lint_files",
+        requirement("pyyaml"),
+    ],
+)
+
+py_test(
+    name = "test_clang_tidy_report",
+    size = "small",
+    srcs = ["test_clang_tidy_report.py"],
+    deps = [
+        ":clang_tidy_apply",
+        ":clang_tidy_report",
+        ":clang_tidy_selftest_lib",
+    ],
+)

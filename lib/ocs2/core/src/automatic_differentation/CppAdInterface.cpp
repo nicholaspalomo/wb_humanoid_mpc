@@ -29,15 +29,61 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <ocs2_core/automatic_differentiation/CppAdInterface.h>
 
-#include <boost/filesystem.hpp>
+#include <filesystem>
+#include <mutex>
+#include <stdexcept>
+#include <utility>
+
+#include "absl/strings/str_cat.h"
 
 namespace ocs2 {
 
+namespace {
+
+/** The observer of CppAdInterface::setLibraryObserver(), with the mutex that guards it. */
+struct LibraryObserverSlot {
+  std::mutex mutex;
+  CppAdInterface::LibraryObserver observer;
+};
+
+LibraryObserverSlot& libraryObserverSlot() {
+  static LibraryObserverSlot slot;
+  return slot;
+}
+
+}  // namespace
+
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
-CppAdInterface::CppAdInterface(ad_parameterized_function_t adFunction, size_t variableDim, size_t parameterDim, std::string modelName,
-                               std::string folderName, std::vector<std::string> compileFlags)
+void CppAdInterface::setLibraryObserver(LibraryObserver observer) {
+  LibraryObserverSlot& slot = libraryObserverSlot();
+  std::lock_guard<std::mutex> lock(slot.mutex);
+  slot.observer = std::move(observer);
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+void CppAdInterface::notifyLibraryObserver() const {
+  LibraryObserverSlot& slot = libraryObserverSlot();
+  LibraryObserver observer;
+  {
+    std::lock_guard<std::mutex> lock(slot.mutex);
+    observer = slot.observer;
+  }
+  if (observer) observer(*this);
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+CppAdInterface::CppAdInterface(ad_parameterized_function_t adFunction,
+                               size_t variableDim,
+                               size_t parameterDim,
+                               std::string modelName,
+                               std::string folderName,
+                               std::vector<std::string> compileFlags)
     : adFunction_(std::move(adFunction)),
       variableDim_(variableDim),
       parameterDim_(parameterDim),
@@ -61,6 +107,7 @@ CppAdInterface::CppAdInterface(ad_function_t adFunction, size_t variableDim, std
 CppAdInterface::CppAdInterface(const CppAdInterface& rhs)
     : CppAdInterface(rhs.adFunction_, rhs.variableDim_, rhs.parameterDim_, rhs.modelName_, rhs.folderName_, rhs.compileFlags_) {
   if (isLibraryAvailable()) {
+    rangeDim_ = rhs.rangeDim_;  // known when rhs has a model, so that the reloaded library is checked against it
     loadModels(false);
   }
 }
@@ -115,8 +162,9 @@ void CppAdInterface::createModels(ApproximationOrder approximationOrder, bool ve
     std::cerr << "[CppAdInterface] Renaming " << libraryName_ + tmpName_ + CppAD::cg::system::SystemInfo<>::DYNAMIC_LIB_EXTENSION << " to "
               << libraryName_ + CppAD::cg::system::SystemInfo<>::DYNAMIC_LIB_EXTENSION << std::endl;
   }
-  boost::filesystem::rename(libraryName_ + tmpName_ + CppAD::cg::system::SystemInfo<>::DYNAMIC_LIB_EXTENSION,
-                            libraryName_ + CppAD::cg::system::SystemInfo<>::DYNAMIC_LIB_EXTENSION);
+  std::filesystem::rename(libraryName_ + tmpName_ + CppAD::cg::system::SystemInfo<>::DYNAMIC_LIB_EXTENSION,
+                          libraryName_ + CppAD::cg::system::SystemInfo<>::DYNAMIC_LIB_EXTENSION);
+  notifyLibraryObserver();
 }
 
 /******************************************************************************************************/
@@ -129,9 +177,62 @@ void CppAdInterface::loadModels(bool verbose) {
   }
   dynamicLib_.reset(new CppAD::cg::LinuxDynamicLib<scalar_t>(libraryName_ + CppAD::cg::system::SystemInfo<>::DYNAMIC_LIB_EXTENSION));
   model_ = dynamicLib_->model(modelName_);
+  // A fresh interface does not know its range yet (an earlier createModels() or the interface a copy was made of
+  // would have set it), so the function is evaluated once to find it: a library whose output size changed while its
+  // inputs did not is as stale as one whose inputs changed.
+  checkLoadedModelDimensions(/*expectedRangeDim=*/rangeDim_ != 0 ? rangeDim_ : evaluateRangeDim());
   rangeDim_ = model_->Range();
 
   setSparsityNonzeros();
+  notifyLibraryObserver();
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+void CppAdInterface::checkLoadedModelDimensions(size_t expectedRangeDim) const {
+  if (model_ == nullptr) {
+    throw std::runtime_error(absl::StrCat("[CppAdInterface] The library in '", libraryFolder_, "' has no model named '", modelName_,
+                                          "'. Delete the folder, or set recompileLibrariesCppAd: true, to regenerate it."));
+  }
+  const size_t expectedDomainDim = variableDim_ + parameterDim_;
+  if (model_->Domain() != expectedDomainDim || model_->Range() != expectedRangeDim) {
+    throw std::runtime_error(absl::StrCat(
+        "[CppAdInterface] The library in '", libraryFolder_, "' was generated for another function: its domain is ", model_->Domain(),
+        " and its range ", model_->Range(), ", but the function now takes ", variableDim_, " variables + ", parameterDim_,
+        " parameters = ", expectedDomainDim, " and returns ", expectedRangeDim,
+        ". It is stale (for example from before a change of the state layout): delete the folder, or set recompileLibrariesCppAd: true, "
+        "to regenerate it."));
+  }
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+size_t CppAdInterface::evaluateRangeDim() const {
+  // At the taping point of createModels(), but off tape: no operation is recorded and nothing is generated.
+  const ad_vector_t x = ad_vector_t::Ones(variableDim_);
+  const ad_vector_t p = ad_vector_t::Ones(parameterDim_);
+  ad_vector_t y;
+  adFunction_(x, p, y);
+  return static_cast<size_t>(y.size());
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
+size_t CppAdInterface::getTapeOperationCount() const {
+  // The same taping as createModels(): at ones, then optimized.
+  ad_vector_t xp(variableDim_ + parameterDim_);
+  xp.setOnes();
+  CppAD::Independent(xp);
+  const ad_vector_t x = xp.segment(0, variableDim_);
+  const ad_vector_t p = xp.segment(variableDim_, parameterDim_);
+  ad_vector_t y;
+  adFunction_(x, p, y);
+  ad_fun_t fun(xp, y);
+  fun.optimize();
+  return fun.size_op();
 }
 
 /******************************************************************************************************/
@@ -303,15 +404,15 @@ void CppAdInterface::setFolderNames() {
 /******************************************************************************************************/
 /******************************************************************************************************/
 bool CppAdInterface::isLibraryAvailable() const {
-  return boost::filesystem::exists(libraryName_ + CppAD::cg::system::SystemInfo<>::DYNAMIC_LIB_EXTENSION);
+  return std::filesystem::exists(libraryName_ + CppAD::cg::system::SystemInfo<>::DYNAMIC_LIB_EXTENSION);
 }
 
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
 void CppAdInterface::createFolderStructure() const {
-  boost::filesystem::create_directories(libraryFolder_);
-  boost::filesystem::create_directories(tmpFolder_);
+  std::filesystem::create_directories(libraryFolder_);
+  std::filesystem::create_directories(tmpFolder_);
 }
 
 /******************************************************************************************************/

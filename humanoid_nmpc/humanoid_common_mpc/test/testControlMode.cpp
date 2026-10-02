@@ -68,7 +68,7 @@ TEST(ControlMode, ANameTheFsmDoesNotPublishIsInNeitherFamily) {
 }
 
 TEST(ControlMode, TheNamesAreTheOnesTheFsmPublishes) {
-  // The strings on /humanoid/fsm_command and /humanoid/fsm_state (humanoid_finite_state_machine.py ControlMode).
+  // The strings on operator/fsm_command and robot/fsm_state (humanoid_finite_state_machine.py ControlMode).
   EXPECT_EQ(control_mode::kZeroTorque, "ZERO_TORQUE");
   EXPECT_EQ(control_mode::kJointPd, "JOINT_PD");
   EXPECT_EQ(control_mode::kGravityComp, "GRAVITY_COMP");

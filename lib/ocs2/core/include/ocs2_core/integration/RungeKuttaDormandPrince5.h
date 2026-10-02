@@ -36,8 +36,11 @@ namespace ocs2 {
 /*
  * 5th order Runge Kutta Dormand-Prince (ode45) Integrator class
  *
- * The implementation is based on the boost odeint integrator with the controlled
- * boost::numeric::odeint::runge_kutta_dopri5 stepper.
+ * OCS2's own implementation (IntegratorType::ODE45_OCS2) of odeint's controlled runge_kutta_dopri5 stepper. ODE45
+ * (ocs2_core/integration/implementation/Integrator.h, built on the steppers of ocs2_core/integration/steppers.h) is the
+ * one that reproduces odeint exactly. Both give up with a std::runtime_error when step-size control keeps rejecting the
+ * step: this one after more than maxNumStepsRetries_ consecutive rejections, ODE45 after odeint's failed_step_checker
+ * limit of 500.
  */
 class RungeKuttaDormandPrince5 : public IntegratorBase {
  public:

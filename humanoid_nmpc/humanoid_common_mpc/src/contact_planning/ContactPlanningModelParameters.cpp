@@ -49,31 +49,32 @@ namespace ocs2::humanoid {
 namespace {
 
 /**
- * The rotation axis of a revolute joint in the joint's own frame, or empty for any other kind of joint.
+ * The axis an unaligned revolute joint (bounded or unbounded) rotates about, in the joint's own frame, read through
+ * pinocchio's generic joint interface: the motion subspace of a revolute joint is the single unit twist about its
+ * axis, so the angular part of its one column is the axis the joint model carries, copied verbatim.
  *
- * An unaligned revolute joint carries its axis on the joint model itself, so the axis has to be read from the
- * alternative the variant actually holds. JointModelRevoluteUnaligned and JointModelRevoluteUnboundedUnaligned are two
- * UNRELATED alternatives of pinocchio's JointModelVariant - the unbounded one is not a subclass of the bounded one, it
- * merely carries a Vector3 axis of its own - so a single boost::get cannot serve both. Asking only for the bounded
- * alternative, which an earlier version did while admitting both shortnames, made the second name dead code: for a
- * continuous off-axis joint the pointer came back null, the walk up the kinematic tree ran past the hip yaw all the
- * way to the root, and the leg silently got the symmetric fallback bounds while summary() reported "no hip yaw joint
- * found" for a joint that was right there.
+ * JointModelRevoluteUnaligned and JointModelRevoluteUnboundedUnaligned are two UNRELATED alternatives of pinocchio's
+ * joint variant - the unbounded one is not a subclass of the bounded one, it merely carries a Vector3 axis of its own -
+ * so asking the variant for one alternative cannot serve both. Asking only for the bounded alternative, which an
+ * earlier version did while admitting both shortnames, made the second name dead code: for a continuous off-axis
+ * joint the axis came back empty, the walk up the kinematic tree ran past the hip yaw all the way to the root, and the
+ * leg silently got the symmetric fallback bounds while summary() reported "no hip yaw joint found" for a joint that
+ * was right there. The motion subspace is the same for both, and reading it needs no access to the variant.
  */
+vector3_t unalignedRevoluteAxis(const PinocchioInterface::Model& model, pinocchio::JointIndex joint) {
+  const PinocchioInterface::Model::JointData jointData = model.joints[joint].createData();
+  const Eigen::Matrix<scalar_t, 6, Eigen::Dynamic> motionSubspace = jointData.S().matrix();
+  return motionSubspace.block<3, 1>(pinocchio::Motion::ANGULAR, 0);
+}
+
+/** The rotation axis of a revolute joint in the joint's own frame, or empty for any other kind of joint. */
 std::optional<vector3_t> revoluteAxis(const PinocchioInterface::Model& model, pinocchio::JointIndex joint) {
   const std::string name = model.joints[joint].shortname();
   if (name == "JointModelRX" || name == "JointModelRUBX") return vector3_t::UnitX();
   if (name == "JointModelRY" || name == "JointModelRUBY") return vector3_t::UnitY();
   if (name == "JointModelRZ" || name == "JointModelRUBZ") return vector3_t::UnitZ();
-  if (name == "JointModelRevoluteUnaligned") {
-    const pinocchio::JointModelRevoluteUnaligned* unaligned =
-        boost::get<pinocchio::JointModelRevoluteUnaligned>(&model.joints[joint].toVariant());
-    if (unaligned != nullptr) return vector3_t(unaligned->axis);
-  }
-  if (name == "JointModelRevoluteUnboundedUnaligned") {
-    const pinocchio::JointModelRevoluteUnboundedUnaligned* unbounded =
-        boost::get<pinocchio::JointModelRevoluteUnboundedUnaligned>(&model.joints[joint].toVariant());
-    if (unbounded != nullptr) return vector3_t(unbounded->axis);
+  if (name == "JointModelRevoluteUnaligned" || name == "JointModelRevoluteUnboundedUnaligned") {
+    return unalignedRevoluteAxis(model, joint);
   }
   return std::nullopt;
 }

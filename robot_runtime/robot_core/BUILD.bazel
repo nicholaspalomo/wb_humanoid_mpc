@@ -1,17 +1,43 @@
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
-# robot_core - Header-only library (no source files)
+# robot_core - Header-only core types and lock-free buffers, and the resource path lookup of tests and tools
 
 package(default_visibility = ["//visibility:public"])
 
 cc_library(
     name = "robot_core",
-    hdrs = glob(["include/**"], allow_empty = True),
+    hdrs = glob(
+        ["include/**"],
+        exclude = ["include/robot_core/ResourcePaths.h"],
+        allow_empty = True,
+    ),
     includes = ["include"],
     deps = [
         "@eigen",
         "@abseil-cpp//absl/log:log",
-        "@ros2_ament_index_cpp",
+    ],
+)
+
+# Files of the repository - robot descriptions, task files - from the Bazel runfiles of the running test or binary.
+# A target of its own, so the realtime libraries that depend on robot_core do not link the runfiles library.
+cc_library(
+    name = "resource_paths",
+    srcs = ["src/ResourcePaths.cpp"],
+    hdrs = ["include/robot_core/ResourcePaths.h"],
+    includes = ["include"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+    ],
+    deps = [
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@rules_cc//cc/runfiles",
     ],
 )
 
@@ -21,6 +47,29 @@ cc_test(
     copts = ["-std=c++20"],
     deps = [
         ":robot_core",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "resource_paths_test",
+    size = "small",
+    srcs = ["test/ResourcePathsTest.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+    ],
+    # LINT.IfChange(resource_paths_test_data)
+    data = ["test/testdata/resource_paths_probe.txt"],
+    # LINT.ThenChange(//robot_runtime/robot_core/test/ResourcePathsTest.cpp:probe_file)
+    deps = [
+        ":resource_paths",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
     ],
 )

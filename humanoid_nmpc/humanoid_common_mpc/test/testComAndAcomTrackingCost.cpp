@@ -36,8 +36,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <pinocchio/multibody/data.hpp>
 #include <pinocchio/multibody/model.hpp>
 
-#include <ament_index_cpp/get_package_share_directory.hpp>
-
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
@@ -54,12 +52,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
-#include "absl/strings/str_cat.h"
 
 #include "humanoid_common_mpc/acom/AngularCenterOfMass.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
 #include "humanoid_common_mpc/cost/ComAndAcomTrackingCost.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
+#include "robot_core/ResourcePaths.h"
 
 namespace ocs2::humanoid {
 
@@ -105,8 +103,8 @@ std::filesystem::path scratchDirectory() {
 class ComAndAcomTrackingCostTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    taskFile_ = absl::StrCat(ament_index_cpp::get_package_share_directory("drc_atlas_centroidal_mpc"), "/config/mpc/task.yaml");
-    urdfFile_ = absl::StrCat(ament_index_cpp::get_package_share_directory("drc_atlas_description"), "/urdf/atlas.urdf");
+    taskFile_ = robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml").value();
+    urdfFile_ = robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf").value();
 
     modelSettingsPtr_ = std::make_unique<ModelSettings>(taskFile_, urdfFile_, "testComAndAcomTrackingCost", /*verbose=*/false);
     pinocchioInterfacePtr_ = std::make_unique<PinocchioInterface>(createCustomPinocchioInterface(taskFile_, urdfFile_, *modelSettingsPtr_));

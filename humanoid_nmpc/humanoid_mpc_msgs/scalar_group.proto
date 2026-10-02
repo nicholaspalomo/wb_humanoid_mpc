@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package humanoid_mpc_msgs;
+
+import "nproto/options.proto";
+
+// Named scalars plotted together: one Rerun entity with one series per name.
+// Next ID: 4
+message ScalarGroup {
+  option (nproto.generate_struct) = "ocs2::humanoid::msgs::ScalarGroup";
+
+  reserved 4 to max;
+
+  string path = 1;
+  repeated string names = 2;
+  repeated double values = 3;
+}

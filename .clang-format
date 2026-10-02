@@ -3,6 +3,9 @@
   IndentWidth: 2
   BreakBeforeBraces: Attach
   DerivePointerAlignment: false
+  # LINT.IfChange(attribute_macros)
+  AttributeMacros: [__capability, absl_nonnull, absl_nullable, absl_nullability_unknown]
+  # LINT.ThenChange(//tools/hooks/pointer_nullability.py:rules, //AGENTS.md:nullability)
   PointerAlignment: Left
   AllowShortFunctionsOnASingleLine: Inline
   IncludeBlocks: Preserve

@@ -11,10 +11,6 @@ _COMMON_COPTS = [
     "-Wextra",
     "-Wpedantic",
     "-Werror=return-type",
-    "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-    "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-    "-DBOOST_VARIANT_LIMIT_TYPES=50",
-    "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
 ]
 
 # Headers shared by the planner core and the rest of the library (types, the mode-number conventions and the
@@ -34,6 +30,106 @@ cc_library(
         "//lib/ocs2:ocs2_core",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
+        "@eigen",
+    ],
+)
+
+# The reset and failure policy of the MRT joint controllers (include/humanoid_common_mpc/mrt/MpcResetSupervisor.h). A
+# target of its own, without the robot model, Pinocchio or ROS, because the network MPC link
+# (//humanoid_nmpc/humanoid_mpc_ipc) serves its resets and mirrors its health on both sides of the bus.
+cc_library(
+    name = "mpc_reset_supervisor",
+    srcs = ["src/mrt/MpcResetSupervisor.cpp"],
+    hdrs = ["include/humanoid_common_mpc/mrt/MpcResetSupervisor.h"],
+    includes = ["include"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":humanoid_common_mpc_types",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/status",
+    ],
+)
+
+# What the MRT joint controllers report from the control thread instead of logging there (ControllerEvent.h), the sink
+# it goes to and the sink that logs at once. A target of its own, without Pinocchio or OCS2, because the robot process's
+# realtime event log is a sink.
+_CONTROLLER_EVENT_HDRS = [
+    "include/humanoid_common_mpc/mrt/ControllerEvent.h",
+    "include/humanoid_common_mpc/mrt/ControllerEventSink.h",
+    "include/humanoid_common_mpc/mrt/LoggingControllerEventSink.h",
+]
+
+cc_library(
+    name = "controller_event",
+    srcs = [
+        "src/mrt/ControllerEvent.cpp",
+        "src/mrt/LoggingControllerEventSink.cpp",
+    ],
+    hdrs = _CONTROLLER_EVENT_HDRS,
+    includes = ["include"],
+    copts = _COMMON_COPTS,
+    deps = [
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+    ],
+)
+
+# The name of the state layout the CppAD library folders are tagged with (design decision D14 of
+# humanoid_nmpc/docs/quaternion_base_orientation/README.md), header only.
+_STATE_LAYOUT_HDRS = [
+    "include/humanoid_common_mpc/common/StateLayout.h",
+]
+
+cc_library(
+    name = "state_layout",
+    hdrs = _STATE_LAYOUT_HDRS,
+    includes = ["include"],
+    copts = _COMMON_COPTS,
+    deps = ["@abseil-cpp//absl/strings:string_view"],
+)
+
+# The operator's walking command (command/WalkingVelocityCommand.h), a plain value, header only, so that the MPC node's
+# conversion of the bus message (//humanoid_nmpc/humanoid_common_mpc_app/node:walking_velocity_command_conversions) and
+# the closed-loop metrics that apply it build without the robot model.
+_WALKING_VELOCITY_COMMAND_HDRS = [
+    "include/humanoid_common_mpc/command/WalkingVelocityCommand.h",
+]
+
+cc_library(
+    name = "walking_velocity_command",
+    hdrs = _WALKING_VELOCITY_COMMAND_HDRS,
+    includes = ["include"],
+    copts = _COMMON_COPTS,
+    deps = [":humanoid_common_mpc_types"],
+)
+
+# The base orientation as a unit quaternion (humanoid_nmpc/docs/quaternion_base_orientation/README.md, sections 2.1,
+# 2.6, 2.8.1 and 4.2): the safe normalization, the quaternion rate matrix and the tangent lift, the heading-tilt residual
+# with its closed-form Jacobian, and the Euler boundary, the only humanoid home of the Euler conversions. No Pinocchio, no
+# ROS.
+_ORIENTATION_HDRS = [
+    "include/humanoid_common_mpc/orientation/BaseOrientation.h",
+    "include/humanoid_common_mpc/orientation/EulerBoundary.h",
+]
+
+cc_library(
+    name = "orientation",
+    srcs = [
+        "src/orientation/BaseOrientation.cpp",
+        "src/orientation/EulerBoundary.cpp",
+    ],
+    hdrs = _ORIENTATION_HDRS,
+    includes = ["include"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":humanoid_common_mpc_types",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_robotic_tools",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
         "@eigen",
     ],
 )
@@ -118,7 +214,6 @@ cc_library(
         "@blasfeo",
         "@hpipm",
         "@eigen",
-        "@boost",
         "@yaml_cpp",
     ],
 )
@@ -184,7 +279,10 @@ cc_library(
         "src/locomotion_heuristics/wrench/ImpulseScalingHeuristic.cpp",
         "src/reference_manager/SwitchedModelReferenceManager.cpp",
         "src/reference_manager/ProceduralMpcMotionManager.cpp",
-        "src/mrt/MpcResetSupervisor.cpp",
+        "src/mrt/InProcessMpcLink.cpp",
+        "src/mrt/JointPdGains.cpp",
+        "src/mrt/JointPdGainsMailbox.cpp",
+        "src/mrt/MpcLink.cpp",
         "src/HumanoidCostConstraintFactory.cpp",
         "src/HumanoidPreComputation.cpp",
         "src/acom/AngularCenterOfMass.cpp",
@@ -198,7 +296,10 @@ cc_library(
     ],
     hdrs = glob(
         ["include/**"],
-        exclude = _CONTACT_PLANNING_CORE_HDRS + _COMMON_TYPES_HDRS,
+        exclude = _CONTACT_PLANNING_CORE_HDRS + _COMMON_TYPES_HDRS + _CONTROLLER_EVENT_HDRS + _ORIENTATION_HDRS +
+                  _STATE_LAYOUT_HDRS + _WALKING_VELOCITY_COMMAND_HDRS + [
+                      "include/humanoid_common_mpc/mrt/MpcResetSupervisor.h",
+                  ],
         allow_empty = True,
     ),
     includes = ["include"],
@@ -208,24 +309,23 @@ cc_library(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     deps = [
         ":contact_planning_core",
+        ":controller_event",
         ":humanoid_common_mpc_types",
-        "//humanoid_nmpc/humanoid_mpc_msgs",
+        ":mpc_reset_supervisor",
+        ":walking_velocity_command",
         "//lib/ocs2:ocs2_centroidal_model",
         "//lib/ocs2:ocs2_core",
         "//lib/ocs2:ocs2_mpc",
         "//lib/ocs2:ocs2_pinocchio_interface",
+        "//robot_runtime/robot_core",
         "@blasfeo",
         "@hpipm",
         "@eigen",
-        "@boost",
         "@pinocchio",
+        "@abseil-cpp//absl/base:core_headers",
         "@abseil-cpp//absl/container:flat_hash_map",
         "@abseil-cpp//absl/container:flat_hash_set",
         "@abseil-cpp//absl/log:check",
@@ -235,9 +335,8 @@ cc_library(
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/synchronization",
         "@abseil-cpp//absl/types:span",
-        "@ros2_rclcpp",
-        "@ros2_ament_index_cpp",
         "@yaml_cpp",
     ],
     # Config data files
@@ -275,7 +374,6 @@ cc_test(
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:string_view",
         "@abseil-cpp//absl/types:span",
-        "@boost",
         "@googletest//:gtest_main",
         "@yaml_cpp",
     ],
@@ -436,9 +534,109 @@ cc_test(
     srcs = ["test/testMpcResetSupervisor.cpp"],
     copts = _COMMON_COPTS,
     deps = [
-        ":humanoid_common_mpc",
+        ":mpc_reset_supervisor",
         "@abseil-cpp//absl/log:scoped_mock_log",
         "@abseil-cpp//absl/status",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# InProcessMpcLink, the MRT joint controllers' solver thread, around a scripted solver: the start-up reset, requested
+# resets of either kind, the failure back-off and a reset request cutting it short, the pacing, the solve observer.
+cc_test(
+    name = "testInProcessMpcLink",
+    size = "small",
+    srcs = ["test/testInProcessMpcLink.cpp"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_mpc_test_support",
+        "//lib/ocs2:ocs2_oc",
+        "@abseil-cpp//absl/log:scoped_mock_log",
+        "@abseil-cpp//absl/status",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The joint_pd_gains.yaml parser of the MRT joint controllers: defaults, named joints, the refusal of a malformed
+# document by its key, and every robot's shipped gains file.
+cc_test(
+    name = "testJointPdGains",
+    size = "small",
+    srcs = ["test/testJointPdGains.cpp"],
+    copts = _COMMON_COPTS,
+    # LINT.IfChange(shipped_pd_gains_files_data)
+    data = [
+        "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+        "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+        "//robot_models/unitree_r1/unitree_r1_centroidal_mpc",
+    ],
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/test/testJointPdGains.cpp:shipped_pd_gains_files)
+    deps = [
+        ":humanoid_common_mpc",
+        "//robot_runtime/robot_core:resource_paths",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The hand-over of joint PD gains to the control thread: newest wins, never torn, no allocation and no wait on the
+# control thread. A target of its own, because the allocation counter replaces malloc for the whole binary.
+cc_test(
+    name = "testJointPdGainsMailbox",
+    size = "small",
+    srcs = ["test/testJointPdGainsMailbox.cpp"],
+    copts = _COMMON_COPTS,
+    linkstatic = True,
+    deps = [
+        ":humanoid_common_mpc",
+        "//humanoid_state_estimation/humanoid_state_estimator:allocation_counter",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/synchronization",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# An MpcLink with no MPC behind it, for tests of the MRT joint controllers' own work (test/NullMpcLink.h).
+cc_library(
+    name = "null_mpc_link",
+    testonly = True,
+    hdrs = ["test/NullMpcLink.h"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        "//lib/ocs2:ocs2_mpc",
+    ],
+)
+
+# The default core partitions of the binaries, over the process's own CPU set (a container's cpuset).
+cc_test(
+    name = "testThreadAffinity",
+    size = "small",
+    srcs = ["test/testThreadAffinity.cpp"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The MRT joint controllers' reports: every code formats to a line naming its controller, and an event is plain data.
+cc_test(
+    name = "testControllerEvent",
+    size = "small",
+    srcs = ["test/testControllerEvent.cpp"],
+    copts = _COMMON_COPTS,
+    linkstatic = True,
+    deps = [
+        ":controller_event",
+        "//robot_runtime/robot_realtime:allocation_counter",
         "@googletest//:gtest_main",
     ],
 )
@@ -536,12 +734,12 @@ cc_test(
     # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/test/testAcomAngularVelocityConsistency.cpp:acom_acceptance_robots)
     deps = [
         ":humanoid_common_mpc",
+        "//robot_runtime/robot_core:resource_paths",
         "@abseil-cpp//absl/log:log",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
-        "@ros2_ament_index_cpp",
         "@yaml_cpp",
     ],
 )
@@ -556,11 +754,11 @@ cc_test(
     ],
     deps = [
         ":humanoid_common_mpc",
+        "//robot_runtime/robot_core:resource_paths",
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@googletest//:gtest_main",
-        "@ros2_ament_index_cpp",
     ],
 )
 
@@ -605,6 +803,21 @@ cc_test(
     deps = [
         ":humanoid_common_mpc",
         "@googletest//:gtest_main",
+    ],
+)
+
+# quaternionToEulerZYX at a pitch of +-90 degrees, where the sine of the pitch rounds past 1 and asin was NaN, and
+# bit-for-bit the unclamped conversion everywhere that one was defined.
+cc_test(
+    name = "testQuaternionToEulerClamp",
+    size = "small",
+    srcs = ["test/testQuaternionToEulerClamp.cpp"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        "//lib/ocs2:ocs2_robotic_tools",
+        "@googletest//:gtest_main",
+        "@pinocchio",
     ],
 )
 
@@ -732,6 +945,19 @@ cc_test(
     ],
 )
 
+# The hip yaw joint deriveHipYawRange finds on a leg, for aligned, unaligned and unbounded revolute joints.
+cc_test(
+    name = "testContactPlanningModelParameters",
+    size = "small",
+    srcs = ["test/testContactPlanningModelParameters.cpp"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":humanoid_common_mpc",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
 cc_test(
     name = "testTargetContactPose",
     size = "small",
@@ -841,6 +1067,94 @@ cc_test(
         "@abseil-cpp//absl/status",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# Step 0 of the quaternion base orientation (humanoid_nmpc/docs/quaternion_base_orientation/README.md): the G1 model on
+# a Translation+Spherical root, built in the test, taped and code-generated with CppAD and compared with Pinocchio in
+# double precision. It compiles a CppAD library per computation, so it runs alone.
+cc_test(
+    name = "testQuaternionRootJointCppAd",
+    size = "large",
+    srcs = ["test/testQuaternionRootJointCppAd.cpp"],
+    copts = _COMMON_COPTS,
+    # LINT.IfChange(quaternion_root_test_data)
+    data = [
+        "//robot_models/unitree_g1/g1_centroidal_mpc",
+        "//robot_models/unitree_g1/g1_description",
+    ],
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/test/testQuaternionRootJointCppAd.cpp:robot_files)
+    tags = ["exclusive"],
+    deps = [
+        ":humanoid_common_mpc",
+        "//lib/ocs2:ocs2_centroidal_model",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_pinocchio_interface",
+        "//lib/ocs2:ocs2_robotic_tools",
+        "@abseil-cpp//absl/log",
+        "@abseil-cpp//absl/log:check",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# Step 5 of the quaternion base orientation: the heading-tilt residual and its closed-form Jacobian against finite
+# differences, at level, at a pitch of 90 degrees and upside down, and the identities of design section 2.8.1.
+cc_test(
+    name = "testBaseOrientation",
+    size = "small",
+    srcs = ["test/testBaseOrientation.cpp"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":orientation",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The Euler boundary: round trips, the clamped asin at +-90 degrees, T_B, and the tuning layout's size errors.
+cc_test(
+    name = "testEulerBoundary",
+    size = "small",
+    srcs = ["test/testEulerBoundary.cpp"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":orientation",
+        "//lib/ocs2:ocs2_robotic_tools",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The quaternion rate matrix and the safe normalization taped at x = ones: no comparison between variables, and a
+# generated library with finite derivatives at the zero quaternion. It compiles a CppAD library, so it runs alone.
+cc_test(
+    name = "testBaseOrientationCppAd",
+    size = "small",
+    srcs = ["test/testBaseOrientationCppAd.cpp"],
+    copts = _COMMON_COPTS,
+    tags = ["exclusive"],
+    deps = [
+        ":orientation",
+        "//lib/ocs2:ocs2_core",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The CppAD layout tag is one well-formed folder name.
+cc_test(
+    name = "testStateLayout",
+    size = "small",
+    srcs = ["test/testStateLayout.cpp"],
+    copts = _COMMON_COPTS,
+    deps = [
+        ":state_layout",
+        "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
     ],
 )

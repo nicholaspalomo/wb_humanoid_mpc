@@ -1,4 +1,5 @@
 """****************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 Copyright (c) 2024, 1X Technologies. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -27,149 +28,253 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ****************************************************************************"""
 
-import pygame
-import time
-import subprocess
-from dataclasses import dataclass
-from humanoid_mpc_msgs.msg import WalkingVelocityCommand
+"""The Xbox controller as a source of walking commands, read through pygame.
+
+Free of the bus: the GUI (base_velocity_controller_gui.py) and xbox_walking_command_publisher.py publish what it
+returns. The stick shaping, the two axis layouts and the pelvis height integration are plain functions over an object
+with get_axis(), and pygame is behind a small backend, so test/test_xbox_controller.py covers all of it with a fake
+joystick. pygame is not thread-safe: call everything here from one thread (the GUI calls it from Tk's).
+"""
+
+import dataclasses
+import logging
+from typing import Any, Optional, Protocol, Tuple
+
+from humanoid_mpc_msgs import walking_velocity_command_pb2
+from remote_control.operator_bus import walking_velocity_command
+
+_LOGGER = logging.getLogger(__name__)
+
+# A stick deflection below this, after shaping, reads as zero.
+STICK_DEADBAND = 0.02
+# A controller whose name contains this is connected over Bluetooth, which numbers its axes differently.
+BLUETOOTH_NAME_MARKER = "Wireless Controller"
 
 
-@dataclass
+@dataclasses.dataclass
 class ControllerInput:
-    x_left: float = 0
-    y_left: float = 0
-    x_right: float = 0
-    y_right: float = 0
-    lt: int = 0
-    rt: int = 0
+    """The sticks, shaped, in [-1, 1] (x forward, y left), and the triggers in [0, 1] (0: released)."""
+
+    x_left: float = 0.0
+    y_left: float = 0.0
+    x_right: float = 0.0
+    y_right: float = 0.0
+    lt: float = 0.0
+    rt: float = 0.0
 
 
-def get_usb_devices():
-    result = subprocess.run(["lsusb"], stdout=subprocess.PIPE)
-    devices = result.stdout.decode("utf-8").split("\n")
-    return devices
+@dataclasses.dataclass(frozen=True)
+class AxisLayout:
+    """The pygame axis of each input. The sticks are read negated, so that forward and left are positive."""
+
+    x_left: int
+    y_left: int
+    x_right: int
+    y_right: int
+    lt: int
+    rt: int
 
 
-def get_bluetooth_devices():
-    result = subprocess.run(["hcitool", "con"], stdout=subprocess.PIPE)
-    devices = result.stdout.decode("utf-8").split("\n")
-    return devices
+USB_LAYOUT = AxisLayout(x_left=1, y_left=0, x_right=4, y_right=3, lt=2, rt=5)
+BLUETOOTH_LAYOUT = AxisLayout(x_left=1, y_left=0, x_right=3, y_right=2, lt=6, rt=5)
 
 
-def clamp(value, min_value, max_value):
+class Joystick(Protocol):
+    """What this module reads of a pygame joystick."""
+
+    def get_name(self) -> str: ...
+
+    def get_axis(self, axis: int) -> float: ...
+
+
+def shape_stick(raw: float) -> float:
+    """A stick deflection in [-1, 1], softened around the center (0.2 x + 0.8 x^3), with the deadband applied."""
+    shaped = 0.2 * raw + 0.8 * raw**3
+    return shaped if abs(shaped) >= STICK_DEADBAND else 0.0
+
+
+def _trigger(raw: float) -> float:
+    """A trigger axis, -1 released to 1 pressed, as 0 to 1."""
+    return (raw + 1.0) / 2.0
+
+
+def read_controller_input(joystick: Joystick, layout: AxisLayout) -> ControllerInput:
+    """The inputs of `joystick` read in `layout`."""
+    return ControllerInput(
+        x_left=shape_stick(-joystick.get_axis(layout.x_left)),
+        y_left=shape_stick(-joystick.get_axis(layout.y_left)),
+        x_right=shape_stick(-joystick.get_axis(layout.x_right)),
+        y_right=shape_stick(-joystick.get_axis(layout.y_right)),
+        lt=_trigger(joystick.get_axis(layout.lt)),
+        rt=_trigger(joystick.get_axis(layout.rt)),
+    )
+
+
+def clamp(value: float, min_value: float, max_value: float) -> float:
     return max(min_value, min(value, max_value))
 
 
-class XBoxControllerInterface:
-    def __init__(self, publisher_rate):
-        pygame.init()
-        self.joystick_connected = False
-        self.get_joystick_connection()
+class JoystickBackend(Protocol):
+    """The joystick API this module needs; PygameJoystickBackend is the real one."""
 
+    def init(self) -> None: ...
+
+    def open_first_joystick(self) -> Optional[Joystick]: ...
+
+    def joystick_count(self) -> int: ...
+
+    def pump(self) -> None: ...
+
+
+class PygameJoystickBackend:
+    """pygame's joysticks. pygame is imported here rather than at module scope, so importing this module is cheap."""
+
+    def __init__(self) -> None:
+        import pygame  # pylint: disable=import-outside-toplevel
+
+        self._pygame = pygame
+
+    def init(self) -> None:
+        self._pygame.init()
+
+    def open_first_joystick(self) -> Optional[Joystick]:
+        self._pygame.joystick.quit()
+        self._pygame.joystick.init()
+        if self._pygame.joystick.get_count() <= 0:
+            return None
+        joystick = self._pygame.joystick.Joystick(0)
+        joystick.init()
+        return joystick
+
+    def joystick_count(self) -> int:
+        return self._pygame.joystick.get_count()
+
+    def pump(self) -> None:
+        self._pygame.event.pump()
+
+
+class XBoxControllerInterface:
+    """Walking commands from the first connected controller.
+
+    The left stick commands the linear velocity, the right stick's horizontal axis the yaw rate, and the triggers move
+    the pelvis height target (RT up, LT down) at up to 1 m/s.
+
+    Args:
+        publisher_rate: how often get_walking_command_msg() is called [Hz]; it scales the pelvis height rate.
+        backend: the joysticks (default: pygame's).
+    """
+
+    def __init__(
+        self, publisher_rate: float, backend: Optional[JoystickBackend] = None
+    ) -> None:
+        self._backend = backend if backend is not None else PygameJoystickBackend()
+        self._backend.init()
+        self.publisher_rate = publisher_rate
         self.current_pelvis_height_target = 0.8
         self.min_pelvis_height = 0.2
         self.max_pelvis_height = 1.0
-        self.exp = 1.5
-
-        self.publisher_rate = publisher_rate
-
+        self.joystick: Optional[Joystick] = None
+        self.joystick_connected = False
         self.bluetooth_connection = False
+        self.get_joystick_connection()
 
-    def get_joystick_connection(self):
-        pygame.joystick.quit()
-        pygame.joystick.init()
-        joystick_count = pygame.joystick.get_count()
-
-        if joystick_count > 0:
-            joystick = pygame.joystick.Joystick(0)
-            joystick.init()
-            joystick_name = joystick.get_name()
-
-            # Xbox controllers over Bluetooth typically have specific names
-            print("joystick_name", joystick_name)
-            self.bluetooth_connection = "Wireless Controller" in joystick_name
-            self.joystick = joystick
-            self.joystick_connected = True
-            print(
-                f"Connected to {joystick_name} via {'Bluetooth' if self.bluetooth_connection else 'USB'}"
-            )
-        else:
+    def get_joystick_connection(self) -> bool:
+        """Rescans for a controller; returns whether one is connected."""
+        joystick = self._backend.open_first_joystick()
+        if joystick is None:
+            self.joystick = None
             self.joystick_connected = False
+            return False
+        name = joystick.get_name()
+        self.joystick = joystick
+        self.bluetooth_connection = BLUETOOTH_NAME_MARKER in name
+        self.joystick_connected = True
+        _LOGGER.info(
+            "Connected to %s via %s.",
+            name,
+            "Bluetooth" if self.bluetooth_connection else "USB",
+        )
+        return True
 
-    def get_joystick_inputs(self):
-        joystick_count = pygame.joystick.get_count()
-        if joystick_count < 1:
-            self.get_joystick_connection()
-        pygame.event.pump()
+    def get_joystick_inputs(self) -> ControllerInput:
+        """The controller's inputs now.
 
-        input = ControllerInput()
+        Raises:
+            ConnectionError: the controller is gone.
+        """
+        if self._backend.joystick_count() < 1 or self.joystick is None:
+            raise ConnectionError("the controller is disconnected")
+        self._backend.pump()
+        layout = BLUETOOTH_LAYOUT if self.bluetooth_connection else USB_LAYOUT
+        return read_controller_input(self.joystick, layout)
 
-        if self.bluetooth_connection:
-            raw_x_left = -self.joystick.get_axis(1)
-            raw_y_left = -self.joystick.get_axis(0)
-            raw_x_right = -self.joystick.get_axis(3)
-            raw_y_right = -self.joystick.get_axis(2)
-            # Triggers (LT and RT are often on axis 2, but this can vary)
-            # Normalize LT to 0 (not pressed) to 1 (fully pressed)
-            input.lt = (self.joystick.get_axis(6) + 1) / 2
-            input.rt = (self.joystick.get_axis(5) + 1) / 2
+    def get_walking_command_msg(
+        self,
+    ) -> Tuple[bool, Optional[walking_velocity_command_pb2.WalkingVelocityCommand]]:
+        """(True, the command of the controller's inputs), or (False, None) when no controller can be read.
 
-        else:
-            # Settings for wired controller
-            # Read joystick axes and invert the values as necessary
-            raw_x_left = -self.joystick.get_axis(1)
-            raw_y_left = -self.joystick.get_axis(0)
-            raw_x_right = -self.joystick.get_axis(4)
-            raw_y_right = -self.joystick.get_axis(3)
-
-            # Normalize LT to 0 (not pressed) to 1 (fully pressed)
-            input.lt = (self.joystick.get_axis(2) + 1) / 2
-            input.rt = (self.joystick.get_axis(5) + 1) / 2
-
-        # exponential scaling
-        raw_x_left = 0.2 * raw_x_left + 0.8 * raw_x_left**3
-        raw_y_left = 0.2 * raw_y_left + 0.8 * raw_y_left**3
-        raw_x_right = 0.2 * raw_x_right + 0.8 * raw_x_right**3
-        raw_y_right = 0.2 * raw_y_right + 0.8 * raw_y_right**3
-
-        # Clip the values if they are below 0.1 in absolute value
-        input.x_left = raw_x_left if abs(raw_x_left) >= 0.02 else 0.0
-        input.y_left = raw_y_left if abs(raw_y_left) >= 0.02 else 0.0
-        input.x_right = raw_x_right if abs(raw_x_right) >= 0.02 else 0.0
-        input.y_right = raw_y_right if abs(raw_y_right) >= 0.02 else 0.0
-
-        return input
-
-    def get_walking_command_msg(self):
-        if self.joystick_connected:
-            try:
-                input = self.get_joystick_inputs()
-                msg = WalkingVelocityCommand()
-
-                # Setting normalized inputs
-                msg.linear_velocity_x = input.x_left
-                msg.linear_velocity_y = input.y_left
-                msg.angular_velocity_z = input.y_right
-
-                # adapt pelvis height py maximum 4 cm per call, equals 1m per second with timer callback of 25Hz
-                pelvis_height_vel = input.rt - input.lt
-                self.current_pelvis_height_target += (
-                    pelvis_height_vel / self.publisher_rate
-                )
-                self.current_pelvis_height_target = clamp(
-                    self.current_pelvis_height_target,
-                    self.min_pelvis_height,
-                    self.max_pelvis_height,
-                )
-                msg.desired_pelvis_height = self.current_pelvis_height_target
-                return True, msg
-            except:
-
-                print(
-                    "Lost Joystick Connection. Start to scan for connection in the background."
-                )
-                self.joystick_connected = False
-                return False, None
-        else:
-            print("Could not read inputs since no Joystick is connected!")
+        A controller that cannot be read is marked disconnected; GamepadPoller then scans for it again.
+        """
+        if not self.joystick_connected:
             return False, None
+        try:
+            controller_input = self.get_joystick_inputs()
+        except (
+            Exception
+        ) as error:  # pylint: disable=broad-except - pygame raises its own error types
+            _LOGGER.warning(
+                "Lost the controller (%s); scanning for it in the background.", error
+            )
+            self.joystick_connected = False
+            return False, None
+        # The triggers move the target by up to 1 m/s at the publisher's rate.
+        pelvis_height_rate = controller_input.rt - controller_input.lt
+        self.current_pelvis_height_target = clamp(
+            self.current_pelvis_height_target
+            + pelvis_height_rate / self.publisher_rate,
+            self.min_pelvis_height,
+            self.max_pelvis_height,
+        )
+        return True, walking_velocity_command(
+            linear_velocity_x=controller_input.x_left,
+            linear_velocity_y=controller_input.y_left,
+            angular_velocity_z=controller_input.y_right,
+            desired_pelvis_height=self.current_pelvis_height_target,
+        )
+
+
+class GamepadPoller:
+    """Reads one walking command per tick from a controller, and scans for one every `scan_period` while none is.
+
+    Args:
+        controller: the controller interface.
+        rate_hz: how often tick() is called [Hz].
+        scan_period: how often to scan for a controller while none is connected [s]. A scan takes about a millisecond,
+            and it must run on the thread that reads the controller: pygame deadlocks against SDL's own thread when
+            pygame.joystick is reinitialized from another one.
+    """
+
+    def __init__(
+        self, controller: Any, rate_hz: float, scan_period: float = 2.0
+    ) -> None:
+        if rate_hz <= 0.0 or scan_period <= 0.0:
+            raise ValueError("the rate and the scan period must be positive")
+        self._controller = controller
+        self._scan_ticks = max(1, int(round(scan_period * rate_hz)))
+        self._ticks_since_scan = 0
+
+    @property
+    def connected(self) -> bool:
+        return bool(self._controller.joystick_connected)
+
+    def tick(self) -> Optional[walking_velocity_command_pb2.WalkingVelocityCommand]:
+        """The controller's command, or None when there is no controller (or it was just lost)."""
+        if self._controller.joystick_connected:
+            self._ticks_since_scan = 0
+            success, command = self._controller.get_walking_command_msg()
+            return command if success else None
+        self._ticks_since_scan += 1
+        if self._ticks_since_scan >= self._scan_ticks:
+            self._ticks_since_scan = 0
+            self._controller.get_joystick_connection()
+        return None

@@ -4,9 +4,9 @@
 # container starts: devcontainer.json runs it as its initializeCommand, and the README's `docker compose up` path runs
 # it first.
 #
-# Why: an unbounded build (twelve CppAD / Pinocchio translation units at 2-3 GB each, next to the simulator, RViz and
-# the tests' own CppAD code generation) once pushed a 32 GB workstation into swap until it had to be power-cycled. With
-# a cap and no swap beyond it, the kernel's OOM killer ends the largest process INSIDE the container - a compiler, a
+# Why: an unbounded build (twelve CppAD / Pinocchio translation units at 2-3 GB each, next to the simulator, the 3D
+# visualizer and the tests' own CppAD code generation) once pushed a 32 GB workstation into swap until it had to be
+# power-cycled. With a cap and no swap beyond it, the kernel's OOM killer ends the largest process INSIDE the container - a compiler, a
 # test - within seconds, and the host stays usable. .bazelrc bounds Bazel's parallelism by RAM so the cap is not hit in
 # the first place; this is the backstop for everything Bazel does not schedule.
 #

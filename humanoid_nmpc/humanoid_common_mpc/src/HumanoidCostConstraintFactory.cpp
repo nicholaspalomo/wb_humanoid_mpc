@@ -30,16 +30,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
 #include <cmath>
+#include <optional>
 #include <string>
 #include <utility>
 
 #include "humanoid_common_mpc/HumanoidCostConstraintFactory.h"
 
 #include <ocs2_core/misc/LoadData.h>
-#include <ocs2_core/misc/LoadStdVectorOfPair.h>
+#include <ocs2_core/misc/PropertyTree.h>
 
-#include <boost/optional.hpp>
-#include <boost/property_tree/ptree.hpp>
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
@@ -105,11 +104,11 @@ absl::Status loadComAndAcomTrackingWeight(const std::string& taskFile, absl::str
  * a reward for violating the constraint, a zero `mu` switches it off without saying so, and the relaxed log barrier is
  * undefined at a `delta` of zero or below. InvalidArgument naming the key otherwise.
  */
-absl::Status loadPositiveBarrierParameter(const boost::property_tree::ptree& pt, const std::string& key, scalar_t& value, bool verbose) {
-  const boost::optional<const boost::property_tree::ptree&> child = pt.get_child_optional(key);
-  if (child) {
-    const boost::optional<scalar_t> parsed = child->get_value_optional<scalar_t>();
-    if (!parsed) {
+absl::Status loadPositiveBarrierParameter(const PropertyTree& pt, const std::string& key, scalar_t& value, bool verbose) {
+  const PropertyTree* child = pt.findChild(key);
+  if (child != nullptr) {
+    const std::optional<scalar_t> parsed = child->getValueOptional<scalar_t>();
+    if (!parsed.has_value()) {
       return absl::InvalidArgumentError(
           absl::StrCat("[HumanoidCostConstraintFactory] ", key, " is '", child->data(), "', which is not a number."));
     }
@@ -121,7 +120,7 @@ absl::Status loadPositiveBarrierParameter(const boost::property_tree::ptree& pt,
                                                    "relaxed barrier is undefined at a non-positive delta."));
   }
   if (verbose) {
-    LOG(INFO) << " #### " << key << " = " << value << (child ? "" : " (default)");
+    LOG(INFO) << " #### " << key << " = " << value << (child != nullptr ? "" : " (default)");
   }
   return absl::OkStatus();
 }
@@ -347,7 +346,7 @@ std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getInputQuadratic
 /******************************************************************************************************/
 
 std::unique_ptr<StateCost> HumanoidCostConstraintFactory::getFootCollisionConstraint() const {
-  boost::property_tree::ptree pt;
+  PropertyTree pt;
   loadData::readPropertyTree(taskFile_, pt);
   const std::string prefix = "collision_constraint.";
 
@@ -371,7 +370,7 @@ std::unique_ptr<StateCost> HumanoidCostConstraintFactory::getFootCollisionConstr
 /******************************************************************************************************/
 
 std::unique_ptr<StateCost> HumanoidCostConstraintFactory::getJointLimitsConstraint() const {
-  boost::property_tree::ptree pt;
+  PropertyTree pt;
   loadData::readPropertyTree(taskFile_, pt);
   const std::string prefix = "jointLimits.";
 
@@ -400,7 +399,7 @@ std::unique_ptr<StateCost> HumanoidCostConstraintFactory::getJointLimitsConstrai
 
 std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getContactMomentXYConstraint(size_t contactPointIndex,
                                                                                             const std::string& name) const {
-  boost::property_tree::ptree pt;
+  PropertyTree pt;
   loadData::readPropertyTree(taskFile_, pt);
   const std::string prefix = "contacts.contactMomentXYSoftConstraint.";
 
@@ -423,7 +422,7 @@ std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getContactMomentX
 
 absl::StatusOr<std::unique_ptr<StateInputCost>> HumanoidCostConstraintFactory::getContactWrenchConeConstraint(
     size_t contactPointIndex) const {
-  boost::property_tree::ptree pt;
+  PropertyTree pt;
   loadData::readPropertyTree(taskFile_, pt);
   const std::string prefix = absl::StrCat(ContactWrenchConeConstraint::kConfigBlock, ".");
 
@@ -464,7 +463,7 @@ std::unique_ptr<StateInputConstraint> HumanoidCostConstraintFactory::getZeroWren
 /******************************************************************************************************/
 
 std::unique_ptr<StateInputCost> HumanoidCostConstraintFactory::getFrictionForceConeConstraint(size_t contactPointIndex) const {
-  boost::property_tree::ptree pt;
+  PropertyTree pt;
   loadData::readPropertyTree(taskFile_, pt);
   const std::string prefix = "contacts.frictionForceConeSoftConstraint.";
 

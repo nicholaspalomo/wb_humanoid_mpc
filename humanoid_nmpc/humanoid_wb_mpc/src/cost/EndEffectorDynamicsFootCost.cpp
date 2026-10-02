@@ -130,12 +130,10 @@ ad_vector_t EndEffectorDynamicsFootCost::costVectorFunction(ad_scalar_t time,
 /******************************************************************************************************/
 
 vector_t EndEffectorDynamicsFootCost::getParameters(scalar_t time,
-                                                    const TargetTrajectories& targetTrajectories,
+                                                    const TargetTrajectories& /*targetTrajectories*/,
                                                     const PreComputation& preComputation) const {
-  // Interpolate reference
-  const vector_t xRef = targetTrajectories.getDesiredState(time);
-  const vector_t uRef = targetTrajectories.getDesiredInput(time);
-
+  // The references are flat ground at rest and the swing trajectory planner's impact proximity; the solver's target is
+  // not read.
   const scalar_t impactProximityScaler = referenceManagerPtr_->getSwingTrajectoryPlanner()->getImpactProximityFactor(contactIndex_, time);
 
   // TODO Update this reference for non flat ground in the future

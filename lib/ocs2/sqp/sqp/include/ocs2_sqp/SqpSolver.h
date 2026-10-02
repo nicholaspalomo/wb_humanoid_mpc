@@ -106,6 +106,15 @@ class SqpSolver : public SolverBase {
   };
   Benchmarks getBenchmarks() const;
 
+  /**
+   * delta_x0 of the first iteration of the last solve: the step from the warm-started node 0 (the previous solution after
+   * trajectorySpread, interpolated at the initial time, or the initial state when there is none) to the initial state,
+   * initState - x[0] on a flat state and difference(x[0], initState) on a manifold. This is the initial-state gap the QP
+   * eliminates, after a reset as well (then it is zero). Empty before the first solve and after reset(). Recorded only;
+   * nothing in the solve reads it.
+   */
+  const vector_t& getInitialStateGap() const { return initialStateGap_; }
+
  private:
   void runImpl(scalar_t initTime, const vector_t& initState, scalar_t finalTime) override;
 
@@ -163,6 +172,12 @@ class SqpSolver : public SolverBase {
   /** Determine convergence after a step */
   sqp::Convergence checkConvergence(int iteration, const PerformanceIndex& baseline, const sqp::StepInfo& stepInfo) const;
 
+  /** The state manifold of the problem, or nullptr for a flat state. */
+  const StateManifold* getStateManifold() const;
+
+  /** The number of QP state variables at a node: the size of x on a flat state, the tangent size on a manifold. */
+  static Eigen::Index qpStateDimension(const OptimalControlProblem& ocpDefinition, const vector_t& x);
+
   // Problem definition
   sqp::Settings settings_;
   DynamicsDiscretizer discretizer_;
@@ -199,6 +214,9 @@ class SqpSolver : public SolverBase {
 
   // The ProblemMetrics associated to primalSolution_
   ProblemMetrics problemMetrics_;
+
+  // delta_x0 of the first iteration of the last solve (getInitialStateGap())
+  vector_t initialStateGap_;
 
   // Benchmarking
   size_t numProblems_{0};

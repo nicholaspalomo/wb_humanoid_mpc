@@ -1,0 +1,348 @@
+load("@operator_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
+
+# remote_control - the operator GUI (Tk) and the teleoperation publishers of the humanoid, on the IPC bus
+# (humanoid_nmpc/docs/distributed_runtime/README.md). See README.md.
+#
+#   bazel run //humanoid_nmpc/remote_control:base_velocity_controller_gui -- --task_file=<task.yaml>
+#   bazel run //humanoid_nmpc/remote_control:xbox_velocity_publisher
+#   bazel run //humanoid_nmpc/remote_control:keyboard_velocity_publisher
+
+package(default_visibility = ["//visibility:public"])
+
+# The hermetic interpreter must not import what a shell's PYTHONPATH points at: setup_env.sh puts robotpkg's Python 3.12
+# bindings and directories of the checkout on it, and another copy of a package there would shadow this package and
+# the generated messages (test_package_import_path.py checks it). `bazel run` and `bazel test` apply it; a launch file
+# that runs the binary directly clears PYTHONPATH itself.
+_HERMETIC_ENV = {"PYTHONPATH": ""}
+
+# `import remote_control`: the package directory is remote_control/.
+py_library(
+    name = "remote_control",
+    srcs = glob(["remote_control/**/*.py"]),
+    imports = ["."],
+    deps = [
+        "//humanoid_nmpc/humanoid_mpc_ipc:topics_py",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_py_proto",
+        "//robot_runtime/robot_ipc:robot_ipc_py",
+        requirement("numpy"),
+        requirement("protobuf"),
+        requirement("pygame"),
+        requirement("pyyaml"),
+    ],
+)
+
+# The binaries find the network file and the robot's files in the checkout (BUILD_WORKSPACE_DIRECTORY under `bazel
+# run`); the network file is also data, for a binary started from its runfiles.
+py_binary(
+    name = "base_velocity_controller_gui",
+    srcs = ["bin/base_velocity_controller_gui.py"],
+    data = ["//config/ipc:network.textproto"],
+    env = _HERMETIC_ENV,
+    main = "bin/base_velocity_controller_gui.py",
+    deps = [":remote_control"],
+)
+
+py_binary(
+    name = "xbox_velocity_publisher",
+    srcs = ["bin/xbox_velocity_publisher.py"],
+    data = ["//config/ipc:network.textproto"],
+    env = _HERMETIC_ENV,
+    main = "bin/xbox_velocity_publisher.py",
+    deps = [":remote_control"],
+)
+
+py_binary(
+    name = "keyboard_velocity_publisher",
+    srcs = ["bin/keyboard_velocity_publisher.py"],
+    data = ["//config/ipc:network.textproto"],
+    env = _HERMETIC_ENV,
+    main = "bin/keyboard_velocity_publisher.py",
+    deps = [":remote_control"],
+)
+
+# ==============================================================================
+# Tests
+# ==============================================================================
+
+# The recording bus and publisher, the repository's files and the Tk skip (test/operator_test_support.py).
+py_library(
+    name = "test_support",
+    testonly = True,
+    srcs = ["test/operator_test_support.py"],
+    imports = ["test"],
+    deps = [
+        ":remote_control",
+        "//robot_runtime/robot_ipc:robot_ipc_py",
+        requirement("protobuf"),
+    ],
+)
+
+# The configuration of every robot (the tuning tabs load them, the coverage tests walk all of them) and the models.
+_ROBOT_CONFIGS = [
+    "//robot_models/drc_atlas/drc_atlas_centroidal_mpc",
+    "//robot_models/engineai_sa01/engineai_sa01_centroidal_mpc",
+    "//robot_models/unitree_g1/g1_centroidal_mpc",
+    "//robot_models/unitree_g1/g1_wb_mpc",
+    "//robot_models/unitree_r1/unitree_r1_centroidal_mpc",
+]
+
+_ROBOT_DESCRIPTIONS = [
+    "//robot_models/drc_atlas/drc_atlas_description",
+    "//robot_models/engineai_sa01/engineai_sa01_description",
+    "//robot_models/unitree_g1/g1_description",
+    "//robot_models/unitree_r1/unitree_r1_description",
+]
+
+_TEST_DEPS = [
+    ":remote_control",
+    ":test_support",
+    requirement("pyyaml"),
+]
+
+# The Tk tests open withdrawn windows on the caller's display, or on an Xvfb of their own where there is none. They are
+# skipped only where neither works, and fail instead on CI (the CI variable set), where a skip would pass them unrun
+# (operator_test_support.py).
+# LINT.IfChange(tk_environment)
+_TK_ENV = [
+    "CI",
+    "DISPLAY",
+]
+# LINT.ThenChange(//humanoid_nmpc/remote_control/test/operator_test_support.py:tk_environment)
+
+py_test(
+    name = "test_base_controller_contact_estimator",
+    size = "small",
+    srcs = ["test/test_base_controller_contact_estimator.py"],
+    env = _HERMETIC_ENV,
+    data = _ROBOT_CONFIGS,
+    env_inherit = _TK_ENV,
+    main = "test/test_base_controller_contact_estimator.py",
+    deps = _TEST_DEPS,
+)
+
+py_test(
+    name = "test_contact_slider_labels",
+    size = "small",
+    srcs = ["test/test_contact_slider_labels.py"],
+    env = _HERMETIC_ENV,
+    # The C++ sources whose names the slider labels must match.
+    data = _ROBOT_CONFIGS + [
+        "//humanoid_nmpc/humanoid_centroidal_mpc:src/mrt/MpcParameterUpdaterModule.cpp",
+        "//humanoid_nmpc/humanoid_common_mpc:include/humanoid_common_mpc/common/ContactInputParameterization.h",
+    ],
+    env_inherit = _TK_ENV,
+    main = "test/test_contact_slider_labels.py",
+    deps = _TEST_DEPS,
+)
+
+py_test(
+    name = "test_dashboard_backend",
+    size = "small",
+    srcs = ["test/test_dashboard_backend.py"],
+    env = _HERMETIC_ENV,
+    data = _ROBOT_CONFIGS + _ROBOT_DESCRIPTIONS,
+    main = "test/test_dashboard_backend.py",
+    deps = _TEST_DEPS,
+)
+
+py_test(
+    name = "test_dodgeball",
+    size = "small",
+    srcs = ["test/test_dodgeball.py"],
+    env = _HERMETIC_ENV,
+    # The payload the C++ parser's test reads.
+    data = ["//humanoid_nmpc/humanoid_common_mpc_app/robot:test/data/dodgeball_payload.yaml"],
+    env_inherit = _TK_ENV,
+    main = "test/test_dodgeball.py",
+    deps = _TEST_DEPS,
+)
+
+py_test(
+    name = "test_drc_atlas_parameter_coverage",
+    size = "medium",
+    srcs = ["test/test_drc_atlas_parameter_coverage.py"],
+    env = _HERMETIC_ENV,
+    data = _ROBOT_CONFIGS,
+    env_inherit = _TK_ENV,
+    main = "test/test_drc_atlas_parameter_coverage.py",
+    deps = _TEST_DEPS,
+)
+
+py_test(
+    name = "test_fsm_state",
+    size = "small",
+    srcs = ["test/test_fsm_state.py"],
+    env = _HERMETIC_ENV,
+    data = _ROBOT_CONFIGS,
+    env_inherit = _TK_ENV,
+    main = "test/test_fsm_state.py",
+    deps = _TEST_DEPS,
+)
+
+py_test(
+    name = "test_gui_parameter_coverage",
+    size = "medium",
+    srcs = ["test/test_gui_parameter_coverage.py"],
+    env = _HERMETIC_ENV,
+    data = _ROBOT_CONFIGS,
+    env_inherit = _TK_ENV,
+    main = "test/test_gui_parameter_coverage.py",
+    deps = _TEST_DEPS,
+)
+
+py_test(
+    name = "test_keyboard_walking_command_publisher",
+    size = "small",
+    srcs = ["test/test_keyboard_walking_command_publisher.py"],
+    env = _HERMETIC_ENV,
+    main = "test/test_keyboard_walking_command_publisher.py",
+    deps = _TEST_DEPS,
+)
+
+py_test(
+    name = "test_live_update_coverage",
+    size = "small",
+    srcs = ["test/test_live_update_coverage.py"],
+    env = _HERMETIC_ENV,
+    data = _ROBOT_CONFIGS,
+    main = "test/test_live_update_coverage.py",
+    deps = _TEST_DEPS,
+)
+
+py_test(
+    name = "test_mpc_params_topic_publishing",
+    size = "medium",
+    srcs = ["test/test_mpc_params_topic_publishing.py"],
+    env = _HERMETIC_ENV,
+    data = _ROBOT_CONFIGS,
+    env_inherit = _TK_ENV,
+    main = "test/test_mpc_params_topic_publishing.py",
+    deps = _TEST_DEPS,
+)
+
+# The operator bus over loopback TCP: what the GUI publishes reaches a subscriber, and the robot's FSM state reaches it.
+py_test(
+    name = "test_operator_bus",
+    size = "small",
+    srcs = ["test/test_operator_bus.py"],
+    env = _HERMETIC_ENV,
+    main = "test/test_operator_bus.py",
+    deps = _TEST_DEPS + ["//robot_runtime/robot_ipc:robot_ipc_py"],
+)
+
+# Every topic the GUI and the teleoperation publishers use is a topics.py constant with the README's message.
+py_test(
+    name = "test_operator_gui",
+    size = "small",
+    srcs = ["test/test_operator_gui.py"],
+    env = _HERMETIC_ENV,
+    data = _ROBOT_CONFIGS,
+    env_inherit = _TK_ENV,
+    main = "test/test_operator_gui.py",
+    deps = _TEST_DEPS,
+)
+
+py_test(
+    name = "test_operator_topics",
+    size = "small",
+    srcs = ["test/test_operator_topics.py"],
+    env = _HERMETIC_ENV,
+    data = [
+        "//humanoid_nmpc/docs/distributed_runtime:README.md",
+        "//config/ipc:network.textproto",
+    ],
+    main = "test/test_operator_topics.py",
+    deps = _TEST_DEPS + [
+        "//humanoid_nmpc/humanoid_mpc_ipc:topics_py",
+        "//robot_runtime/robot_ipc:robot_ipc_py",
+    ],
+)
+
+py_test(
+    name = "test_package_import_path",
+    size = "small",
+    srcs = ["test/test_package_import_path.py"],
+    env = _HERMETIC_ENV,
+    main = "test/test_package_import_path.py",
+    deps = _TEST_DEPS,
+)
+
+py_test(
+    name = "test_pd_gains_topic_publishing",
+    size = "medium",
+    srcs = ["test/test_pd_gains_topic_publishing.py"],
+    env = _HERMETIC_ENV,
+    data = _ROBOT_CONFIGS,
+    env_inherit = _TK_ENV,
+    main = "test/test_pd_gains_topic_publishing.py",
+    deps = _TEST_DEPS,
+)
+
+# The Tk display rule the Tk tests follow: their own Xvfb where there is no display, and no silent skip on CI.
+py_test(
+    name = "test_operator_test_support",
+    size = "small",
+    srcs = ["test/test_operator_test_support.py"],
+    env = _HERMETIC_ENV,
+    main = "test/test_operator_test_support.py",
+    deps = _TEST_DEPS,
+)
+
+py_test(
+    name = "test_rerun_viewer",
+    size = "small",
+    srcs = ["test/test_rerun_viewer.py"],
+    env = _HERMETIC_ENV,
+    main = "test/test_rerun_viewer.py",
+    deps = _TEST_DEPS,
+)
+
+py_test(
+    name = "test_source_path_resolution",
+    size = "small",
+    srcs = ["test/test_source_path_resolution.py"],
+    env = _HERMETIC_ENV,
+    data = _ROBOT_CONFIGS,
+    main = "test/test_source_path_resolution.py",
+    deps = _TEST_DEPS,
+)
+
+py_test(
+    name = "test_state_machine",
+    size = "small",
+    srcs = ["test/test_state_machine.py"],
+    env = _HERMETIC_ENV,
+    data = _ROBOT_CONFIGS + _ROBOT_DESCRIPTIONS,
+    main = "test/test_state_machine.py",
+    deps = _TEST_DEPS + [requirement("numpy")],
+)
+
+py_test(
+    name = "test_teleop",
+    size = "small",
+    srcs = ["test/test_teleop.py"],
+    env = _HERMETIC_ENV,
+    main = "test/test_teleop.py",
+    deps = _TEST_DEPS,
+)
+
+py_test(
+    name = "test_tuning_tabs",
+    size = "medium",
+    srcs = ["test/test_tuning_tabs.py"],
+    env = _HERMETIC_ENV,
+    data = _ROBOT_CONFIGS,
+    env_inherit = _TK_ENV,
+    main = "test/test_tuning_tabs.py",
+    deps = _TEST_DEPS,
+)
+
+py_test(
+    name = "test_xbox_controller",
+    size = "small",
+    srcs = ["test/test_xbox_controller.py"],
+    env = _HERMETIC_ENV,
+    main = "test/test_xbox_controller.py",
+    deps = _TEST_DEPS,
+)

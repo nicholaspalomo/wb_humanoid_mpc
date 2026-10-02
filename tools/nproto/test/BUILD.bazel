@@ -1,0 +1,174 @@
+load("@operator_deps//:requirements.bzl", "requirement")
+load("@protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")
+load("@protobuf//bazel:proto_library.bzl", "proto_library")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("@rules_python//python:defs.bzl", "py_test")
+load("//tools/nproto:nproto.bzl", "nproto_cc_library")
+
+# The tests of nproto: protos that exercise every mapping (README.md), the round trips, defaults, equality, errors and
+# allocation-freedom of their generated code, the textproto helpers, the generator's errors, and the generated code's
+# style.
+
+package(default_visibility = ["//visibility:public"])
+
+# No -Wpedantic: Abseil's int128.h, which absl/status pulls in, warns under it.
+_COPTS = [
+    "-std=c++20",
+    "-Wall",
+    "-Wextra",
+    "-Werror=return-type",
+]
+
+# proto3, proto2 (defaults.proto) and edition 2023 (editions.proto), imported as "tools/nproto/test/<file>.proto".
+proto_library(
+    name = "test_protos",
+    testonly = True,
+    srcs = glob(["*.proto"]),
+    deps = [
+        "//tools/nproto:options_proto",
+        "//tools/nproto/test/other:other_protos",
+    ],
+)
+
+cc_proto_library(
+    name = "test_cc_protos",
+    testonly = True,
+    deps = [":test_protos"],
+)
+
+nproto_cc_library(
+    name = "test_structs",
+    testonly = True,
+    deps = [":test_protos"],
+)
+
+# Every file generated for the test protos (and the protos they import), for test_generated_code.
+filegroup(
+    name = "test_nproto_files",
+    testonly = True,
+    srcs = [":test_structs"],
+    output_group = "nproto_files",
+)
+
+# Test values for any message, the round-trip checks and the allocation checks; also used by the packages whose protos
+# nproto generates structs for.
+cc_library(
+    name = "proto_test_values",
+    testonly = True,
+    srcs = ["ProtoTestValues.cpp"],
+    hdrs = ["ProtoTestValues.h"],
+    copts = _COPTS,
+    deps = [
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:str_format",
+        "@googletest//:gtest",
+        "@protobuf",
+    ],
+)
+
+cc_library(
+    name = "proto_allocations",
+    testonly = True,
+    hdrs = ["ProtoAllocations.h"],
+    deps = [
+        ":proto_test_values",
+        "//robot_runtime/robot_realtime:allocation_counter",
+        "@abseil-cpp//absl/status",
+        "@googletest//:gtest",
+    ],
+)
+
+cc_test(
+    name = "test_nproto",
+    size = "small",
+    srcs = ["testNproto.cpp"],
+    copts = _COPTS,
+    deps = [
+        ":proto_test_values",
+        ":test_cc_protos",
+        ":test_structs",
+        "@abseil-cpp//absl/status",
+        "@eigen",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The realtime property. A binary of its own, because the allocation counter replaces malloc for the whole process.
+cc_test(
+    name = "test_nproto_allocations",
+    size = "small",
+    srcs = ["testNprotoAllocations.cpp"],
+    copts = _COPTS,
+    linkstatic = True,
+    deps = [
+        ":proto_allocations",
+        ":test_cc_protos",
+        ":test_structs",
+        "//robot_runtime/robot_realtime:allocation_counter",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "test_textproto",
+    size = "small",
+    srcs = ["testTextproto.cpp"],
+    copts = _COPTS,
+    data = glob(["testdata/*.textproto"]),
+    deps = [
+        ":proto_test_values",
+        ":test_cc_protos",
+        ":test_structs",
+        "//tools/nproto:nproto_runtime",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The struct headers alone compile under -Wpedantic -Werror and pull in neither protobuf nor Abseil.
+cc_test(
+    name = "test_struct_headers",
+    size = "small",
+    srcs = ["testStructHeaders.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror",
+    ],
+    deps = [
+        ":test_structs",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The generator's errors and output, on requests built in the test.
+py_test(
+    name = "test_nproto_generator",
+    size = "small",
+    srcs = ["test_nproto_generator.py"],
+    data = ["//tools/nproto:protoc-gen-nproto"],
+    deps = [
+        "//tools/nproto:nproto_generator",
+        "//tools/nproto:options_py_proto",
+        requirement("protobuf"),
+    ],
+)
+
+# The generated code of the test protos and of humanoid_mpc_msgs is clang-format clean and follows the repository's
+# rules: no `auto`, no protobuf in the struct headers.
+py_test(
+    name = "test_generated_code",
+    size = "small",
+    srcs = ["test_generated_code.py"],
+    data = [
+        ":test_nproto_files",
+        "//:.clang-format",
+        "//humanoid_nmpc/humanoid_mpc_msgs:messages_nproto_files",
+    ],
+)

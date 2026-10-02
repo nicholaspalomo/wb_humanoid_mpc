@@ -18,11 +18,11 @@ cc_library(
         "src/WBMpcInterface.cpp",
         "src/WBMpcPreComputation.cpp",
         "src/cost/EndEffectorDynamicsCostHelpers.cpp",
-        "src/cost/EndEffectorDynamicsQuadraticCost.cpp",
         "src/cost/EndEffectorDynamicsFootCost.cpp",
         "src/cost/JointTorqueCostCppAd.cpp",
         "src/command/WBMpcTargetTrajectoriesCalculator.cpp",
         "src/mrt/WBMpcMrtJointController.cpp",
+        "src/mrt/WBMpcResetTarget.cpp",
     ],
     hdrs = glob(["include/**"], allow_empty = True),
     includes = ["include"],
@@ -32,30 +32,28 @@ cc_library(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     deps = [
         "//humanoid_nmpc/humanoid_common_mpc",
+        "//humanoid_nmpc/humanoid_mpc_ipc:realtime_policy_evaluator",
         "//robot_runtime/robot_model",
         "//lib/ocs2:ocs2_core",
         "//lib/ocs2:ocs2_centroidal_model",
-        "//lib/ocs2:ocs2_ros2_interfaces",
+        "//lib/ocs2:ocs2_ddp",
         "//lib/ocs2:ocs2_mpc",
         "//lib/ocs2:ocs2_sqp",
         "//lib/ocs2:ocs2_pinocchio_interface",
+        "@abseil-cpp//absl/base:core_headers",
         "@abseil-cpp//absl/container:flat_hash_map",
+        "@abseil-cpp//absl/log:check",
         "@abseil-cpp//absl/log:log",
         "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings",
         "@abseil-cpp//absl/strings:string_view",
+        "@abseil-cpp//absl/synchronization",
         "@eigen",
-        "@boost",
         "@pinocchio",
-        "@ros2_rclcpp",
-        "@ros2_ament_index_cpp",
     ],
 )
 
@@ -69,10 +67,6 @@ cc_test(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     data = [
         "//robot_models/unitree_g1/g1_description",
@@ -99,10 +93,6 @@ cc_test(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     data = [
         "//robot_models/unitree_g1/g1_description",
@@ -119,7 +109,8 @@ cc_test(
 )
 
 # Constructs the whole-body MPC from the shipped G1 task file - compiling every CppAD library it tapes - and evaluates
-# the assembled problem once.
+# the assembled problem once; and checks that the swing-foot costs carry the shipped weights and do not read the
+# solver's target.
 cc_test(
     name = "testWBMpcConstruction",
     size = "large",
@@ -130,10 +121,6 @@ cc_test(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     data = [
         "//robot_models/unitree_g1/g1_description",
@@ -162,10 +149,6 @@ cc_test(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     data = [
         "//humanoid_nmpc/humanoid_common_mpc:gait_config",
@@ -193,10 +176,6 @@ cc_test(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     data = [
         "//robot_models/unitree_g1/g1_description",
@@ -223,10 +202,6 @@ cc_test(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     data = [
         "//robot_models/unitree_g1/g1_description",
@@ -253,10 +228,6 @@ cc_test(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     data = [
         "//robot_models/unitree_g1/g1_description",
@@ -273,6 +244,34 @@ cc_test(
 
 # The whole-body MRT joint controller's modes and reset contract around a scripted solver: it can be destroyed, JOINT_PD
 # holds the nominal posture, entering WB_MPC resets and holds, and repeated failures back off and hold JOINT_PD.
+# The controller's observation, passive modes and WB_MPC hold allocate nothing; a binary of its own, because the
+# allocation counter replaces malloc for the whole binary.
+cc_test(
+    name = "testWBMpcMrtJointControllerAllocations",
+    size = "small",
+    srcs = ["test/testWBMpcMrtJointControllerAllocations.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+    ],
+    data = [
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    linkstatic = True,
+    deps = [
+        ":humanoid_wb_mpc",
+        "//humanoid_nmpc/humanoid_common_mpc:null_mpc_link",
+        "//robot_runtime/robot_model",
+        "//robot_runtime/robot_realtime:allocation_counter",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
 cc_test(
     name = "testWBMpcMrtJointController",
     size = "medium",
@@ -283,10 +282,6 @@ cc_test(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     data = [
         "//robot_models/unitree_g1/g1_description",
@@ -298,6 +293,145 @@ cc_test(
         "//robot_runtime/robot_model",
         "@abseil-cpp//absl/log:log",
         "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# The joint PD gains of WBMpcMrtJointController set from other threads (see testMrtJointControllerPdGains). A target of
+# its own, because the allocation counter replaces malloc for the whole binary.
+cc_test(
+    name = "testWBMpcMrtJointControllerPdGains",
+    size = "small",
+    srcs = ["test/testWBMpcMrtJointControllerPdGains.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+    ],
+    data = [
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    linkstatic = True,
+    deps = [
+        ":humanoid_wb_mpc",
+        "//humanoid_state_estimation/humanoid_state_estimator:allocation_counter",
+        "//lib/ocs2:ocs2_mpc_test_support",
+        "//robot_runtime/robot_core:resource_paths",
+        "//robot_runtime/robot_model",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# The reset target of the whole-body MPC (WBMpcResetTarget.h): its properties, and that it is what the MRT joint
+# controller hands its MPC link and what the in-process link resets the MPC to, so that the MPC node, which calls it
+# itself, resets to the same target. Builds no CppAD model.
+cc_test(
+    name = "testWBMpcResetTarget",
+    size = "small",
+    srcs = ["test/testWBMpcResetTarget.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+    ],
+    data = [
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    deps = [
+        ":humanoid_wb_mpc",
+        "//lib/ocs2:ocs2_core",
+        "//lib/ocs2:ocs2_mpc",
+        "//lib/ocs2:ocs2_mpc_test_support",
+        "//lib/ocs2:ocs2_robotic_tools",
+        "//robot_runtime/robot_core:resource_paths",
+        "//robot_runtime/robot_model",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# EndEffectorDynamicsWeights::getWeights: each task-file key in its own field (the acceleration keys used to overwrite the
+# velocity weights), the block the fix rewrote applies exactly the weights the legacy loader applied (frozen copies), and
+# the shipped G1 block names every weight. Builds no CppAD model.
+cc_test(
+    name = "testFootWeightsLoader",
+    size = "small",
+    srcs = ["test/testFootWeightsLoader.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+    ],
+    # LINT.IfChange(foot_weights_loader_test_data)
+    data = ["//robot_models/unitree_g1/g1_wb_mpc"],
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/test/testFootWeightsLoader.cpp:robot_files)
+    deps = [
+        ":humanoid_wb_mpc",
+        "//lib/ocs2:ocs2_core",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The stance-foot constraint's linearization against its value, on an affine stand-in for the end-effector dynamics:
+# exact for the block-diagonal gains the interface builds, orientation rows included, and blind to the off-diagonal
+# blocks of Ax. Builds no CppAD model.
+cc_test(
+    name = "testEndEffectorDynamicsAccelerationsConstraint",
+    size = "small",
+    srcs = ["test/testEndEffectorDynamicsAccelerationsConstraint.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+    ],
+    deps = [
+        ":humanoid_wb_mpc",
+        "//lib/ocs2:ocs2_core",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# The speed setters of the target calculator base, through the G1 whole-body calculator: a pose command reaches its
+# target in the time the distance takes at the speed set, and a reload of reference.yaml restores the file's speeds.
+# Builds no Pinocchio or CppAD model.
+cc_test(
+    name = "testTargetTrajectoriesCalculatorSetters",
+    size = "small",
+    srcs = ["test/testTargetTrajectoriesCalculatorSetters.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-Werror=return-type",
+    ],
+    # LINT.IfChange(calculator_setters_test_data)
+    data = [
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_wb_mpc/test/testTargetTrajectoriesCalculatorSetters.cpp:robot_files)
+    deps = [
+        ":humanoid_wb_mpc",
+        "//lib/ocs2:ocs2_core",
         "@abseil-cpp//absl/strings:string_view",
         "@googletest//:gtest_main",
         "@pinocchio",
@@ -316,10 +450,6 @@ cc_test(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     deps = [
         ":humanoid_wb_mpc",
@@ -341,10 +471,6 @@ cc_test(
         "-Wextra",
         "-Wpedantic",
         "-Werror=return-type",
-        "-DBOOST_MPL_CFG_NO_PREPROCESSED_HEADERS",
-        "-DBOOST_MPL_LIMIT_LIST_SIZE=50",
-        "-DBOOST_VARIANT_LIMIT_TYPES=50",
-        "-DBOOST_FUSION_INVOKE_MAX_ARITY=10",
     ],
     # LINT.IfChange(joint_torque_overload_test_data)
     data = [
@@ -356,6 +482,31 @@ cc_test(
         ":humanoid_wb_mpc",
         "@abseil-cpp//absl/status:statusor",
         "@abseil-cpp//absl/strings:string_view",
+        "@googletest//:gtest_main",
+        "@pinocchio",
+    ],
+)
+
+# WBMpcInterface::CreateControllerModels(), the models of a remote MPC's robot process: no optimal control problem.
+# Builds no CppAD model.
+cc_test(
+    name = "testWBMpcInterfaceControllerModels",
+    size = "small",
+    srcs = ["test/testWBMpcInterfaceControllerModels.cpp"],
+    copts = [
+        "-std=c++20",
+        "-Wall",
+        "-Wextra",
+        "-Werror=return-type",
+    ],
+    data = [
+        "//robot_models/unitree_g1/g1_description",
+        "//robot_models/unitree_g1/g1_wb_mpc",
+    ],
+    deps = [
+        ":humanoid_wb_mpc",
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
         "@googletest//:gtest_main",
         "@pinocchio",
     ],

@@ -29,6 +29,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_common_mpc/cost/ExternalTorqueQuadraticCostAD.h"
 
+#include <ocs2_core/misc/LoadData.h>
+#include <ocs2_core/misc/PropertyTree.h>
+
 #include "absl/log/log.h"
 
 namespace ocs2::humanoid {
@@ -148,7 +151,7 @@ ad_vector_t ExternalTorqueQuadraticCostAD::costVectorFunction(ad_scalar_t time,
 ExternalTorqueQuadraticCostAD::Config ExternalTorqueQuadraticCostAD::loadConfigFromFile(const std::string& filename,
                                                                                         const std::string& fieldname,
                                                                                         bool verbose) {
-  boost::property_tree::ptree pt;
+  PropertyTree pt;
   loadData::readPropertyTree(filename, pt);
 
   Config config;

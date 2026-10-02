@@ -30,7 +30,7 @@ Copyright (c) 2024, Unitree R1 Centroidal MPC
 #include <ocs2_robotic_tools/common/RotationTransforms.h>
 #include <ocs2_robotic_tools/common/SkewSymmetricMatrix.h>
 
-#include <ament_index_cpp/get_package_share_directory.hpp>
+#include "robot_core/ResourcePaths.h"
 
 #include "absl/log/globals.h"
 #include "absl/log/initialize.h"
@@ -83,17 +83,9 @@ int main(int argc, char** argv) {
   absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
   (void)argc;
   (void)argv;
-  const std::string path(__FILE__);
-  const std::string dir = path.substr(0, path.find_last_of("/"));
-
-  std::string urdfFile;
-  try {
-    urdfFile = ament_index_cpp::get_package_share_directory("unitree_r1_description") + "/urdf/R1.urdf";
-  } catch (const std::exception& e) {
-    throw std::runtime_error("Failed to get package share directory: unitree_r1_description. Error: " + std::string(e.what()));
-  }
-
-  const std::string taskFile = dir + "/../config/mpc/task.yaml";
+  // From the binary's runfiles (BUILD `data`), so `bazel run` and a run from .bazel/bin read the same files.
+  const std::string urdfFile = robot::resolveResourcePath("robot_models/unitree_r1/unitree_r1_description/urdf/R1.urdf").value();
+  const std::string taskFile = robot::resolveResourcePath("robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.yaml").value();
 
   LOG(INFO) << "urdf filename: " << urdfFile;
 
@@ -103,7 +95,7 @@ int main(int argc, char** argv) {
   printJointNames(pin_interface);
 
   LOG(INFO) << "\n=== Testing Custom PinocchioInterface for Unitree R1 ===";
-  ModelSettings modelSettings(taskFile, urdfFile, "test_pinocchio", "true");
+  ModelSettings modelSettings(taskFile, urdfFile, "test_pinocchio", /*verbose=*/true);
   PinocchioInterface custom_pin_interface = createCustomPinocchioInterface(taskFile, urdfFile, modelSettings);
   printModelDimensionality(custom_pin_interface);
   printJointNames(custom_pin_interface);

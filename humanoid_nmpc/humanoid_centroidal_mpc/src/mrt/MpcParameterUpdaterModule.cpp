@@ -35,23 +35,23 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <functional>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <utility>
-
-#include <boost/optional.hpp>
-#include <boost/property_tree/ptree.hpp>
 
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/synchronization/mutex.h"
 
 #include <ocs2_core/cost/QuadraticStateCost.h>
 #include <ocs2_core/cost/QuadraticStateInputCost.h>
 #include <ocs2_core/misc/LoadData.h>
 #include <ocs2_core/misc/Numerics.h>
+#include <ocs2_core/misc/PropertyTree.h>
 #include <ocs2_core/penalties/penalties/PieceWisePolynomialBarrierPenalty.h>
 #include <ocs2_core/penalties/penalties/RelaxedBarrierPenalty.h>
 #include <ocs2_core/soft_constraint/StateInputSoftConstraint.h>
@@ -95,13 +95,13 @@ namespace {
  * value that does not parse as a T is an InvalidArgument naming the key, and `value` is left untouched then too.
  */
 template <typename T>
-absl::Status loadOptionalValue(const boost::property_tree::ptree& pt, absl::string_view key, T& value) {
-  const boost::optional<const boost::property_tree::ptree&> child = pt.get_child_optional(std::string(key));
-  if (!child) {
+absl::Status loadOptionalValue(const PropertyTree& pt, absl::string_view key, T& value) {
+  const PropertyTree* child = pt.findChild(key);
+  if (child == nullptr) {
     return absl::OkStatus();
   }
-  const boost::optional<T> parsed = child->get_value_optional<T>();
-  if (!parsed) {
+  const std::optional<T> parsed = child->getValueOptional<T>();
+  if (!parsed.has_value()) {
     return absl::InvalidArgumentError(absl::StrCat(key, " is '", child->data(), "', which is not a value of the expected type."));
   }
   value = *parsed;
@@ -123,7 +123,7 @@ absl::Status loadOptionalValue(const boost::property_tree::ptree& pt, absl::stri
  *         silently substituted its default, so a mistyped weight became 1 or 0 on the running problem. `matrix` is then
  *         partly written and must not be applied.
  */
-absl::Status loadEigenMatrixFromPtree(const boost::property_tree::ptree& pt, const std::string& matrixName, matrix_t& matrix) {
+absl::Status loadEigenMatrixFromPtree(const PropertyTree& pt, const std::string& matrixName, matrix_t& matrix) {
   scalar_t scaling = 1.0;
   RETURN_IF_ERROR(loadOptionalValue(pt, absl::StrCat(matrixName, ".scaling"), scaling));
   scalar_t defaultValue = 0.0;
@@ -133,7 +133,7 @@ absl::Status loadEigenMatrixFromPtree(const boost::property_tree::ptree& pt, con
   for (Eigen::Index i = 0; i < matrix.rows(); ++i) {
     for (Eigen::Index j = 0; j < matrix.cols(); ++j) {
       const std::string key = absl::StrCat(matrixName, ".(", i, ",", j, ")");
-      const bool present = pt.get_child_optional(key).is_initialized();
+      const bool present = pt.findChild(key) != nullptr;
       scalar_t entry = defaultValue;
       RETURN_IF_ERROR(loadOptionalValue(pt, key, entry));
       matrix(i, j) = scaling * entry;
@@ -243,8 +243,8 @@ void warnAboutStructuralFormulationChanges(const std::string& yamlFile,
  * A value that is not a number is logged as a warning naming its key and returns false as well: the running barrier is
  * kept, and the exception it used to throw no longer escapes the reload (out of preSolverRun, on a file-watch reload).
  */
-bool loadBarrierSection(const boost::property_tree::ptree& pt, const std::string& section, scalar_t& mu, scalar_t& delta) {
-  if (!pt.get_child_optional(section)) {
+bool loadBarrierSection(const PropertyTree& pt, const std::string& section, scalar_t& mu, scalar_t& delta) {
+  if (pt.findChild(section) == nullptr) {
     return false;
   }
   scalar_t reloadedMu = mu;
@@ -266,11 +266,12 @@ bool loadBarrierSection(const boost::property_tree::ptree& pt, const std::string
 /**
  * The first leaf under `section` of a reloaded file whose value is neither a number nor a bool, as `section.key is
  * 'value'`, or an empty string. Sequence entries (keyed `[i]`, a list of joint names for instance) are not values and are
- * skipped. A diagnostic only: the library loaders throw boost's ptree_bad_data, whose message names the type it could
- * not convert to but not the key, and this is what lets the warning name the key the operator has to fix.
+ * skipped. A diagnostic only: a library loader that reads a value by its path throws a PropertyTreeBadData naming the
+ * key, but one that converts a node it reached by walking the tree (getValue), or throws an exception of its own, names
+ * none, and this is what lets the warning name the key the operator has to fix whichever loader refused the section.
  */
-std::string firstUnparsableLeaf(const boost::property_tree::ptree& block, const std::string& path) {
-  for (const boost::property_tree::ptree::value_type& child : block) {
+std::string firstUnparsableLeaf(const PropertyTree& block, const std::string& path) {
+  for (const PropertyTree::value_type& child : block) {
     if (!child.first.empty() && child.first.front() == '[') {
       continue;
     }
@@ -283,7 +284,7 @@ std::string firstUnparsableLeaf(const boost::property_tree::ptree& block, const 
       continue;
     }
     const std::string& value = child.second.data();
-    if (value.empty() || child.second.get_value_optional<scalar_t>() || child.second.get_value_optional<bool>()) {
+    if (value.empty() || child.second.getValueOptional<scalar_t>().has_value() || child.second.getValueOptional<bool>().has_value()) {
       continue;
     }
     return absl::StrCat(childPath, " is '", value, "'");
@@ -301,9 +302,9 @@ std::string firstUnparsableLeaf(const boost::property_tree::ptree& block, const 
  * WARNING naming the section and, where firstUnparsableLeaf() can tell, the key, when the loader throws: that used to be
  * swallowed by an empty catch, so a mistyped weight was simply not applied and nothing said so.
  */
-bool loadSection(const boost::property_tree::ptree& pt, const std::string& section, const std::function<void()>& load) {
-  const boost::optional<const boost::property_tree::ptree&> block = pt.get_child_optional(section);
-  if (!block) {
+bool loadSection(const PropertyTree& pt, const std::string& section, const std::function<void()>& load) {
+  const PropertyTree* block = pt.findChild(section);
+  if (block == nullptr) {
     return false;
   }
   try {
@@ -336,15 +337,15 @@ struct ContactImplicitReload {
  * checkContactImplicitBlockKeys(), and the values by validateContactImplicitConfig(), each with a message that names the
  * key. Returns nullopt when the file carries no such block.
  */
-absl::StatusOr<std::optional<ContactImplicitReload>> loadContactImplicitReload(const boost::property_tree::ptree& pt) {
-  if (!pt.get_child_optional(std::string(ModelSettings::kContactImplicitBlock))) {
+absl::StatusOr<std::optional<ContactImplicitReload>> loadContactImplicitReload(const PropertyTree& pt) {
+  if (pt.findChild(ModelSettings::kContactImplicitBlock) == nullptr) {
     return std::optional<ContactImplicitReload>();
   }
   RETURN_IF_ERROR(checkContactImplicitBlockKeys(pt));
   ContactImplicitReload reload;
   for (const ModelSettings::ContactImplicitKey& key : ModelSettings::contactImplicitKeys()) {
     const std::string path = absl::StrCat(ModelSettings::kContactImplicitBlock, ".", key.name);
-    if (!pt.get_child_optional(path)) {
+    if (pt.findChild(path) == nullptr) {
       continue;
     }
     RETURN_IF_ERROR(loadOptionalValue(pt, path, reload.config.*key.field));
@@ -360,7 +361,7 @@ absl::StatusOr<std::optional<ContactImplicitReload>> loadContactImplicitReload(c
  * `gains` is then partly written and must not be applied. It used to be read with loadPtreeValue, which throws on such
  * a value - out of preSolverRun on a file-watch reload.
  */
-absl::Status loadFootConstraintGains(const boost::property_tree::ptree& pt, ModelSettings::FootConstraintConfig& gains) {
+absl::Status loadFootConstraintGains(const PropertyTree& pt, ModelSettings::FootConstraintConfig& gains) {
   const std::string prefix = "model_settings.foot_constraint.";
   RETURN_IF_ERROR(loadOptionalValue(pt, absl::StrCat(prefix, "positionErrorGain_z"), gains.positionErrorGain_z));
   RETURN_IF_ERROR(loadOptionalValue(pt, absl::StrCat(prefix, "orientationErrorGain"), gains.orientationErrorGain));
@@ -380,7 +381,7 @@ absl::Status loadFootConstraintGains(const boost::property_tree::ptree& pt, Mode
  * The hot-reloadable subset of the SQP settings (the `multiple_shooting` section) into `settings`, which keeps its value
  * for every key the file does not carry. The same refusal as loadFootConstraintGains().
  */
-absl::Status loadSqpSettingsUpdates(const boost::property_tree::ptree& pt, sqp::Settings& settings) {
+absl::Status loadSqpSettingsUpdates(const PropertyTree& pt, sqp::Settings& settings) {
   size_t sqpIteration = settings.sqpIteration;
   RETURN_IF_ERROR(loadOptionalValue(pt, "multiple_shooting.sqpIteration", sqpIteration));
   settings.sqpIteration = sqpIteration;
@@ -472,16 +473,18 @@ void MpcParameterUpdaterModule::preSolverRun(scalar_t initTime,
   // contact-implicit terms can take the ground those references were built on.
   followAppliedTerrainHeight();
 
-  // Pathway 1: Check for ROS topic data (takes priority — no file I/O needed for the source YAML)
-  if (hasNewTopicData_.load(std::memory_order_acquire)) {
+  // Pathway 1: an update enqueued by enqueueParameterUpdate() (takes priority — no file I/O needed for the source YAML)
+  if (hasPendingUpdate_.load(std::memory_order_acquire)) {
     std::string yamlContent;
     {
-      std::lock_guard<std::mutex> lock(pendingMutex_);
-      yamlContent = std::move(pendingYamlContent_);
-      hasNewTopicData_.store(false, std::memory_order_release);  // NOLINT(argument-comment): libstdc++ names the value __i.
+      absl::MutexLock lock(&pendingMutex_);
+      yamlContent = std::move(pendingYamlText_);
+      hasPendingUpdate_.store(false, std::memory_order_release);  // NOLINT(argument-comment): libstdc++ names the value __i.
     }
-    // Write to a temp file so we can reuse the existing loadData parsing pipeline.
-    // Keep the .yaml extension so readPropertyTree dispatches to the YAML parser.
+    // Write to a temp file so we can reuse the existing loadData parsing pipeline: the loaders of the cost, constraint,
+    // swing and planner sections the update reaches read their sections from a file path, so parsing the text with
+    // loadData::readPropertyTreeFromString() would serve only the tree read here, not them.
+    // Keep the .yaml extension: readPropertyTree reads only .yaml and .yml files.
     const std::string tempFile = absl::StrCat(taskFile_, ".live.yaml");
     try {
       std::ofstream ofs(tempFile, std::ios::trunc);
@@ -504,7 +507,7 @@ void MpcParameterUpdaterModule::preSolverRun(scalar_t initTime,
     std::error_code ec;
     const std::filesystem::file_time_type lastWrite = std::filesystem::last_write_time(taskFile_, ec);
     // Every read of a reloaded value reports a value it cannot use by its key and keeps the running one; this is the
-    // last line of defense, as on the topic path above, so that nothing a saved file contains can throw out of the
+    // last line of defense, as on the enqueued path above, so that nothing a saved file contains can throw out of the
     // solver's pre-solve hook.
     if (!ec && lastWrite != taskFileLastWriteTime_) {
       taskFileLastWriteTime_ = lastWrite;
@@ -544,16 +547,10 @@ void MpcParameterUpdaterModule::preSolverRun(scalar_t initTime,
   }
 }
 
-void MpcParameterUpdaterModule::subscribe(rclcpp::Node::SharedPtr node) {
-  subscription_ = node->create_subscription<std_msgs::msg::String>(
-      "/mpc_parameter_updates", rclcpp::QoS(1).best_effort(), [this](const std_msgs::msg::String::SharedPtr msg) { topicCallback(msg); });
-  LOG(INFO) << "[MpcParameterUpdaterModule] Subscribed to /mpc_parameter_updates";
-}
-
-void MpcParameterUpdaterModule::topicCallback(const std_msgs::msg::String::SharedPtr msg) {
-  std::lock_guard<std::mutex> lock(pendingMutex_);
-  pendingYamlContent_ = msg->data;
-  hasNewTopicData_.store(true, std::memory_order_release);  // NOLINT(argument-comment): libstdc++ names the value __i.
+void MpcParameterUpdaterModule::enqueueParameterUpdate(std::string yamlText) {
+  absl::MutexLock lock(&pendingMutex_);
+  pendingYamlText_ = std::move(yamlText);
+  hasPendingUpdate_.store(true, std::memory_order_release);  // NOLINT(argument-comment): libstdc++ names the value __i.
 }
 
 /******************************************************************************************************/
@@ -575,16 +572,18 @@ std::optional<ContactWrenchGate::Config> MpcParameterUpdaterModule::takeContactW
 }
 
 void MpcParameterUpdaterModule::recordControllerSettings(const std::string& yamlFile) {
-  boost::property_tree::ptree pt;
+  PropertyTree pt;
   try {
     loadData::readPropertyTree(yamlFile, pt);
   } catch (const std::exception& e) {
     LOG(ERROR) << "[MpcParameterUpdaterModule] Could not parse " << yamlFile << " for the controller settings: " << e.what();
     return;
   }
-  const boost::optional<std::string> name = pt.get_optional<std::string>("contactEstimator");
+  // The robot process reads the same keys of the operator's documents and of the task file for a remote MPC.
+  // LINT.IfChange(controller_side_keys)
+  const std::optional<std::string> name = pt.getOptional<std::string>("contactEstimator");
   std::optional<ContactWrenchGate::Config> gate;
-  if (const boost::optional<boost::property_tree::ptree&> block = pt.get_child_optional("contact_wrench_gate")) {
+  if (pt.findChild("contact_wrench_gate") != nullptr) {
     // A key the block does not carry keeps the library default, as at start-up; one that does not parse refuses the
     // block, which the controller then keeps running as it was (a `get` with a default used to swallow it silently).
     ContactWrenchGate::Config config;
@@ -601,6 +600,7 @@ void MpcParameterUpdaterModule::recordControllerSettings(const std::string& yaml
                       "non-negative; the block was not applied, the running gate is kept.";
     }
   }
+  // LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/src/ControllerSideSettings.cpp:controller_side_keys)
   std::lock_guard<std::mutex> lock(controllerSettingsMutex_);
   if (name) pendingContactEstimator_ = *name;
   if (gate) pendingContactWrenchGate_ = gate;
@@ -630,7 +630,7 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
   // ────────────────────────────────────────────────────────────────
   // 1. Parse property tree and weight matrices from task.yaml
   // ────────────────────────────────────────────────────────────────
-  boost::property_tree::ptree pt;
+  PropertyTree pt;
   try {
     loadData::readPropertyTree(yamlFile, pt);
   } catch (const std::exception& e) {
@@ -708,7 +708,7 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
   // a scaling of 1.
   std::optional<scalar_t> terminalCostScaling;
   bool terminalCostScalingRefused = false;
-  if (pt.get_child_optional("terminalCostScaling")) {
+  if (pt.findChild("terminalCostScaling") != nullptr) {
     scalar_t scaling = 1.0;
     if (const absl::Status status = loadOptionalValue(pt, "terminalCostScaling", scaling); status.ok()) {
       terminalCostScaling = scaling;
@@ -721,7 +721,7 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
   // Q_final is optional, and applied only to a running quadratic terminal cost: a problem that ends on the DCM cost
   // has none, whatever the reloaded file's `costs` list now says.
   matrix_t Q_final = matrix_t::Zero(stateDim_, stateDim_);
-  bool hasQFinal = runsQuadraticTerminalCost && !terminalCostScalingRefused && pt.get_child_optional("Q_final").is_initialized();
+  bool hasQFinal = runsQuadraticTerminalCost && !terminalCostScalingRefused && pt.findChild("Q_final") != nullptr;
   if (hasQFinal) {
     if (const absl::Status status = loadEigenMatrixFromPtree(pt, "Q_final", Q_final); !status.ok()) {
       LOG(WARNING) << "[MpcParameterUpdaterModule] Q_final was not applied, the running terminal cost is kept: " << status.message();
@@ -770,7 +770,7 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
 
   // Applied only when the file carries it: an absent key applied as its default would silently switch the flag off.
   bool footActiveInStance = false;
-  bool hasFootActiveInStance = pt.get_child_optional("task_space_foot_cost_weights.activeInStance").is_initialized();
+  bool hasFootActiveInStance = pt.findChild("task_space_foot_cost_weights.activeInStance") != nullptr;
   if (hasFootActiveInStance) {
     const absl::Status status = loadOptionalValue(pt, "task_space_foot_cost_weights.activeInStance", footActiveInStance);
     if (!status.ok()) {
@@ -787,7 +787,7 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
   // The block is read as the file writes it: a comHeight of 0 is resolved to the model's pendulum length by each
   // running cost's setConfig(), exactly as at start-up.
   std::optional<DcmTerminalCost::Config> dcmTerminalConfig;
-  if (pt.get_child_optional("dcm_terminal_cost")) {
+  if (pt.findChild("dcm_terminal_cost") != nullptr) {
     absl::StatusOr<DcmTerminalCost::Config> loaded =
         DcmTerminalCost::loadConfig(yamlFile, DcmTerminalCost::kConfigPrefix, /*verbose=*/false);
     if (loaded.ok()) {
@@ -800,8 +800,8 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
 
   // Task-space torso/body tracking cost weights, one section per tracked body.
   std::vector<std::pair<std::string, vector12_t>> taskSpaceCostUpdates;
-  if (const boost::optional<boost::property_tree::ptree&> taskSpaceCosts = pt.get_child_optional("task_space_costs")) {
-    for (const boost::property_tree::ptree::value_type& taskSpaceCost : *taskSpaceCosts) {
+  if (const PropertyTree* taskSpaceCosts = pt.findChild("task_space_costs")) {
+    for (const PropertyTree::value_type& taskSpaceCost : *taskSpaceCosts) {
       const std::string& costName = taskSpaceCost.first;
       const std::string section = absl::StrCat("task_space_costs.", costName, ".weights");
       vector12_t weights = vector12_t::Zero();
@@ -867,7 +867,7 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
   // clang-format off
   // LINT.ThenChange(//robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml:terrain_height_config, //robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml:terrain_height_config)
   // clang-format on
-  if (!terrainHeightStatus.ok() || (pt.get_child_optional("terrainHeight") && !std::isfinite(terrainHeight))) {
+  if (!terrainHeightStatus.ok() || (pt.findChild("terrainHeight") != nullptr && !std::isfinite(terrainHeight))) {
     LOG(WARNING) << "[MpcParameterUpdaterModule] terrainHeight not applied, the running ground is kept: "
                  << (terrainHeightStatus.ok() ? absl::StrCat("terrainHeight is ", terrainHeight, ", which is not finite.")
                                               : std::string(terrainHeightStatus.message()));
@@ -914,7 +914,7 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
   // ────────────────────────────────────────────────────────────────
   ModelSettings::FootConstraintConfig footCfg;
   bool hasFootConstraintGains = false;
-  if (pt.get_child_optional("model_settings.foot_constraint")) {
+  if (pt.findChild("model_settings.foot_constraint") != nullptr) {
     // All or nothing: a gain that does not parse refuses the group, so the constraint never runs on half of an edit.
     const absl::Status status = loadFootConstraintGains(pt, footCfg);
     if (status.ok()) {
@@ -950,7 +950,7 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
   // ────────────────────────────────────────────────────────────────
   sqp::Settings sqpUpdates = sqpSolverPtr->getSettings();
   bool hasSqpUpdates = false;
-  if (pt.get_child_optional("multiple_shooting")) {
+  if (pt.findChild("multiple_shooting") != nullptr) {
     const absl::Status status = loadSqpSettingsUpdates(pt, sqpUpdates);
     if (status.ok()) {
       hasSqpUpdates = true;
@@ -1452,9 +1452,9 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
     }
   }
 
-  // ── Contact planning config, when the file carries the block (a task file with it inline, or the YAML published on
-  // the topic, which the GUI assembles from both files) ──
-  if (pt.get_child_optional("contact_planning")) {
+  // ── Contact planning config, when the file carries the block (a task file with it inline, or an enqueued update: the
+  // YAML the GUI publishes, which it assembles from both files) ──
+  if (pt.findChild("contact_planning") != nullptr) {
     applyContactPlanningUpdates(yamlFile);
   }
 
@@ -1466,7 +1466,7 @@ void MpcParameterUpdaterModule::applyParameterUpdates(const std::string& yamlFil
   // preSolverRun() runs before any worker exists for the solve that follows.
   //
   // LINT.IfChange(locomotion_heuristics_updater_yaml_path)
-  if (locomotionHeuristicLayerPtr_ != nullptr && pt.get_child_optional(kLocomotionHeuristicsBlockKey)) {
+  if (locomotionHeuristicLayerPtr_ != nullptr && pt.findChild(kLocomotionHeuristicsBlockKey) != nullptr) {
     const absl::StatusOr<LocomotionHeuristicConfig> heuristicConfig = loadLocomotionHeuristicConfig(yamlFile, /*verbose=*/false);
     if (!heuristicConfig.ok()) {
       // Reported and skipped rather than thrown: a half-typed coefficient in the tuning GUI must not take the

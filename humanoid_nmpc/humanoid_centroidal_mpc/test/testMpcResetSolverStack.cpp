@@ -38,7 +38,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include <string>
 
-#include <ocs2_centroidal_model/AccessHelperFunctions.h>
 #include <ocs2_mpc/MPC_MRT_Interface.h>
 #include <ocs2_sqp/SqpMpc.h>
 
@@ -48,8 +47,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc/CentroidalMpcInterface.h"
 #include "humanoid_centroidal_mpc/command/CentroidalMpcTargetTrajectoriesCalculator.h"
+#include "humanoid_centroidal_mpc/mrt/CentroidalMpcResetTarget.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
-#include "humanoid_common_mpc/pinocchio_model/DynamicsHelperFunctions.h"
 #include "humanoid_common_mpc/reference_manager/ProceduralMpcMotionManager.h"
 #include "humanoid_common_mpc/reference_manager/SwitchedModelReferenceManager.h"
 #include "support/AtlasReferenceStack.h"
@@ -124,13 +123,8 @@ class SolverStack {
 
   /** The target the controller resets the MPC to: the observation held still and upright, weight on both feet. */
   TargetTrajectories resetTarget() const {
-    vector_t target = observation_.state;
-    centroidal_model::getNormalizedMomentum(target, interface_->getCentroidalModelInfo()).setZero();
-    target(10) = 0.0;
-    target(11) = 0.0;
-    PinocchioInterface pinocchioInterface = interface_->getPinocchioInterface();
-    const vector_t input = weightCompensatingInput(pinocchioInterface, {true, true}, interface_->getEffectiveMpcRobotModel(), target);
-    return TargetTrajectories({observation_.time, observation_.time + 2.0}, {target, target}, {input, input});
+    return centroidalMpcResetTargetTrajectories(observation_, interface_->getCentroidalModelInfo(), interface_->getEffectiveMpcRobotModel(),
+                                                interface_->getPinocchioInterface());
   }
 
   /**

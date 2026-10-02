@@ -1,0 +1,70 @@
+# proto-file: tools/launch/proto/launch_file.proto
+# proto-message: launch_proto.LaunchFile
+#
+# The laptop side of the Unitree G1, centroidal MPC: the MPC node, the remote-control GUI and the Rerun bridge
+# (humanoid_nmpc/docs/distributed_runtime/README.md). The robot side is robot.textproto, as a separate process on the
+# robot's computer or, in simulation, in the robot-sim container on this one.
+#
+#   make launch-g1-sim    # with the robot side in the robot-sim container
+#   make launch-g1-mpc NETWORK=<network file>    # against the robot of the network file
+#   bazel run //tools/launch -- robot_models/unitree_g1/g1_centroidal_mpc/launch/mpc.textproto --set network_file=<file>
+
+variables { name: "bin_dir" value: ".bazel/bin" }
+variables { name: "robot_dir" value: "robot_models/unitree_g1" }
+variables { name: "config_dir" value: "{robot_dir}/g1_centroidal_mpc/config" }
+variables { name: "task_file" value: "{config_dir}/mpc/task.yaml" }
+variables { name: "reference_file" value: "{config_dir}/command/reference.yaml" }
+variables { name: "urdf_file" value: "{robot_dir}/g1_description/urdf/g1_29dof.urdf" }
+variables { name: "gait_file" value: "humanoid_nmpc/humanoid_common_mpc/config/command/gait.yaml" }
+# The bus's network file: the shipped one is every node on this machine (config/ipc/network.textproto).
+variables { name: "network_file" value: "config/ipc/network.textproto" }
+# SCHED_FIFO priority of the MPC's solver thread; 0 = the time-sharing scheduler.
+variables { name: "mpc_realtime_priority" value: "0" }
+# The Rerun bridge's sink, by name (humanoid_nmpc/humanoid_rerun_viewer/README.md): spawn, connect, serve_web, save;
+# save writes the recording to rrd_path.
+variables { name: "rerun_sink" value: "spawn" }
+variables { name: "rrd_path" value: "" }
+
+# The processes: their binaries are those the Makefile's launch target of this file builds first.
+# LINT.IfChange(processes)
+processes {
+  name: "mpc"
+  machine: MACHINE_LAPTOP
+  command: [
+    "{bin_dir}/humanoid_nmpc/humanoid_centroidal_mpc_app/humanoid_centroidal_mpc_node",
+    "--robot_name=g1",
+    "--task_file={task_file}",
+    "--reference_file={reference_file}",
+    "--urdf_file={urdf_file}",
+    "--gait_file={gait_file}",
+    "--network_config={network_file}",
+    "--realtime_priority={mpc_realtime_priority}"
+  ]
+  required: true
+}
+
+processes {
+  name: "gui"
+  machine: MACHINE_LAPTOP
+  command: [
+    "{bin_dir}/humanoid_nmpc/remote_control/base_velocity_controller_gui",
+    "--task_file={task_file}",
+    "--reference_file={reference_file}",
+    "--urdf_file={urdf_file}",
+    "--network_config={network_file}"
+  ]
+  delay: 1.0
+}
+
+processes {
+  name: "rerun"
+  machine: MACHINE_LAPTOP
+  command: [
+    "{bin_dir}/humanoid_nmpc/humanoid_rerun_viewer/humanoid_rerun_viewer",
+    "--urdf={urdf_file}",
+    "--network_config={network_file}",
+    "--rerun_sink={rerun_sink}",
+    "--rrd_path={rrd_path}"
+  ]
+}
+# LINT.ThenChange(//Makefile:launch_binaries)

@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package humanoid_mpc_msgs;
+
+import "nproto/options.proto";
+
+// Topic robot/loop_timing, once per second: how well the realtime loop held its period.
+// Next ID: 12
+message LoopTiming {
+  option (nproto.generate_struct) = "ocs2::humanoid::msgs::LoopTiming";
+
+  reserved 12 to max;
+
+  double target_period_s = 1;
+  uint64 cycles = 2;
+  // Over the last reporting interval.
+  double mean_period_s = 3;
+  double max_period_s = 4;
+  double max_compute_time_s = 5;
+  // Cycles whose compute time exceeded the period.
+  uint64 overruns = 6;
+  // Telemetry samples the realtime thread dropped because the ring buffer was full.
+  uint64 telemetry_samples_dropped = 7;
+  // Policies received from the MPC and dropped as solved before a reset the robot requested.
+  uint64 stale_policies_dropped = 8;
+  // Age of the policy in use at the end of the interval [s], robot clock; negative when there is none.
+  double policy_age_s = 9;
+  // Control periods the loop skipped since it started: deadlines that passed before the cycle for them could run (a
+  // late wake-up or a long cycle; the timer skips them rather than replay them). `overruns` counts only compute time
+  // above the period, so a loop that loses periods to late wake-ups shows here and not there.
+  uint64 missed_periods = 10;
+  // The latest wake-up past its deadline over the last reporting interval [s]: scheduler latency, a lock, a blocked
+  // write on the realtime thread.
+  double max_lateness_s = 11;
+}

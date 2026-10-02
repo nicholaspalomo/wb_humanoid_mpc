@@ -2,6 +2,20 @@
 
 This directory contains the configurations and descriptions for the DRC Atlas robot.
 
+## Running it
+
+```bash
+make launch-drc-atlas-sim          # centroidal MPC in MuJoCo: the robot process in the robot-sim container (on the host)
+make launch-drc-atlas-dummy-sim    # centroidal MPC against the dummy simulator
+make launch-drc-atlas-sandbox      # the URDF in Rerun, a slider per joint
+make deploy-robot ROBOT=drc_atlas HOST=<robot> NETWORK=<file>   # the robot side on the robot's computer
+make test-pinocchio-model-atlas    # print the Pinocchio model
+```
+
+Each has a `-vnc` variant; see `.devcontainer/README.md`. The launch files are `drc_atlas_centroidal_mpc/launch/`
+(`robot.textproto`, `mpc.textproto`, `dummy_sim.textproto`) and `drc_atlas_description/launch/sandbox.textproto`
+(`humanoid_nmpc/docs/distributed_runtime/README.md`, "Launching").
+
 ## MPC Configurations
 
 The MPC configurations can be found in `drc_atlas_centroidal_mpc/config/mpc/task.yaml`.

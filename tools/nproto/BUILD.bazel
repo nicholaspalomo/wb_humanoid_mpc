@@ -1,0 +1,118 @@
+load("@operator_deps//:requirements.bzl", "requirement")
+load("@protobuf//bazel:proto_library.bzl", "proto_library")
+load("@protobuf//bazel:py_proto_library.bzl", "py_proto_library")
+load("@protobuf//bazel/toolchains:proto_lang_toolchain.bzl", "proto_lang_toolchain")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+
+# nproto: plain C++ structs generated from the repository's protos, their conversions to and from the protobuf
+# messages, and strict textproto parsing for the configuration files (README.md). nproto_cc_library (nproto.bzl)
+# is the one entry point; the targets below are its parts.
+
+package(default_visibility = ["//visibility:public"])
+
+# The import path drops tools/, so a proto imports "nproto/options.proto".
+proto_library(
+    name = "options_proto",
+    srcs = ["options.proto"],
+    strip_import_prefix = "/tools",
+    deps = ["@protobuf//:descriptor_proto"],
+)
+
+# `from nproto import options_pb2`, for the generator to read the option.
+py_proto_library(
+    name = "options_py_proto",
+    deps = [":options_proto"],
+)
+
+# ==============================================================================
+# The generator
+# ==============================================================================
+
+# The code generator, plain Python on the protobuf descriptor API, shared by the protoc plugin and the tests.
+py_library(
+    name = "nproto_generator",
+    srcs = ["nproto_generator.py"],
+    imports = ["."],
+    deps = [
+        ":options_py_proto",
+        requirement("protobuf"),
+    ],
+)
+
+# The protoc plugin, `protoc --plugin=protoc-gen-nproto=... --nproto_out=...`.
+py_binary(
+    name = "protoc-gen-nproto",
+    srcs = ["protoc_gen_nproto.py"],
+    main = "protoc_gen_nproto.py",
+    deps = [
+        ":nproto_generator",
+        requirement("protobuf"),
+    ],
+)
+
+# How nproto_cc_library runs the plugin. The protos of protobuf itself and options.proto get no structs: they set no
+# option, and nproto has no use for them.
+proto_lang_toolchain(
+    name = "nproto_toolchain",
+    command_line = "--nproto_out=$(OUT)",
+    denylisted_protos = [
+        ":options_proto",
+        "@protobuf//:any_proto",
+        "@protobuf//:api_proto",
+        "@protobuf//:compiler_plugin_proto",
+        "@protobuf//:cpp_features_proto",
+        "@protobuf//:descriptor_proto",
+        "@protobuf//:duration_proto",
+        "@protobuf//:empty_proto",
+        "@protobuf//:field_mask_proto",
+        "@protobuf//:java_features_proto",
+        "@protobuf//:source_context_proto",
+        "@protobuf//:struct_proto",
+        "@protobuf//:timestamp_proto",
+        "@protobuf//:type_proto",
+        "@protobuf//:wrappers_proto",
+    ],
+    mnemonic = "GenNproto",
+    output_files = "multiple",
+    plugin = ":protoc-gen-nproto",
+    plugin_format_flag = "--plugin=protoc-gen-nproto=%s",
+    progress_message = "Generating nproto structs of %{label}",
+    runtime = ":nproto_runtime",
+)
+
+# ==============================================================================
+# The runtime
+# ==============================================================================
+
+# No -Wpedantic: Abseil's int128.h, which absl/status pulls in, warns under it.
+_COPTS = [
+    "-std=c++20",
+    "-Wall",
+    "-Wextra",
+    "-Werror=return-type",
+]
+
+# What the generated code calls (nproto/Conversions.h) and the textproto helpers (nproto/Textproto.h). The generated
+# code depends on it through :nproto_toolchain, and with it on protobuf, Eigen and Abseil.
+cc_library(
+    name = "nproto_runtime",
+    srcs = [
+        "src/Conversions.cpp",
+        "src/Textproto.cpp",
+    ],
+    hdrs = [
+        "include/nproto/Conversions.h",
+        "include/nproto/Textproto.h",
+    ],
+    copts = _COPTS,
+    includes = ["include"],
+    deps = [
+        "@abseil-cpp//absl/status",
+        "@abseil-cpp//absl/status:statusor",
+        "@abseil-cpp//absl/strings",
+        "@abseil-cpp//absl/strings:string_view",
+        "@eigen",
+        "@protobuf",
+    ],
+)

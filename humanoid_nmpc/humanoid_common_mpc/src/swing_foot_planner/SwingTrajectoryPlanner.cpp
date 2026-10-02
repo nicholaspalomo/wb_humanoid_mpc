@@ -28,13 +28,12 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
-#include <boost/property_tree/info_parser.hpp>
-#include <boost/property_tree/ptree.hpp>
-
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
 
+#include <ocs2_core/misc/LoadData.h>
 #include <ocs2_core/misc/Lookup.h>
 #include <ocs2_core/misc/Numerics.h>
+#include <ocs2_core/misc/PropertyTree.h>
 
 #include <algorithm>
 #include <functional>
@@ -387,7 +386,7 @@ scalar_t SwingTrajectoryPlanner::swingTrajectoryScaling(scalar_t startTime, scal
 /******************************************************************************************************/
 
 SwingTrajectoryPlanner::Config loadSwingTrajectorySettings(const std::string& fileName, const std::string& fieldName, bool verbose) {
-  boost::property_tree::ptree pt;
+  PropertyTree pt;
   loadData::readPropertyTree(fileName, pt);
 
   if (verbose) {

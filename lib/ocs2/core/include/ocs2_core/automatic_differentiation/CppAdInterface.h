@@ -33,6 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <Eigen/Core>
 
 // STL
+#include <functional>
 #include <string>
 
 // CppAD
@@ -95,7 +96,14 @@ class CppAdInterface {
   CppAdInterface& operator=(CppAdInterface&& rhs) = delete;
 
   /**
-   * Loads earlier created model from disk
+   * Loads earlier created model from disk.
+   *
+   * @throws std::runtime_error, naming the library folder, when the library on disk was generated for another function:
+   * its domain is not variableDim + parameterDim, or its range differs from the function's. The range is the one this
+   * interface already knows (from an earlier createModels() or from the interface it was copied from); a fresh interface
+   * evaluates the function once, off tape, to find it. A stale library is what a formulation change leaves behind with
+   * recompileLibrariesCppAd: false; delete the folder or recompile. A library with the same dimensions but other
+   * arithmetic cannot be told apart, which is what the layout-tagged library folder is for.
    */
   void loadModels(bool verbose = true);
 
@@ -114,6 +122,27 @@ class CppAdInterface {
    * @param verbose : Print out extra information
    */
   void loadModelsIfAvailable(ApproximationOrder approximationOrder = ApproximationOrder::Second, bool verbose = true);
+
+  /**
+   * The number of operations of the function's tape, as CppAD records it at the taping point (x and p all ones) and
+   * after CppAD's optimize(), i.e. the operation sequence the generated library evaluates. Machine independent, so it
+   * can gate the cost of a formulation change. Tapes the function afresh; it does not need the library.
+   */
+  size_t getTapeOperationCount() const;
+
+  /** The folder the library is generated in and loaded from. */
+  const std::string& getLibraryFolder() const { return libraryFolder_; }
+
+  /**
+   * Called with every interface whose library createModels() or loadModels() has just made ready, copies included, for
+   * the tools that measure the generated code: the solve benchmark of humanoid_mpc_validation records the tape
+   * operation count (getTapeOperationCount()) of every library a problem builds, which the problem's terms do not
+   * expose. None is installed by default, and then nothing happens. The observer runs on the thread that builds the
+   * interface and must not throw. Install it before the problem is built and remove it (an empty function) once that
+   * is done; installing and removing are synchronized, building interfaces on several threads is the caller's concern.
+   */
+  using LibraryObserver = std::function<void(const CppAdInterface&)>;
+  static void setLibraryObserver(LibraryObserver observer);
 
   /**
    * @param x : input vector of size variableDim
@@ -206,6 +235,18 @@ class CppAdInterface {
    * Stores the sparisty nonzeros
    */
   void setSparsityNonzeros();
+
+  /** Throws when the loaded model's domain is not variableDim + parameterDim, or its range is not expectedRangeDim. */
+  void checkLoadedModelDimensions(size_t expectedRangeDim) const;
+
+  /**
+   * The function's output size, from one evaluation at the taping point (x and p all ones) without a tape: what a fresh
+   * interface checks a loaded library's range against.
+   */
+  size_t evaluateRangeDim() const;
+
+  /** Hands this interface to the observer of setLibraryObserver(), if one is installed. */
+  void notifyLibraryObserver() const;
 
   /**
    * Creates sparsity pattern for the Jacobian that will be generated

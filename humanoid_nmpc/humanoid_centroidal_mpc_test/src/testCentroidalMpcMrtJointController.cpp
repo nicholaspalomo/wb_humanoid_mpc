@@ -43,7 +43,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h>
 #include <ocs2_mpc/MPC_BASE.h>
-#include <ocs2_ros2_interfaces/mrt/DummyObserver.h>
 #include "humanoid_centroidal_mpc_test/CentroidalTestingModelInterface.h"
 #include "humanoid_common_mpc/common/BasisInputsModelDecorator.h"
 #include "humanoid_common_mpc/constraint/ContactWrenchConeConstraint.h"
@@ -61,9 +60,9 @@ using namespace ocs2::humanoid;
 class FixedContactEstimator final : public ::robot::model::ContactEstimator {
  public:
   explicit FixedContactEstimator(std::vector<bool> flags) : flags_(std::move(flags)) {}
-  std::vector<bool> estimateContactFlags(const ::robot::model::RobotState& /*robotState*/) override {
+  void estimateContactFlags(const ::robot::model::RobotState& /*robotState*/, std::vector<bool>& flags) override {
     ++calls;
-    return flags_;
+    flags.assign(flags_.begin(), flags_.end());
   }
   std::string getName() const override { return "FixedContactEstimator"; }
   void set(std::vector<bool> flags) { flags_ = std::move(flags); }
@@ -118,7 +117,7 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testPdGainsHotReloading) {
   // Create controller
   CentroidalMpcMrtJointController controller(robotDesc, testingModelInterface.getModelSettings(), testingModelInterface.getMpcRobotModel(),
                                              mockMpc, testingModelInterface.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0,
-                                             /*rVizVisualizerPtr=*/nullptr, tempPdGainsFile_.string());
+                                             tempPdGainsFile_.string());
 
   controller.setControlMode("JOINT_PD");
 
@@ -134,7 +133,8 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testPdGainsHotReloading) {
       << "    torque_limit: 150.0\n";
   ofs.close();
 
-  // Trigger again
+  // Trigger again: the file watcher runs on a non-realtime thread now (pollPdGainsFile()), not inside the control cycle.
+  EXPECT_NO_THROW({ controller.pollPdGainsFile(); });
   EXPECT_NO_THROW({ controller.computeJointControlAction(/*time=*/0.02, robotState, jointAction); });
 }
 
@@ -149,7 +149,7 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testSafetyModeDecaysADampedPdToZeroT
   const scalar_t timeConstant = 0.5;
   CentroidalMpcMrtJointController controller(robotDesc, testingModelInterface.getModelSettings(), testingModelInterface.getMpcRobotModel(),
                                              mockMpc, testingModelInterface.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0,
-                                             /*rVizVisualizerPtr=*/nullptr, tempPdGainsFile_.string());
+                                             tempPdGainsFile_.string());
   controller.setSafetyDecayTimeConstant(timeConstant);
 
   // The gains SAFETY decays from are the ones JOINT_PD commands, so take that mode's action as the reference.
@@ -227,10 +227,9 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testEntryHoldsThePreviousModeUntilAP
 
   using EntryResult = std::tuple<bool, robot::model::RobotJointAction, robot::model::RobotJointAction>;
   const std::function<EntryResult(scalar_t)> run = [&](scalar_t blendTime) {
-    CentroidalMpcMrtJointController controller(robotDesc, testingModelInterface.getModelSettings(),
-                                               testingModelInterface.getMpcRobotModel(), mockMpc,
-                                               testingModelInterface.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0,
-                                               /*rVizVisualizerPtr=*/nullptr, tempPdGainsFile_.string());
+    CentroidalMpcMrtJointController controller(
+        robotDesc, testingModelInterface.getModelSettings(), testingModelInterface.getMpcRobotModel(), mockMpc,
+        testingModelInterface.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0, tempPdGainsFile_.string());
     controller.setMpcEntryBlendTime(blendTime);
     controller.setControlMode("JOINT_PD");
     robot::model::RobotJointAction held(robotDesc);
@@ -299,7 +298,7 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testBasisVectorInputsUseWorldFrameWr
 
   CentroidalMpcMrtJointController controller(robotDesc, testingModelInterface.getModelSettings(), testingModelInterface.getMpcRobotModel(),
                                              mockMpc, testingModelInterface.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0,
-                                             /*rVizVisualizerPtr=*/nullptr, gainsFile.string(), &basisModel);
+                                             gainsFile.string(), &basisModel);
 
   // The default mode is WB_MPC and the mock MPC never publishes a policy, so the controller takes the weight-compensating
   // feed-forward branch.
@@ -351,7 +350,7 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testObservationModeFollowsTheContact
   robot::model::RobotJointAction jointAction(robotDesc);
   CentroidalMpcMrtJointController controller(robotDesc, testingModelInterface.getModelSettings(), testingModelInterface.getMpcRobotModel(),
                                              mockMpc, testingModelInterface.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0,
-                                             /*rVizVisualizerPtr=*/nullptr, tempPdGainsFile_.string());
+                                             tempPdGainsFile_.string());
   controller.setControlMode("JOINT_PD");
 
   // Default: the RobotState flags.
@@ -402,7 +401,7 @@ TEST_F(CentroidalMpcMrtJointControllerTest, testFeedforwardWrenchesFollowTheMeas
   }
   CentroidalMpcMrtJointController controller(robotDesc, testingModelInterface.getModelSettings(), testingModelInterface.getMpcRobotModel(),
                                              mockMpc, testingModelInterface.getPinocchioInterface(), /*mpcDesiredFrequency=*/400.0,
-                                             /*rVizVisualizerPtr=*/nullptr, gainsFile.string());
+                                             gainsFile.string());
   std::filesystem::remove(gainsFile);
   auto estimator = std::make_shared<FixedContactEstimator>(std::vector<bool>{true, true});
   controller.setContactEstimator(estimator);

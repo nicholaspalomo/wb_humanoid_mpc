@@ -1,156 +1,170 @@
 #!/usr/bin/env python3
-"""
-Code formatter and linter for wb_humanoid_mpc.
-- Enforces trailing newlines on all source files.
-- Trims trailing whitespace.
-- Formats C/C++ files with clang-format.
-- Formats Python files with black.
+# Copyright (c) 2026, Nicholas Palomo. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+"""The repository's formatter (make format): every rewrite that cannot change behavior.
+
+Run it from the repository root as a module, `python3 -m tools.hooks.format_code`. It
+
+- trims trailing whitespace and ends every text file with exactly one newline;
+- applies the fixes of the enforced registry checks that `make format` owns (tools/hooks/checks.py,
+  `fixed_by_format`): rewrites such as floating-point radix points that cannot change behavior;
+- formats C++ with clang-format (.clang-format);
+- orders Python imports with isort (.isort.cfg) once the isort step has left PENDING;
+- formats Python with black.
+
+The file set is tools/hooks/lint_files.py's: what git tracks or would track, without vendored code (lib/) and fixtures.
 """
 
+import argparse
+from collections.abc import Callable, Sequence
+import functools
 import os
+import shutil
 import subprocess
 import sys
 
+from tools.hooks import check_types
+from tools.hooks import checks
+from tools.hooks import lint_files
+
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-
-EXCLUDE_DIRS = {
-    ".git",
-    ".bazel",
-    ".bazel_ros_install",
-    "bazel-bin",
-    "bazel-out",
-    "bazel-testlogs",
-    "bazel-wb_humanoid_mpc",
-    "build",
-    "install",
-    "log",
-    "lib/ocs2",
-    "lib/mujoco_vendor",
-    "tools/ifttt-lint",
-}
-
-TEXT_EXTENSIONS = {
-    ".py",
-    ".cpp",
-    ".h",
-    ".hpp",
-    ".bzl",
-    ".bazel",
-    ".sh",
-    ".bash",
-    ".yaml",
-    ".yml",
-    ".json",
-    ".md",
-    ".txt",
-    ".cfg",
-    ".xml",
-    ".urdf",
-    ".xacro",
-    ".mjcf",
-}
-
-EXACT_FILES = {
-    "Makefile",
-    "BUILD",
-    "BUILD.bazel",
-    "MODULE.bazel",
-    "WORKSPACE",
-    ".bazelrc",
-    ".bazelversion",
-    ".clang-format",
-    ".gitignore",
-}
+ISORT_CONFIG = ".isort.cfg"
 
 
-def should_skip(path):
-    rel = os.path.relpath(path, REPO_ROOT)
-    for exc in EXCLUDE_DIRS:
-        if rel == exc or rel.startswith(exc + os.sep) or (os.sep + exc + os.sep) in rel:
-            return True
-    return False
-
-
-def fix_trailing_newlines_and_whitespace(file_path):
-    """Ensures file ends with exactly one newline and removes trailing whitespace."""
-    try:
-        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-            content = f.read()
-    except Exception:
-        return False
-
+def fix_whitespace(content: str) -> str:
+    """`content` without trailing whitespace and ending in exactly one newline (an empty file stays empty)."""
     if not content:
+        return content
+    return "\n".join(line.rstrip() for line in content.splitlines()) + "\n"
+
+
+def _formatted_files(root: str) -> list[str]:
+    return [
+        path
+        for path in lint_files.repository_files(root)
+        if lint_files.in_scope(path, lint_files.Scope.TEXT)
+        and not lint_files.is_fixture(path)
+    ]
+
+
+def _rewrite(root: str, path: str, transform: Callable[[str], str]) -> bool:
+    """Rewrites the file at `path` with `transform` and returns whether that changed it."""
+    full = os.path.join(root, path)
+    try:
+        with open(full, encoding="utf-8") as f:
+            content = f.read()
+    except (OSError, UnicodeDecodeError):
         return False
-
-    lines = content.splitlines()
-    trimmed_lines = [line.rstrip() for line in lines]
-    new_content = "\n".join(trimmed_lines) + "\n"
-
-    if new_content != content:
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(new_content)
-        return True
-    return False
+    rewritten = transform(content)
+    if rewritten == content:
+        return False
+    with open(full, "w", encoding="utf-8") as f:
+        f.write(rewritten)
+    return True
 
 
-def main():
-    modified_files = []
-    cpp_files = []
-    py_files = []
+def _fix(content: str, path: str, fixes: frozenset[str]) -> str:
+    """`content` of the file at `path` with the fixes of the checks `fixes` applied."""
+    return checks.fix_file(content, path, fixes)
 
-    # Collect files
-    for root, dirs, files in os.walk(REPO_ROOT):
-        # Prune excluded directories in-place
-        dirs[:] = [d for d in dirs if not should_skip(os.path.join(root, d))]
 
-        for f in files:
-            full_path = os.path.join(root, f)
-            if should_skip(full_path):
-                continue
+def _run_quietly(command: list[str], root: str) -> None:
+    if shutil.which(command[0]) is None:
+        return
+    subprocess.run(
+        command,
+        cwd=root,
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
-            ext = os.path.splitext(f)[1].lower()
-            if ext in TEXT_EXTENSIONS or f in EXACT_FILES:
-                if fix_trailing_newlines_and_whitespace(full_path):
-                    modified_files.append(os.path.relpath(full_path, REPO_ROOT))
 
-            if ext in {".cpp", ".h", ".hpp"}:
-                cpp_files.append(full_path)
-            elif ext == ".py":
-                py_files.append(full_path)
-
-    # Run clang-format on C++ files if available
-    if cpp_files:
-        try:
-            subprocess.run(
-                ["clang-format", "-i"] + cpp_files,
-                check=False,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+def format_repository(root: str) -> list[str]:
+    """Formats the repository at `root` in place and returns the files whose whitespace or registry fixes changed."""
+    files = _formatted_files(root)
+    modified = []
+    fixes = checks.format_fixes()
+    for path in files:
+        changed = False
+        if check_types.is_text(path):
+            changed = _rewrite(root, path, fix_whitespace) or changed
+        if fixes:
+            changed = (
+                _rewrite(root, path, functools.partial(_fix, path=path, fixes=fixes))
+                or changed
             )
-        except FileNotFoundError:
-            pass
-
-    # Run black on Python files if available
-    if py_files:
-        try:
-            subprocess.run(
-                ["black", "--quiet"] + py_files,
-                check=False,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-        except FileNotFoundError:
-            pass
-
-    if modified_files:
-        print(
-            f"✨ Formatted and ensured trailing newlines on {len(modified_files)} file(s)."
+        if changed:
+            modified.append(path)
+    cpp = [
+        path
+        for path in files
+        if path.endswith(lint_files.CPP_EXTENSIONS) and lint_files.is_first_party(path)
+    ]
+    python = [
+        path
+        for path in files
+        if path.endswith(".py") and lint_files.is_first_party(path)
+    ]
+    if cpp:
+        _run_quietly(["clang-format", "-i", *cpp], root)
+    if python and "isort" not in checks.PENDING:
+        _run_quietly(
+            [
+                "isort",
+                "--quiet",
+                "--settings-path",
+                os.path.join(root, ISORT_CONFIG),
+                *lint_files.isort_package_arguments(root),
+                *python,
+            ],
+            root,
         )
+    if python:
+        _run_quietly(["black", "--quiet", *python], root)
+    return modified
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Formats the repository."""
+    parser = argparse.ArgumentParser(
+        description="The repository's formatter (make format)."
+    )
+    parser.parse_args(argv)
+    modified = format_repository(REPO_ROOT)
+    if modified:
+        print(f"✨ Formatted and ensured trailing newlines on {len(modified)} file(s).")
     else:
         print(
             "✅ All files properly formatted with required blank lines and trailing newlines."
         )
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

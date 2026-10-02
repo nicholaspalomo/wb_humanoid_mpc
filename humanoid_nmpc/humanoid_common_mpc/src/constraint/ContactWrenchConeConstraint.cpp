@@ -42,12 +42,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath>
 #include <cstdint>
 #include <exception>
+#include <optional>
 #include <string>
 
-#include <boost/optional.hpp>
-#include <boost/property_tree/ptree.hpp>
-
 #include <ocs2_core/misc/LoadData.h>
+#include <ocs2_core/misc/PropertyTree.h>
 
 #include "absl/log/check.h"
 #include "absl/log/log.h"
@@ -164,10 +163,10 @@ namespace {
  * as a T are both an InvalidArgument naming the key.
  */
 template <typename T>
-absl::StatusOr<T> requiredConeValue(const boost::property_tree::ptree& pt, absl::string_view key) {
+absl::StatusOr<T> requiredConeValue(const PropertyTree& pt, absl::string_view key) {
   const std::string path = absl::StrCat(ContactWrenchConeConstraint::kConfigBlock, ".", key);
-  const boost::optional<const boost::property_tree::ptree&> child = pt.get_child_optional(path);
-  if (!child) {
+  const PropertyTree* child = pt.findChild(path);
+  if (child == nullptr) {
     return absl::InvalidArgumentError(absl::StrCat(
         "[ContactWrenchConeConstraint] ", path,
         " is missing from the task file. The contact wrench cone block is the ground of the whole-body constraints: the wrench "
@@ -175,8 +174,8 @@ absl::StatusOr<T> requiredConeValue(const boost::property_tree::ptree& pt, absl:
         "falls back to a library default. Write the block with frictionCoefficient, torsionalFrictionCoefficient, minNormalForce, "
         "gripperForce and numBasisVectors."));
   }
-  const boost::optional<T> value = child->get_value_optional<T>();
-  if (!value) {
+  const std::optional<T> value = child->getValueOptional<T>();
+  if (!value.has_value()) {
     return absl::InvalidArgumentError(
         absl::StrCat("[ContactWrenchConeConstraint] ", path, " is '", child->data(), "', which is not a number of the expected type."));
   }
@@ -214,7 +213,7 @@ absl::Status ContactWrenchConeConstraint::validateConfig(const Config& config) {
 }
 
 absl::StatusOr<ContactWrenchConeConstraint::Config> ContactWrenchConeConstraint::loadConfig(const std::string& taskFile, bool verbose) {
-  boost::property_tree::ptree pt;
+  PropertyTree pt;
   try {
     loadData::readPropertyTree(taskFile, pt);
   } catch (const std::exception& error) {

@@ -172,5 +172,31 @@ TEST(FootYawResidual, TheSwingFootCostIsDifferentiableAtTheSimulatorsResetPose) 
   EXPECT_TRUE(approximation.dfdxx.allFinite());
 }
 
+TEST(FootCostParameters, AreTheReferenceManagersWhateverTargetTheSolverPasses) {
+  // The cost's parameters - the swing reference, the plane normal, the impact proximity - come from the reference
+  // manager; the target the solver passes is not read. It used to be interpolated into two values nobody used, which
+  // also made an empty target throw here. Built as above, so the library that test generated is loaded, not rebuilt.
+  DrcAtlasContactTestModel atlas("testFootYawResidual_");
+  const vector_t& state = atlas.nominalState();
+  const vector_t input = atlas.makeInput(atlas.wrenchModel(), /*loadedFoot=*/1, /*normalForce=*/800.0);
+  const TargetTrajectories target({DrcAtlasContactTestModel::kQueryTime}, {state}, {input});
+  atlas.referenceManager().setTargetTrajectories(target);
+  atlas.setSwing(0);
+  const Cost cost(atlas.referenceManager(), EndEffectorKinematicsWeights(), atlas.pinocchioInterface(), atlas.adWrenchModel(),
+                  /*contactIndex=*/0, "testFootYawResidual_foot_l", atlas.modelSettings());
+  const scalar_t time = DrcAtlasContactTestModel::kQueryTime;
+  const vector_t parameters = cost.getParameters(time, target, PreComputation());
+  ASSERT_TRUE(parameters.allFinite()) << parameters.transpose();
+
+  // A target somewhere else entirely, with other inputs, and a target with no knots at all.
+  vector_t movedState = state;
+  movedState.head(6).setConstant(0.3);
+  const TargetTrajectories moved({time - 1.0, time + 1.0}, {movedState, 2.0 * movedState}, {2.0 * input, -input});
+  EXPECT_TRUE(cost.getParameters(time, moved, PreComputation()) == parameters);
+  vector_t emptyTargetParameters;
+  ASSERT_NO_THROW(emptyTargetParameters = cost.getParameters(time, TargetTrajectories(), PreComputation()));
+  EXPECT_TRUE(emptyTargetParameters == parameters);
+}
+
 }  // namespace
 }  // namespace ocs2::humanoid

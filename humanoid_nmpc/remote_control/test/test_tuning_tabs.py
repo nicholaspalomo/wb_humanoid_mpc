@@ -33,6 +33,7 @@ import tempfile
 import unittest
 import yaml
 
+from operator_test_support import requires_display
 from remote_control.tk_app import yaml_param_tree
 from remote_control.tk_app.yaml_editor_utils import (
     load_yaml_safe,
@@ -151,8 +152,8 @@ class TestTuningTabsWithFiles(unittest.TestCase):
         self.assertIn("joint_gains", data)
         self.assertGreater(len(data["joint_gains"]), 0)
 
-    def test_all_task_yaml_enable_telemetry_and_online_tuning_flags(self):
-        """Verify that all task.yaml files define enableTelemetry and enableOnlineTuning."""
+    def test_all_task_yaml_telemetry_sinks_and_online_tuning_flags(self):
+        """Verify that all task.yaml files send their telemetry to the bus and define enableOnlineTuning."""
         task_files = [
             "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml",
             "robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.yaml",
@@ -164,11 +165,14 @@ class TestTuningTabsWithFiles(unittest.TestCase):
             abs_path = os.path.join(self.repo_root, rel_path)
             self.assertTrue(os.path.exists(abs_path), f"Missing task file: {rel_path}")
             data = load_yaml_safe(abs_path)
-            self.assertIn(
-                "enableTelemetry", data, f"Missing enableTelemetry in {rel_path}"
+            # The robot process refuses the retired boolean; the sinks are named (TelemetrySinkRegistry.h).
+            self.assertNotIn(
+                "enableTelemetry", data, f"Retired enableTelemetry in {rel_path}"
             )
-            self.assertTrue(
-                data["enableTelemetry"], f"enableTelemetry should be True in {rel_path}"
+            self.assertIn(
+                "bus",
+                data.get("telemetrySinks", []),
+                f"telemetrySinks should list bus in {rel_path}",
             )
             self.assertIn(
                 "enableOnlineTuning", data, f"Missing enableOnlineTuning in {rel_path}"
@@ -178,6 +182,7 @@ class TestTuningTabsWithFiles(unittest.TestCase):
                 f"enableOnlineTuning should be True in {rel_path}",
             )
 
+    @requires_display
     def test_joint_pd_tab_online_tuning_toggle(self):
         """Verify that JointPdGainsTab disables interaction when enable_online_tuning=False."""
         import tkinter as tk
@@ -207,6 +212,7 @@ class TestTuningTabsWithFiles(unittest.TestCase):
         finally:
             root.destroy()
 
+    @requires_display
     def test_mpc_params_tab_online_tuning_toggle(self):
         """Verify that MpcParamsTab disables interaction when enable_online_tuning=False."""
         import tkinter as tk
@@ -237,6 +243,7 @@ class TestTuningTabsWithFiles(unittest.TestCase):
             root.destroy()
 
 
+@requires_display
 class TestMpcParamsAutoSaveRoundTrip(unittest.TestCase):
     """Test the debounced auto-save → YAML round-trip for MPC params tab."""
 
@@ -444,6 +451,7 @@ class TestMpcParamsAutoSaveRoundTrip(unittest.TestCase):
             root.destroy()
 
 
+@requires_display
 class TestJointPdAutoSaveRoundTrip(unittest.TestCase):
     """Test the debounced auto-save → YAML round-trip for joint PD gains tab."""
 

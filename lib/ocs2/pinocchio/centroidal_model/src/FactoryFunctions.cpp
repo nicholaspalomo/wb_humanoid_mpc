@@ -130,9 +130,9 @@ CentroidalModelInfo createCentroidalModelInfo(const PinocchioInterface& interfac
 /******************************************************************************************************/
 /******************************************************************************************************/
 CentroidalModelType loadCentroidalType(const std::string& configFilePath, const std::string& fieldName) {
-  boost::property_tree::ptree pt;
+  PropertyTree pt;
   loadData::readPropertyTree(configFilePath, pt);
-  const size_t type = pt.template get<size_t>(fieldName);
+  const size_t type = pt.get<size_t>(fieldName);
   return static_cast<CentroidalModelType>(type);
 }
 

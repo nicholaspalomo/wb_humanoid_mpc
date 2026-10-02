@@ -44,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "absl/log/check.h"
 #include "absl/status/statusor.h"
+#include "humanoid_centroidal_mpc/mrt/CentroidalMpcResetTarget.h"
 #include "humanoid_common_mpc/constraint/ContactWrenchConeConstraint.h"
 #include "humanoid_common_mpc/contact/ContactRectangle.h"
 #include "humanoid_common_mpc/contact_planning/ContactPlanningConfig.h"
@@ -160,13 +161,10 @@ void AtlasReferenceStack::command(scalar_t forward, scalar_t lateral, scalar_t y
 }
 
 TargetTrajectories AtlasReferenceStack::resetTarget(scalar_t time, const vector_t& state) const {
-  vector_t target = state;
-  centroidal_model::getNormalizedMomentum(target, info_).setZero();
-  target(10) = 0.0;
-  target(11) = 0.0;
-  PinocchioInterface pinocchioInterface = *pinocchioInterface_;
-  const vector_t input = weightCompensatingInput(pinocchioInterface, {true, true}, *model_, target);
-  return TargetTrajectories({time, time + 2.0}, {target, target}, {input, input});
+  SystemObservation observation;
+  observation.time = time;
+  observation.state = state;
+  return centroidalMpcResetTargetTrajectories(observation, info_, *model_, *pinocchioInterface_);
 }
 
 vector_t AtlasReferenceStack::standingAt(const vector_t& state, scalar_t x, scalar_t y, scalar_t yaw) const {

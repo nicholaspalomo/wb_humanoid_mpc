@@ -14,9 +14,13 @@
 # closest robot by mass (28.8 kg against SA01's 33.1 kg); they are a starting point, not a tuned set.
 
 # Simulation & Telemetry Configuration
-enableTelemetry: true        # Enable high-rate ROS 2 telemetry publishing for PlotJuggler
-telemetryFrequency: 100      # [Hz] Telemetry publishing frequency (decimated from MRT loop)
-# MuJoCo simulator only (mujoco_sim.launch.py). The viewer's contact timeline ('b' toggles it) shows, per contact point,
+# Where the robot process sends its telemetry (robot/state), by name (TelemetrySinkRegistry.h): bus publishes it on
+# the IPC bus for the visualization publisher, the Rerun bridge and ipc_tool; [] turns the telemetry off.
+# LINT.IfChange(telemetry_sinks)
+telemetrySinks: [bus]
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/include/humanoid_common_mpc_app/robot/TelemetrySinkRegistry.h:telemetry_sink_names)
+telemetryFrequency: 100      # [Hz] robot/state, decimated from the control loop
+# MuJoCo backend of the robot process only. The viewer's contact timeline ('b' toggles it) shows, per contact point,
 # the contact state the executed MPC policy plans against the simulator's ground truth over a sliding window of time.
 simContactTimelineWindow: 5.0          # [s] width of the sliding window
 simContactForceThreshold: 5.0          # [N] normal force above which a contact point counts as touching (ground truth).
@@ -37,7 +41,7 @@ simContactForceThreshold: 5.0          # [N] normal force above which a contact 
 # LINT.IfChange(sim_fall_recovery)
 simMaxBaseTiltAngle: 1.0                # [rad] 0 disables
 simGantryCatchLift: 0.15  # [m] 0 skips the settle sequence
-# LINT.ThenChange(//humanoid_nmpc/humanoid_centroidal_mpc_ros2/src/CentroidalMpcRobotSim.cpp:sim_fall_recovery_keys)
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/src/RobotProcessSettings.cpp:sim_fall_recovery_keys)
 # Measured contact state of the controller, by name (robot_model/ContactEstimatorRegistry.h): the MPC observation mode and
 # which planned contact wrenches the inverse dynamics projects into feedforward torques. One of:
 #   cheater_sim        the ground truth of the physics (normal force above simContactForceThreshold); required for the
@@ -152,12 +156,19 @@ contactInputParameterization: basis_vectors
 contactScheduleSource: gait_schedule
 # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/include/humanoid_common_mpc/common/MpcFormulationConfig.h:contact_schedule_source_names, //robot_models/engineai_sa01/README.md:sa01_formulation_toggles)
 
+# The visualization publisher of the MPC node (humanoid_nmpc/humanoid_common_mpc_app/visualization/README.md), read at
+# start-up. rerunSceneFrequency bounds how often the Rerun scene (robots and markers) is sent; the plots follow every
+# robot/state sample. telemetryFrames are the frames whose pose, twist, acceleration and wrench are plotted, measured,
+# reference and plan; rerunPlanFrames (the contact frames when absent) those whose planned paths the scene draws.
+# LINT.IfChange(visualization_keys)
+rerunSceneFrequency: 30      # [Hz] viz/scene at most this often
 # Targeted Pinocchio frames for telemetry logging (position, orientation, twist, accel, wrench). SA01 has no pelvis
 # and no torso link - base_link IS the floating base.
 telemetryFrames:
   - "foot_l_contact"
   - "foot_r_contact"
   - "base_link"
+# LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/visualization/include/humanoid_common_mpc_app/visualization/VisualizationConfig.h:visualization_task_keys)
 
 centroidalModelType: 0  # 0: FullCentroidalDynamics, 1: Single Rigid Body Dynamics
 
@@ -543,7 +554,9 @@ locomotion_heuristics:
     maximumForceRatioOfWeight: 0.2  # the clamp as a fraction of body weight
 # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc/src/locomotion_heuristics/LocomotionHeuristicConfig.cpp:locomotion_heuristic_keys)
 
-useGravityCompFeedforward: false
+# The feedforward torques of WB_MPC, by name: inverse_dynamics (the planned wrenches through the inverse dynamics) or
+# gravity_compensation (pure gravity compensation, to isolate a problem of the inverse dynamics).
+wbMpcFeedforward: inverse_dynamics
 # [s] Hand-over into the MPC from a passive mode. Entering WB_MPC resets the MPC from the robot as it is and always holds
 # the previous mode's action until the first policy solved after that reset is in use (a solve or two); this duration
 # then ramps targets, gains and feedforward torques from the held action into the MPC action. 0 switches in one control

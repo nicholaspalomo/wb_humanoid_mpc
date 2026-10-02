@@ -40,21 +40,38 @@ class RobotState {
 
   //  Get a vector_t of joint positions given a vector of joint IDs
   template <typename E>
-  vector_t getJointPositions(std::vector<E> jointIds, scalar_t defaultValue = std::numeric_limits<scalar_t>::quiet_NaN()) const {
-    return jointStateMap_.toVector(jointIds, [](const JointState& js) { return js.position; }, defaultValue);
+  vector_t getJointPositions(const std::vector<E>& jointIds, scalar_t defaultValue = std::numeric_limits<scalar_t>::quiet_NaN()) const {
+    return jointStateMap_.toVector(jointIds, &RobotState::positionOf, defaultValue);
   }
 
   //  Get a vector_t of joint velocities given a vector of joint IDs
   template <typename E>
-  vector_t getJointVelocities(std::vector<E> jointIds, scalar_t defaultValue = std::numeric_limits<scalar_t>::quiet_NaN()) const {
-    return jointStateMap_.toVector(jointIds, [](const JointState& js) { return js.velocity; }, defaultValue);
+  vector_t getJointVelocities(const std::vector<E>& jointIds, scalar_t defaultValue = std::numeric_limits<scalar_t>::quiet_NaN()) const {
+    return jointStateMap_.toVector(jointIds, &RobotState::velocityOf, defaultValue);
+  }
+
+  //  The joint positions into `positions`, resized to jointIds.size(): no allocation once it has that size (the
+  //  control thread's form).
+  template <typename E>
+  void getJointPositions(const std::vector<E>& jointIds,
+                         vector_t& positions,
+                         scalar_t defaultValue = std::numeric_limits<scalar_t>::quiet_NaN()) const {
+    jointStateMap_.writeVector(jointIds, &RobotState::positionOf, positions, defaultValue);
+  }
+
+  //  The joint velocities into `velocities`, as getJointPositions() above.
+  template <typename E>
+  void getJointVelocities(const std::vector<E>& jointIds,
+                          vector_t& velocities,
+                          scalar_t defaultValue = std::numeric_limits<scalar_t>::quiet_NaN()) const {
+    jointStateMap_.writeVector(jointIds, &RobotState::velocityOf, velocities, defaultValue);
   }
 
   bool getContactFlag(size_t index) const { return contactFlags_.at(index); }
 
   void setContactFlag(size_t index, bool contactFlag) { contactFlags_.at(index) = contactFlag; }
 
-  std::vector<bool> getContactFlags() const { return contactFlags_; }
+  const std::vector<bool>& getContactFlags() const { return contactFlags_; }
 
   scalar_t getTime() const { return time_; }
 
@@ -63,6 +80,9 @@ class RobotState {
   void setConfigurationToZero();
 
  private:
+  static scalar_t positionOf(const JointState& jointState) { return jointState.position; }
+  static scalar_t velocityOf(const JointState& jointState) { return jointState.velocity; }
+
   JointIdMap<JointState> jointStateMap_;
 
   scalar_t time_;

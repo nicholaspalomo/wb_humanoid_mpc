@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package humanoid_mpc_msgs;
+
+import "humanoid_mpc_msgs/quaternion.proto";
+import "humanoid_mpc_msgs/vector3.proto";
+import "humanoid_mpc_msgs/wrench.proto";
+import "nproto/options.proto";
+
+// Topic robot/state, at the task file's telemetryFrequency.
+// Next ID: 18
+message RobotStateSample {
+  option (nproto.generate_struct) = "ocs2::humanoid::msgs::RobotStateSample";
+
+  reserved 18 to max;
+
+  // Robot clock [s] (RobotState::getTime()).
+  double time = 1;
+  string control_mode = 2;
+
+  // Root of the floating base.
+  Vector3 base_position_world = 3;
+  Quaternion base_orientation_world = 4;
+  Vector3 base_linear_velocity_local = 5;
+  Vector3 base_angular_velocity_local = 6;
+
+  // Every joint of the RobotDescription, by name; the arrays below are aligned with joint_names. Names are sent with
+  // every sample because joint ids are not guaranteed to be ordered alike in two processes.
+  repeated string joint_names = 7;
+  repeated double joint_positions = 8;
+  repeated double joint_velocities = 9;
+  repeated double joint_measured_efforts = 10;
+
+  // The joint action applied this cycle (RobotJointAction / JointAction). Each array is empty (no action this cycle;
+  // an empty gain or velocity-target array also reads as zeros) or aligned with joint_names; a joint without an action
+  // has a NaN position target. The visualization (RobotStateDecoder) reads them so.
+  repeated double joint_position_targets = 11;
+  repeated double joint_velocity_targets = 12;
+  repeated double joint_kp = 13;
+  repeated double joint_kd = 14;
+  repeated double joint_feed_forward_efforts = 15;
+
+  // Measured contact state and foot wrenches (the simulator's force sensors; zero where the robot has none), in
+  // contact order.
+  repeated bool contact_flags = 16;
+  repeated Wrench measured_contact_wrenches = 17;
+}

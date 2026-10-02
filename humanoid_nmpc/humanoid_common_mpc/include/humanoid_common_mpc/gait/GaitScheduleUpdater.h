@@ -47,8 +47,8 @@ namespace ocs2::humanoid {
  *
  * The "a gait is waiting" flag is the one flag of this class and its subclasses, atomic, so that a subscriber thread
  * may set it while the solver thread consumes it in preSolverRun() and clears it in reset(). The received template
- * itself is not atomic: a subclass that receives on another thread serializes it with getReceivedGait()
- * (GaitScheduleUpdaterRos2 does, with a mutex).
+ * itself is not atomic: a subclass that receives on another thread serializes it with getReceivedGait(), for instance
+ * with a mutex.
  */
 class GaitScheduleUpdater : public SolverSynchronizedModule {
  public:

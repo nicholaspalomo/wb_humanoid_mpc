@@ -13,7 +13,15 @@ import re
 import sys
 from typing import Callable, Iterable, List, NamedTuple, Optional, Tuple
 
+from tools.hooks import check_types
+from tools.hooks import lint_files
+
+NAME = "american-spelling"
 NOLINT = "NOLINT(american-spelling)"
+# The checker's own word list and its tests are British on purpose.
+_OWN_FILES = frozenset(
+    {"tools/hooks/american_spelling.py", "tools/hooks/test_american_spelling.py"}
+)
 
 # -our -> -or. Only these stems: "four", "hour", "your", "tour", "pour", "source" and "course" are not British.
 _OUR_STEMS = (
@@ -350,6 +358,52 @@ def check_files(paths: Iterable[str], root: str) -> List[Finding]:
         with open(path, encoding="utf-8", errors="ignore") as f:
             findings += check_source(f.read(), os.path.relpath(path, root))
     return findings
+
+
+def _skipped(path: str) -> bool:
+    # Robot model files (URDF, MJCF) are upstream data.
+    return (
+        path in _OWN_FILES
+        or os.path.splitext(path)[1].lower() in check_types.MODEL_EXTENSIONS
+    )
+
+
+def _findings(source: str, path: str) -> List[check_types.Finding]:
+    if _skipped(path):
+        return []
+    findings: List[check_types.Finding] = []
+    for number, line in enumerate(source.splitlines(), start=1):
+        _scan_line(
+            line,
+            lambda m, american, number=number: findings.append(
+                check_types.Finding(
+                    path,
+                    number,
+                    m.start() + 1,
+                    NAME,
+                    f"British spelling `{m.group(0)}`: write `{american}` (American English throughout, AGENTS.md).",
+                )
+            ),
+        )
+    return findings
+
+
+def _fix(source: str, path: str) -> str:
+    return source if _skipped(path) else fix_source(source)[0]
+
+
+CHECKS = [
+    check_types.Check(
+        name=NAME,
+        languages=frozenset({check_types.Language.TEXT}),
+        scope=lint_files.Scope.TEXT,
+        check_source=_findings,
+        fix_source=_fix,
+        description="American English throughout: color, behavior, center, initialize (AGENTS.md).",
+        hint="Fix them all with: python3 -m tools.hooks.american_spelling --fix <files> (or lint_code --fix "
+        "--only american-spelling).",
+    )
+]
 
 
 def main(argv: Optional[List[str]] = None) -> int:

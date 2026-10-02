@@ -30,7 +30,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc/command/CentroidalMpcTargetTrajectoriesCalculator.h"
 
-#include <boost/proto/proto_fwd.hpp>
 #include <cmath>
 
 #include <pinocchio/algorithm/center-of-mass.hpp>

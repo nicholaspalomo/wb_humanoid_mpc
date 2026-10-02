@@ -43,6 +43,15 @@ TimeTriggeredRollout::TimeTriggeredRollout(const ControlledSystemBase& systemDyn
 /******************************************************************************************************/
 /******************************************************************************************************/
 /******************************************************************************************************/
+TimeTriggeredRollout* TimeTriggeredRollout::clone() const {
+  TimeTriggeredRollout* rollout = new TimeTriggeredRollout(*systemDynamicsPtr_, this->settings());
+  rollout->setStateManifold(this->getStateManifold());
+  return rollout;
+}
+
+/******************************************************************************************************/
+/******************************************************************************************************/
+/******************************************************************************************************/
 vector_t TimeTriggeredRollout::run(scalar_t initTime, const vector_t& initState, scalar_t finalTime, ControllerBase* controller,
                                    ModeSchedule& modeSchedule, scalar_array_t& timeTrajectory, size_array_t& postEventIndices,
                                    vector_array_t& stateTrajectory, vector_array_t& inputTrajectory) {
@@ -83,6 +92,7 @@ vector_t TimeTriggeredRollout::run(scalar_t initTime, const vector_t& initState,
   vector_t beginState = initState;
   int k_u = 0;  // control input iterator
   for (int i = 0; i < numSubsystems; i++) {
+    const size_t firstNewState = stateTrajectory.size();
     if (timeIntervalArray[i].first < timeIntervalArray[i].second) {
       Observer observer(&stateTrajectory, &timeTrajectory);  // concatenate trajectory
       // integrate controlled system
@@ -92,6 +102,13 @@ vector_t TimeTriggeredRollout::run(scalar_t initTime, const vector_t& initState,
     } else {
       timeTrajectory.push_back(timeIntervalArray[i].second);
       stateTrajectory.push_back(beginState);
+    }
+
+    // On a manifold, every output state is projected onto it (the integrator works in the ambient coordinates).
+    if (stateManifoldPtr_ != nullptr) {
+      for (size_t k = firstNewState; k < stateTrajectory.size(); k++) {
+        stateManifoldPtr_->project(stateTrajectory[k]);
+      }
     }
 
     // compute control input trajectory and concatenate to inputTrajectory
@@ -106,6 +123,9 @@ vector_t TimeTriggeredRollout::run(scalar_t initTime, const vector_t& initState,
       postEventIndices.push_back(stateTrajectory.size());
       // jump map
       beginState = systemDynamicsPtr_->computeJumpMap(timeTrajectory.back(), stateTrajectory.back());
+      if (stateManifoldPtr_ != nullptr) {
+        stateManifoldPtr_->project(beginState);
+      }
     }
   }  // end of i loop
 

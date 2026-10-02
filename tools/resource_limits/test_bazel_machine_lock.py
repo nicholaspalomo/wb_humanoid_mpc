@@ -229,5 +229,55 @@ class ShellInitTest(unittest.TestCase):
         self.assertEqual(self.bazel_calls(["-i"], BAZEL_REAL="/bin/true"), [])
 
 
+class ShellInitCheckoutTest(unittest.TestCase):
+    """shell_init.sh sources the setup_env.sh of the checkout the shell starts in, so that every worktree of the
+    repository is set up by its own script."""
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.directory = directory.name
+
+    def make_checkout(self, name):
+        checkout = os.path.join(self.directory, name)
+        os.makedirs(os.path.join(checkout, "some", "package"))
+        open(os.path.join(checkout, "MODULE.bazel"), "w").close()
+        with open(os.path.join(checkout, "setup_env.sh"), "w") as f:
+            f.write('export WB_SOURCED_FROM="%s"\n' % name)
+        return checkout
+
+    def sourced_from(self, working_directory):
+        result = subprocess.run(
+            [
+                "bash",
+                "-c",
+                'source "$0"; printf "%s|%s" "${WB_SOURCED_FROM-}" "$PWD"',
+                SHELL_INIT,
+            ],
+            env={"PATH": "/usr/bin:/bin", "HOME": self.directory},
+            cwd=working_directory,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout
+
+    def test_the_checkout_of_the_working_directory_is_set_up(self):
+        first = self.make_checkout("first")
+        second = self.make_checkout("second")
+        self.assertEqual(self.sourced_from(first), "first|" + first)
+        deep = os.path.join(second, "some", "package")
+        # From anywhere inside it, and the shell is left where it started.
+        self.assertEqual(self.sourced_from(deep), "second|" + deep)
+
+    def test_a_directory_with_a_setup_script_but_no_module_is_not_a_checkout(self):
+        stray = os.path.join(self.directory, "stray")
+        os.makedirs(stray)
+        with open(os.path.join(stray, "setup_env.sh"), "w") as f:
+            f.write('export WB_SOURCED_FROM="stray"\n')
+        self.assertNotIn("stray|", self.sourced_from(stray))
+
+
 if __name__ == "__main__":
     unittest.main()

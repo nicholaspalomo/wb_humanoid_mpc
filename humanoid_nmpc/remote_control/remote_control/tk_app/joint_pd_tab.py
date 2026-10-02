@@ -33,6 +33,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from typing import Dict, Any, Optional
 
+from remote_control.operator_bus import yaml_document
 from remote_control.tk_app.scrollable_frame import ScrollableFrame
 from remote_control.tk_app.slider_row import SliderRow
 from remote_control.tk_app.yaml_editor_utils import (
@@ -71,7 +72,8 @@ class JointPdGainsTab(ttk.Frame):
         self.pd_gains_file = pd_gains_file
         self.on_gains_updated = on_gains_updated
         self.enable_online_tuning = enable_online_tuning
-        self.param_publisher = param_publisher  # ROS publisher for /pd_gains_updates
+        # The publisher of operator/pd_gains (operator_bus.TopicPublisher): publish(YamlDocument).
+        self.param_publisher = param_publisher
 
         self.raw_data: Dict[str, Any] = {}
         self.slider_rows: Dict[str, SliderRow] = {}  # key -> SliderRow
@@ -453,10 +455,10 @@ class JointPdGainsTab(ttk.Frame):
         self._show_status("All gains reset to loaded defaults")
 
     def _on_any_slider_change(self, name: str, value: float):
-        """Called on every slider move; debounces publish to ROS topic.
+        """Called on every slider move; debounces the publish.
 
-        The C++ CentroidalMpcMrtJointController subscribes to /pd_gains_updates
-        for real-time PD gain updates without touching the YAML file.
+        The C++ CentroidalMpcMrtJointController reads operator/pd_gains for real-time PD gain updates without touching
+        the YAML file.
         """
         if self._debounce_publish_id is not None:
             self.after_cancel(self._debounce_publish_id)
@@ -491,7 +493,7 @@ class JointPdGainsTab(ttk.Frame):
         return "".join(lines)
 
     def _publish_to_topic(self):
-        """Publish current slider values as a YAML string to /pd_gains_updates."""
+        """Publishes the gains file with the current slider values, as a YamlDocument on operator/pd_gains."""
         self._debounce_publish_id = None
         print(
             f"[JointPdTab] _publish_to_topic called. "
@@ -509,13 +511,9 @@ class JointPdGainsTab(ttk.Frame):
             yaml_content = self._build_yaml_with_slider_values()
             print(f"[JointPdTab] Built YAML content: {len(yaml_content)} chars")
             if yaml_content:
-                from std_msgs.msg import String
-
-                msg = String()
-                msg.data = yaml_content
-                self.param_publisher.publish(msg)
+                self.param_publisher.publish(yaml_document(yaml_content))
                 print(
-                    f"[JointPdTab] Published {len(yaml_content)} chars to /pd_gains_updates"
+                    f"[JointPdTab] Published {len(yaml_content)} chars on operator/pd_gains"
                 )
             else:
                 print(

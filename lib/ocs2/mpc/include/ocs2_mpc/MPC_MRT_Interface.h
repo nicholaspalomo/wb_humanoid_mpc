@@ -150,6 +150,10 @@ class MPC_MRT_Interface final : public MRT_BASE {
   // MPC inputs
   SystemObservation currentObservation_;
   std::mutex observationMutex_;
+  // advanceMpc()'s copy of currentObservation_. Kept from one solve to the next so that the copy taken under
+  // observationMutex_ reuses its storage: the control thread, which sets the observation every cycle, then waits at most
+  // for a copy of a few vectors, never for an allocation the solver thread makes while it holds the lock.
+  SystemObservation solverObservation_;
 };
 
 }  // namespace ocs2

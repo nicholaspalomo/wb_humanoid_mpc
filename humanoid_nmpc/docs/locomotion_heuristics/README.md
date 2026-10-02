@@ -521,8 +521,9 @@ make test-heuristic-parameters
 ```
 
 Both run **inside the dev container**, under its system interpreter rather than as Bazel targets: Pinocchio reaches
-Python through the ROS install (`/opt/ros/jazzy`, Python 3.12) and Bazel's toolchain is a hermetic 3.11 that cannot
-see it. The same is true of `tools/hooks/format_code.py`.
+Python through robotpkg's bindings (`/opt/openrobots`, Python 3.12, on the PYTHONPATH of the dev image and of
+`setup_env.sh`) and Bazel's toolchain is a hermetic 3.11 that cannot see them. The same is true of
+`tools/hooks/format_code.py`.
 <!-- LINT.ThenChange(//tools/locomotion_heuristics/derive_parameters.py:derive_parameters_robots) -->
 
 It reads the URDF, the task file's `initialState`, `reference.yaml` and `gait.yaml`, and reproduces the C++

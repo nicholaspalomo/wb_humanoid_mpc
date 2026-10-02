@@ -35,7 +35,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <ocs2_centroidal_model/ModelHelperFunctions.h>
 #include <ocs2_core/misc/LoadData.h>
 #include <ocs2_core/reference/ModeSchedule.h>
-#include <ament_index_cpp/get_package_share_directory.hpp>
 
 #include "absl/log/check.h"
 #include "absl/status/statusor.h"
@@ -46,6 +45,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
 #include "humanoid_common_mpc/pinocchio_model/createPinocchioModel.h"
 #include "humanoid_common_mpc/swing_foot_planner/SwingTrajectoryPlanner.h"
+#include "robot_core/ResourcePaths.h"
 
 namespace ocs2::humanoid {
 
@@ -55,11 +55,9 @@ constexpr scalar_t kBracketHalfWidth = 10.0;
 }  // namespace
 
 DrcAtlasContactTestModel::DrcAtlasContactTestModel(const std::string& modelNamePrefix) : modelNamePrefix_(modelNamePrefix) {
-  const std::string configDir = ament_index_cpp::get_package_share_directory("drc_atlas_centroidal_mpc");
-  const std::string descriptionDir = ament_index_cpp::get_package_share_directory("drc_atlas_description");
-  taskFile_ = configDir + "/config/mpc/task.yaml";
-  referenceFile_ = configDir + "/config/command/reference.yaml";
-  urdfFile_ = descriptionDir + "/urdf/atlas.urdf";
+  taskFile_ = robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml").value();
+  referenceFile_ = robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.yaml").value();
+  urdfFile_ = robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf").value();
 
   modelSettings_ = std::make_unique<ModelSettings>(taskFile_, urdfFile_, modelNamePrefix_, /*verbose=*/false);
   modelSettings_->recompileLibrariesCppAd = false;

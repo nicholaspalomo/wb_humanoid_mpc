@@ -1,0 +1,43 @@
+// The options nproto reads (tools/nproto/README.md).
+//
+// Every .proto file of the repository holds one message or enum (tools/hooks/proto_file_layout.py), and that
+// definition names, as the first statement of its body, the C++ type nproto generates for it:
+//
+//   import "nproto/options.proto";
+//
+//   // Next ID: 4
+//   message Vector3 {
+//     option (nproto.generate_struct) = "ocs2::humanoid::msgs::Vector3";
+//
+//     reserved 4 to max;
+//
+//     double x = 1;
+//     ...
+//   }
+//
+//   enum ControllerType {
+//     option (nproto.generate_enum) = "ocs2::humanoid::msgs::ControllerType";
+//     ...
+//   }
+//
+// Types nested in a message are generated as nested C++ types of its struct (TargetContactPatch::Kind) and carry no
+// option of their own. The two options have different names because an extension's name is unique in its package.
+syntax = "proto3";
+
+package nproto;
+
+import "google/protobuf/descriptor.proto";
+
+// LINT.IfChange(nproto_options)
+extend google.protobuf.MessageOptions {
+  // The fully qualified C++ name of the struct nproto generates for a top-level message. Its last component is the
+  // message's name.
+  string generate_struct = 52001;
+}
+
+extend google.protobuf.EnumOptions {
+  // The fully qualified C++ name of the enum class nproto generates for a top-level enum. Its last component is the
+  // enum's name.
+  string generate_enum = 52002;
+}
+// LINT.ThenChange(//tools/nproto/nproto_generator.py:option_names, //tools/hooks/proto_file_layout.py)

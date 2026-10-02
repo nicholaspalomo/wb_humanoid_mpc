@@ -29,13 +29,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <iostream>
 #include <vector>
 
-#include <boost/numeric/odeint.hpp>
-
 #include <ocs2_core/Types.h>
-#include <ocs2_core/integration/eigenIntegration.h>
+#include <ocs2_core/integration/implementation/Integrator.h>
+#include <ocs2_core/integration/steppers.h>
 
 #include "ocs2_ddp/test/bouncingmass/Reference.h"
 
@@ -73,19 +73,24 @@ vector_t Reference::getState(scalar_t time) const {
 void Reference::extendref(scalar_t delta, Reference* refPre, Reference* refPost) {
   constexpr scalar_t dt = 1e-3;
 
-  boost::numeric::odeint::runge_kutta_dopri5<vector_t, scalar_t, vector_t, scalar_t, boost::numeric::odeint::vector_space_algebra> stepper;
+  // odeint's integrate_adaptive with a plain (uncontrolled) runge_kutta_dopri5 stepper, as this test called it: constant
+  // steps of dt, then one last shorter step to the end time. Each call starts from a fresh stepper, as odeint copied it.
+  using ocs2::integration_internal::integrateAdaptive;
+  using ocs2::integration_internal::observer_func_t;
+  using ocs2::integration_internal::system_func_t;
 
   // Lambda for general system dynamics, assuming that the reference input is available
   const matrix_t A = (matrix_t(3, 3) << 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0).finished();
   const matrix_t B = (matrix_t(3, 1) << 0.0, 1.0, 0.0).finished();
-  auto model = [&](const vector_t& x, const vector_t& uref, vector_t& dxdt, const scalar_t t) { dxdt = A * x + B * uref; };
+  const std::function<void(const vector_t&, const vector_t&, vector_t&, scalar_t)> model =
+      [&](const vector_t& x, const vector_t& uref, vector_t& dxdt, const scalar_t t) { dxdt = A * x + B * uref; };
 
   // pre-part of extension
   if (refPre != nullptr) {
     // Construct Lambda to represent System Dynamics with correct reference input
-    auto preModel = [&](const vector_t& x, vector_t& dxdt, const scalar_t t) { model(x, refPre->getInput(t), dxdt, t); };
+    const system_func_t preModel = [&](const vector_t& x, vector_t& dxdt, const scalar_t t) { model(x, refPre->getInput(t), dxdt, t); };
     // Construct lambda to act as observer, which will store the time and state trajectories
-    auto preObserver = [&](const vector_t& x, scalar_t t) {
+    const observer_func_t preObserver = [&](const vector_t& x, scalar_t t) {
       tPre_.push_back(t);
       xPre_.push_back(x);
     };
@@ -93,7 +98,7 @@ void Reference::extendref(scalar_t delta, Reference* refPre, Reference* refPost)
     vector_t x0 = getState(t0_);
     const scalar_t t0 = t0_;
     const scalar_t t1 = t0 - delta;
-    boost::numeric::odeint::integrate_adaptive(stepper, preModel, x0, t0, t1, -dt, preObserver);
+    integrateAdaptive(ocs2::steppers::DormandPrince5(), preModel, x0, t0, t1, -dt, preObserver);
     std::reverse(std::begin(tPre_), std::end(tPre_));
     std::reverse(std::begin(xPre_), std::end(xPre_));
   }
@@ -101,9 +106,9 @@ void Reference::extendref(scalar_t delta, Reference* refPre, Reference* refPost)
   // post-part of extension
   if (refPost != nullptr) {
     // Construct Lambda to represent System Dynamics with correct reference input
-    auto postModel = [&](const vector_t& x, vector_t& dxdt, const scalar_t t) { model(x, refPost->getInput(t), dxdt, t); };
+    const system_func_t postModel = [&](const vector_t& x, vector_t& dxdt, const scalar_t t) { model(x, refPost->getInput(t), dxdt, t); };
     // Construct lambda to act as observer, which will store the time and state trajectories
-    auto postObserver = [&](const vector_t& x, scalar_t t) {
+    const observer_func_t postObserver = [&](const vector_t& x, scalar_t t) {
       tPost_.push_back(t);
       xPost_.push_back(x);
     };
@@ -111,7 +116,9 @@ void Reference::extendref(scalar_t delta, Reference* refPre, Reference* refPost)
     vector_t x0 = getState(t1_);
     const scalar_t t0 = t1_;
     const scalar_t t1 = t0 + delta;
-    boost::numeric::odeint::integrate_adaptive(stepper, postModel, x0, t0, t1, -dt, postObserver);
+    // The negative step over a forward interval is upstream's, kept as odeint ran it: no step is taken, and the
+    // extension is the single observation of x0 at t0.
+    integrateAdaptive(ocs2::steppers::DormandPrince5(), postModel, x0, t0, t1, -dt, postObserver);
   }
 }
 

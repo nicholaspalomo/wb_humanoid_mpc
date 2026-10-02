@@ -148,12 +148,9 @@ ad_vector_t CentroidalMpcEndEffectorFootCost::costVectorFunction(ad_scalar_t tim
 /******************************************************************************************************/
 
 vector_t CentroidalMpcEndEffectorFootCost::getParameters(scalar_t time,
-                                                         const TargetTrajectories& targetTrajectories,
+                                                         const TargetTrajectories& /*targetTrajectories*/,
                                                          const PreComputation& preComputation) const {
-  // Interpolate reference
-  const vector_t xRef = targetTrajectories.getDesiredState(time);
-  const vector_t uRef = targetTrajectories.getDesiredInput(time);
-
+  // Every reference comes from the reference manager and the swing trajectory planner; the solver's target is not read.
   const scalar_t impactProximityScaler = referenceManagerPtr_->getSwingTrajectoryPlanner()->getImpactProximityFactor(contactIndex_, time);
 
   // TODO Update this reference for non flat ground in the future

@@ -29,11 +29,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
+#include <memory>
 #include <utility>
 #include <vector>
 
 #include <ocs2_core/Types.h>
 #include <ocs2_core/control/ControllerBase.h>
+#include <ocs2_core/manifold/StateManifold.h>
 #include "ocs2_core/reference/ModeSchedule.h"
 
 #include "ocs2_oc/rollout/RolloutSettings.h"
@@ -88,6 +90,24 @@ class RolloutBase {
   virtual RolloutBase* clone() const = 0;
 
   /**
+   * Sets the manifold the state lives on (nullptr, the default, for a flat state). A rollout that supports it projects
+   * every state it outputs onto the manifold (TimeTriggeredRollout normalizes every quaternion block), so a simulated or
+   * fed-back state stays a valid configuration however long it is integrated, and its clones keep the manifold. A
+   * rollout that does not support it (supportsStateManifold() is false) fails a CHECK on a non-null manifold rather than
+   * ignoring it.
+   */
+  void setStateManifold(std::shared_ptr<const StateManifold> stateManifold);
+
+  /**
+   * Whether run() honors a manifold set with setStateManifold() and clone() keeps it. Only TimeTriggeredRollout does;
+   * StateTriggeredRollout and InitializerRollout integrate in the flat ambient coordinates only.
+   */
+  virtual bool supportsStateManifold() const { return false; }
+
+  /** The manifold the state lives on, or nullptr. */
+  const std::shared_ptr<const StateManifold>& getStateManifold() const { return stateManifoldPtr_; }
+
+  /**
    * Forward integrate the system dynamics with given controller. It uses the given control policies and initial state,
    * to integrate the system dynamics in time period [initTime, finalTime].
    *
@@ -129,6 +149,8 @@ class RolloutBase {
                                const vector_array_t& stateTrajectory, const vector_array_t& inputTrajectory) const;
 
   const rollout::Settings rolloutSettings_;
+
+  std::shared_ptr<const StateManifold> stateManifoldPtr_;
 };
 
 }  // namespace ocs2

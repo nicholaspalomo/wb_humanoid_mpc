@@ -1,4 +1,5 @@
 """****************************************************************************
+Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 Copyright (c) 2024, 1X Technologies. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -27,61 +28,80 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ****************************************************************************"""
 
-import rclpy
-from rclpy.node import Node
-from dataclasses import dataclass
-from humanoid_mpc_msgs.msg import WalkingVelocityCommand
-from rclpy.qos import QoSProfile, ReliabilityPolicy
-from remote_control import XBoxControllerInterface
+"""Publishes the Xbox controller's walking commands on the bus, without the GUI.
+
+    bazel run //humanoid_nmpc/remote_control:xbox_velocity_publisher -- [--network_config=...] [--ipc_node=teleop]
+
+Publishes operator/walking_velocity_command as the `teleop` node at the topic's 25 Hz while a controller is connected,
+and scans for one every two seconds while none is. Nothing is published without a controller, so that a GUI started
+next to it stays in charge of the robot.
+"""
+
+import argparse
+import logging
+import signal
+import sys
+import threading
+from typing import List, Optional
+
+from remote_control import teleop
+from remote_control.operator_bus import TELEOP_NODE, TopicPublisher
+from remote_control.xbox_controller_interface import (
+    GamepadPoller,
+    XBoxControllerInterface,
+)
+
+_LOGGER = logging.getLogger(__name__)
 
 
-class XBoxWalkingCommandPublisher(Node):
-    def __init__(self):
-        super().__init__("xbox_walking_command_publisher")
+class XBoxWalkingCommandPublisher:
+    """One tick: the controller's command, published when there is one.
 
-        self.publisher_rate = 25  # Hz
+    Args:
+        publisher: the walking command publisher.
+        poller: the controller (GamepadPoller).
+    """
 
-        self.xbox_controller_interface = XBoxControllerInterface(self.publisher_rate)
+    def __init__(self, publisher: TopicPublisher, poller: GamepadPoller) -> None:
+        self._publisher = publisher
+        self._poller = poller
 
-        # Create a QoS profile with Best Effort reliability
-        qos_profile = QoSProfile(
-            reliability=ReliabilityPolicy.BEST_EFFORT,
-            depth=25,  # Set the depth, which is the size of the message queue
-        )
-
-        self.publisher_ = self.create_publisher(
-            WalkingVelocityCommand,
-            "/humanoid/walking_velocity_command",
-            qos_profile,
-        )
-        self.timer = self.create_timer(1 / self.publisher_rate, self.timer_callback)
-
-        self.counter = 0
-
-    def timer_callback(self):
-        if self.xbox_controller_interface.joystick_connected:
-            success, msg = self.xbox_controller_interface.get_walking_command_msg()
-            if success:
-                self.publisher_.publish(msg)
-        else:
-            if self.counter >= (2 * self.publisher_rate):
-                self.xbox_controller_interface.get_joystick_connection()
-                self.counter = 0
-            self.counter = self.counter + 1
+    def tick(self) -> None:
+        command = self._poller.tick()
+        if command is not None:
+            self._publisher.publish(command)
 
 
-def main(args=None):
-    rclpy.init(args=args)
-    minimal_publisher = XBoxWalkingCommandPublisher()
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Publishes the Xbox controller's walking commands on the IPC bus."
+    )
+    teleop.add_bus_flags(parser, default_node=TELEOP_NODE)
+    return parser
 
+
+def main(argv: Optional[List[str]] = None) -> int:
+    logging.basicConfig(
+        level=logging.INFO, format="%(levelname)s %(name)s: %(message)s"
+    )
+    args = build_parser().parse_args(argv)
+    stop = threading.Event()
+    signal.signal(signal.SIGINT, lambda signum, frame: stop.set())
+    signal.signal(signal.SIGTERM, lambda signum, frame: stop.set())
+
+    publisher = teleop.connect_walking_command_publisher(
+        args.network_config, args.ipc_node
+    )
     try:
-        rclpy.spin(minimal_publisher)
-    except KeyboardInterrupt:
-        pass
+        controller = XBoxControllerInterface(teleop.WALKING_COMMAND_RATE_HZ)
+        node = XBoxWalkingCommandPublisher(
+            publisher, GamepadPoller(controller, teleop.WALKING_COMMAND_RATE_HZ)
+        )
+        teleop.run_periodically(teleop.WALKING_COMMAND_RATE_HZ, node.tick, stop)
     finally:
-        minimal_publisher.destroy_node()
-        rclpy.shutdown()
+        publisher.bus.close()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

@@ -3,26 +3,29 @@
 A 12-DoF, 33.1 kg bipedal robot: two six-joint legs on a floating base, with no arms, no waist and no head. It is the
 smallest and simplest robot in this repository, and the only legs-only one.
 
-This directory holds the two ament packages the stack needs:
+This directory holds the two Bazel packages the stack needs:
 
 | Package | Contents |
 | --- | --- |
-| `engineai_sa01_description` | `urdf/zq_sa01.urdf`, the MuJoCo model `urdf/zq_sa01.xml`, `meshes/`, `rviz/urdf_config.rviz`, `launch/display.launch.py` |
-| `engineai_sa01_centroidal_mpc` | `config/mpc/task.yaml`, `config/mpc/contact_planning.yaml`, `config/command/reference.yaml`, `config/controller/joint_pd_gains.yaml`, the two sim launch files, and `test/testPinocchioModel.cpp` |
+| `engineai_sa01_description` | `urdf/zq_sa01.urdf`, the MuJoCo model `urdf/zq_sa01.xml`, `meshes/` |
+| `engineai_sa01_centroidal_mpc` | `config/mpc/task.yaml`, `config/mpc/contact_planning.yaml`, `config/command/reference.yaml`, `config/controller/joint_pd_gains.yaml`, and `test/testPinocchioModel.cpp` |
 
-Both are registered in `setup_env.sh`, so `source setup_env.sh` makes them visible to `ros2 launch`.
+The binaries and tests read these files from their Bazel runfiles (each package's `BUILD.bazel` exports them).
 
 ## Running it
 
 ```bash
-make launch-sa01-sandbox      # RViz URDF viewer with joint sliders
+make launch-sa01-sandbox      # the URDF in Rerun, a slider per joint
 make launch-sa01-dummy-sim    # centroidal MPC against the ideal-tracking dummy simulator
-make launch-sa01-sim          # centroidal MPC in MuJoCo
+make launch-sa01-sim          # centroidal MPC in MuJoCo: the robot process in the robot-sim container (run on the host)
+make deploy-robot ROBOT=engineai_sa01 HOST=<robot> NETWORK=<file>   # the robot side on the robot's computer
 make test-pinocchio-model-sa01  # print the Pinocchio model, joint order and contact frames
 ```
 
 Each has a `-vnc` variant (`make launch-sa01-sim-vnc`) that starts the VNC server and the Mesa software GL environment
-first; see `.devcontainer/README.md`.
+first; see `.devcontainer/README.md`. The launch files are `engineai_sa01_centroidal_mpc/launch/` (`robot.textproto`,
+`mpc.textproto`, `dummy_sim.textproto`) and `engineai_sa01_description/launch/sandbox.textproto`
+(`humanoid_nmpc/docs/distributed_runtime/README.md`, "Launching").
 
 ## Kinematics
 
@@ -52,7 +55,7 @@ model, which is the check that the URDF and the MJCF still agree.
 | --- | --- | --- |
 | Total mass | 33.113 kg | — |
 | Leg length, hip pitch to sole | 0.725 m | step and swing scaling |
-| Base above sole, legs straight | 0.8561 m | RViz grid offset |
+| Base above sole, legs straight | 0.8561 m | the ground offset of a URDF viewer |
 | Nominal crouch | hip −0.30, knee 0.70, ankle −0.40 | `reference.yaml` `defaultJointState`, `task.yaml` `initialState` |
 | Base above sole at that crouch | 0.8135 m | `defaultBaseHeight`, `initialState` (8,0), MJCF spawn height |
 | CoM above sole at that crouch | 0.6124 m | the pendulum of the DCM terminal cost and the contact planner, both derived from the model (`dcm_terminal_cost.comHeight: 0`, `shared.comHeight: 0`); `capture_point.comHeightOverride` |
@@ -91,7 +94,9 @@ turns out to be a motor-side figure ahead of a gear reduction, raise `x_max` to 
 For the same reason `joint_pd_gains.yaml` carries an explicit `torque_limit` on every joint, which G1 and R1 both
 omit. `CentroidalMpcMrtJointController` clamps the commanded joint torque against that key and falls back to a
 hard-coded 500 N·m when it is missing — twenty times what SA01's ankle can deliver. The values there are the URDF
-effort limits and match the `actuatorfrcrange` of `zq_sa01.xml` joint for joint.
+effort limits and match the `actuatorfrcrange` of `zq_sa01.xml` joint for joint. A gains file the controller refuses
+at start-up (a mistyped, negative or non-finite entry) stops it from starting, with a message naming the entry, rather
+than leaving every joint on that fallback; a refused edit while it runs leaves the gains in use as they are.
 
 **SA01 has proportionally the longest foot here** — 0.27 m of sole on a 0.725 m leg, where Atlas manages 0.24 m on
 0.878 m. A degree of foot droop drops the toe 2.2 mm, so `task_space_foot_cost_weights.orientation_x / _y` are at

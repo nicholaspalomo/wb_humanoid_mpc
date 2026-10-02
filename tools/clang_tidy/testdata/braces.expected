@@ -1,0 +1,2 @@
+# `if (x)\n  return;` is flagged; `if (x) return;` (line 12) is not.
+tools/clang_tidy/testdata/Braces.cpp:6:17: google-readability-braces-around-statements

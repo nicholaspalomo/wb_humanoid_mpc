@@ -34,7 +34,7 @@ Copyright (c) 2022, Halodi Robotics AS. All rights reserved.
 #include <ocs2_robotic_tools/common/RotationTransforms.h>
 #include <ocs2_robotic_tools/common/SkewSymmetricMatrix.h>
 
-#include <ament_index_cpp/get_package_share_directory.hpp>
+#include "robot_core/ResourcePaths.h"
 
 #include "absl/log/globals.h"
 #include "absl/log/initialize.h"
@@ -308,17 +308,9 @@ int main(int argc, char** argv) {
   // stderr anyway; with it the default stderr threshold is ERROR, so the INFO records have to be asked for.
   absl::InitializeLog();
   absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
-  const std::string path(__FILE__);
-  const std::string dir = path.substr(0, path.find_last_of("/"));
-
-  std::string urdfFile;
-  try {
-    urdfFile = ament_index_cpp::get_package_share_directory("g1_description") + "/urdf/g1_29dof.urdf";
-  } catch (const std::exception& e) {
-    throw std::runtime_error("Failed to get package share directory: g1_description. Error: " + std::string(e.what()));
-  }
-
-  const std::string taskFile = dir + "/../config/mpc/task.yaml";
+  // From the binary's runfiles (BUILD `data`), so `bazel run` and a run from .bazel/bin read the same files.
+  const std::string urdfFile = robot::resolveResourcePath("robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf").value();
+  const std::string taskFile = robot::resolveResourcePath("robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.yaml").value();
 
   LOG(INFO) << "urdf filename: " << urdfFile;
 
@@ -341,7 +333,7 @@ int main(int argc, char** argv) {
   printFrameRotation(pin_interface, q, leftFootFrameName);
 
   /// Test custom model
-  ModelSettings modelSettings(taskFile, urdfFile, "test_pinocchio", "true");
+  ModelSettings modelSettings(taskFile, urdfFile, "test_pinocchio", /*verbose=*/true);
 
   pin_interface = createCustomPinocchioInterface(taskFile, urdfFile, modelSettings);
 

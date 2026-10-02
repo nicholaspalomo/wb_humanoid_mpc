@@ -27,17 +27,17 @@ walking controllers.
   │   └─ THROW button ────────────►   └─ throw_payload(throw)      the YAML below            │
   │   (every slider holds its range: SliderRow(clamp_to_range=True))                         │
   └───────────────────────────────────────────┬──────────────────────────────────────────────┘
-                                              │  std_msgs/String on DodgeballTab.TOPIC_NAME
-                                              │  (RELIABLE, depth 10 - a throw is an event,
-                                              │   not a stream; none of them may be dropped)
+                                              │  YamlDocument on operator/dodgeball_throw (IPC bus;
+                                              │  every message is delivered - a throw is an event,
+                                              │  not a stream; none of them may be dropped)
                                               ▼
   ┌──────────────────────────────────────────────────────────────────────────────────────────┐
-  │  humanoid_common_mpc_ros2                                                                │
+  │  robot process  (humanoid_common_mpc_app/robot)                                          │
   │                                                                                          │
-  │   parseDodgeballThrow(payload)   required keys, finite values, flightTime >= 0, mass > 0 │
-  │   SimFsmBridge::dodgeballCallback  stashes the throw under dodgeballMutex_               │
-  │   SimFsmBridge::processCommands    drains it first, then the FSM commands                │
-  │   SimFallRecovery::update          catches the robot -> lockGantry()                     │
+  │   IO thread: parseDodgeballThrow(payload)  required keys, finite values, flightTime >= 0,│
+  │              mass > 0; the throw goes into an SpscQueue<DodgeballThrow>                  │
+  │   realtime thread: SimFsmBridge            pops it first, then one FSM command           │
+  │   SimFallRecovery::update                  catches the robot -> lockGantry()             │
   └───────────────────────────────────────────┬──────────────────────────────────────────────┘
                                               │  MujocoSimInterface::throwDodgeball(...)
                                               ▼
@@ -256,7 +256,7 @@ step and the viewer samples the state about every thirty, so it is usually not d
 | Test | What it pins |
 | --- | --- |
 | `remote_control/test/test_dodgeball.py` | the geometry: spawn offset; the launch speed equals the slider's, or the minimum that reaches; the path passes through the base; the direct root, not the lob; arrival speed by energy conservation; momentum = mass × arrival speed; NaN and out-of-range clamping of all five parameters; randomization leaving distance, speed and mass alone; the payload keys against the golden file the C++ test reads; the topic against the one the bridge subscribes to; and the tab — all five sliders holding their ranges on screen and on the wire, a non-number rejected, the status line actually showing, the preview saying when a speed was raised |
-| `humanoid_common_mpc_ros2/test/testDodgeballThrowParser.cpp` | the GUI's own payload parses; every key the simulator uses is required and named when missing; non-finite values, a negative flight, a non-positive mass and malformed vectors are rejected; an over-range mass is left for the simulator to clamp |
+| `humanoid_common_mpc_app/robot/test/testDodgeballThrowParser.cpp` | the GUI's own payload parses; every key the simulator uses is required and named when missing; non-finite values, a negative flight, a non-positive mass and malformed vectors are rejected; an over-range mass is left for the simulator to clamp |
 | `mujoco_sim_interface/test/testProjectile.cpp` | registry; the logarithmic-decrement round trip; the ball compiled last, colliding, gravity-compensated, with priority, condim 6 and rolling friction; a parked ball staying put; **the restitution against a floor with the shipped contact parameters at 0.5 and 1 ms**; no energy gain at three timesteps; a rolling ball coming to rest before its lifetime; the broadphase park-then-throw cycle; `setProjectileMass` matching a fresh compile field by field, leaving `<statistic>` alone, keeping the restitution mass-invariant, clamping, and refusing anything that is not a centered sphere on its own free joint; the damping helper; path-sliding out of the robot and out of the floor, staying on the path, and refusing the impossible; the fallback impulse; the rest monitor; the contact mask and the ground reaction ignoring the ball, each with a positive control |
 | `mujoco_sim_interface/test/testMujocoSimInterfaceDodgeball.cpp` | the real simulator, headless, on the shipped Atlas scene: the ball found, parked and undamped at start-up and through torque toggles; a throw flying the real ball at the slider's mass to the base; a hand-published mass clamped; an under-floor spawn lifted; catching the robot canceling the throw while re-locking an already-locked gantry does not; a reset parking it; a finished ball parked again |
 

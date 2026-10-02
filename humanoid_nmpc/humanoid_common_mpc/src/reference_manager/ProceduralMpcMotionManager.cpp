@@ -32,10 +32,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <functional>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <string>
 
 #include <ocs2_core/misc/LoadData.h>
+#include <ocs2_core/misc/PropertyTree.h>
 
 #include <cmath>
 #include "humanoid_common_mpc/gait/GaitScheduleUpdater.h"
@@ -44,6 +46,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "absl/synchronization/mutex.h"
 
 namespace ocs2::humanoid {
 
@@ -110,10 +113,10 @@ void ProceduralMpcMotionManager::reloadCommandLimits(const std::string& referenc
   load("maxDeltaPelvisHeight", maxDeltaPelvisHeight_);
   load("maxRotationVelocity", maxRotationVelocity_);
   // Optional: absent keys keep the ramps off (the historical behavior, an unramped reference).
-  boost::property_tree::ptree pt;
+  PropertyTree pt;
   loadData::readPropertyTree(referenceFile, pt);
-  setVelocityCommandAccelerationLimits(pt.get<scalar_t>("maxLinearAcceleration", /*default_value=*/0.0),
-                                       pt.get<scalar_t>("maxAngularAcceleration", /*default_value=*/0.0));
+  setVelocityCommandAccelerationLimits(pt.get<scalar_t>("maxLinearAcceleration", /*defaultValue=*/0.0),
+                                       pt.get<scalar_t>("maxAngularAcceleration", /*defaultValue=*/0.0));
   // Optional as well, off when absent. The reloaders of reference.yaml report a bad value by throwing.
   const absl::StatusOr<scalar_t> breakFrequency = loadVelocityCommandFilterBreakFrequency(referenceFile);
   if (!breakFrequency.ok()) throw std::invalid_argument(std::string(breakFrequency.status().message()));
@@ -122,13 +125,13 @@ void ProceduralMpcMotionManager::reloadCommandLimits(const std::string& referenc
 }
 
 absl::StatusOr<scalar_t> ProceduralMpcMotionManager::loadVelocityCommandFilterBreakFrequency(const std::string& referenceFile) {
-  boost::property_tree::ptree pt;
+  PropertyTree pt;
   loadData::readPropertyTree(referenceFile, pt);
-  const boost::optional<std::string> text = pt.get_optional<std::string>(kVelocityCommandFilterBreakFrequencyKey);
-  if (!text) return 0.0;
-  const boost::optional<scalar_t> value = pt.get_optional<scalar_t>(kVelocityCommandFilterBreakFrequencyKey);
+  const std::optional<std::string> text = pt.getOptional<std::string>(kVelocityCommandFilterBreakFrequencyKey);
+  if (!text.has_value()) return 0.0;
+  const std::optional<scalar_t> value = pt.getOptional<scalar_t>(kVelocityCommandFilterBreakFrequencyKey);
   const absl::Status valid =
-      value ? BreakFrequencyAlphaFilter::validateBreakFrequency(*value) : absl::InvalidArgumentError("it is not a number.");
+      value.has_value() ? BreakFrequencyAlphaFilter::validateBreakFrequency(*value) : absl::InvalidArgumentError("it is not a number.");
   if (!valid.ok()) {
     return absl::InvalidArgumentError(absl::StrCat("[ProceduralMpcMotionManager] ", referenceFile, ": `",
                                                    kVelocityCommandFilterBreakFrequencyKey, ": ", *text, "` is invalid: ", valid.message(),
@@ -152,7 +155,15 @@ void ProceduralMpcMotionManager::reset() {
 }
 
 void ProceduralMpcMotionManager::setAndScaleVelocityCommand(const WalkingVelocityCommand& rawVelocityCommand) {
-  velocityCommand_ = scaleWalkingVelocityCommand(rawVelocityCommand);
+  // The limits are atomics, so the scaling needs no lock; only the command the solver thread reads does.
+  const WalkingVelocityCommand scaledCommand = scaleWalkingVelocityCommand(rawVelocityCommand);
+  absl::MutexLock lock(velocityCommandMutex_);
+  velocityCommand_ = scaledCommand;
+}
+
+WalkingVelocityCommand ProceduralMpcMotionManager::getScaledWalkingVelocityCommand() {
+  absl::MutexLock lock(velocityCommandMutex_);
+  return velocityCommand_;
 }
 
 /******************************************************************************************************/

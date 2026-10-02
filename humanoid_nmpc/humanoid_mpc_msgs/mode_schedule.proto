@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package humanoid_mpc_msgs;
+
+import "nproto/options.proto";
+
+// ocs2::ModeSchedule.
+// Next ID: 3
+message ModeSchedule {
+  option (nproto.generate_struct) = "ocs2::humanoid::msgs::ModeSchedule";
+
+  reserved 3 to max;
+
+  repeated double event_times = 1;
+  repeated uint64 mode_sequence = 2;
+}

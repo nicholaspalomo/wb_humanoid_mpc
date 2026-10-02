@@ -28,21 +28,40 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ****************************************************************************"""
 
-import glob
+"""The operator GUI: walking velocity, FSM mode and gantry, PD gains, joint targets, MPC parameters, dodgeball.
+
+    bazel run //humanoid_nmpc/remote_control:base_velocity_controller_gui -- \\
+        --task_file=robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml
+
+App is the Tk window; OperatorGui runs it against the IPC bus (operator_bus.OperatorBus): every 25 Hz tick it
+publishes the walking command (always, so that the height slider reaches the gantry in simulation), applies the FSM
+states the robot published, and reads the Xbox controller when one is connected. Everything runs on Tk's thread
+except the bus's own receive thread, which only fills the FSM state mailbox.
+"""
+
+import argparse
+import logging
 import os
-import shutil
-import subprocess
-import yaml
+import signal
+import sys
+import threading
 import tkinter as tk
 from tkinter import ttk
-import threading
-import rclpy
-from rclpy.node import Node
-from humanoid_mpc_msgs.msg import WalkingVelocityCommand
-from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
-from std_msgs.msg import String
-from remote_control import XBoxControllerInterface
+from types import FrameType
+from typing import Any, Callable, Dict, List, Optional
+
+import robot_ipc
+from humanoid_mpc_msgs import fsm_state_pb2
+from humanoid_mpc_msgs import walking_velocity_command_pb2
+from remote_control import config_files
 from remote_control import fsm_state
+from remote_control import teleop
+from remote_control.operator_bus import (
+    OPERATOR_NODE,
+    OperatorBus,
+    walking_velocity_command,
+)
+from remote_control.rerun_viewer import RerunViewerLauncher
 from remote_control.tk_app import (
     JoystickGui,
     LEDIndicatorGui,
@@ -53,19 +72,39 @@ from remote_control.tk_app import (
     DodgeballTab,
 )
 
+_LOGGER = logging.getLogger(__name__)
+
 
 class App(tk.Tk):
+    """The GUI window. It knows nothing of the bus: it is given a publisher per tuning topic (anything with
+    publish(message), operator_bus.TopicPublisher in the GUI) and a callback for FSM commands, and OperatorGui feeds it
+    the robot's FSM state.
+
+    Args:
+        pd_gains_file: joint_pd_gains.yaml of the Joint PD Gains and Joint Targets tabs.
+        task_file: task.yaml of the MPC Parameters tab.
+        reference_file: reference.yaml of the Joint Targets and Command Limits tabs.
+        enable_online_tuning: whether the tuning tabs publish and save (the task file's enableOnlineTuning).
+        param_publisher: the publisher of operator/mpc_parameters.
+        pd_gains_publisher: the publisher of operator/pd_gains.
+        joint_targets_publisher: the publisher of operator/joint_targets.
+        dodgeball_publisher: the publisher of operator/dodgeball_throw.
+        rerun_viewer: starts the Rerun bridge for the "Open Rerun viewer" button (None: the button is disabled).
+        fsm_command_callback: sends an FSM command (a mode name, LOCK_GANTRY or UNLOCK_GANTRY).
+    """
+
     def __init__(
         self,
         pd_gains_file: str = "",
         task_file: str = "",
         reference_file: str = "",
         enable_online_tuning: bool = True,
-        enable_telemetry: bool = True,
         param_publisher=None,
         pd_gains_publisher=None,
         joint_targets_publisher=None,
         dodgeball_publisher=None,
+        rerun_viewer: Optional[RerunViewerLauncher] = None,
+        fsm_command_callback: Optional[Callable[[str], object]] = None,
     ):
         super().__init__()
         self.title("Robot Base Controller & Tuning")
@@ -73,17 +112,17 @@ class App(tk.Tk):
         self.task_file = task_file
         self.reference_file = reference_file
         self.enable_online_tuning = enable_online_tuning
-        self.enable_telemetry = enable_telemetry
-        self._fsm_command_callback = None
+        self.rerun_viewer = rerun_viewer
+        self._fsm_command_callback = fsm_command_callback
         self.fsm_mode_var = tk.StringVar(value="ZERO_TORQUE")
-        # The last /humanoid/fsm_state message, which update_fsm_state() compares the next one with.
-        self._last_fsm_state = None
+        # The last robot/fsm_state message, which update_fsm_state() compares the next one with.
+        self._last_fsm_state: Optional[fsm_state.FsmState] = None
         self.param_publisher = param_publisher
         self.pd_gains_publisher = pd_gains_publisher
         self.dodgeball_publisher = dodgeball_publisher
         self.joint_targets_publisher = joint_targets_publisher
 
-        # Position window on the left side of the screen on top of the RVIZ window
+        # Position window on the left side of the screen, on top of the Rerun viewer
         gui_width = 960
         gui_height = 700
         pos_x = 30
@@ -91,7 +130,7 @@ class App(tk.Tk):
         self.geometry(f"{gui_width}x{gui_height}+{pos_x}+{pos_y}")
         self.minsize(800, 520)
 
-        # Raise window on top of other windows (e.g. RVIZ)
+        # Raise window on top of other windows (e.g. the Rerun viewer)
         self.lift()
         self.attributes("-topmost", True)
         self.after(1500, lambda: self.attributes("-topmost", False))
@@ -354,18 +393,15 @@ class App(tk.Tk):
         )
         self.auto_center_checkbox.pack(side="left")
 
-        # PlotJuggler launch button
-        self.plotjuggler_btn = ttk.Button(
+        # Starts the Rerun bridge, which opens the native Rerun viewer (rerun_viewer.py).
+        self.rerun_viewer_btn = ttk.Button(
             control_frame,
-            text="📊 PlotJuggler",
-            command=self._launch_plotjuggler,
+            text="📊 Open Rerun viewer",
+            command=self._open_rerun_viewer,
         )
-        if not self.enable_telemetry:
-            self.plotjuggler_btn.configure(
-                state="disabled",
-                text="📊 PlotJuggler (Disabled)",
-            )
-        self.plotjuggler_btn.pack(side="left", padx=10)
+        if self.rerun_viewer is None:
+            self.rerun_viewer_btn.configure(state="disabled")
+        self.rerun_viewer_btn.pack(side="left", padx=10)
 
         # --- Simulation row: measured contact state of the controller ---
         # The task file selects the contact estimator by name (contactEstimator, robot_model/ContactEstimatorRegistry.h);
@@ -390,65 +426,19 @@ class App(tk.Tk):
         main_frame.columnconfigure(0, weight=1)
         main_frame.columnconfigure(1, weight=1)
 
-    def _launch_plotjuggler(self):
-        """Launch PlotJuggler with the humanoid telemetry layout."""
-        if not self.enable_telemetry:
-            import tkinter.messagebox as mb
-
-            mb.showinfo(
-                "Telemetry Disabled",
-                "Telemetry is disabled in task.yaml (enableTelemetry: false).",
-            )
+    def _open_rerun_viewer(self):
+        """Starts the Rerun bridge, or says why it did not."""
+        if self.rerun_viewer is None:
             return
-
-        try:
-            repo_root = os.path.abspath(
-                os.path.join(os.path.dirname(__file__), "../../..")
-            )
-            layout_candidate = os.path.join(
-                repo_root, "tools", "plotjuggler", "humanoid_telemetry.xml"
-            )
-
-            # Resolve PlotJuggler binary or fallback to ROS 2 package runner
-            ros_distro = os.environ.get("ROS_DISTRO", "jazzy")
-            direct_bin = f"/opt/ros/{ros_distro}/lib/plotjuggler/plotjuggler"
-
-            if shutil.which("plotjuggler"):
-                cmd = ["plotjuggler"]
-            elif os.path.isfile(direct_bin) and os.access(direct_bin, os.X_OK):
-                cmd = [direct_bin]
-            elif shutil.which("ros2"):
-                cmd = ["ros2", "run", "plotjuggler", "plotjuggler"]
-            else:
-                alt_bins = glob.glob("/opt/ros/*/lib/plotjuggler/plotjuggler")
-                if alt_bins and os.access(alt_bins[0], os.X_OK):
-                    cmd = [alt_bins[0]]
-                else:
-                    cmd = ["plotjuggler"]
-
-            cmd.extend(["--buffer_size", "60"])
-            if os.path.exists(layout_candidate):
-                cmd.extend(["--layout", layout_candidate])
-
-            pj_env = os.environ.copy()
-            if "PLOTJUGGLER_DISPLAY" in pj_env:
-                pj_env["DISPLAY"] = pj_env["PLOTJUGGLER_DISPLAY"]
-
-            subprocess.Popen(
-                cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                env=pj_env,
-            )
-        except FileNotFoundError:
+        result = self.rerun_viewer.open()
+        if not result.started:
             import tkinter.messagebox as mb
 
-            mb.showwarning(
-                "PlotJuggler",
-                "plotjuggler executable was not found on PATH. Run 'make plotjuggler' from the terminal.",
-            )
-        except Exception as e:
-            print(f"Error launching PlotJuggler: {e}")
+            mb.showinfo("Rerun viewer", result.message)
+
+    def set_fsm_command_callback(self, callback: Optional[Callable[[str], object]]):
+        """Sets what the FSM mode selector and the gantry checkbox call with their command."""
+        self._fsm_command_callback = callback
 
     def slider_callback(self, value):
         pass
@@ -479,7 +469,9 @@ class App(tk.Tk):
 
     def _on_gantry_toggle(self):
         """Handle gantry lock checkbox toggle."""
+        # LINT.IfChange(gantry_commands)
         cmd = "LOCK_GANTRY" if self.gantry_var.get() else "UNLOCK_GANTRY"
+        # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_app/robot/src/FsmCommand.cpp:fsm_command_names)
         if self._fsm_command_callback:
             self._fsm_command_callback(cmd)
         if self.gantry_var.get():
@@ -504,8 +496,8 @@ class App(tk.Tk):
 
         step_slider(0)
 
-    def update_fsm_state(self, state_str: str):
-        """Follows one `/humanoid/fsm_state` message: 'MODE,GANTRY_STATE,CONTROLLER_RESETS' (fsm_state.py).
+    def update_fsm_state(self, message: fsm_state_pb2.FsmState):
+        """Follows one robot/fsm_state message (fsm_state.py); a message whose mode is not a ControlMode is ignored.
 
         The mode selector and the gantry checkbox mirror the message. The joysticks are re-centered whenever
         fsm_state.should_recenter says so: on a transition into a passive mode, on a new gantry lock and on a controller
@@ -513,7 +505,7 @@ class App(tk.Tk):
         even while the gantry was already locked. A stick left forward would otherwise keep commanding a walk the
         operator never meant to give, and re-entering WB_MPC would execute it.
         """
-        state = fsm_state.parse_fsm_state(state_str)
+        state = fsm_state.from_message(message)
         if state is None:
             return
         previous = self._last_fsm_state
@@ -523,10 +515,7 @@ class App(tk.Tk):
             # Notify Joint Targets tab of mode change
             if hasattr(self, "joint_targets_tab"):
                 self.joint_targets_tab.on_mode_changed()
-        if (
-            state.gantry_locked is not None
-            and self.gantry_var.get() != state.gantry_locked
-        ):
+        if self.gantry_var.get() != state.gantry_locked:
             self.gantry_var.set(state.gantry_locked)
         if fsm_state.should_recenter(previous, state):
             self.joystick_left.set_position()
@@ -570,343 +559,266 @@ class App(tk.Tk):
         self.slider_default_value = (height - self.min_height) / self.height_scale
         self.slider.set(self.slider_default_value)
 
-    def set_knob_positions(self, msg: WalkingVelocityCommand):
+    def set_knob_positions(
+        self, msg: walking_velocity_command_pb2.WalkingVelocityCommand
+    ):
         self.joystick_left.set_position(msg.linear_velocity_x, msg.linear_velocity_y)
         self.joystick_right.set_position(0.0, msg.angular_velocity_z)
         self.slider.set(
             (msg.desired_pelvis_height - self.min_height) / self.height_scale
         )
 
-    def get_walking_command_msg(self):
-        msg = WalkingVelocityCommand()
-
-        msg.linear_velocity_x = self.joystick_left.x_norm
-        msg.linear_velocity_y = self.joystick_left.y_norm
-        msg.angular_velocity_z = self.joystick_right.y_norm
-
-        msg.desired_pelvis_height = (
-            self.slider.get() * self.height_scale + self.min_height
-        )
-        return msg
-
-
-class RosJoystickApp(Node):
-    def __init__(self):
-        super().__init__("xbox_walking_command_publisher")
-
-        self.publisher_rate = 25  # Hz
-        self.xbox_controller_interface = XBoxControllerInterface(self.publisher_rate)
-
-        # Declare parameters for robot-specific configuration
-        self.declare_parameter("default_pelvis_height", 0.8)
-        self.declare_parameter("target_command_file", "")
-        self.declare_parameter("task_file", "")
-        self.declare_parameter("pd_gains_file", "")
-        self.declare_parameter("robot_name", "")
-
-        default_height = float(self.get_parameter("default_pelvis_height").value)
-        cmd_file = str(self.get_parameter("target_command_file").value)
-        task_file = str(self.get_parameter("task_file").value)
-        pd_gains_file = str(self.get_parameter("pd_gains_file").value)
-        robot_name = str(self.get_parameter("robot_name").value)
-
-        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
-
-        # Resolve install-space paths back to source-tree paths.
-        # The ament install space copies config files, so edits there don't
-        # appear in the source tree the user is watching.  Prefer the source
-        # copy when it exists so that "Save to YAML" modifies the real file.
-        task_file = self._resolve_source_path(task_file, repo_root)
-        cmd_file = self._resolve_source_path(cmd_file, repo_root)
-        pd_gains_file = self._resolve_source_path(pd_gains_file, repo_root)
-
-        # 1. Load default base height from target_command_file if provided
-        if cmd_file and os.path.exists(cmd_file):
-            try:
-                with open(cmd_file, "r") as f:
-                    data = yaml.safe_load(f)
-                    if data and "defaultBaseHeight" in data:
-                        default_height = float(data["defaultBaseHeight"])
-                        self.get_logger().info(
-                            f"Loaded defaultBaseHeight={default_height} from {cmd_file}"
-                        )
-            except Exception as e:
-                self.get_logger().warn(
-                    f"Failed to read defaultBaseHeight from {cmd_file}: {e}"
-                )
-
-        # 2. Autodetect task_file if empty
-        if not task_file or not os.path.exists(task_file):
-            if cmd_file and os.path.exists(cmd_file):
-                cand = os.path.join(os.path.dirname(cmd_file), "task.yaml")
-                if os.path.exists(cand):
-                    task_file = cand
-            if not task_file or not os.path.exists(task_file):
-                # Search default candidates
-                candidates = [
-                    os.path.join(
-                        repo_root,
-                        "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml",
-                    ),
-                    os.path.join(
-                        repo_root,
-                        "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.yaml",
-                    ),
-                    os.path.join(
-                        repo_root,
-                        "robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.yaml",
-                    ),
-                ]
-                for c in candidates:
-                    if os.path.exists(c):
-                        task_file = c
-                        break
-
-        # 3. Autodetect pd_gains_file if empty
-        if not pd_gains_file or not os.path.exists(pd_gains_file):
-            if task_file and os.path.exists(task_file):
-                cand = os.path.abspath(
-                    os.path.join(
-                        os.path.dirname(task_file),
-                        "..",
-                        "controller",
-                        "joint_pd_gains.yaml",
-                    )
-                )
-                if os.path.exists(cand):
-                    pd_gains_file = cand
-            if not pd_gains_file or not os.path.exists(pd_gains_file):
-                candidates = [
-                    os.path.join(
-                        repo_root,
-                        "robot_models/unitree_g1/g1_wb_mpc/config/controller/joint_pd_gains.yaml",
-                    ),
-                    os.path.join(
-                        repo_root,
-                        "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/controller/joint_pd_gains.yaml",
-                    ),
-                ]
-                for c in candidates:
-                    if os.path.exists(c):
-                        pd_gains_file = c
-                        break
-
-        if task_file:
-            self.get_logger().info(f"Using MPC task file: {task_file}")
-        if pd_gains_file:
-            self.get_logger().info(f"Using Joint PD gains file: {pd_gains_file}")
-
-        # 4. Autodetect reference_file (sibling command/reference.yaml relative to task_file)
-        reference_file = ""
-        if task_file and os.path.exists(task_file):
-            cand = os.path.abspath(
-                os.path.join(
-                    os.path.dirname(task_file),
-                    "..",
-                    "command",
-                    "reference.yaml",
-                )
-            )
-            if os.path.exists(cand):
-                reference_file = cand
-        if reference_file:
-            self.get_logger().info(f"Using reference file: {reference_file}")
-
-        qos_profile = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, depth=25)
-
-        self.publisher_ = self.create_publisher(
-            WalkingVelocityCommand, "/humanoid/walking_velocity_command", qos_profile
+    def get_walking_command_msg(
+        self,
+    ) -> walking_velocity_command_pb2.WalkingVelocityCommand:
+        """The command of the on-screen sticks and the height slider."""
+        return walking_velocity_command(
+            linear_velocity_x=self.joystick_left.x_norm,
+            linear_velocity_y=self.joystick_left.y_norm,
+            angular_velocity_z=self.joystick_right.y_norm,
+            desired_pelvis_height=self.slider.get() * self.height_scale
+            + self.min_height,
         )
 
-        # FSM command publisher & state subscriber
-        cmd_qos = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, depth=10)
-        self.fsm_cmd_pub = self.create_publisher(
-            String, "/humanoid/fsm_command", cmd_qos
-        )
 
-        state_qos = QoSProfile(
-            reliability=ReliabilityPolicy.RELIABLE,
-            durability=DurabilityPolicy.TRANSIENT_LOCAL,
-            depth=1,
-        )
-        self.fsm_state_sub = self.create_subscription(
-            String, "/humanoid/fsm_state", self._fsm_state_callback, state_qos
-        )
+class TerminationRequested(SystemExit):
+    """SIGTERM or SIGHUP, raised on the main thread by the handlers OperatorGui.run() installs.
 
-        # Publisher for real-time MPC parameter updates (slider -> ROS topic -> C++)
-        param_qos = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, depth=1)
-        self.param_publisher = self.create_publisher(
-            String, "/mpc_parameter_updates", param_qos
-        )
+    A SystemExit because that is the one exception Tkinter lets out of a callback that runs when the signal arrives;
+    run() catches it and ends the GUI as closing its window does.
+    """
 
-        # Publisher for real-time PD gains updates (slider -> ROS topic -> C++)
-        self.pd_gains_publisher = self.create_publisher(
-            String, "/pd_gains_updates", param_qos
-        )
 
-        # Publisher for real-time joint target position updates (slider -> ROS topic -> C++)
-        self.joint_targets_publisher = self.create_publisher(
-            String, "/joint_pd_target_positions", param_qos
-        )
+# tools/launch stops its processes with SIGTERM, and with SIGHUP when its terminal closes.
+_TERMINATION_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
 
-        # Dodgeball throws (button -> ROS topic -> the MuJoCo simulator). RELIABLE, unlike the tuning topics above:
-        # a throw is a one-shot event rather than a stream of slider values, so a dropped message is a button press
-        # that did nothing rather than a value that is corrected 100 ms later.
-        # The topic is DodgeballTab.TOPIC_NAME, which is tied to the simulator's subscription.
-        throw_qos = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, depth=10)
-        self.dodgeball_publisher = self.create_publisher(
-            String, DodgeballTab.TOPIC_NAME, throw_qos
-        )
 
-        enable_online_tuning = True
-        enable_telemetry = True
-        if task_file and os.path.exists(task_file):
-            try:
-                from remote_control.tk_app.yaml_editor_utils import load_yaml_safe
+def _request_termination(signum: int, frame: Optional[FrameType]) -> None:
+    del frame  # Unused.
+    raise TerminationRequested(128 + signum)
 
-                cfg = load_yaml_safe(task_file)
-                if "enableOnlineTuning" in cfg:
-                    enable_online_tuning = bool(cfg["enableOnlineTuning"])
-                elif "enable_online_tuning" in cfg:
-                    enable_online_tuning = bool(cfg["enable_online_tuning"])
 
-                if "enableTelemetry" in cfg:
-                    enable_telemetry = bool(cfg["enableTelemetry"])
-                elif "enable_telemetry" in cfg:
-                    enable_telemetry = bool(cfg["enable_telemetry"])
-            except Exception as e:
-                self.get_logger().warning(
-                    f"Could not parse online tuning/telemetry flags from {task_file}: {e}"
-                )
+def _install_termination_handlers() -> Dict[int, Any]:
+    """Makes SIGTERM and SIGHUP raise TerminationRequested; returns the handlers it replaced.
 
-        self.get_logger().info(
-            f"Online tuning enabled: {enable_online_tuning}, Telemetry enabled: {enable_telemetry}"
-        )
+    Only on the main thread, the only one Python runs signal handlers on; elsewhere it installs nothing.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        return {}
+    return {
+        signum: signal.signal(signum, _request_termination)
+        for signum in _TERMINATION_SIGNALS
+    }
 
-        self.app = App(
-            pd_gains_file=pd_gains_file,
-            task_file=task_file,
-            reference_file=reference_file,
-            enable_online_tuning=enable_online_tuning,
-            enable_telemetry=enable_telemetry,
-            param_publisher=self.param_publisher,
-            pd_gains_publisher=self.pd_gains_publisher,
-            joint_targets_publisher=self.joint_targets_publisher,
-            dodgeball_publisher=self.dodgeball_publisher,
-        )
-        self.app.set_default_pelvis_height(default_height)
-        self.app._fsm_command_callback = self._send_fsm_command
 
-        self.app.after(int(1000 / self.publisher_rate), self._tk_timer_loop)
+def _restore_signal_handlers(handlers: Dict[int, Any]) -> None:
+    for signum, handler in handlers.items():
+        signal.signal(signum, handler)
 
-        self.ros_thread = threading.Thread(target=self.ros_spin)
-        self.ros_thread.daemon = True
-        self.ros_thread.start()
 
-        self.counter = 0
-        self._gui_active = False
+class OperatorGui:
+    """Runs an App against the operator bus at the walking command's rate.
 
-    def _send_fsm_command(self, cmd_text: str):
-        msg = String()
-        msg.data = cmd_text
-        self.fsm_cmd_pub.publish(msg)
+    Every tick, on Tk's thread: the FSM states the robot published since the last tick go to the App, then one walking
+    command is published - the Xbox controller's while one is connected (the on-screen sticks follow it), the App's
+    otherwise. The App's command is published even when it is all zero, so that the height slider reaches the gantry
+    in simulation.
 
-    def _fsm_state_callback(self, msg: String):
-        self.app.after(0, self.app.update_fsm_state, msg.data)
+    Args:
+        app: the window.
+        operator_bus: the bus (not started; run() starts it).
+        gamepad: the Xbox controller (xbox_controller_interface.GamepadPoller), or None.
+        rate_hz: the tick rate [Hz].
+        on_close: called after the window closes (stops the Rerun bridge the GUI started).
+    """
 
-    def _tk_timer_loop(self):
-        self.timer_callback()
-        self.app.after(int(1000 / self.publisher_rate), self._tk_timer_loop)
+    def __init__(
+        self,
+        app: App,
+        operator_bus: OperatorBus,
+        gamepad=None,
+        rate_hz: float = teleop.WALKING_COMMAND_RATE_HZ,
+        on_close: Optional[Callable[[], None]] = None,
+    ) -> None:
+        if rate_hz <= 0.0:
+            raise ValueError(f"the rate must be positive, got {rate_hz}")
+        self._app = app
+        self._operator_bus = operator_bus
+        self._gamepad = gamepad
+        self._period_ms = max(1, int(round(1000.0 / rate_hz)))
+        self._on_close = on_close
+        app.set_fsm_command_callback(operator_bus.fsm_command.send)
 
-    def timer_callback(self):
+    def tick(self) -> None:
+        """One period: apply the received FSM states, then publish one walking command."""
+        for message in self._operator_bus.take_fsm_states():
+            self._app.update_fsm_state(message)
 
-        if self.xbox_controller_interface.joystick_connected:
-            success, msg = self.xbox_controller_interface.get_walking_command_msg()
-            if success:
-                self.app.set_knob_positions(msg)
-                self.publisher_.publish(msg)
-                self.app.set_joystick_connected(True)
-
+        command = None
+        if self._gamepad is not None and self._gamepad.connected:
+            command = self._gamepad.tick()
+            if command is not None:
+                self._app.set_knob_positions(command)
+                self._app.set_joystick_connected(True)
         else:
-            self.app.set_joystick_connected(False)
-            cmd_msg = self.app.get_walking_command_msg()
-            # Always publish so the height slider value is transmitted for gantry control,
-            # even when all velocity components are zero.
-            self.publisher_.publish(cmd_msg)
-            # Check for connection every 2 seconds on the main thread.
-            # pygame is NOT thread-safe: calling pygame.joystick.quit()/init()
-            # from a background thread deadlocks against SDL's internal timer
-            # thread.  The check itself is fast (~1 ms), so running it here is
-            # safe for the Tk event loop.
-            if self.counter >= (2 * self.publisher_rate):
-                self.counter = 0
-                self.xbox_controller_interface.get_joystick_connection()
-            else:
-                self.counter = self.counter + 1
+            self._app.set_joystick_connected(False)
+            command = self._app.get_walking_command_msg()
+            if self._gamepad is not None:
+                # Counts towards the next scan for a controller.
+                self._gamepad.tick()
+        if command is not None:
+            self._operator_bus.walking_velocity_command.publish(command)
 
-    def ros_spin(self):
-        rclpy.spin(self)
+    def _run_tick(self) -> None:
+        try:
+            self.tick()
+        except (
+            Exception
+        ):  # pylint: disable=broad-except - one bad tick must not stop the commands
+            _LOGGER.exception("A GUI tick failed.")
+        self._app.after(self._period_ms, self._run_tick)
 
-    @staticmethod
-    def _resolve_source_path(path: str, repo_root: str) -> str:
-        """Map an ament install-space config path back to the source tree.
+    def run(self) -> None:
+        """Starts the bus, runs the window until it closes, then closes the bus and calls on_close.
 
-        The ament install space copies config files into:
-          <ws>/install/<pkg>/share/<pkg>/config/...
-        but the original source lives under:
-          <repo_root>/robot_models/<robot>/<pkg>/config/...
-
-        When the source-tree copy exists, return it so that GUI edits modify
-        the file the developer is watching.  Falls back to the original path.
+        Closing the window, Ctrl-C (SIGINT), SIGTERM and SIGHUP all end it this way. A GUI that a signal ended without
+        this cleanup would leave the Rerun bridge it started running, in a session of its own that the launcher's
+        teardown of the GUI's process group does not reach.
         """
-        if not path or not os.path.exists(path):
-            return path
-
-        # Strategy 1: look for "robot_models/" in the path and re-root it
-        marker = "/robot_models/"
-        idx = path.find(marker)
-        if idx != -1:
-            candidate = os.path.join(repo_root, path[idx + 1 :])
-            if os.path.exists(candidate):
-                return candidate
-
-        # Strategy 2: extract "<pkg>/config/..." suffix from install-space path
-        # Install layout: .../share/<pkg>/config/...
-        parts = path.replace("\\", "/").split("/")
+        self._operator_bus.start()
+        self._app.after(self._period_ms, self._run_tick)
+        previous_handlers = _install_termination_handlers()
         try:
-            share_idx = parts.index("share")
-            # parts[share_idx+1] is the package name, remainder is the config sub-path
-            pkg_name = parts[share_idx + 1]
-            config_suffix = "/".join(
-                parts[share_idx + 2 :]
-            )  # e.g. "config/mpc/task.yaml"
-
-            # Search for a matching source file under robot_models/
-            for root_dir, dirs, files in os.walk(
-                os.path.join(repo_root, "robot_models")
-            ):
-                if os.path.basename(root_dir) == pkg_name:
-                    candidate = os.path.join(root_dir, config_suffix)
-                    if os.path.exists(candidate):
-                        return candidate
-        except (ValueError, IndexError):
+            self._app.mainloop()
+        except (KeyboardInterrupt, TerminationRequested):
             pass
-
-        return path
-
-    def run(self):
-        try:
-            self.app.mainloop()
         finally:
-            self.destroy_node()
-            rclpy.shutdown()
+            # A second signal during the cleanup ends the process as it would have before.
+            _restore_signal_handlers(previous_handlers)
+            self._operator_bus.close()
+            if self._on_close is not None:
+                self._on_close()
 
 
-def main():
-    rclpy.init()
-    app = RosJoystickApp()
-    app.run()
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="The operator GUI of the humanoid MPC, on the IPC bus."
+    )
+    parser.add_argument(
+        "--task_file",
+        default="",
+        help="task.yaml of the MPC Parameters tab (default: found next to --reference_file, then a shipped robot's)",
+    )
+    parser.add_argument(
+        "--reference_file",
+        default="",
+        help="reference.yaml: the default pelvis height and joint targets (default: next to the task file)",
+    )
+    parser.add_argument(
+        "--pd_gains_file",
+        default="",
+        help="joint_pd_gains.yaml of the Joint PD Gains tab (default: next to the task file)",
+    )
+    parser.add_argument(
+        "--urdf_file",
+        default="",
+        help="the robot's URDF, which the Rerun viewer button hands the Rerun bridge (default: none, no robot drawn)",
+    )
+    parser.add_argument(
+        "--default_pelvis_height",
+        type=float,
+        default=None,
+        help="the height slider's default [m] (default: reference.yaml's defaultBaseHeight)",
+    )
+    teleop.add_bus_flags(parser, default_node=OPERATOR_NODE)
+    return parser
+
+
+def _make_gamepad():
+    """The Xbox controller's poller, or None when pygame cannot run here."""
+    try:
+        from remote_control.xbox_controller_interface import (  # pylint: disable=import-outside-toplevel
+            GamepadPoller,
+            XBoxControllerInterface,
+        )
+
+        controller = XBoxControllerInterface(teleop.WALKING_COMMAND_RATE_HZ)
+    except (
+        Exception
+    ) as error:  # pylint: disable=broad-except - the GUI works without a controller
+        _LOGGER.warning("No Xbox controller support: %s", error)
+        return None
+    return GamepadPoller(controller, teleop.WALKING_COMMAND_RATE_HZ)
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    logging.basicConfig(
+        level=logging.INFO, format="%(levelname)s %(name)s: %(message)s"
+    )
+    args = build_parser().parse_args(argv)
+
+    repo_root = config_files.find_repo_root()
+    # Paths on the command line are relative to where the GUI was started (bazel run changes into the runfiles).
+    network_config = config_files.resolve_input_path(args.network_config, repo_root)
+    urdf_file = config_files.resolve_input_path(args.urdf_file, repo_root)
+    files = config_files.resolve_config_files(
+        task_file=config_files.resolve_input_path(args.task_file, repo_root),
+        reference_file=config_files.resolve_input_path(args.reference_file, repo_root),
+        pd_gains_file=config_files.resolve_input_path(args.pd_gains_file, repo_root),
+        repo_root=repo_root,
+    )
+    if repo_root:
+        # The tabs' robot presets are paths relative to the checkout, and "Save to YAML" must edit its files.
+        os.chdir(repo_root)
+    for label, path in (
+        ("MPC task file", files.task_file),
+        ("Joint PD gains file", files.pd_gains_file),
+        ("reference file", files.reference_file),
+    ):
+        _LOGGER.info("Using %s: %s", label, path or "(none found)")
+    enable_online_tuning = config_files.read_online_tuning(files.task_file)
+    _LOGGER.info("Online tuning enabled: %s", enable_online_tuning)
+
+    try:
+        operator_bus = OperatorBus.connect(network_config, args.ipc_node)
+    except (
+        OSError,
+        robot_ipc.NetworkConfigError,
+        robot_ipc.BusError,
+        ValueError,
+    ) as error:
+        print(f"base_velocity_controller_gui: {error}", file=sys.stderr)
+        return 1
+    rerun_viewer = (
+        RerunViewerLauncher(repo_root, network_config, urdf_file=urdf_file)
+        if repo_root
+        else None
+    )
+    app = App(
+        pd_gains_file=files.pd_gains_file,
+        task_file=files.task_file,
+        reference_file=files.reference_file,
+        enable_online_tuning=enable_online_tuning,
+        param_publisher=operator_bus.mpc_parameters,
+        pd_gains_publisher=operator_bus.pd_gains,
+        joint_targets_publisher=operator_bus.joint_targets,
+        dodgeball_publisher=operator_bus.dodgeball_throw,
+        rerun_viewer=rerun_viewer,
+    )
+    default_height = args.default_pelvis_height
+    if default_height is None:
+        default_height = config_files.read_default_pelvis_height(files.reference_file)
+    app.set_default_pelvis_height(default_height)
+
+    gui = OperatorGui(
+        app,
+        operator_bus,
+        gamepad=_make_gamepad(),
+        on_close=rerun_viewer.close if rerun_viewer is not None else None,
+    )
+    gui.run()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

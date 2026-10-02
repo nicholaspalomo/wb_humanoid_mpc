@@ -132,12 +132,14 @@ CYCLE_MODES: List[ControlMode] = [
 
 
 def _find_workspace_dir(start_dir: Optional[str] = None) -> str:
-    """Finds workspace root directory containing robot_models/."""
+    """Finds the directory holding robot_models/: the checkout, or the runfiles root of a Bazel target.
+
+    The first directory at or above `start_dir` (default: the working directory) with a robot_models/ directory; the
+    start directory itself when there is none.
+    """
     current = os.path.abspath(start_dir or os.getcwd())
     while current and current != os.path.dirname(current):
-        if os.path.exists(os.path.join(current, "robot_models")) and os.path.exists(
-            os.path.join(current, "setup_env.sh")
-        ):
+        if os.path.isdir(os.path.join(current, "robot_models")):
             return current
         current = os.path.dirname(current)
     return os.path.abspath(start_dir or os.getcwd())
@@ -655,16 +657,6 @@ class HumanoidFSM:
             except Exception:
                 pass
 
-        if getattr(self, "_fsm_command_pub", None) is not None:
-            try:
-                from std_msgs.msg import String
-
-                msg = String()
-                msg.data = new_mode.name
-                self._fsm_command_pub.publish(msg)
-            except Exception:
-                pass
-
         return self.current_mode
 
     def cycle_next_mode(self, current_q: Optional[np.ndarray] = None) -> ControlMode:
@@ -682,7 +674,7 @@ class HumanoidFSM:
             idx = CYCLE_MODES.index(self.current_mode)
             prev_mode = CYCLE_MODES[(idx - 1) % len(CYCLE_MODES)]
         else:
-            next_mode = ControlMode.ZERO_TORQUE
+            prev_mode = ControlMode.ZERO_TORQUE
         return self.set_mode(prev_mode, current_q=current_q)
 
     def trigger_safety(self, current_q: Optional[np.ndarray] = None) -> ControlMode:

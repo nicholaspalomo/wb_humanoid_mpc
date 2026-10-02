@@ -53,13 +53,24 @@ class ContactEstimator {
   virtual ~ContactEstimator() = default;
 
   /**
-   * One flag per contact point of the controller, in the controller's order: true where the point is touching.
+   * Writes one flag per contact point of the controller into `flags`, in the controller's order: true where the point
+   * is touching. Called on the control thread every cycle, so an implementation resizes `flags` to the number of
+   * contact points (robotState.getContactFlags().size()) and allocates nothing else: a caller whose vector already
+   * holds that many flags allocates nothing.
    * @param robotState The robot state of the current control cycle.
+   * @param flags The flags, resized to the number of contact points.
    */
-  virtual std::vector<bool> estimateContactFlags(const RobotState& robotState) = 0;
+  virtual void estimateContactFlags(const RobotState& robotState, std::vector<bool>& flags) = 0;
 
   /** Name for logs and diagnostics. */
   virtual std::string getName() const = 0;
 };
+
+/** The flags `estimator` writes for `robotState`, in a vector of their own (allocates: for tests and tools). */
+inline std::vector<bool> estimateContactFlags(ContactEstimator& estimator, const RobotState& robotState) {
+  std::vector<bool> flags;
+  estimator.estimateContactFlags(robotState, flags);
+  return flags;
+}
 
 }  // namespace robot::model

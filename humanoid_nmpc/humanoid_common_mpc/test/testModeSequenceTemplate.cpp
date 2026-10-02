@@ -27,8 +27,10 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <map>
 #include <string>
 #include <vector>
@@ -72,6 +74,39 @@ TEST(ModeSequenceTemplateTest, EveryShippedGaitIsValid) {
     const absl::Status status = validateModeSequenceTemplate(gait.second, gait.first);
     EXPECT_TRUE(status.ok()) << status.message();
   }
+}
+
+TEST(ModeSequenceTemplateTest, TheDocumentedYamlLayoutLoads) {
+  // The layouts that the comments of loadModeSequenceTemplate() and loadModeSchedule() show, read back by them: the
+  // documentation describes a file the loaders accept.
+  const std::string file = testing::TempDir() + "/documented_mode_sequence_layout.yaml";
+  {
+    std::ofstream out(file);
+    out << "topicName:\n"
+           "  modeSequence:\n"
+           "    - LF\n"
+           "    - RF\n"
+           "  switchingTimes:\n"
+           "    - 0.0\n"
+           "    - 0.4\n"
+           "    - 0.8\n"
+           "scheduleName:\n"
+           "  modeSequence:\n"
+           "    - STANCE\n"
+           "    - LF\n"
+           "    - STANCE\n"
+           "  eventTimes:\n"
+           "    - 0.5\n"
+           "    - 1.0\n";
+  }
+  const ModeSequenceTemplate modeSequenceTemplate = loadModeSequenceTemplate(file, "topicName", /*verbose=*/false);
+  EXPECT_EQ(modeSequenceTemplate.modeSequence, (std::vector<size_t>{ModeNumber::LF, ModeNumber::RF}));
+  EXPECT_EQ(modeSequenceTemplate.switchingTimes, (std::vector<scalar_t>{0.0, 0.4, 0.8}));
+
+  const ModeSchedule modeSchedule = loadModeSchedule(file, "scheduleName", /*verbose=*/false);
+  EXPECT_EQ(modeSchedule.modeSequence, (std::vector<size_t>{ModeNumber::STANCE, ModeNumber::LF, ModeNumber::STANCE}));
+  EXPECT_EQ(modeSchedule.eventTimes, (std::vector<scalar_t>{0.5, 1.0}));
+  std::remove(file.c_str());
 }
 
 TEST(ModeSequenceTemplateTest, SwitchingTimesOutOfOrderAreRejectedNamingTheKey) {

@@ -2,10 +2,12 @@
 #
 # Usage:
 #
-# $ cd ~/your_colcon_ws/src/wb_humanoid_mpc/docker
-# $ ./image_build.bash     # Build the WB Humanoid MPC Docker image
+# $ cd wb_humanoid_mpc/docker
+# $ ./image_build.bash     # Build the WB Humanoid MPC Docker image (Ubuntu 24.04, no ROS)
+# $ IMAGE_TAG=wb-humanoid-mpc:test ./image_build.bash    # ... under another tag
 #
-# (Cross reference this file with the "build" section of ../.devcontainer/devcontainer.json)
+# (Cross reference this file with the "build" section of ../docker-compose.yaml, which ../.devcontainer/devcontainer.json
+# builds the dev container from)
 #
 set -euo pipefail
 
@@ -23,7 +25,7 @@ GROUP_ID="$(id -g)"
 GIT_USER_NAME="$(git config --global user.name || echo '')"
 GIT_USER_EMAIL="$(git config --global user.email || echo '')"
 
-IMAGE_TAG="wb-humanoid-mpc:dev"
+IMAGE_TAG="${IMAGE_TAG:-wb-humanoid-mpc:dev}"
 
 docker build \
   --file "${DOCKERFILE}" \
@@ -38,4 +40,3 @@ docker build \
   "${CONTEXT}"
 
 echo "Built image: ${IMAGE_TAG}"
-

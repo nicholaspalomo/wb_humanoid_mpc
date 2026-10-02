@@ -51,7 +51,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "absl/strings/string_view.h"
 
 #include <ocs2_core/misc/LoadData.h>
-#include <boost/property_tree/ptree.hpp>
+#include <ocs2_core/misc/PropertyTree.h>
 
 #include "absl/types/span.h"
 #include "humanoid_common_mpc/common/ModelSettings.h"
@@ -576,15 +576,10 @@ INSTANTIATE_TEST_SUITE_P(EveryKey,
 // The contact_implicit block's keys.
 // ---------------------------------------------------------------------------------------------------------------
 
-/** Writes `yaml` under the test's temp directory and parses it the way the MPC interfaces and the updater do. */
-boost::property_tree::ptree parsedTaskFile(absl::string_view name, absl::string_view yaml) {
-  const std::string path = (std::filesystem::path(testing::TempDir()) / absl::StrCat("testMpcFormulationConfig_", name, ".yaml")).string();
-  {
-    std::ofstream out(path);
-    out << yaml;
-  }
-  boost::property_tree::ptree tree;
-  loadData::readPropertyTree(path, tree);
+/** Parses `yaml` the way the MPC interfaces and the updater parse a task file. */
+PropertyTree parsedTaskFile(absl::string_view yaml) {
+  PropertyTree tree;
+  loadData::readPropertyTreeFromString(yaml, tree);
   return tree;
 }
 
@@ -598,8 +593,8 @@ std::string contactImplicitBlock(absl::string_view renamed = "", absl::string_vi
 }
 
 TEST(ContactImplicitBlockKeys, aBlockOfTheKnownKeysOrNoBlockAtAllIsAccepted) {
-  EXPECT_TRUE(checkContactImplicitBlockKeys(parsedTaskFile("contactImplicitComplete", contactImplicitBlock())).ok());
-  EXPECT_TRUE(checkContactImplicitBlockKeys(parsedTaskFile("contactImplicitAbsent", "terrainHeight: 0.0\n")).ok());
+  EXPECT_TRUE(checkContactImplicitBlockKeys(parsedTaskFile(contactImplicitBlock())).ok());
+  EXPECT_TRUE(checkContactImplicitBlockKeys(parsedTaskFile("terrainHeight: 0.0\n")).ok());
 }
 
 TEST(ContactImplicitBlockKeys, aRenamedKeyIsRefusedNamingItAndListingTheKeys) {
@@ -608,8 +603,7 @@ TEST(ContactImplicitBlockKeys, aRenamedKeyIsRefusedNamingItAndListingTheKeys) {
   for (const ModelSettings::ContactImplicitKey& key : ModelSettings::contactImplicitKeys()) {
     SCOPED_TRACE(key.name);
     const std::string renamed = absl::StrCat(key.name, "Renamed");
-    const absl::Status status =
-        checkContactImplicitBlockKeys(parsedTaskFile("contactImplicitRenamed", contactImplicitBlock(key.name, renamed)));
+    const absl::Status status = checkContactImplicitBlockKeys(parsedTaskFile(contactImplicitBlock(key.name, renamed)));
     ASSERT_FALSE(status.ok());
     EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
     EXPECT_TRUE(absl::StrContains(status.message(), absl::StrCat("contact_implicit.", renamed))) << status.message();
@@ -620,8 +614,7 @@ TEST(ContactImplicitBlockKeys, aRenamedKeyIsRefusedNamingItAndListingTheKeys) {
 }
 
 TEST(ContactImplicitBlockKeys, theGroundThatMovedOutOfTheBlockIsRefusedPointingAtWhereItWent) {
-  const absl::Status status = checkContactImplicitBlockKeys(
-      parsedTaskFile("contactImplicitTerrainHeight", absl::StrCat(contactImplicitBlock(), "  terrainHeight: 0.0\n")));
+  const absl::Status status = checkContactImplicitBlockKeys(parsedTaskFile(absl::StrCat(contactImplicitBlock(), "  terrainHeight: 0.0\n")));
   ASSERT_FALSE(status.ok());
   EXPECT_TRUE(absl::StrContains(status.message(), "contact_implicit.terrainHeight")) << status.message();
   EXPECT_TRUE(absl::StrContains(status.message(), "top-level `terrainHeight`")) << status.message();
@@ -849,7 +842,7 @@ TEST_P(ShippedTaskFileFormulation, aContactImplicitBlockCarriesExactlyTheKeysThe
   // A key renamed in the task file alone - or in the code alone - is caught here, on the shipped files, rather than by
   // a term that quietly runs on its default. Every file passes the check the interfaces run at start-up; a file that
   // carries the block carries every key of it, so that none is left to a default nobody chose.
-  boost::property_tree::ptree tree;
+  PropertyTree tree;
   loadData::readPropertyTree(taskFile_, tree);
   EXPECT_TRUE(checkContactImplicitBlockKeys(tree).ok()) << checkContactImplicitBlockKeys(tree);
   const YAML::Node block = YAML::LoadFile(taskFile_)[std::string(ModelSettings::kContactImplicitBlock)];

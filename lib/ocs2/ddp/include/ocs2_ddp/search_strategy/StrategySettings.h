@@ -101,7 +101,8 @@ struct Settings {
 
 /**
  * This function loads the "Line_Search" variables from a config file.
- * Here, we use the INFO format which was created specifically for the property tree library (refer to www.goo.gl/fV3yWA).
+ * The file is YAML (extension .yaml or .yml), read by loadData::readPropertyTree(), which refuses any other format; the
+ * fields are the keys of the map at `fieldName`, such as `ddp.lineSearch.minStepLength`.
  * @param [in] filename: File name which contains the configuration data.
  * @param [in] fieldName: Field name which contains the configuration data.
  * @param [in] verbose: Flag to determine whether to print out the loaded settings or not (The default is true).
@@ -133,7 +134,8 @@ struct Settings {
 
 /**
  * This function loads the "Levenberg_Marquardt" variables from a config file.
- * Here, we use the INFO format which was created specifically for the property tree library (refer to www.goo.gl/fV3yWA).
+ * The file is YAML (extension .yaml or .yml), read by loadData::readPropertyTree(), which refuses any other format; the
+ * fields are the keys of the map at `fieldName`, such as `ddp.levenbergMarquardt.minAcceptedPho`.
  * @param [in] filename: File name which contains the configuration data.
  * @param [in] fieldName: Field name which contains the configuration data.
  * @param [in] verbose: Flag to determine whether to print out the loaded settings or not (The default is true).

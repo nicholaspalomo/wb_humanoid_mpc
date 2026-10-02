@@ -86,22 +86,16 @@ std::ostream& operator<<(std::ostream& stream, const ModeSequenceTemplate& modeS
 Gait toGait(const ModeSequenceTemplate& modeSequenceTemplate);
 
 /**
- * Load a modesequence template from file.  The template needs to be declared as:
+ * Load a modesequence template from a YAML file (config/command/gait.yaml is one). The template needs to be declared as:
  *
- * topicName
- * {
- *   modeSequence
- *   {
- *     [0]     mode0
- *     [1]     mode1
- *   }
- *   switchingTimes
- *   {
- *     [0]     0.0
- *     [1]     t1
- *     [2]     T
- *   }
- * }
+ *   topicName:
+ *     modeSequence:
+ *       - mode0
+ *       - mode1
+ *     switchingTimes:
+ *       - 0.0
+ *       - t1
+ *       - T
  */
 ModeSequenceTemplate loadModeSequenceTemplate(const std::string& filename, const std::string& topicName, bool verbose = true);
 
@@ -114,22 +108,17 @@ ModeSequenceTemplate loadModeSequenceTemplate(const std::string& filename, const
 absl::Status validateModeSequenceTemplate(const ModeSequenceTemplate& modeSequenceTemplate, absl::string_view topicName);
 
 /**
- * Load a mode schedule template from file.  The schedule needs to be declared as:
+ * Load a mode schedule template from a YAML file (the robots' config/command/reference.yaml is one). The schedule needs
+ * to be declared as:
  *
- * topicName
- * {
- *   modeSequence
- *   {
- *     [0]     mode0
- *     [1]     mode1
- *     [2]     mode2
- *   }
- *   eventTimes
- *   {
- *     [0]     t0
- *     [1]     t1
- *   }
- * }
+ *   topicName:
+ *     modeSequence:
+ *       - mode0
+ *       - mode1
+ *       - mode2
+ *     eventTimes:
+ *       - t0
+ *       - t1
  */
 ModeSchedule loadModeSchedule(const std::string& filename, const std::string& topicName, bool verbose);
 

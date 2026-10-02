@@ -36,6 +36,7 @@ from typing import Optional
 
 import yaml
 
+from humanoid_mpc_ipc import topics
 from remote_control.tk_app.dodgeball import (
     AZIMUTH_RANGE_DEG,
     DEFAULT_BALL_MASS_KG,
@@ -52,6 +53,7 @@ from remote_control.tk_app.dodgeball import (
     sample_random_angles,
     throw_payload,
 )
+from remote_control.operator_bus import yaml_document
 from remote_control.tk_app.slider_row import SliderRow
 
 
@@ -70,11 +72,11 @@ class DodgeballTab(ttk.Frame):
     Tk, which the tests in this package do not exercise.
     """
 
-    # The topic the GUI publishes throws on (base_velocity_controller_gui.py creates its publisher from this constant)
-    # and the simulator's bridge subscribes to.
+    # The topic the tab's publisher publishes throws on (operator_bus.OperatorBus.dodgeball_throw), which the simulator
+    # reads.
     # LINT.IfChange(dodgeball_topic_name)
-    TOPIC_NAME = "/humanoid/dodgeball_throw"
-    # LINT.ThenChange(//humanoid_nmpc/humanoid_common_mpc_ros2/src/fsm/SimFsmBridge.cpp:dodgeball_topic_name)
+    TOPIC_NAME = topics.OPERATOR_DODGEBALL_THROW
+    # LINT.ThenChange(//humanoid_nmpc/humanoid_mpc_ipc/python/humanoid_mpc_ipc/topics.py:topics)
 
     def __init__(
         self,
@@ -282,8 +284,8 @@ class DodgeballTab(ttk.Frame):
     def throw(self) -> Optional[dict]:
         """Throws one ball, and returns the payload that was published (or would have been).
 
-        Returning it is what lets a test drive the button and assert on the result without a ROS graph; the GUI
-        itself ignores the return value.
+        Returning it is what lets a test drive the button and assert on the result without a bus; the GUI itself
+        ignores the return value.
         """
         if self.randomize_var.get():
             azimuth, elevation = sample_random_angles()
@@ -302,11 +304,11 @@ class DodgeballTab(ttk.Frame):
             return payload
 
         try:
-            from std_msgs.msg import String
-
-            msg = String()
-            msg.data = yaml.dump(payload, default_flow_style=False, sort_keys=False)
-            self.throw_publisher.publish(msg)
+            self.throw_publisher.publish(
+                yaml_document(
+                    yaml.dump(payload, default_flow_style=False, sort_keys=False)
+                )
+            )
         except Exception as error:  # noqa: BLE001 - a Tk callback must not raise
             print(f"[DodgeballTab] ERROR publishing a throw: {error}")
             self._show_status(f"Error publishing: {error}", error=True)

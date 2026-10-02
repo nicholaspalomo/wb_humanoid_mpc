@@ -1,0 +1,144 @@
+---
+# clang-tidy for first-party C++ (AGENTS.md "Style guides"). Run it only with `make lint-tidy`: a Bazel aspect
+# (tools/clang_tidy) keeps it inside the RAM-bounded --jobs and the machine lock. Every check names the Google C++ Style
+# Guide section (G:) or the Abseil tip (ToTW #) it enforces. These are the checks with no finding left in the tree; the
+# ones still being swept are in tools/clang_tidy/sweep.clang-tidy, which has every check of this file too.
+# LINT.IfChange(checks)
+Checks:
+  - "-*"
+  # Abseil
+  - abseil-cleanup-ctad                                       # ToTW #120: absl::Cleanup without template arguments
+  - abseil-duration-addition                                  # G: Third-party libraries (absl::Time / Duration arithmetic)
+  - abseil-duration-comparison                                # G: Third-party libraries
+  - abseil-duration-conversion-cast                           # G: Third-party libraries
+  - abseil-duration-division                                  # G: Third-party libraries
+  - abseil-duration-factory-float                             # G: Third-party libraries
+  - abseil-duration-factory-scale                             # G: Third-party libraries
+  - abseil-duration-subtraction                               # G: Third-party libraries
+  - abseil-duration-unnecessary-conversion                    # G: Third-party libraries
+  - abseil-faster-strsplit-delimiter                          # ToTW #10
+  - abseil-no-internal-dependencies                           # G: Third-party libraries (no absl internal namespaces)
+  - abseil-no-namespace                                       # ToTW #130 (never open namespace absl)
+  - abseil-redundant-strcat-calls                             # ToTW #3
+  - abseil-str-cat-append                                     # ToTW #3
+  - abseil-string-find-startswith                             # ToTW #3 (absl::StartsWith)
+  - abseil-time-comparison                                    # G: Third-party libraries
+  - abseil-time-subtraction                                   # G: Third-party libraries
+  - abseil-upgrade-duration-conversions                       # G: Third-party libraries
+  # bugprone
+  - bugprone-bool-pointer-implicit-conversion                 # ToTW #141
+  - bugprone-casting-through-void                             # G: Casting
+  - bugprone-dangling-handle                                  # ToTW #5, #101, #107, #180
+  - bugprone-dynamic-static-initializers                      # G: Static and global variables
+  - bugprone-forward-declaration-namespace                    # G: Forward declarations
+  - bugprone-forwarding-reference-overload                    # G: Rvalue references
+  - bugprone-move-forwarding-reference                        # G: Rvalue references; ToTW #77
+  - bugprone-optional-value-conversion                        # ToTW #163, #181
+  - bugprone-parent-virtual-call                              # G: Inheritance
+  - bugprone-return-const-ref-from-parameter                  # ToTW #101
+  - bugprone-unused-raii                                      # ToTW #77 (named RAII objects)
+  - bugprone-unused-return-value                              # ToTW #76 (a returned absl::Status / StatusOr is never dropped)
+  - bugprone-use-after-move                                   # ToTW #55, #77
+  - bugprone-virtual-near-miss                                # G: Inheritance (override)
+  # cert
+  - cert-dcl58-cpp                                            # G: Namespaces (nothing declared in std); ToTW #99, #218
+  # clang diagnostics (tools/clang_tidy/clang_tidy.bzl:clang_diagnostics adds each -W flag; GCC's are dropped)
+  - clang-diagnostic-ctad-maybe-unsupported                   # G: Class template argument deduction (templates that did not opt in)
+  - clang-diagnostic-nonnull                                  # nullptr passed to or returned from an absl_nonnull pointer (AGENTS.md)
+  - clang-diagnostic-nullability                              # a declaration and its definition disagree on nullability
+  # cppcoreguidelines
+  - cppcoreguidelines-misleading-capture-default-by-value     # G: Lambda expressions
+  - cppcoreguidelines-slicing                                 # G: Copyable and movable types
+  # google
+  - google-build-explicit-make-pair                           # G: Type deduction
+  - google-build-namespaces                                   # G: Internal linkage (no unnamed namespace in a header)
+  - google-global-names-in-headers                            # G: Aliases; ToTW #119
+  - google-readability-namespace-comments                     # G: Namespaces
+  - google-runtime-operator                                   # G: Operator overloading (unary &)
+  - google-upgrade-googletest-case                            # G: Naming (gtest TestSuite API)
+  # misc
+  - misc-definitions-in-headers                               # G: Defining functions in header files; ToTW #140, #168
+  - misc-misplaced-const                                      # G: Use of const
+  - misc-throw-by-value-catch-by-reference                    # G: Exceptions (at the remaining boundaries)
+  - misc-unconventional-assign-operator                       # G: Operator overloading
+  - misc-unused-alias-decls                                   # ToTW #119
+  - misc-unused-using-decls                                   # ToTW #119
+  # modernize
+  - modernize-avoid-bind                                      # ToTW #108
+  - modernize-make-shared                                     # ToTW #126; G: Ownership and smart pointers
+  - modernize-replace-auto-ptr                                # G: Ownership and smart pointers
+  - modernize-use-constraints                                 # G: Concepts and constraints (no enable_if)
+  - modernize-use-using                                       # G: Aliases
+  # performance
+  - performance-move-constructor-init                         # ToTW #77
+  - performance-noexcept-destructor                           # G: noexcept
+  - performance-noexcept-move-constructor                     # G: noexcept
+  # readability
+  - readability-misleading-indentation                        # G: Looping and branching statements
+  - readability-non-const-parameter                           # G: Use of const
+  - readability-operators-representation                      # G: Boolean expressions (&&, not `and`)
+  - readability-redundant-string-cstr                         # ToTW #1 (no .c_str() into string_view parameters)
+  - readability-reference-to-constructed-temporary            # ToTW #101, #107
+  - readability-use-std-min-max                               # ToTW #231
+  # Never enabled (tools/clang_tidy/test_clang_tidy_config.py keeps them out):
+  #   modernize-use-auto, hicpp-use-auto, modernize-loop-convert (its fix writes auto), modernize-use-trailing-return-type,
+  #   readability-qualified-auto: the no-auto rule. hicpp-multiway-paths-covered: ToTW #147. google-readability-todo:
+  #   accepts only TODO(user) (tools/hooks/todo_format.py). readability-implicit-bool-conversion: ToTW #141 allows
+  #   `if (p)`. cppcoreguidelines-avoid-const-or-ref-data-members: ToTW #177. misc-non-private-member-variables-in-classes:
+  #   OCS2 deviation. modernize-pass-by-value: Eigen alignment (ToTW #234). readability-function-size: the guide sets no
+  #   limit. cppcoreguidelines-macro-usage, cert-err58-cpp: tools/hooks macro-naming and static-storage. llvm-*: LLVM
+  #   style. readability-magic-numbers, readability-identifier-length, bugprone-easily-swappable-parameters,
+  #   modernize-avoid-c-arrays, misc-const-correctness: not Google style.
+# LINT.ThenChange(//tools/clang_tidy/clang_tidy.bzl:clang_diagnostics, //AGENTS.md:cpp_style, //AGENTS.md:totw_rules)
+WarningsAsErrors: "*"
+# No HeaderFilterRegex: tools/clang_tidy/clang_tidy.bzl passes --header-filter per action (header_filter).
+SystemHeaders: false
+FormatStyle: file
+# LINT.IfChange(check_options)
+CheckOptions:
+  bugprone-argument-comment.StrictMode: true          # names must match exactly; tools/hooks requires the comments
+  bugprone-dangling-handle.HandleClasses: "std::basic_string_view;absl::Span;std::span"
+  bugprone-unused-return-value.CheckedReturnTypes: "::std::error_code;::std::error_condition;::std::errc;::std::expected;\
+    ::absl::Status;::absl::StatusOr"
+  bugprone-unused-return-value.AllowCastToVoid: false # drop a Status only with .IgnoreError() and a comment
+  cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor: true
+  cppcoreguidelines-special-member-functions.AllowMissingMoveFunctionsWhenCopyIsDeleted: true
+  google-readability-braces-around-statements.ShortStatementLines: 1   # 2 would allow `if (x)\n  return;`
+  google-runtime-int.TypeSuffix: _t
+  misc-include-cleaner.IgnoreHeaders: "(Eigen|unsupported|pinocchio|boost|cppad|mujoco|hpipm|blasfeo|gtest|gmock)/.*"
+  modernize-use-default-member-init.UseAssignment: true
+  modernize-use-emplace.IgnoreImplicitConstructors: true
+  performance-inefficient-string-concatenation.StrictMode: true
+  performance-unnecessary-value-param.AllowedTypes: "std::shared_ptr"   # OCS2 APIs take shared_ptr sinks (ToTW #188)
+  readability-operators-representation.BinaryOperators: "&&;&=;&;|;~;!;!=;||;|=;^;^="
+  readability-operators-representation.OverloadedOperators: "&&;&=;&;|;~;!;!=;||;|=;^;^="
+  # Naming: what the guide and the repository share (AGENTS.md "Naming"). Functions, methods, variables and parameters
+  # are left unchecked: camelCase, matching the file.
+  readability-identifier-naming.ClassCase: CamelCase
+  readability-identifier-naming.StructCase: CamelCase
+  readability-identifier-naming.UnionCase: CamelCase
+  readability-identifier-naming.EnumCase: CamelCase
+  readability-identifier-naming.ConceptCase: CamelCase
+  readability-identifier-naming.TypeAliasCase: CamelCase
+  readability-identifier-naming.TypeAliasIgnoredRegexp: "^([a-z][a-z0-9_]*_t|[A-Z][A-Z0-9_]*_T)$"
+  readability-identifier-naming.TypedefCase: CamelCase
+  readability-identifier-naming.TypedefIgnoredRegexp: "^([a-z][a-z0-9_]*_t|[A-Z][A-Z0-9_]*_T)$"
+  readability-identifier-naming.TypeTemplateParameterCase: CamelCase
+  readability-identifier-naming.TypeTemplateParameterIgnoredRegexp: "^[A-Z][A-Z0-9_]*_T$"
+  readability-identifier-naming.NamespaceCase: lower_case
+  readability-identifier-naming.GlobalConstantCase: CamelCase
+  readability-identifier-naming.GlobalConstantPrefix: k
+  readability-identifier-naming.GlobalConstantPointerCase: CamelCase
+  readability-identifier-naming.GlobalConstantPointerPrefix: k
+  readability-identifier-naming.StaticConstantCase: CamelCase
+  readability-identifier-naming.StaticConstantPrefix: k
+  readability-identifier-naming.ClassConstantCase: CamelCase
+  readability-identifier-naming.ClassConstantPrefix: k
+  readability-identifier-naming.EnumConstantCase: CamelCase
+  readability-identifier-naming.EnumConstantPrefix: k
+  readability-identifier-naming.ScopedEnumConstantCase: CamelCase
+  readability-identifier-naming.ScopedEnumConstantPrefix: k
+  readability-identifier-naming.PrivateMemberSuffix: _
+  readability-identifier-naming.ProtectedMemberSuffix: _
+  readability-identifier-naming.MacroDefinitionCase: UPPER_CASE
+# LINT.ThenChange(//tools/clang_tidy/sweep.clang-tidy:check_options)

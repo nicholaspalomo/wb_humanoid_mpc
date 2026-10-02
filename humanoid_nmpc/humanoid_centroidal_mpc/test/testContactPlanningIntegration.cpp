@@ -41,9 +41,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <thread>
 #include <vector>
 
-#include <ament_index_cpp/get_package_share_directory.hpp>
-
 #include <ocs2_core/misc/LoadData.h>
+#include <ocs2_core/misc/PropertyTree.h>
 #include <ocs2_oc/oc_data/PrimalSolution.h>
 #include <pinocchio/algorithm/center-of-mass.hpp>
 #include <pinocchio/algorithm/centroidal.hpp>
@@ -57,6 +56,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "humanoid_common_mpc/contact_planning/ContactPlanningReferenceManager.h"
 #include "humanoid_common_mpc/contact_planning/ContactScheduleAdaptation.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "robot_core/ResourcePaths.h"
 
 #include "absl/log/log.h"
 #include "absl/strings/str_cat.h"
@@ -79,11 +79,9 @@ namespace ocs2::humanoid {
 class ContactPlanningIntegrationTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    const std::string configDir = ament_index_cpp::get_package_share_directory("drc_atlas_centroidal_mpc");
-    const std::string descriptionDir = ament_index_cpp::get_package_share_directory("drc_atlas_description");
-    const std::string taskFile = configDir + "/config/mpc/task.yaml";
-    referenceFile_ = configDir + "/config/command/reference.yaml";
-    urdfFile_ = descriptionDir + "/urdf/atlas.urdf";
+    const std::string taskFile = robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml").value();
+    referenceFile_ = robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/command/reference.yaml").value();
+    urdfFile_ = robot::resolveResourcePath("robot_models/drc_atlas/drc_atlas_description/urdf/atlas.urdf").value();
 
     // Temporary task file with contact planning on, and next to it a temporary copy of the planner's own file
     // (contact_planning.yaml, found by its name in the task file's directory) with the mixed-integer planner, the
@@ -907,7 +905,7 @@ TEST_F(ContactPlanningIntegrationTest, DerivesHeadingModelParametersFromTheModel
   const PinocchioInterface::Model& model = interface_->getPinocchioInterface().getModel();
   const scalar_t weight = pinocchio::computeTotalMass(model) * config.shared.gravity;
 
-  boost::property_tree::ptree pt;
+  PropertyTree pt;
   loadData::readPropertyTree(tmpTaskFile_, pt);
   scalar_t mu = 0.0, muTorsion = 0.0;
   loadData::loadPtreeValue(pt, mu, "contacts.contactWrenchConeSoftConstraint.frictionCoefficient", /*verbose=*/false);

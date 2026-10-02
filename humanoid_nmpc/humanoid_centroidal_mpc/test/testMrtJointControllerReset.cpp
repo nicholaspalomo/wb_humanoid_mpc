@@ -50,11 +50,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "humanoid_centroidal_mpc/mrt/CentroidalMpcMrtJointController.h"
 #include "humanoid_common_mpc/gait/MotionPhaseDefinition.h"
+#include "humanoid_common_mpc/mrt/InProcessMpcLink.h"
 #include "support/AtlasReferenceStack.h"
 
 /*
- * The reset contract of CentroidalMpcMrtJointController, with its solver thread running: the DRC Atlas references
- * wired as in the sim (AtlasReferenceStack) around a scripted solver, which plans what each test tells it to.
+ * The reset contract of CentroidalMpcMrtJointController, with its link's solver thread running (and in one case with
+ * the caller running the link's iterations, as the lockstep closed loop does): the DRC Atlas references wired as in the
+ * sim (AtlasReferenceStack) around a scripted solver, which plans what each test tells it to.
  *
  * The user's run that motivated this: after a fall and a reset of the simulator every solve failed, each failure
  * requested a reset that cured nothing, and the controller logged the failure a hundred times a second for ever while
@@ -74,9 +76,22 @@ constexpr scalar_t kMpcFrequency = 1000.0;  // [Hz] the scripted solver is fast;
 /** The controller, its robot and the operator's side of the loop. */
 class ControllerHarness {
  public:
-  ControllerHarness() : description_(stack_.urdfFile()), robotState_(description_), action_(description_) {
-    controller_ = std::make_unique<CentroidalMpcMrtJointController>(description_, stack_.modelSettings(), stack_.model(), stack_.mpc(),
-                                                                    stack_.pinocchioInterface(), kMpcFrequency);
+  /**
+   * With InProcessMpcLink::Execution::kCaller the controller's link starts no solver thread: the test runs its
+   * iterations (link().runSolverIteration()), as the lockstep closed loop of humanoid_mpc_validation does.
+   */
+  explicit ControllerHarness(InProcessMpcLink::Execution execution = InProcessMpcLink::Execution::kSolverThread)
+      : description_(stack_.urdfFile()), robotState_(description_), action_(description_) {
+    if (execution == InProcessMpcLink::Execution::kCaller) {
+      InProcessMpcLink::Config config;
+      config.execution = execution;
+      controller_ = std::make_unique<CentroidalMpcMrtJointController>(description_, stack_.modelSettings(), stack_.model(),
+                                                                      InProcessMpcLink::factory(stack_.mpc(), std::move(config), &link_),
+                                                                      stack_.pinocchioInterface());
+    } else {
+      controller_ = std::make_unique<CentroidalMpcMrtJointController>(description_, stack_.modelSettings(), stack_.model(), stack_.mpc(),
+                                                                      stack_.pinocchioInterface(), kMpcFrequency);
+    }
     mpcJointIndices_ = description_.getJointIndices(stack_.modelSettings().mpcModelJointNames);
     setState(stack_.initialState());
     // The nominal posture of JOINT_PD is the posture the robot starts in, as SimFsmBridge captures it.
@@ -89,6 +104,8 @@ class ControllerHarness {
 
   AtlasReferenceStack& stack() { return stack_; }
   CentroidalMpcMrtJointController& controller() { return *controller_; }
+  /** The controller's link, for a harness built with InProcessMpcLink::Execution::kCaller. */
+  InProcessMpcLink& link() { return *link_; }
   scalar_t time() const { return time_; }
   void setTime(scalar_t time) { time_ = time; }
 
@@ -113,6 +130,12 @@ class ControllerHarness {
     const std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
     while (!controller_->ready() && std::chrono::steady_clock::now() < deadline) std::this_thread::sleep_for(std::chrono::milliseconds(1));
     ASSERT_TRUE(controller_->ready()) << "the solver thread produced no policy";
+  }
+
+  /** startMpcThread() at the current time on a caller's link: it serves the start-up reset and starts no thread. */
+  void startWithoutThread() {
+    robotState_.setTime(time_);
+    controller_->startMpcThread(robotState_);
   }
 
   /** One control cycle at the current time; the time then moves on by kControlPeriod. */
@@ -177,6 +200,7 @@ class ControllerHarness {
   std::vector<size_t> mpcJointIndices_;
   std::vector<scalar_t> nominal_;
   scalar_t time_ = 1.0;
+  InProcessMpcLink* link_ = nullptr;  // the controller's, with InProcessMpcLink::Execution::kCaller
   std::unique_ptr<CentroidalMpcMrtJointController> controller_;
 };
 
@@ -354,6 +378,53 @@ TEST(MrtJointControllerReset, AfterAFallTheFirstPolicyIsPlannedFromTheHeldRobotO
     ASSERT_TRUE(planned.has_value());
     EXPECT_TRUE((*planned)[0] && (*planned)[1]) << "the first policy after the fall still steps, at t = " << query;
   }
+}
+
+TEST(MrtJointControllerReset, WithoutASolverThreadTheCallersIterationsServeResetsAndFailuresOnItsClock) {
+  // The lockstep closed loop of humanoid_mpc_validation runs the controller on a link without a solver thread: the
+  // iteration the thread would run is called by the caller, and nothing is solved, reset or held off but what it asks
+  // for.
+  ControllerHarness harness(InProcessMpcLink::Execution::kCaller);
+  harness.startWithoutThread();
+  EXPECT_FALSE(harness.controller().ready()) << "the start-up reset solves nothing";
+  InProcessMpcLink::SolverIterationResult iteration = harness.link().runSolverIteration();
+  ASSERT_TRUE(iteration.status.ok()) << iteration.status;
+  EXPECT_EQ(iteration.retryDelay.count(), 0.0);
+  EXPECT_TRUE(harness.controller().ready()) << "the first iteration produced the first policy";
+  EXPECT_EQ(harness.controller().getResetSupervisor().numResetsServed(), 0u) << "the start-up reset is not a requested one";
+
+  // Entering WB_MPC requests a reset and holds; without an iteration nothing serves it, however long the caller cycles.
+  harness.controller().setControlMode("JOINT_PD");
+  harness.cycle(std::chrono::microseconds(0));
+  harness.controller().setControlMode("WB_MPC");
+  for (int k = 0; k < 50; ++k) harness.cycle(std::chrono::microseconds(0));
+  EXPECT_TRUE(harness.controller().isEnteringMpc());
+  EXPECT_FALSE(harness.controller().getPlannedContactFlags(harness.time()).has_value());
+  EXPECT_EQ(harness.controller().getResetSupervisor().numResetsServed(), 0u);
+
+  // One iteration serves the reset and solves; the next cycle executes the policy solved after it.
+  ASSERT_TRUE(harness.link().runSolverIteration().status.ok());
+  EXPECT_EQ(harness.controller().getResetSupervisor().numResetsServed(), 1u);
+  harness.cycle(std::chrono::microseconds(0));
+  EXPECT_TRUE(harness.controller().getPlannedContactFlags(harness.time()).has_value());
+
+  // Failures: a reset of the solver and no wait for the first, then the back-off the caller waits out on its own clock.
+  harness.stack().mpc().solver().failEverySolve(true);
+  const size_t maxFailures = harness.controller().getResetSupervisor().getConfig().maxConsecutiveFailures;
+  for (size_t failure = 1; failure <= maxFailures; ++failure) {
+    iteration = harness.link().runSolverIteration();
+    EXPECT_FALSE(iteration.status.ok());
+    if (failure < maxFailures) {
+      EXPECT_EQ(iteration.retryDelay.count(), 0.0) << "failure " << failure;
+      EXPECT_TRUE(harness.controller().isMpcHealthy()) << "failure " << failure;
+    }
+  }
+  EXPECT_GT(iteration.retryDelay.count(), 0.0) << "persistent failures back off";
+  EXPECT_FALSE(harness.controller().isMpcHealthy());
+  harness.stack().mpc().solver().failEverySolve(false);
+  iteration = harness.link().runSolverIteration();
+  EXPECT_TRUE(iteration.status.ok()) << iteration.status;
+  EXPECT_TRUE(harness.controller().isMpcHealthy()) << "a solve that succeeds ends it";
 }
 
 }  // namespace

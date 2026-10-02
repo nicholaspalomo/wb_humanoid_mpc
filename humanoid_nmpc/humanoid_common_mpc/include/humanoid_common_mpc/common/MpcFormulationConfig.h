@@ -32,7 +32,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
-#include <boost/property_tree/ptree_fwd.hpp>
+#include <ocs2_core/misc/PropertyTree.h>
 
 #include "absl/container/flat_hash_set.h"
 #include "absl/status/status.h"
@@ -176,7 +176,7 @@ absl::Status validateContactImplicitConfig(const ModelSettings::ContactImplicitC
  * @return OkStatus when the file has no `contact_implicit` block or every key of it is known; otherwise InvalidArgument
  *         naming the unknown `contact_implicit.<key>` and listing the keys the block may carry.
  */
-absl::Status checkContactImplicitBlockKeys(const boost::property_tree::ptree& taskTree);
+absl::Status checkContactImplicitBlockKeys(const PropertyTree& taskTree);
 
 // String to Enum conversions (supports snake_case and camelCase, case-insensitive). An unknown name is an
 // InvalidArgument whose message lists the canonical name of every entry of the registry, generated from the registry

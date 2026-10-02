@@ -1,0 +1,111 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+# The clang-tidy aspect's fixtures (tools/clang_tidy/README.md): deliberately bad code, so that the self-test
+# (//tools/clang_tidy:selftest, built by `make lint-tidy`) proves what the aspect reports, and
+# //tools/clang_tidy:test_clang_tidy_aspect what it runs. They are `manual`, outside //..., and every linter skips this
+# directory (tools/clang_tidy/clang_tidy.bzl:excluded_packages, tools/hooks/lint_files.py:fixture_dirs). Each fixture's
+# findings, deduplicated, are its <name>.expected file.
+
+package(default_visibility = ["//tools/clang_tidy:__pkg__"])
+
+filegroup(
+    name = "expected",
+    srcs = glob(["*.expected"]),
+)
+
+filegroup(
+    name = "renamed_files",
+    srcs = glob(["renamed/**"]),
+)
+
+# No finding under any candidate check.
+cc_library(
+    name = "clean",
+    srcs = ["Clean.cpp"],
+    hdrs = ["Clean.h"],
+    tags = ["manual"],
+)
+
+# A converting constructor: google-explicit-constructor, from the header's own action.
+cc_library(
+    name = "explicit_constructor",
+    hdrs = ["ExplicitConstructor.h"],
+    tags = ["manual"],
+)
+
+# `if (x)\n  return;` needs braces and `if (x) return;` does not (ShortStatementLines: 1).
+cc_library(
+    name = "braces",
+    srcs = ["Braces.cpp"],
+    hdrs = ["Braces.h"],
+    tags = ["manual"],
+)
+
+# A member that the .cpp's constructor initializes: modernize-use-default-member-init, located in the header and found
+# only by the .cpp's action, through the first-party header filter.
+cc_library(
+    name = "member_init",
+    srcs = ["MemberInit.cpp"],
+    hdrs = ["MemberInit.h"],
+    tags = ["manual"],
+)
+
+# A header constant named MAX_SIZE, used in two .cpp files and reached through `includes` (which the aspect passes as -I
+# whatever rules_cc does): one readability-identifier-naming finding after deduplication, whose fix-its, applied all or
+# nothing, give :renamed.
+cc_library(
+    name = "rename",
+    srcs = [
+        "rename/First.cpp",
+        "rename/Second.cpp",
+    ],
+    hdrs = ["rename/include/rename/Limits.h"],
+    includes = ["rename/include"],
+    tags = ["manual"],
+)
+
+# The golden copy of :rename after its fix-its. Not manual: every build of //... proves that the applied fixes compile.
+cc_library(
+    name = "renamed",
+    srcs = [
+        "renamed/First.cpp",
+        "renamed/Second.cpp",
+    ],
+    hdrs = ["renamed/include/rename/Limits.h"],
+    includes = ["renamed/include"],
+)
+
+# A dropped absl::Status: bugprone-unused-return-value.
+cc_library(
+    name = "discarded_status",
+    srcs = ["DiscardedStatus.cpp"],
+    hdrs = ["DiscardedStatus.h"],
+    tags = ["manual"],
+    deps = ["@abseil-cpp//absl/status"],
+)
+
+# Class template argument deduction of a template without deduction guides: clang-diagnostic-ctad-maybe-unsupported.
+cc_library(
+    name = "ctad",
+    srcs = ["Ctad.cpp"],
+    hdrs = ["Ctad.h"],
+    tags = ["manual"],
+)
+
+# A generated source, which the aspect never lints.
+genrule(
+    name = "generated_source",
+    outs = ["Generated.cpp"],
+    cmd = "echo 'int generatedValue() { return 1; }' > $@",
+    tags = ["manual"],
+)
+
+cc_library(
+    name = "generated",
+    srcs = [
+        "Clean.cpp",
+        ":generated_source",
+    ],
+    hdrs = ["Clean.h"],
+    tags = ["manual"],
+)

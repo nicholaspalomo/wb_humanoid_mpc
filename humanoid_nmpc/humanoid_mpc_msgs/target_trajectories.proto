@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package humanoid_mpc_msgs;
+
+import "humanoid_mpc_msgs/vector.proto";
+import "nproto/options.proto";
+
+// ocs2::TargetTrajectories.
+// Next ID: 4
+message TargetTrajectories {
+  option (nproto.generate_struct) = "ocs2::humanoid::msgs::TargetTrajectories";
+
+  reserved 4 to max;
+
+  repeated double time = 1;
+  repeated Vector state = 2;
+  repeated Vector input = 3;
+}

@@ -50,9 +50,11 @@ class MujocoSimInterface;
  */
 class CheaterSimContactEstimator final : public robot::model::ContactEstimator {
  public:
+  /** Logs once, here, when the simulator has no contact detection: estimateContactFlags() runs on the control thread. */
   explicit CheaterSimContactEstimator(const MujocoSimInterface& sim);
 
-  std::vector<bool> estimateContactFlags(const robot::model::RobotState& robotState) override;
+  /** Reads the simulator's masks (atomics); allocates nothing once `flags` holds the contact points. */
+  void estimateContactFlags(const robot::model::RobotState& robotState, std::vector<bool>& flags) override;
 
   std::string getName() const override { return "CheaterSimContactEstimator"; }
 
@@ -68,9 +70,12 @@ class CheaterSimContactEstimator final : public robot::model::ContactEstimator {
                                           size_t numDetectedContacts,
                                           size_t numContactPoints);
 
+  /** flagsFromMasks() into `flags`, resized to `numContactPoints`. */
+  static void writeFlagsFromMasks(
+      uint32_t groundTruthMask, uint32_t unresolvedMask, size_t numDetectedContacts, size_t numContactPoints, std::vector<bool>& flags);
+
  private:
   const MujocoSimInterface& sim_;
-  bool warnedNoContactDetection_{false};
 };
 
 /** Name of the CheaterSimContactEstimator in the ContactEstimatorRegistry (task file `contactEstimator: cheater_sim`). */

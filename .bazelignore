@@ -2,7 +2,7 @@
 bazel-bin
 bazel-wb_humanoid_mpc
 
-# Legacy colcon build/install directories
+# The build output of the CMake build this repository had before Bazel, which an old checkout may still hold
 build
 install
 log

@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package humanoid_mpc_msgs;
+
+import "nproto/options.proto";
+
+// Next ID: 4
+message Vector3 {
+  option (nproto.generate_struct) = "ocs2::humanoid::msgs::Vector3";
+
+  reserved 4 to max;
+
+  double x = 1;
+  double y = 2;
+  double z = 3;
+}

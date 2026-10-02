@@ -25,7 +25,6 @@ cc_library(
         "@eigen",
         "@abseil-cpp//absl/container:flat_hash_map",
         "@urdf",
-        "@ros2_ament_index_cpp",
     ],
 )
 

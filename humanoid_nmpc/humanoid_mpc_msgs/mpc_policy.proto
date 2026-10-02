@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package humanoid_mpc_msgs;
+
+import "humanoid_mpc_msgs/controller_type.proto";
+import "humanoid_mpc_msgs/mode_schedule.proto";
+import "humanoid_mpc_msgs/mpc_solver_status.proto";
+import "humanoid_mpc_msgs/performance_index.proto";
+import "humanoid_mpc_msgs/system_observation.proto";
+import "humanoid_mpc_msgs/target_trajectories.proto";
+import "humanoid_mpc_msgs/vector.proto";
+import "humanoid_mpc_msgs/viewer_annotations.proto";
+import "nproto/options.proto";
+
+// One MPC solution: ocs2::PrimalSolution plus ocs2::CommandData and ocs2::PerformanceIndex, as
+// MPC_MRT_Interface::copyToBuffer() assembles them in process.
+// Next ID: 15
+message MpcPolicy {
+  option (nproto.generate_struct) = "ocs2::humanoid::msgs::MpcPolicy";
+
+  reserved 15 to max;
+
+  // The robot's reset counters this solution was solved after (ResetRequests). The robot drops a policy whose
+  // resets_served is below the requests it has made: it was solved before a reset the robot asked for.
+  uint64 resets_served = 1;
+  uint64 full_resets_served = 2;
+  MpcSolverStatus solver_status = 3;
+
+  // CommandData.
+  SystemObservation init_observation = 4;
+  TargetTrajectories target_trajectories = 5;
+
+  // PrimalSolution.
+  repeated double time_trajectory = 6;
+  repeated Vector state_trajectory = 7;
+  repeated Vector input_trajectory = 8;
+  repeated uint64 post_event_indices = 9;
+  ModeSchedule mode_schedule = 10;
+  ControllerType controller_type = 11;
+  // The controller at each node of time_trajectory, laid out as the controller's flattenSingle() writes it
+  // (FeedforwardController: uff; LinearController: [uff_0, K_0,:, uff_1, K_1,:, ...]). A controller whose time stamps
+  // are time_trajectory, as OCS2's multiple-shooting solvers build it, travels as its own node values, so that the pre-
+  // and post-event nodes of an event, which share one time, keep theirs; ControllerBase::flatten() would give both the
+  // pre-event values. A controller on other time stamps is sampled at time_trajectory with ControllerBase::flatten().
+  // See humanoid_nmpc/humanoid_mpc_ipc/include/humanoid_mpc_ipc/MpcMessageConversions.h.
+  repeated Vector controller_data = 12;
+
+  PerformanceIndex performance = 13;
+  ViewerAnnotations annotations = 14;
+}

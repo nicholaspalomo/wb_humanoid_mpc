@@ -171,7 +171,7 @@ TEST(BouncingMassTest, state_triggered_hybrid_slq) {
 
   // SLQ
   ocs2::SLQ slq(ddpSettings, stateTriggeredRollout, problem, operatingTrajectories);
-  slq.run(startTime, x0, finalTime, &initController);
+  slq.run(startTime, x0, /*initMode=*/0, finalTime, &initController);
   const auto solutionST = slq.primalSolution(finalTime);
 
   // Test 1: No penetration of Guard Surfaces

@@ -1,36 +1,56 @@
 # LINT.IfChange(system_dependencies)
+# The Ubuntu 24.04 packages that the build, the tests and the tools need. docker/Dockerfile, CI
+# (.github/workflows/build_test.yml) and tools/ci_local.sh install them. Write one package per line and only full-line
+# comments: the install pipelines drop the lines that start with '#' and pass every other word to apt-get.
+#
+# Left out on purpose:
+# - Pinocchio, coal and eigenpy: docker/install_robotpkg.sh installs them from robotpkg into /opt/openrobots.
+# - Boost: no Boost package is installed explicitly. Pinocchio and coal pull the Boost 1.83 libraries they link as their
+#   own dependencies, and that is the only reason Boost is on the system.
+# - Abseil, Protocol Buffers, ZeroMQ and googletest: Bazel builds them from the BCR. A second copy of their headers on
+#   the compiler's default include path lets a target that misses a Bazel dependency compile against the wrong release
+#   (tools/hooks/test_include_style.py).
+# - ROS: the processes talk over ZeroMQ + Protocol Buffers and draw with Rerun (humanoid_nmpc/docs/distributed_runtime).
+
+# Toolchain. cmake also builds blasfeo and hpipm in their repository rules (bazel/system_libs.bzl).
 clang-format
 make
 build-essential
+cmake
+ninja-build
+pkg-config
+patch
+xz-utils
+ccache
+
+# The libraries bazel/system_libs.bzl wraps.
 libeigen3-dev
-libglpk-dev
-libboost-all-dev
-libboost-filesystem-dev
-libboost-log-dev
-libglfw3-dev
+libyaml-cpp-dev
 liburdfdom-dev
+liburdfdom-headers-dev
+libtinyxml2-dev
+libconsole-bridge-dev
+libglfw3-dev
+libglew-dev
+
+# OpenGL and X for the MuJoCo viewer (GLFW + GLEW) on the VNC display.
+libgl-dev
+libgl1-mesa-dri
+libglx-mesa0
+libegl1
 libxinerama-dev
 libxcursor-dev
 libxi-dev
-ninja-build
-ccache
-python3-pygame
-python3-tk
+libxrandr-dev
+# The X server the Tk tests of remote_control start for themselves where the caller has no display, as in CI, so that
+# they run there instead of being skipped (humanoid_nmpc/remote_control/test/operator_test_support.py).
+xvfb
+
+# The system Python 3.12: tools/locomotion_heuristics (with robotpkg's Pinocchio), the hooks and black in tools/hooks,
+# and Jupyter (tools/launch_jupyter.sh). The operator tools run under Bazel's hermetic Python 3.11 and its own pip hub.
 python3-pip
 python3-venv
+python3-numpy
+python3-yaml
 black
-libgtest-dev
-google-mock
-libgmock-dev
-
-ros-${ROS_DISTRO}-ament-cmake-clang-format
-ros-${ROS_DISTRO}-joint-state-publisher-gui
-ros-${ROS_DISTRO}-xacro
-ros-${ROS_DISTRO}-mcap-vendor
-ros-${ROS_DISTRO}-interactive-markers
-ros-${ROS_DISTRO}-pinocchio
-ros-${ROS_DISTRO}-rviz2
-ros-${ROS_DISTRO}-rosidl-typesupport-fastrtps-c
-ros-${ROS_DISTRO}-ament-cmake-gmock
-ros-${ROS_DISTRO}-plotjuggler-ros
 # LINT.ThenChange(//docker/Dockerfile:system_dependencies, //.github/workflows/build_test.yml:system_dependencies, //.github/workflows/format_test.yml:formatter_versions)

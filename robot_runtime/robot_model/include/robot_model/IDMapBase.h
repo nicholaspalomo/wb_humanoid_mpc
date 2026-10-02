@@ -39,7 +39,16 @@ class IDMapBase {
 
   template <typename It, typename ScalarType, IDMapExtractor<T, ScalarType> Extractor>
   Eigen::Matrix<ScalarType, Eigen::Dynamic, 1> toEigenVector(It begin, It end, Extractor extractor, ScalarType defaultValue) const {
-    Eigen::Matrix<ScalarType, Eigen::Dynamic, 1> vector(std::distance(begin, end));
+    Eigen::Matrix<ScalarType, Eigen::Dynamic, 1> vector;
+    writeEigenVector(begin, end, extractor, defaultValue, vector);
+    return vector;
+  }
+
+  /** toEigenVector() into `vector`, resized to the number of ids: no allocation once it has that size. */
+  template <typename It, typename ScalarType, IDMapExtractor<T, ScalarType> Extractor>
+  void writeEigenVector(
+      It begin, It end, Extractor extractor, ScalarType defaultValue, Eigen::Matrix<ScalarType, Eigen::Dynamic, 1>& vector) const {
+    vector.resize(std::distance(begin, end));
     int index = 0;
     for (const std::iter_value_t<It>& id : std::ranges::subrange(begin, end)) {
       const std::optional<T>& val = this->at(id);
@@ -50,7 +59,6 @@ class IDMapBase {
       }
       index++;
     }
-    return vector;
   }
 
   bool inRange(size_t id) const noexcept {

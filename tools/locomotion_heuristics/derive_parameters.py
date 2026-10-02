@@ -52,9 +52,10 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 #: Where a robot keeps its files, by the name used with --robot. Every centroidal MPC package in robot_models is
 #: listed; the whole-body ones are deliberately absent, because WBMpcInterface never builds the heuristic layer.
 #:
-#: NOT a Bazel target. Pinocchio reaches Python through the ROS install (`/opt/ros/jazzy`, Python 3.12) while Bazel's
-#: toolchain is a hermetic 3.11 that cannot see it, so this runs under the dev container's system interpreter like
-#: tools/hooks/format_code.py does. `make test-heuristic-parameters` is the entry point.
+#: NOT a Bazel target. Pinocchio reaches Python through robotpkg's bindings (`/opt/openrobots`, Python 3.12, on the
+#: PYTHONPATH of the dev image and of setup_env.sh) while Bazel's toolchain is a hermetic 3.11 that cannot see them, so
+#: this runs under the dev container's system interpreter like tools/hooks/format_code.py does.
+#: `make test-heuristic-parameters` is the entry point.
 # LINT.IfChange(derive_parameters_robots)
 ROBOTS: Dict[str, Dict[str, str]] = {
     "drc_atlas": {

@@ -28,11 +28,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ****************************************************************************"""
 
 """
-Tests for the ROS topic-based MPC parameter publishing pipeline.
+Tests for the bus-based MPC parameter publishing pipeline.
 
-Verifies the decoupling between real-time MPC parameter updates (via ROS topic)
-and explicit YAML file saves (via "Save to YAML" button).  The tests use a mock
-publisher to capture published messages without requiring a running ROS graph.
+Verifies the decoupling between real-time MPC parameter updates (a YamlDocument on operator/mpc_parameters)
+and explicit YAML file saves (via "Save to YAML" button). The tests give the tab the GUI's publisher over a bus that
+records, and assert on the messages that would have gone out.
 """
 
 import os
@@ -40,55 +40,30 @@ import shutil
 import tempfile
 import unittest
 
+import yaml
+
+from humanoid_mpc_ipc import topics
+from humanoid_mpc_msgs import yaml_document_pb2
+from operator_test_support import RecordingPublisher, repo_path, requires_display
 from remote_control.tk_app.yaml_editor_utils import load_yaml_safe
 
 
-class MockPublisher:
-    """Stand-in for rclpy Publisher that records published messages."""
-
-    def __init__(self):
-        self.messages = []
-
-    def publish(self, msg):
-        self.messages.append(msg)
-
-    @property
-    def last_data(self):
-        if not self.messages:
-            return None
-        return self.messages[-1].data
-
-    @property
-    def publish_count(self):
-        return len(self.messages)
-
-
-class MockStringMsg:
-    """Minimal stand-in for std_msgs.msg.String."""
-
-    def __init__(self):
-        self.data = ""
-
-
+@requires_display
 class TestMpcParamsTopicPublishing(unittest.TestCase):
     """Test suite verifying that MpcParamsTab publishes slider values to a
-    ROS topic without modifying task.yaml on disk."""
+    topic without modifying task.yaml on disk."""
 
     @classmethod
     def setUpClass(cls):
-        cls.repo_root = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "../../..")
-        )
-        cls.atlas_task_file = os.path.join(
-            cls.repo_root,
-            "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml",
+        cls.atlas_task_file = repo_path(
+            "robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml"
         )
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
         self.tmp_task_file = os.path.join(self.tmpdir, "task.yaml")
         shutil.copy2(self.atlas_task_file, self.tmp_task_file)
-        self.mock_publisher = MockPublisher()
+        self.mock_publisher = RecordingPublisher(topics.OPERATOR_MPC_PARAMETERS)
         # Snapshot file content to detect unintended writes
         with open(self.tmp_task_file, "r") as f:
             self.original_content = f.read()
@@ -168,7 +143,7 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
             self.assertFalse(
                 self._file_was_modified(),
                 "task.yaml should NOT be modified by slider changes — "
-                "only the ROS topic should be used",
+                "only the topic should be used",
             )
         finally:
             root.destroy()
@@ -230,7 +205,7 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
     #  3. "Reset All" publishes reset values to topic
     # ──────────────────────────────────────────────────────────
     def test_reset_all_publishes_to_topic(self):
-        """Reset All should publish default values to the ROS topic."""
+        """Reset All should publish default values to the topic."""
         import tkinter as tk
 
         root = tk.Tk()
@@ -249,7 +224,7 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
             self.assertGreater(
                 self.mock_publisher.publish_count,
                 pub_count_before,
-                "Reset All should publish to the ROS topic",
+                "Reset All should publish to the topic",
             )
         finally:
             root.destroy()
@@ -305,7 +280,7 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
     #  4. Reload publishes loaded values to topic
     # ──────────────────────────────────────────────────────────
     def test_reload_publishes_to_topic(self):
-        """Reload should publish the freshly-loaded values to the ROS topic."""
+        """Reload should publish the freshly-loaded values to the topic."""
         import tkinter as tk
 
         root = tk.Tk()
@@ -319,7 +294,7 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
             self.assertGreater(
                 self.mock_publisher.publish_count,
                 pub_count_before,
-                "Reload should publish to the ROS topic",
+                "Reload should publish to the topic",
             )
         finally:
             root.destroy()
@@ -542,7 +517,7 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
 
             # The published message should be parseable YAML
             self.assertGreater(self.mock_publisher.publish_count, 0)
-            yaml_str = self.mock_publisher.last_data
+            yaml_str = self.mock_publisher.last_yaml
 
             # Write to temp file and parse (same as C++ side does)
             tmp_parse = os.path.join(self.tmpdir, "parse_test.yaml")
@@ -619,7 +594,7 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
             tab.after_cancel(tab._debounce_publish_id)
             tab._debounce_publish_id = None
             tab._publish_to_topic()
-            published = yaml.safe_load(self.mock_publisher.last_data)
+            published = yaml.safe_load(self.mock_publisher.last_yaml)
             self.assertEqual(published["contactEstimator"], "always_in_contact")
             self.assertFalse(self._file_was_modified())
             self.assertFalse(tab.is_cheater_contact_estimator_selected())
@@ -643,14 +618,14 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
             tab._debounce_publish_id = None
             tab._publish_to_topic()
             self.assertEqual(
-                yaml.safe_load(self.mock_publisher.last_data)["contactEstimator"],
+                yaml.safe_load(self.mock_publisher.last_yaml)["contactEstimator"],
                 "cheater_sim",
             )
             tab.reset_all_defaults()
             self.assertFalse(tab.is_cheater_contact_estimator_selected())
             self.assertEqual(notifications[-1], "always_in_contact")
             self.assertEqual(
-                yaml.safe_load(self.mock_publisher.last_data)["contactEstimator"],
+                yaml.safe_load(self.mock_publisher.last_yaml)["contactEstimator"],
                 "always_in_contact",
             )
         finally:
@@ -674,6 +649,44 @@ class TestMpcParamsTopicPublishing(unittest.TestCase):
             self.assertTrue(tab.is_cheater_contact_estimator_selected())
             self.assertIsNone(tab._debounce_publish_id)
             self.assertEqual(self.mock_publisher.publish_count, 0)
+        finally:
+            root.destroy()
+
+    def test_the_message_is_a_yaml_document_with_the_task_file_and_the_sliders(self):
+        """What goes on operator/mpc_parameters is a YamlDocument carrying exactly the YAML text the tab builds."""
+        import tkinter as tk
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            tab = self._create_tab(root, "Q")
+            key = list(tab.slider_rows.keys())[0]
+            row = tab.slider_rows[key]
+            row.set_value(row.get_value() * 1.5)
+            tab._publish_to_topic()
+
+            self.assertEqual(self.mock_publisher.publish_count, 1)
+            message = self.mock_publisher.last_message
+            self.assertIsInstance(message, yaml_document_pb2.YamlDocument)
+            self.assertEqual(
+                self.mock_publisher.bus.published[0][0],
+                topics.OPERATOR_MPC_PARAMETERS,
+            )
+            self.assertEqual(message.yaml, tab._build_yaml_with_slider_values())
+            # The task file's document (and the planner's, when it has one), with the slider's value in it.
+            published = yaml.safe_load(message.yaml)
+            self.assertLessEqual(
+                set(load_yaml_safe(self.tmp_task_file)), set(published)
+            )
+            node = published
+            for part in key.split("."):
+                node = node[part.strip("\"'")]
+            # Written with six significant digits (yaml_editor_utils._format_yaml_scalar).
+            self.assertAlmostEqual(
+                float(node),
+                row.get_value(),
+                delta=1e-5 * max(1.0, abs(row.get_value())),
+            )
         finally:
             root.destroy()
 

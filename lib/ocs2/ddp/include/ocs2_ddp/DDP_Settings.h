@@ -121,17 +121,17 @@ struct Settings {
 
 /**
  * This function loads the "DDP_Settings" variables from a config file. This file contains the settings for the SQL and OCS2 algorithms.
- * Here, we use the INFO format which was created specifically for the property tree library (refer to www.goo.gl/fV3yWA).
+ * The file is YAML (extension .yaml or .yml), read by loadData::readPropertyTree(), which refuses any other format.
  *
  * It has the following format: <br>
- * slq  <br>
- * {  <br>
- *   maxIteration        value    <br>
- *   minLearningRate     value    <br>
- *   maxLearningRate     value    <br>
- *   minRelCost          value    <br>
+ * ddp:  <br>
+ *   algorithm:           SLQ    <br>
+ *   maxNumIterations:    value  <br>
+ *   minRelCost:          value  <br>
  *   (and so on for the other fields) <br>
- * }  <br>
+ *   lineSearch:  <br>
+ *     minStepLength:     value  <br>
+ *     (and so on for the line_search::Settings fields) <br>
  *
  * If a value for a specific field is not defined it will set to the default value defined in "DDP_Settings".
  *

@@ -33,7 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <iostream>
 #include <string>
 
-#include <boost/filesystem.hpp>
+#include <filesystem>
 
 #include <ocs2_core/initialization/DefaultInitializer.h>
 #include <ocs2_ddp/ILQR.h>
@@ -53,7 +53,7 @@ class CircularKinematicsTest : public testing::TestWithParam<std::tuple<ocs2::se
 
   CircularKinematicsTest() {
     // optimal control problem
-    boost::filesystem::path filePath(__FILE__);
+    std::filesystem::path filePath(__FILE__);
     problem = ocs2::createCircularKinematicsProblem("/tmp/ocs2/ddp_test_generated");
 
     // initializer

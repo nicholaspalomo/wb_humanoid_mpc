@@ -1,0 +1,31 @@
+load("@rules_python//python:defs.bzl", "py_test")
+
+# The ROS-free dev container: its image (docker/), its compose and dev container definitions, and CI's copy of the
+# image's setup. No ROS, one Pinocchio from robotpkg and one environment for all three, one VNC display, and the ports
+# of the ZeroMQ bus and of Rerun published.
+py_test(
+    name = "test_dev_container",
+    size = "small",
+    srcs = ["test_dev_container.py"],
+    data = [
+        "//:.devcontainer/devcontainer.json",
+        "//:.devcontainer/openbox_layout.py",
+        "//:.devcontainer/post_create.sh",
+        "//:.devcontainer/shell_init.sh",
+        "//:.devcontainer/start_vnc.sh",
+        "//:.github/ISSUE_TEMPLATE/bug_report.md",
+        "//:.github/ISSUE_TEMPLATE/feature_request.md",
+        "//:.github/workflows/build_test.yml",
+        "//:dependencies.txt",
+        "//:docker-compose.bridge.yaml",
+        "//:docker-compose.gpu.yaml",
+        "//:docker-compose.yaml",
+        "//:docker/Dockerfile",
+        "//:docker/image_build.bash",
+        "//:docker/install_robotpkg.sh",
+        "//:docker/launch_wb_mpc.bash",
+        "//:setup_env.sh",
+        "//:tools/ci_local.sh",
+        "//config/ipc:network.textproto",
+    ],
+)

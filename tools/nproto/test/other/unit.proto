@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package nproto_test.other;
+
+import "nproto/options.proto";
+
+enum Unit {
+  option (nproto.generate_enum) = "nproto::test::other::Unit";
+
+  UNIT_METER = 0;
+  UNIT_FOOT = 1;
+}

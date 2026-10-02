@@ -1,0 +1,32 @@
+# wb-humanoid-robot@<robot>.service: the robot process of the robot configuration <robot> (drc_atlas, unitree_g1_wb,
+# ...) in its container, started at boot (tools/deploy/README.md). The container itself restarts the process if it
+# exits (restart: unless-stopped in docker-compose.robot.yaml); this unit starts the container once Docker and the
+# network are up, and stops it with the machine.
+#
+#   make deploy-robot ROBOT=<robot> HOST=<robot host> SERVICE=enable   # installs, enables and starts it
+#   sudo systemctl status wb-humanoid-robot@<robot>
+#   docker compose --project-directory <deployment directory> logs -f robot
+#
+# @DEPLOY_DIR@ is the deployment directory (docker-compose.robot.yaml, .env, network.textproto), which deploy_robot.sh
+# fills in when it installs the unit. The directory and its compose project hold one robot configuration, the one
+# deployed last (ROBOT= of its .env): an instance of another refuses to start rather than run the container under its
+# own name (deploy_robot.sh --service enable disables the others; one robot per machine).
+[Unit]
+Description=wb_humanoid_mpc robot process (%i) in its container
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=@DEPLOY_DIR@
+Environment=ROBOT=%i
+ExecStartPre=/bin/sh -c 'grep -qx "ROBOT=%i" .env || { echo "wb-humanoid-robot@%i: $$(pwd) holds the deployment of $$(sed -n "s/^ROBOT=//p" .env); make deploy-robot ROBOT=%i deploys this one" >&2; exit 1; }'
+ExecStart=/usr/bin/docker compose up --detach --no-build --remove-orphans
+ExecStop=/usr/bin/docker compose down
+TimeoutStartSec=300
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target

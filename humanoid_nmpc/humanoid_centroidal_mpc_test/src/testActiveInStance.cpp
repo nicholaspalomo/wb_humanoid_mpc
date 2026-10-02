@@ -3,7 +3,6 @@ Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 ******************************************************************************/
 
 #include <gtest/gtest.h>
-#include <boost/property_tree/ptree.hpp>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
@@ -18,6 +17,7 @@ Copyright (c) 2026, Nicholas Palomo. All rights reserved.
 #include <ocs2_centroidal_model/CentroidalModelInfo.h>
 #include <ocs2_centroidal_model/FactoryFunctions.h>
 #include <ocs2_core/misc/LoadData.h>
+#include <ocs2_core/misc/PropertyTree.h>
 #include "humanoid_centroidal_mpc/common/CentroidalMpcRobotModel.h"
 #include "humanoid_centroidal_mpc/cost/CentroidalMpcEndEffectorFootCost.h"
 
@@ -50,7 +50,7 @@ TEST(ActiveInStanceTest, VerifyYamlParsing) {
   const std::string atlasTaskFile = runfilePath("robot_models/drc_atlas/drc_atlas_centroidal_mpc/config/mpc/task.yaml");
   ASSERT_TRUE(std::filesystem::exists(atlasTaskFile)) << "Atlas task.yaml not found: " << atlasTaskFile;
 
-  boost::property_tree::ptree pt;
+  PropertyTree pt;
   loadData::readPropertyTree(atlasTaskFile, pt);
 
   bool activeInStance = false;
@@ -58,44 +58,25 @@ TEST(ActiveInStanceTest, VerifyYamlParsing) {
   EXPECT_FALSE(activeInStance) << "Atlas task.yaml must have activeInStance = false";
 
   // Test with GUI format: "activeInStance: 1"
-  std::string tempLiveYaml = std::filesystem::temp_directory_path() / "test_live.yaml";
-  {
-    std::ofstream ofs(tempLiveYaml);
-    ofs << "task_space_foot_cost_weights:\n  activeInStance: 1\n";
-  }
-  boost::property_tree::ptree ptLive;
-  loadData::readPropertyTree(tempLiveYaml, ptLive);
+  PropertyTree ptLive;
+  loadData::readPropertyTreeFromString("task_space_foot_cost_weights:\n  activeInStance: 1\n", ptLive);
   bool activeInStanceLive = false;
   loadData::loadPtreeValue(ptLive, activeInStanceLive, "task_space_foot_cost_weights.activeInStance", /*verbose=*/false);
   EXPECT_TRUE(activeInStanceLive) << "activeInStance: 1 from GUI should parse as true";
 
   // Test with false format: "activeInStance: false"
-  std::string tempFalseYaml = std::filesystem::temp_directory_path() / "test_false.yaml";
-  {
-    std::ofstream ofs(tempFalseYaml);
-    ofs << "task_space_foot_cost_weights:\n  activeInStance: false\n";
-  }
-  boost::property_tree::ptree ptFalse;
-  loadData::readPropertyTree(tempFalseYaml, ptFalse);
+  PropertyTree ptFalse;
+  loadData::readPropertyTreeFromString("task_space_foot_cost_weights:\n  activeInStance: false\n", ptFalse);
   bool activeInStanceFalse = true;
   loadData::loadPtreeValue(ptFalse, activeInStanceFalse, "task_space_foot_cost_weights.activeInStance", /*verbose=*/false);
   EXPECT_FALSE(activeInStanceFalse) << "activeInStance: false should parse as false";
 
   // Test with integer 0 format: "activeInStance: 0"
-  std::string tempZeroYaml = std::filesystem::temp_directory_path() / "test_zero.yaml";
-  {
-    std::ofstream ofs(tempZeroYaml);
-    ofs << "task_space_foot_cost_weights:\n  activeInStance: 0\n";
-  }
-  boost::property_tree::ptree ptZero;
-  loadData::readPropertyTree(tempZeroYaml, ptZero);
+  PropertyTree ptZero;
+  loadData::readPropertyTreeFromString("task_space_foot_cost_weights:\n  activeInStance: 0\n", ptZero);
   bool activeInStanceZero = true;
   loadData::loadPtreeValue(ptZero, activeInStanceZero, "task_space_foot_cost_weights.activeInStance", /*verbose=*/false);
   EXPECT_FALSE(activeInStanceZero) << "activeInStance: 0 should parse as false";
-
-  std::filesystem::remove(tempLiveYaml);
-  std::filesystem::remove(tempFalseYaml);
-  std::filesystem::remove(tempZeroYaml);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
