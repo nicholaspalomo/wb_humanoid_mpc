@@ -260,7 +260,7 @@ _MPC_LINK_TEST_DEPS = [
     "@googletest//:gtest_main",
 ]
 
-# Upstream OCS2 GaussNewtonDDP's solution window, which the MPC node applies to every policy whatever the solver.
+# Upstream OCS2 GaussNewtonDDP's solution window, which the MPC node applies to every policy.
 cc_test(
     name = "test_solution_time_window",
     size = "small",

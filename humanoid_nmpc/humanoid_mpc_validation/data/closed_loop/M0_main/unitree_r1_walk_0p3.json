@@ -5,16 +5,16 @@
   "formulation": "centroidal",
   "scenario": "walk_0p3",
   "provenance": {
-    "git_commit": "c331ddd76dcf3917bdd9d0578eee6f518a915ba8",
-    "worktree_state": "2010 changed paths, diff sha256 428fb8a4730b76da",
+    "git_commit": "b41650f060e24cee9b29dec4561a6dc957bc57f1",
+    "worktree_state": "36 changed paths, diff sha256 61aac8ea80ef8f10",
     "machine": "Intel(R) Core(TM) Ultra 7 265K, 20 logical cores, 30.2 GiB",
     "configuration_sha256": {
-      "robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.yaml": "9e27af7889bb9f0baf17aebbf7e5d36dabf7dfe7b5621d5f3af32f1e13039298",
-      "robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/command/reference.yaml": "5cc173899a1d79f3e0b2e569b6cc3cb81c75f4cea2c53316f02a157451268e33",
-      "humanoid_nmpc/humanoid_common_mpc/config/command/gait.yaml": "df9b8154d7fe9939bc45541ee5163049b392c44880e774c5ea85653ae1ce9897",
-      "robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/controller/joint_pd_gains.yaml": "2a386d5fe8be024939c75b97df419e7be63dce474b9bfa1cc67119fe3fe25820",
+      "robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/mpc/task.textproto": "7109a93bb8efdb67ffcea4c51d5f6ff03ea65dd4233a653a3040c25120530af5",
+      "robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/command/reference.textproto": "25dbb8dfdfc385f14b505a36c2f8a93c90a4fc2d6142b69ffd7a25241cd21e56",
+      "humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto": "656f852101595179bec1c5959eabb12e25407cac2b2ed0bb0fed4fdfa3acca47",
+      "robot_models/unitree_r1/unitree_r1_centroidal_mpc/config/controller/joint_pd_gains.textproto": "76705347b3c34ba67d0cb8470269f6cb555f3f651a20725a8492367fdd2af321",
       "robot_models/unitree_r1/unitree_r1_description/urdf/R1.urdf": "61abc014c2b5fedce720cc3558f069aeda463ea27966f8e3cf5529e034a7b29c",
-      "robot_models/unitree_r1/unitree_r1_description/urdf/R1.xml": "0d52855e1ad69cdeb0ca1a79d2b0b7b16e28aee9351e8a1dd71af1fa535e82b7"
+      "robot_models/unitree_r1/unitree_r1_description/urdf/R1.xml": "46474a797903ecb4d24a23b55eb69f825ec8b390790c7e2a01e71ac44ad93cff"
     }
   },
   "settings": {
@@ -46,37 +46,37 @@
     "fall_reason": ""
   },
   "base_height": {
-    "mean_m": 0.7054347064718144,
-    "std_m": 0.012948076575356947,
-    "rms_error_m": 0.03737950638005199
+    "mean_m": 0.7085461651364194,
+    "std_m": 0.01078938624929177,
+    "rms_error_m": 0.033726227451727896
   },
   "tilt": {
-    "rms_rad": 0.05558754498112876,
-    "max_rad": 0.107344552500917
+    "rms_rad": 0.0480445137235821,
+    "max_rad": 0.09668980562481133
   },
   "velocity": {
-    "rms_error_mps": 0.25568839704317525
+    "rms_error_mps": 0.23695353784960616
   },
   "yaw_rate": {
-    "rms_error_radps": 0.2848208172732889
+    "rms_error_radps": 0.2727163209364119
   },
   "heading": {
-    "cumulative_final_rad": -1.040052379831188,
-    "cumulative_max_rad": 0.11127260277289293,
-    "cumulative_min_rad": -1.0798834359817489
+    "cumulative_final_rad": -0.7755090729856107,
+    "cumulative_max_rad": 0.11226799694907462,
+    "cumulative_min_rad": -0.8079110318956533
   },
   "stance_foot_slip": {
-    "max_m": 0.009924335388865493,
-    "rms_m": 0.0033033339740688077,
-    "stance_phases": 62
+    "max_m": 0.0072244724495131,
+    "rms_m": 0.0030859946573497587,
+    "stance_phases": 43
   },
   "joint_torque": {
-    "rms_nm": 8.165990066811128
+    "rms_nm": 7.660702256863214
   },
   "initial_state_gap": {
-    "max_rotation_rad": 0.022441607902104015,
+    "max_rotation_rad": 0.020466358461734484,
     "max_rotation_time_s": 19.12050000000079,
-    "max_norm": 0.16324788573094798
+    "max_norm": 0.14958400919652193
   },
   "quaternion_norm": {
     "max_deviation": null
@@ -84,34 +84,34 @@
   "non_finite_values": 0,
   "solve_time_ms": {
     "total": {
-      "mean": 6.740784169852936,
-      "p50": 6.746733,
-      "p99": 7.171734,
-      "max": 9.78316
+      "mean": 7.185184176470596,
+      "p50": 7.178867,
+      "p99": 7.911376,
+      "max": 10.024012
     },
     "lq_approximation": {
-      "mean": 3.995055455882352,
-      "p50": 4.001167,
-      "p99": 4.25472,
-      "max": 5.697088
+      "mean": 4.45275579411764,
+      "p50": 4.418362,
+      "p99": 4.967287,
+      "max": 6.863426
     },
     "solve_qp": {
-      "mean": 2.247872859558826,
-      "p50": 2.259649,
-      "p99": 2.446134,
-      "max": 4.803616
+      "mean": 2.2494124176470587,
+      "p50": 2.246905,
+      "p99": 2.524751,
+      "max": 2.780036
     },
     "linesearch": {
-      "mean": 0.4257902058823529,
-      "p50": 0.437128,
-      "p99": 0.504441,
-      "max": 0.849816
+      "mean": 0.4125767213235293,
+      "p50": 0.42085,
+      "p99": 0.479646,
+      "max": 0.65437
     },
     "compute_controller": {
-      "mean": 0.021382008088235285,
-      "p50": 0.021004,
-      "p99": 0.028665,
-      "max": 0.047222
+      "mean": 0.020369804411764694,
+      "p50": 0.020148,
+      "p99": 0.026881,
+      "max": 0.056557
     }
   },
   "failures": {

@@ -193,10 +193,10 @@ from `docker/Dockerfile` and `docker-compose.yaml` (Dev Containers: **Rebuild Co
 ### Visualization Options
 - **Local Linux:** GUI windows (MuJoCo viewer / Rerun / Controller GUI) draw on the display of the shell the target
   runs in. From the host, allow the containers on it once: `xhost +SI:localuser:root +SI:localuser:$(id -un)`.
-- **Remote SSH (Linux host):** Use the `-vnc` targets to stream the desktop directly to your browser. Navigate to **`http://localhost:6080/vnc.html`** and click **Connect**. See the [Visualization Guide](.devcontainer/README.md) for full details.
+- **Remote SSH (Linux host):** Use the `-vnc` targets to stream the desktop directly to your browser. Navigate to **`http://localhost:6080/vnc.html`** for the MuJoCo viewer and operator GUI, and **`http://localhost:9090/?url=rerun+http://localhost:9876/proxy`** for Rerun. See the [Visualization Guide](.devcontainer/README.md) for full details.
 - **macOS (Docker Desktop):** the containers do not share a host network there, so the MuJoCo `-sim` targets do not
   run; use `make launch-<robot>-dummy-sim-vnc` and the sandbox targets, which run entirely in the dev container.
-- **Rerun in a browser:** add `RERUN_SINK=serve_web` and open **`http://localhost:9090`**.
+- **Rerun in a browser:** opens at **`http://localhost:9090/?url=rerun+http://localhost:9876/proxy`** by default (or enter `rerun+http://localhost:9876/proxy` if prompted; set `RERUN_SINK=spawn` for the native window).
 
 ### Launch Targets
 

@@ -47,12 +47,8 @@ contact_estimator: "cheater_sim"
 #                      gravity needs zero joint torque to keep its shape, so the commanded gravity torque is entirely
 #                      surplus lift: measured ~130 deg of joint drift in 3 s, into the stops. Kept only to reproduce
 #                      recorded runs.
-# R1.xml declares no 'gantry' weld, so the R1 runs the legacy hold, as it always has: it fell back to it from the default
-# weld_constraint, with an ERROR at every start. Declaring the weld of the other scenes in R1.xml (body2="pelvis_link")
-# and naming weld_constraint here changes its closed-loop runs, so that change comes with a new recording of its M0_main
-# documents (humanoid_nmpc/humanoid_mpc_validation/data/closed_loop/M0_main).
 # LINT.IfChange(gantry_hold)
-gantry_hold: "kinematic_teleport"
+gantry_hold: "weld_constraint"
 # LINT.ThenChange(//robot_runtime/mujoco_sim_interface/include/mujoco_sim_interface/MujocoSimInterface.h:gantry_hold_names)
 
 # The ball the GUI's Dodgeball tab throws, by name (robot_runtime/mujoco_sim_interface/.../Projectile.h). MuJoCo

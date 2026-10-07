@@ -298,7 +298,8 @@ VNC_GL_ENV := export DISPLAY=:99 && \
 	export MESA_GL_VERSION_OVERRIDE=3.3 && \
 	export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
 # Printed right before a -vnc target launches, so the URLs are not buried under the build output.
-vnc_urls := echo "🖥️  noVNC: http://localhost:6080/vnc.html (MuJoCo viewer, operator GUI, Rerun viewer)"
+vnc_urls := echo "🖥️  noVNC: http://localhost:6080/vnc.html (MuJoCo viewer & operator GUI)" && \
+	echo "🌐 Rerun: http://localhost:9090/?url=rerun+http://localhost:9876/proxy (host browser; set RERUN_SINK=spawn to view in noVNC)"
 # LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_ports, //docker-compose.bridge.yaml:vnc_ports, //.devcontainer/devcontainer.json:vnc_ports, //.devcontainer/README.md:vnc_ports)
 
 
@@ -322,8 +323,8 @@ vnc_urls := echo "🖥️  noVNC: http://localhost:6080/vnc.html (MuJoCo viewer,
 #   make launch-drc-atlas-sandbox             # the URDF in Rerun, with a slider per joint
 #
 # A launch target's variables:
-#   RERUN_SINK=spawn|serve_web|connect|save   the Rerun bridge's sink (default spawn: the native viewer; serve_web: the
-#                                             web viewer at http://localhost:9090; save: to RRD_PATH=<file>.rrd)
+#   RERUN_SINK=serve_web|spawn|connect|save   the Rerun bridge's sink (default serve_web: the
+#                                             web viewer at http://localhost:9090; spawn: the native viewer; save: to RRD_PATH=<file>.rrd)
 #   NETEM="<netem parameters>"                -sim: tc netem on the bus's packets on lo (default: none)
 #   HEADLESS=true                             -sim: the robot process without the MuJoCo viewer
 #   NETWORK=<network file>                    -mpc: the network file with the robot's address (required); a path
@@ -332,6 +333,8 @@ vnc_urls := echo "🖥️  noVNC: http://localhost:6080/vnc.html (MuJoCo viewer,
 #                                             only
 #   JOINT_SOURCE=sliders|nominal              -sandbox: where the joint positions come from (default sliders)
 #   DEV_CONTAINER=<name>                      the dev container, when make runs on the host (default devcontainer-app-1)
+#   PLOT_CONFIG=<file>                        the Rerun bridge's plot configuration (default:
+#                                             humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto)
 #
 # The sandbox replaces RViz's display launch files: the model sandbox publishes the URDF's link poses at the nominal
 # joint positions, or at those of its Tk window with a slider per joint (joint_state_publisher_gui's), and the Rerun
@@ -339,14 +342,15 @@ vnc_urls := echo "🖥️  noVNC: http://localhost:6080/vnc.html (MuJoCo viewer,
 
 DEV_CONTAINER ?= devcontainer-app-1
 export WB_DEV_CONTAINER := $(DEV_CONTAINER)
-RERUN_SINK ?= spawn
+RERUN_SINK ?= serve_web
 NETEM ?=
 HEADLESS ?=
 NETWORK ?=
 JOINT_SOURCE ?= sliders
 RRD_PATH ?=
+PLOT_CONFIG ?= humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto
 # The Rerun bridge's sink, and the recording of RERUN_SINK=save (relative to the checkout, where the bridge runs).
-rerun_sets = --set rerun_sink=$(RERUN_SINK) $(if $(RRD_PATH),--set rrd_path=$(RRD_PATH))
+rerun_sets = --set rerun_sink=$(RERUN_SINK) $(if $(RRD_PATH),--set rrd_path=$(RRD_PATH)) $(if $(PLOT_CONFIG),--set plot_config=$(PLOT_CONFIG))
 # deploy-robot and launch-<robot>-robot
 ROBOT ?=
 HOST ?= localhost
@@ -487,7 +491,7 @@ rerun-viewer:
 	@$(dev_run) 'bazel run //humanoid_nmpc/humanoid_rerun_viewer -- $(rerun_flags) --rerun_sink=spawn'
 
 rerun-web:
-	@echo "🌐 Rerun web viewer: http://localhost:9090"
+	@echo "🌐 Rerun web viewer: http://localhost:9090/?url=rerun+http://localhost:9876/proxy"
 	@$(dev_run) 'bazel run //humanoid_nmpc/humanoid_rerun_viewer -- $(rerun_flags) --rerun_sink=serve_web'
 
 ## Inspect the bus (tools/ipc): make ipc-list, make ipc-echo TOPIC=mpc/status, make ipc-hz TOPIC=robot/mpc_observation

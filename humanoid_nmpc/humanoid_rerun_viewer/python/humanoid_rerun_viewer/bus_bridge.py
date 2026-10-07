@@ -85,6 +85,7 @@ class BusBridge:
         network: robot_ipc.NetworkConfig,
         flush_period: float = DEFAULT_FLUSH_PERIOD_S,
         report_period: float = DEFAULT_REPORT_PERIOD_S,
+        telemetry: bool = True,
     ) -> None:
         # The not-form rejects NaN, which `flush_period <= 0.0` would let through.
         if not (flush_period > 0.0 and report_period > 0.0):
@@ -95,6 +96,15 @@ class BusBridge:
         self._bus = robot_ipc.Bus("", network)
         self._stopped = False
         self._delivered = True
+        subscribed = [
+            topics.VIZ_SCENE,
+            topics.ROBOT_FSM_STATE,
+            topics.MPC_STATUS,
+            topics.ROBOT_LOOP_TIMING,
+        ]
+        if telemetry:
+            subscribed.append(topics.VIZ_TELEMETRY)
+        self._subscribed_topics = tuple(subscribed)
         try:
             self._bus.subscribe(
                 topics.VIZ_SCENE,
@@ -102,12 +112,13 @@ class BusBridge:
                 bridge.handle_scene,
                 robot_ipc.Delivery.LATEST,
             )
-            self._bus.subscribe(
-                topics.VIZ_TELEMETRY,
-                telemetry_series_pb2.TelemetrySeries,
-                bridge.handle_telemetry,
-                robot_ipc.Delivery.ALL,
-            )
+            if telemetry:
+                self._bus.subscribe(
+                    topics.VIZ_TELEMETRY,
+                    telemetry_series_pb2.TelemetrySeries,
+                    bridge.handle_telemetry,
+                    robot_ipc.Delivery.ALL,
+                )
             self._bus.subscribe(
                 topics.ROBOT_FSM_STATE,
                 fsm_state_pb2.FsmState,
@@ -136,12 +147,16 @@ class BusBridge:
     def bus(self) -> robot_ipc.Bus:
         return self._bus
 
+    @property
+    def subscribed_topics(self) -> tuple[str, ...]:
+        return self._subscribed_topics
+
     def bus_rejected(self) -> int:
         """Messages of the subscribed topics the bus rejected: wrong type, not three frames, or not parsing."""
         statistics = self._bus.statistics()
         return sum(
             statistics[topic].rejected
-            for topic in SUBSCRIBED_TOPICS
+            for topic in self._subscribed_topics
             if topic in statistics
         )
 

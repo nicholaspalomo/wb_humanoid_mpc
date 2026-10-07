@@ -125,23 +125,33 @@ On the main line it mirrors the robot process and the MPC node instead, and thes
 - **The solve benchmark's later passes** start from a full reset requested at the start of the pass and served by its
   first solve, because the link starts once; before, each pass restarted the controller's MPC directly. The first
   `warmupSolves` of every pass are not timed either way.
+- **The Unitree G1 and R1 hang from the gantry weld**, not from `kinematic_teleport`. Their MuJoCo scenes
+  (`g1_29dof.xml`, used by both G1 configurations, and `R1.xml`) now declare the `gantry` weld, and their task files
+  name `weld_constraint`; in M0 the scenes had no weld, and the simulator fell back to `kinematic_teleport`. The weld
+  carries the base while `mj_step` integrates the dynamics, so these robots are released from another posture, and
+  every run of the three configurations changes (`data/closed_loop/M0_main/README.md`, "What the weld changes: the
+  state at the release"). DRC Atlas and EngineAI SA01 hang from their welds in M0 as here.
 
 `data/closed_loop/M0_main/` re-runs eleven of M0's runs on the main line: every configuration's `standing` and walking
-scenario, and the whole-body G1's `turn_in_place_720`. Seven stay within the bands of M0. Four leave them, all from
-the first difference above alone, as walks that change their pattern under a 10 to 16 ms shift of the operator's
-timeline: EngineAI SA01's `walk_0p3` walks 13 mm higher but slips three times as much, the Unitree G1's `walk_0p5` and
-the Unitree R1's `walk_0p3` tilt up to 25 % further, and the whole-body G1's maximum tilt in the 720-degree turn rises
-from 0.103 to 0.147 rad at the Euler yaw's first wrap. With the runner's operator sequence moved back to the start of
-the cycle, the main line reproduces M0 to a relative 2e-5 or better, and one re-recorded run bit for bit. The
+scenario, and the whole-body G1's `turn_in_place_720`. Nine stay within the bands of M0. Two leave them: EngineAI SA01's
+`walk_0p3`, from the first difference above, as a walk that changes its pattern under a 10 ms shift of the operator's
+timeline (it walks 13 mm higher but slips three times as much); and the whole-body G1's 720-degree turn, whose maximum
+tilt rises from 0.103 to 0.139 rad at the Euler yaw's first wrap, from the first difference as well, and whose heading
+peaks 3 % short of M0's (5.12 against 5.27 rad), from the gantry hold (the last difference above): on
+`kinematic_teleport` it turned further than M0 (5.39 rad). With the runner's operator sequence moved back to the start
+of the cycle, the main line reproduced M0 to a relative 2e-5 or better, and one re-recorded run bit for bit. The
 whole-body walk reproduced it only to 0.5 %: that was the spread its CppAD libraries then had from one generation to the
-next (above). Its README has the numbers. Its three whole-body documents and the turn's time series were recorded again
-on the deterministic libraries (2026-10-06), so a whole-body run of the same code repeats them bit for bit; the walk now
-slips 8.9 mm at most, against 5.2 mm before, and the turn's tilt maximum stays 0.147 rad. Its eight centroidal documents
-come from libraries generated before the code generation was made deterministic, and the same runs on the
-deterministic libraries differ from them at the rounding level: the walks by a relative 1.2e-9 or less, the standing
-runs by 4e-8 or less (1.2e-5 in a base-height deviation of 1e-10 m). Compare a main-line Euler run with M0_main where
-it has the run, within the bands. Re-record the other baselines on the main line (under new labels, before Step 3)
-when a comparison has to be exact up to the bands' noise rather than up to these differences.
+next (above).
+
+All eleven documents were recorded again on 2026-10-06, on the deterministic libraries and with the Unitree G1's
+`gantry` weld, and the Unitree R1's two once more later that day, with the R1's weld. A run of the same code and
+configuration repeats them bit for bit; the solve times differ. The four runs of DRC Atlas and EngineAI SA01 differ from
+the documents they replace only at the rounding level, by a relative 1.2e-5 at most. The G1 and the R1 used to fall back
+to `kinematic_teleport`, as M0's did. Released from the weld, they start from another posture, which changes all seven
+of their runs. The G1's walk and the R1's walk are within M0's bands again. The README of M0_main has the numbers, the
+G1's release transient on both holds, and the check that the hold is the whole difference. Compare a main-line Euler run
+with M0_main where it has the run, within the bands. Re-record the other baselines on the main line (under new labels,
+before Step 3) when a comparison has to be exact up to the bands' noise rather than up to the cycle order.
 
 ## Scenarios
 
@@ -235,8 +245,8 @@ of [`humanoid_mpc_config`](../humanoid_mpc_config/README.md) - `config/mpc/task.
 `config/command/reference.textproto`, `config/controller/joint_pd_gains.textproto`, the contact planner's
 `config/mpc/contact_planning.textproto` where the robot has one, and the gait file `gait.textproto` - plus its URDF and
 MuJoCo scene, and the provenance records the SHA-256 of each. The documents recorded before the textproto migration
-(M0, M0_main's centroidal documents and the other labels under `data/`) name and hash the YAML files they ran on, which
-held the same values; M0_main's whole-body documents, recorded again since, hash the textprotos.
+(M0 and the other labels under `data/` but M0_main) name and hash the YAML files they ran on, which held the same
+values; M0_main's documents, recorded again since, hash the textprotos.
 
 `ROBOT` is `drc_atlas`, `engineai_sa01`, `unitree_g1`, `unitree_r1` or `unitree_g1_wb`. The targets run the manual tests
 `closed_loop_<robot>` and `benchmark_mpc_solve_<robot>` under `bazel test`, so that the machine lock of `tools/bazel`
@@ -268,7 +278,7 @@ state, so states recorded from the Euler formulation drive the quaternion one th
 | `test_recorded_robot_states` | a recording reads back as the recorded states; another robot is refused |
 | `test_lockstep_determinism` | smoke runs on the Unitree G1 with one solver thread agree to 1e-9, two in one process and one in a process of its own (exclusive: it compiles CppAD libraries) |
 | `test_driver_settings_from_config` | the GUI's command scaling from its own fields of the reference file, a limit that is absent or not positive refused by name, every configuration's reference file; the contact wrench gate of a whole task file: no block is the instantaneous gate, a refused block keeps the gate in use, every configuration's task file sets its own |
-| `test_robot_scene_gantry_hold` | the gantry hold each configuration's task file names (pinned: a change is a change of its runs), its MuJoCo scene supporting it, the robot process's mujoco backend running on it without falling back to `kinematic_teleport`; each scene that declares the weld failing the check with it taken out |
+| `test_robot_scene_gantry_hold` | the gantry hold each configuration's task file names (pinned: a change is a change of its runs), its MuJoCo scene supporting it, the robot process's mujoco backend running on it without falling back to `kinematic_teleport`; each configuration on `weld_constraint` (all five) failing the check with its scene's weld taken out |
 | `test_solve_benchmark_gate` | the real-time gate: every recorded baseline passes against itself, each criterion fails alone, libraries match across the layout-tagged folder; every robot's default recorded states exist |
 | `test_worktree_state` | the provenance's worktree state in throwaway git repositories: untracked contents change it, ignored files do not |
 | `closed_loop_<robot>`, `benchmark_mpc_solve_<robot>` | manual, exclusive: the full scenarios and the benchmark |

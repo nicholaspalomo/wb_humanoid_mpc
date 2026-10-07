@@ -1,0 +1,22 @@
+# proto-file: humanoid_nmpc/humanoid_rerun_viewer/proto/plot_config.proto
+# proto-message: humanoid_rerun_viewer_proto.PlotConfig
+#
+# The default plot configuration for humanoid_rerun_viewer.
+#
+# Configured signals can be:
+# - Full tab titles (e.g. "Base Pose & Euler", "Joint Dynamics")
+# - Panel titles (e.g. "Base Pos X [m]", "Left Foot Normal Force Fz [N]")
+# - Telemetry paths or wildcards (e.g. "base_pose/*", "contact_forces/left_normal", "joints/position/*")
+# - Status paths or series (e.g. "status/mpc/*", "status/robot/loop_period", "MPC Solve Time [ms]")
+# - Custom telemetry paths (placed into custom_tab_title, default "Signals")
+#
+# Configured 3D robot visualizations:
+# - robot_instances: "measured", "terminal_state" (default: all)
+# - draw_terminal_state: false (disables end-of-trajectory robot visualization)
+
+signals: "Base Pose & Euler"
+signals: "contact_forces/*"
+signals: "joints/position/measured"
+signals: "status/mpc/solve_time"
+custom_tab_title: "Signals"
+draw_terminal_state: false

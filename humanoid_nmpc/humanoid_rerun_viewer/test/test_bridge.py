@@ -247,6 +247,54 @@ class SceneTest(BridgeTestCase):
         self.bridge.handle_scene(scene)
         self.assertEqual(statistics.link_poses_logged, 2 * links_logged)
 
+    def test_scenes_throttled_by_wall_clock(self) -> None:
+        clock = FakeClock()
+        throttled_bridge = bridge.RerunBridge(
+            self.recording, self.model, clock=clock, max_scene_frequency=10.0
+        )
+        scene = synthetic_messages.full_scene(1.0, LINKS)
+        throttled_bridge.handle_scene(scene)
+        self.assertEqual(throttled_bridge.statistics.scenes_throttled, 0)
+
+        # Subsequent scenes arriving within 0.1 s wall time are throttled.
+        for i in range(5):
+            scene.time = 1.0 + (i + 1) * 0.01
+            throttled_bridge.handle_scene(scene)
+        self.assertEqual(throttled_bridge.statistics.scenes_throttled, 5)
+
+        # Advancing the clock past 0.1 s allows the next scene to be logged.
+        clock.now += 0.1
+        scene.time = 2.0
+        throttled_bridge.handle_scene(scene)
+        self.assertEqual(throttled_bridge.statistics.scenes_throttled, 5)
+
+        # Restarted simulation: the clock reset allows the scene even if wall time has not advanced.
+        scene.time = 0.5
+        throttled_bridge.handle_scene(scene)
+        self.assertEqual(throttled_bridge.statistics.scenes_throttled, 5)
+
+    def test_max_scene_frequency_must_be_non_negative_and_finite(self) -> None:
+        for invalid in (-1.0, math.nan, math.inf):
+            with self.subTest(invalid=invalid):
+                with self.assertRaisesRegex(
+                    ValueError, "max_scene_frequency must be non-negative and finite"
+                ):
+                    bridge.RerunBridge(
+                        self.recording, self.model, max_scene_frequency=invalid
+                    )
+
+    def test_allowed_instances_filters_unwanted_robots(self) -> None:
+        filtered_bridge = bridge.RerunBridge(
+            self.recording, self.model, allowed_instances=(scene_contract.MEASURED,)
+        )
+        scene = visualization_scene_pb2.VisualizationScene(time=1.0)
+        scene.robots.append(synthetic_messages.robot_instance("measured", LINKS, 1.0))
+        scene.robots.append(
+            synthetic_messages.robot_instance("terminal_state", LINKS, 1.0)
+        )
+        filtered_bridge.handle_scene(scene)
+        self.assertEqual(filtered_bridge.statistics.link_poses_logged, len(LINKS))
+
     def test_an_unknown_instance_is_drawn_with_the_default_style(self) -> None:
         scene = visualization_scene_pb2.VisualizationScene(time=1.0)
         scene.robots.append(synthetic_messages.robot_instance("ghost", LINKS, 1.0))

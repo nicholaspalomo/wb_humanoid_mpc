@@ -14,8 +14,9 @@ variables { name: "network_file" value: "config/ipc/network.textproto" }
 # Where the joint positions come from, by name (humanoid_nmpc/humanoid_rerun_viewer/README.md, "The model sandbox"):
 # sliders (a Tk window with one slider per joint) or nominal (every joint at 0, clamped to its limits).
 variables { name: "joint_source" value: "sliders" }
-variables { name: "rerun_sink" value: "spawn" }
+variables { name: "rerun_sink" value: "serve_web" }
 variables { name: "rrd_path" value: "" }
+variables { name: "plot_config" value: "humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto" }
 
 # The processes: their binaries are those the Makefile's launch target of this file builds first.
 # LINT.IfChange(processes)
@@ -39,7 +40,8 @@ processes {
     "--urdf={urdf_file}",
     "--network_config={network_file}",
     "--rerun_sink={rerun_sink}",
-    "--rrd_path={rrd_path}"
+    "--rrd_path={rrd_path}",
+    "--plot_config={plot_config}"
   ]
 }
 # LINT.ThenChange(//Makefile:launch_binaries)

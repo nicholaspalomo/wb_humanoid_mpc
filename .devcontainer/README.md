@@ -2,8 +2,8 @@
 
 This guide explains how to see the GUI apps running inside the dev container on your local computer or MacBook, when developing locally or via Remote SSH. There are two ways in, and neither needs extra software on your local machine:
 
-- **The VNC desktop (display `:99`)** shows the MuJoCo viewer and the Tk operator GUI ("Robot Base Controller & Tuning") in a browser tab, through noVNC.
-- **Rerun** shows the robot's state, the MPC's plan and the plots of the telemetry. It runs as a web viewer in a browser tab or as a native viewer on your machine (see [Rerun](#rerun) below and `humanoid_nmpc/docs/distributed_runtime/README.md`).
+- **The VNC desktop (display `:99`)** shows the MuJoCo viewer and the Tk operator GUI ("Robot Base Controller & Tuning") in a browser tab, through noVNC (`http://localhost:6080/vnc.html`).
+- **Rerun** shows the robot's state, the MPC's plan and the plots of the telemetry. In the simulation environment it streams by default to a web viewer in your host browser at `http://localhost:9090` (see [Rerun](#rerun) below and `humanoid_nmpc/docs/distributed_runtime/README.md`).
 
 ## Quick Start
 
@@ -14,10 +14,11 @@ make launch-drc-atlas-dummy-sim-vnc
 make launch-drc-atlas-sim-vnc
 ```
 
-Then open the URL printed in the terminal banner:
+Then open the URLs printed in the terminal banner:
 <!-- LINT.IfChange(vnc_ports) -->
 - **MuJoCo viewer & operator GUI (`:99`)**: `http://localhost:6080/vnc.html` (or `http://<host-lan-ip>:6080/vnc.html`). A VNC client can also connect directly to port `5901`.
 <!-- LINT.ThenChange(//.devcontainer/start_vnc.sh:vnc_ports, //docker-compose.bridge.yaml:vnc_ports, //.devcontainer/devcontainer.json:vnc_ports, //Makefile:vnc_ports) -->
+- **Rerun web viewer**: `http://localhost:9090/?url=rerun+http://localhost:9876/proxy` (or `http://<host-lan-ip>:9090/?url=rerun+http://<host-lan-ip>:9876/proxy`). If prompted for the server address in the viewer, enter `rerun+http://localhost:9876/proxy`.
 
 Every GUI application in the container renders on `:99`; there is no second display.
 
@@ -57,7 +58,7 @@ The bus range `5600`-`5629` covers every node of `config/ipc/network.textproto` 
 ## Rerun
 
 <!-- LINT.IfChange(rerun_ports) -->
-The Rerun bridge (`humanoid_nmpc/humanoid_rerun_viewer`) maps the bus's messages onto Rerun. In the container, start it with `--rerun_sink serve_web`. It then serves the web viewer on port `9090` and the recording on port `9876` (gRPC), both published, so you only need to open `http://localhost:9090` on the host. A native viewer on the host reads the same recording from `rerun+http://localhost:9876/proxy`. Started with the default sink (`spawn`), the bridge opens the native viewer on `:99`, where it draws through Mesa's software Vulkan or GL and gets the top of the left pane.
+The Rerun bridge (`humanoid_nmpc/humanoid_rerun_viewer`) maps the bus's messages onto Rerun. In the simulation environment, it runs with `--rerun_sink serve_web` by default. It serves the web viewer on port `9090` and the recording on port `9876` (gRPC), both published, so you only need to open `http://localhost:9090/?url=rerun+http://localhost:9876/proxy` in your host browser (or enter `rerun+http://localhost:9876/proxy` if prompted for the server address). A native viewer on the host reads the same recording from `rerun+http://localhost:9876/proxy`. Started with `RERUN_SINK=spawn`, the bridge instead opens the native viewer on `:99`, where it draws through Mesa's software GL and occupies the top of the left pane.
 <!-- LINT.ThenChange(//docker-compose.bridge.yaml:rerun_ports, //.devcontainer/devcontainer.json:rerun_ports) -->
 
 ## Remote SSH Development
@@ -65,11 +66,11 @@ The Rerun bridge (`humanoid_nmpc/humanoid_rerun_viewer`) maps the bus's messages
 If your dev container is running on a **remote Linux machine** (e.g. over Remote SSH in Antigravity, Cursor, or VS Code):
 
 1. **Option A (Direct LAN IP - Recommended)**:
-   - Connect directly from your browser to `http://<host-ip>:6080/vnc.html` (VNC desktop) and `http://<host-ip>:9090` (Rerun web viewer) without needing SSH tunnel proxies.
+   - Connect directly from your browser to `http://<host-ip>:6080/vnc.html` (VNC desktop for MuJoCo & operator GUI) and `http://<host-ip>:9090/?url=rerun+http://<host-ip>:9876/proxy` (Rerun web viewer) without needing SSH tunnel proxies.
 2. **Option B (Forward Ports 6080, 9090 & 9876)**:
    - In your IDE: Check the **Ports** panel tab and ensure ports `6080`, `9090` and `9876` are forwarded (`devcontainer.json` forwards them).
    - Or from your local terminal: `ssh -L 6080:localhost:6080 -L 9090:localhost:9090 -L 9876:localhost:9876 user@remote-host`
-   - Navigate to `http://localhost:6080/vnc.html` and `http://localhost:9090` on your local machine.
+   - Navigate to `http://localhost:6080/vnc.html` (MuJoCo viewer & operator GUI) and `http://localhost:9090/?url=rerun+http://localhost:9876/proxy` (Rerun web viewer) on your local machine.
 
 ## Launch Targets
 

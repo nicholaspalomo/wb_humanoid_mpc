@@ -1,4 +1,6 @@
 load("@operator_deps//:requirements.bzl", "requirement")
+load("@protobuf//bazel:proto_library.bzl", "proto_library")
+load("@protobuf//bazel:py_proto_library.bzl", "py_proto_library")
 load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
 
 # humanoid_rerun_viewer - the Rerun bridge: draws the IPC bus's viz/scene, viz/telemetry and status messages in Rerun
@@ -8,12 +10,26 @@ load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
 
 package(default_visibility = ["//visibility:public"])
 
+proto_library(
+    name = "plot_config_proto",
+    srcs = ["proto/plot_config.proto"],
+    import_prefix = "humanoid_rerun_viewer_proto",
+    strip_import_prefix = "/humanoid_nmpc/humanoid_rerun_viewer/proto",
+    deps = ["//tools/nproto:options_proto"],
+)
+
+py_proto_library(
+    name = "plot_config_py_proto",
+    deps = [":plot_config_proto"],
+)
+
 # `import humanoid_rerun_viewer`: the package directory is python/humanoid_rerun_viewer.
 py_library(
     name = "humanoid_rerun_viewer_lib",
     srcs = glob(["python/humanoid_rerun_viewer/*.py"]),
     imports = ["python"],
     deps = [
+        ":plot_config_py_proto",
         "//humanoid_nmpc/humanoid_mpc_ipc:topics_py",
         "//humanoid_nmpc/humanoid_mpc_msgs:messages_py_proto",
         "//robot_runtime/robot_ipc:robot_ipc_py",
@@ -28,11 +44,20 @@ py_library(
     ],
 )
 
+filegroup(
+    name = "plot_config",
+    srcs = [
+        "config/example_plot_config.textproto",
+        "config/plot_config.textproto",
+    ],
+)
+
 # The remote_control GUI starts this binary from the checkout's build output (its "Open Rerun viewer" button).
 # LINT.IfChange(bridge_binary)
 py_binary(
     name = "humanoid_rerun_viewer",
     srcs = ["viewer_main.py"],
+    data = [":plot_config"],
     main = "viewer_main.py",
     deps = [":humanoid_rerun_viewer_lib"],
 )
@@ -103,6 +128,14 @@ py_test(
     name = "test_blueprint",
     size = "small",
     srcs = ["test/test_blueprint.py"],
+    deps = [":test_support"],
+)
+
+py_test(
+    name = "test_plot_config",
+    size = "small",
+    srcs = ["test/test_plot_config.py"],
+    data = [":plot_config"],
     deps = [":test_support"],
 )
 

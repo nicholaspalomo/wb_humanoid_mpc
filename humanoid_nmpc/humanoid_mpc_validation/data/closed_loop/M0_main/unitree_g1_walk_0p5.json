@@ -5,16 +5,16 @@
   "formulation": "centroidal",
   "scenario": "walk_0p5",
   "provenance": {
-    "git_commit": "c331ddd76dcf3917bdd9d0578eee6f518a915ba8",
-    "worktree_state": "2010 changed paths, diff sha256 428fb8a4730b76da",
+    "git_commit": "b41650f060e24cee9b29dec4561a6dc957bc57f1",
+    "worktree_state": "2 changed paths, diff sha256 ff8d903eadc63349",
     "machine": "Intel(R) Core(TM) Ultra 7 265K, 20 logical cores, 30.2 GiB",
     "configuration_sha256": {
-      "robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.yaml": "51c38d5c92477737ad3b5798f93ff640f7d50a8a890294707eb0b011e4bb4ece",
-      "robot_models/unitree_g1/g1_centroidal_mpc/config/command/reference.yaml": "d82e90f7f699f03e95281f415c92c32d3a5ffcf66388c30aab728f503e74b2e6",
-      "humanoid_nmpc/humanoid_common_mpc/config/command/gait.yaml": "df9b8154d7fe9939bc45541ee5163049b392c44880e774c5ea85653ae1ce9897",
-      "robot_models/unitree_g1/g1_centroidal_mpc/config/controller/joint_pd_gains.yaml": "b59ac4efd588a6b4c56f3e2e383ba3592cf8e52182216a0f02a05a6d31a21eba",
+      "robot_models/unitree_g1/g1_centroidal_mpc/config/mpc/task.textproto": "9332aa3cce6ec8375df6016f6a45230fea7582d67dd09f15151ad44fcb308625",
+      "robot_models/unitree_g1/g1_centroidal_mpc/config/command/reference.textproto": "e07618d22b6bba0a7a1e622ce81f80139f818c3d75215b5810bb86ce709d3997",
+      "humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto": "656f852101595179bec1c5959eabb12e25407cac2b2ed0bb0fed4fdfa3acca47",
+      "robot_models/unitree_g1/g1_centroidal_mpc/config/controller/joint_pd_gains.textproto": "40b1c447c3ccb22f590db41f11c8b2b25e6dcfdb001027e466421c12db49154a",
       "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf": "7696e17b07ade3d024dc267073826b75aa74019781c95f9ac44897be1de2305c",
-      "robot_models/unitree_g1/g1_description/urdf/g1_29dof.xml": "01004f48a0821d2fc90b81b3c92e3142ce6e3e1322e7172978ef385238826ee2"
+      "robot_models/unitree_g1/g1_description/urdf/g1_29dof.xml": "8ad960baa9c52315811e5151b00d91b8f817dd1f5f102ff623ed6034a83d35ff"
     }
   },
   "settings": {
@@ -46,37 +46,37 @@
     "fall_reason": ""
   },
   "base_height": {
-    "mean_m": 0.7553798002671276,
-    "std_m": 0.011929651334095839,
-    "rms_error_m": 0.037659650156501204
+    "mean_m": 0.7584933822493496,
+    "std_m": 0.010461211476157039,
+    "rms_error_m": 0.034243663160982984
   },
   "tilt": {
-    "rms_rad": 0.07662400538225209,
-    "max_rad": 0.13179202797365985
+    "rms_rad": 0.0721470590539534,
+    "max_rad": 0.10591073483127883
   },
   "velocity": {
-    "rms_error_mps": 0.32002279379838033
+    "rms_error_mps": 0.2893818599248242
   },
   "yaw_rate": {
-    "rms_error_radps": 0.4286755003921087
+    "rms_error_radps": 0.27582669300126095
   },
   "heading": {
-    "cumulative_final_rad": 0.06880107918470896,
-    "cumulative_max_rad": 0.24197148740665492,
-    "cumulative_min_rad": -0.18088306653694836
+    "cumulative_final_rad": 0.05846648760587527,
+    "cumulative_max_rad": 0.16263802933203825,
+    "cumulative_min_rad": -0.04225680399529369
   },
   "stance_foot_slip": {
-    "max_m": 0.0017817998717999707,
-    "rms_m": 0.0007667385949588034,
-    "stance_phases": 37
+    "max_m": 0.0018390343162880338,
+    "rms_m": 0.0008172747819960942,
+    "stance_phases": 38
   },
   "joint_torque": {
-    "rms_nm": 10.579582650992718
+    "rms_nm": 10.34570749243331
   },
   "initial_state_gap": {
-    "max_rotation_rad": 0.03556197507689134,
-    "max_rotation_time_s": 16.620500000006615,
-    "max_norm": 0.18825103221234704
+    "max_rotation_rad": 0.01577691588537207,
+    "max_rotation_time_s": 18.670500000001837,
+    "max_norm": 0.15898881308054447
   },
   "quaternion_norm": {
     "max_deviation": null
@@ -84,34 +84,34 @@
   "non_finite_values": 0,
   "solve_time_ms": {
     "total": {
-      "mean": 7.445748924264715,
-      "p50": 7.407589,
-      "p99": 8.510889,
-      "max": 8.872792
+      "mean": 7.315067585294102,
+      "p50": 7.371664,
+      "p99": 8.216566,
+      "max": 10.343419
     },
     "lq_approximation": {
-      "mean": 4.590917823529416,
-      "p50": 4.58131,
-      "p99": 5.30508,
-      "max": 5.642969
+      "mean": 4.481032714705882,
+      "p50": 4.594607,
+      "p99": 5.099747,
+      "max": 6.078368
     },
     "solve_qp": {
-      "mean": 2.3243170757352947,
-      "p50": 2.314491,
-      "p99": 2.834419,
-      "max": 2.95186
+      "mean": 2.330235692647061,
+      "p50": 2.321271,
+      "p99": 2.746414,
+      "max": 4.652274
     },
     "linesearch": {
-      "mean": 0.4566459235294114,
-      "p50": 0.454515,
-      "p99": 0.529391,
-      "max": 0.82678
+      "mean": 0.43092661102941127,
+      "p50": 0.440796,
+      "p99": 0.504595,
+      "max": 0.738904
     },
     "compute_controller": {
-      "mean": 0.022515852941176487,
-      "p50": 0.02225,
-      "p99": 0.031209,
-      "max": 0.035045
+      "mean": 0.020758350735294095,
+      "p50": 0.020458,
+      "p99": 0.028945,
+      "max": 0.04727
     }
   },
   "failures": {

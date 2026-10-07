@@ -41,6 +41,7 @@ import rerun.blueprint as rrb
 
 from humanoid_rerun_viewer import blueprint
 from humanoid_rerun_viewer import bridge
+from humanoid_rerun_viewer import plot_config
 from humanoid_rerun_viewer import scene_contract
 from humanoid_rerun_viewer import telemetry_contract
 import rrd_contents
@@ -68,6 +69,47 @@ class BlueprintStructureTest(unittest.TestCase):
         self.assertEqual(scene.origin, "/world")
         self.assertIsInstance(events, rrb.TextLogView)
         self.assertEqual(events.origin, "/status")
+
+    def test_blueprint_without_plots(self) -> None:
+        bp = blueprint.build_blueprint(tracked_link="pelvis", plots=False)
+        root = bp.root_container
+        self.assertIsInstance(root, rrb.Vertical)
+        scene, events = root.contents
+        self.assertIsInstance(scene, rrb.Spatial3DView)
+        self.assertIsInstance(events, rrb.TextLogView)
+
+    def test_blueprint_with_plot_config(self) -> None:
+        config = plot_config.PlotConfig(
+            signals=("base_pose/position_x", "status/mpc/solve_time")
+        )
+        bp = blueprint.build_blueprint(tracked_link="pelvis", config=config)
+        root = bp.root_container
+        self.assertIsInstance(root, rrb.Horizontal)
+        scene_col, tabs_container = root.contents
+        self.assertIsInstance(scene_col, rrb.Vertical)
+        self.assertIsInstance(tabs_container, rrb.Tabs)
+        self.assertEqual(
+            [tab.name for tab in tabs_container.contents],
+            ["Base Pose & Euler", blueprint.STATUS_TAB_NAME],
+        )
+
+    def test_blueprint_hides_unallowed_robot_instances(self) -> None:
+        bp = blueprint.build_blueprint(
+            tracked_link="pelvis",
+            allowed_instances=(scene_contract.MEASURED,),
+        )
+        root = bp.root_container
+        self.assertIsInstance(root, rrb.Horizontal)
+        scene_col, _ = root.contents
+        scene, _ = scene_col.contents
+        self.assertIsInstance(scene, rrb.Spatial3DView)
+        terminal_path = "/" + scene_contract.instance_path(
+            scene_contract.TERMINAL_STATE
+        )
+        self.assertIn(terminal_path, scene.visualizer_overrides)
+        behavior = scene.visualizer_overrides[terminal_path]
+        self.assertIsInstance(behavior, rrb.EntityBehavior)
+        self.assertIn(f"- {terminal_path}/**", scene.contents)
 
     def test_the_tabs_are_the_panel_tabs_then_the_complete_and_status_tabs(
         self,

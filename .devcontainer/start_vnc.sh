@@ -137,7 +137,7 @@ start_display() {
 
     if ! pgrep -f "Xvfb.*${display}" >/dev/null 2>&1; then
         echo "Starting Xvfb on display ${display}..."
-        detached Xvfb ${display} -screen 0 "${RESOLUTION}x${VNC_DEPTH}" +iglx
+        detached Xvfb ${display} -screen 0 "${RESOLUTION}x${VNC_DEPTH}" +iglx -extension MIT-SHM
         sleep 1
     fi
 
@@ -149,6 +149,7 @@ start_display() {
             -shared \
             -forever \
             -noxdamage \
+            -noshm \
             -o "${log}"
         sleep 0.5
     fi
@@ -197,6 +198,7 @@ reconfigure_wm
 # If the services are already running healthy, keep them active
 if is_running; then
     echo "✅ VNC server is already running on ${VNC_DISPLAY}: http://localhost:${NOVNC_PORT}/vnc.html"
+    echo "🌐 Rerun web viewer: http://localhost:9090/?url=rerun+http://localhost:9876/proxy"
     exit 0
 fi
 
@@ -251,12 +253,14 @@ echo "  VNC visualization server is ready!"
 echo ""
 echo "  Open in your browser:"
 echo "    🎮 MuJoCo viewer & operator GUI : http://localhost:${NOVNC_PORT}/vnc.html"
+echo "    🌐 Rerun web viewer             : http://localhost:9090/?url=rerun+http://localhost:9876/proxy"
 
 if [ -n "${LAN_IPS}" ]; then
     echo ""
     echo "  LAN access:"
     for ip in ${LAN_IPS}; do
         echo "    🎮 MuJoCo viewer & operator GUI : http://${ip}:${NOVNC_PORT}/vnc.html"
+        echo "    🌐 Rerun web viewer             : http://${ip}:9090/?url=rerun+http://${ip}:9876/proxy"
     done
 fi
 

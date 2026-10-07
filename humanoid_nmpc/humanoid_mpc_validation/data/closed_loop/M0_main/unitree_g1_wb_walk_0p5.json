@@ -5,16 +5,16 @@
   "formulation": "whole_body",
   "scenario": "walk_0p5",
   "provenance": {
-    "git_commit": "f0f55ce92819198127541ffeef5d77d76694f201",
-    "worktree_state": "1663 changed paths, diff sha256 cccb6a1acad348f0",
+    "git_commit": "b41650f060e24cee9b29dec4561a6dc957bc57f1",
+    "worktree_state": "2 changed paths, diff sha256 ff8d903eadc63349",
     "machine": "Intel(R) Core(TM) Ultra 7 265K, 20 logical cores, 30.2 GiB",
     "configuration_sha256": {
-      "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto": "324e2df7afb4fb07f15b92a2a79f849dd3c32275e7fa52a5013664e934983ef5",
+      "robot_models/unitree_g1/g1_wb_mpc/config/mpc/task.textproto": "629d804db28b388cb9df41d0004808e7048d6b5caa46a1450d604dc1e96df6ca",
       "robot_models/unitree_g1/g1_wb_mpc/config/command/reference.textproto": "7a86207ade3e080dc1575d7a6cdc736dce4b92e8e413c62d21137f87b6b31932",
       "humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto": "656f852101595179bec1c5959eabb12e25407cac2b2ed0bb0fed4fdfa3acca47",
       "robot_models/unitree_g1/g1_wb_mpc/config/controller/joint_pd_gains.textproto": "40b1c447c3ccb22f590db41f11c8b2b25e6dcfdb001027e466421c12db49154a",
       "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf": "7696e17b07ade3d024dc267073826b75aa74019781c95f9ac44897be1de2305c",
-      "robot_models/unitree_g1/g1_description/urdf/g1_29dof.xml": "01004f48a0821d2fc90b81b3c92e3142ce6e3e1322e7172978ef385238826ee2"
+      "robot_models/unitree_g1/g1_description/urdf/g1_29dof.xml": "8ad960baa9c52315811e5151b00d91b8f817dd1f5f102ff623ed6034a83d35ff"
     }
   },
   "settings": {
@@ -46,37 +46,37 @@
     "fall_reason": ""
   },
   "base_height": {
-    "mean_m": 0.7788983109004719,
-    "std_m": 0.006440107673283235,
-    "rms_error_m": 0.013796963568988987
+    "mean_m": 0.7790264926317855,
+    "std_m": 0.0062800261176048835,
+    "rms_error_m": 0.013609125916351501
   },
   "tilt": {
-    "rms_rad": 0.04535988646819818,
-    "max_rad": 0.0754603276642793
+    "rms_rad": 0.04529027377725447,
+    "max_rad": 0.07106095333527272
   },
   "velocity": {
-    "rms_error_mps": 0.2996379329938801
+    "rms_error_mps": 0.30144580438117613
   },
   "yaw_rate": {
-    "rms_error_radps": 0.22060522119413944
+    "rms_error_radps": 0.22646459669550797
   },
   "heading": {
-    "cumulative_final_rad": 0.10433314859580825,
-    "cumulative_max_rad": 0.15431556483214393,
+    "cumulative_final_rad": 0.13271476804218915,
+    "cumulative_max_rad": 0.1743805903326537,
     "cumulative_min_rad": 0
   },
   "stance_foot_slip": {
-    "max_m": 0.008859779605834955,
-    "rms_m": 0.0016566181912743693,
-    "stance_phases": 127
+    "max_m": 0.00660391903021289,
+    "rms_m": 0.0017339962082996644,
+    "stance_phases": 118
   },
   "joint_torque": {
-    "rms_nm": 9.47750309284251
+    "rms_nm": 9.469821242480354
   },
   "initial_state_gap": {
-    "max_rotation_rad": 0.01282353785410628,
+    "max_rotation_rad": 0.012819411735421638,
     "max_rotation_time_s": 19.33450000000029,
-    "max_norm": 11.127781534440912
+    "max_norm": 11.118498480124385
   },
   "quaternion_norm": {
     "max_deviation": null
@@ -84,34 +84,34 @@
   "non_finite_values": 0,
   "solve_time_ms": {
     "total": {
-      "mean": 9.244911667647054,
-      "p50": 9.282552,
-      "p99": 10.307266,
-      "max": 11.295193
+      "mean": 8.631120047058817,
+      "p50": 8.646621,
+      "p99": 9.891474,
+      "max": 10.397861
     },
     "lq_approximation": {
-      "mean": 5.053268368627446,
-      "p50": 5.079824,
-      "p99": 5.769401,
-      "max": 6.199789
+      "mean": 4.421933006862747,
+      "p50": 4.459313,
+      "p99": 5.304098,
+      "max": 5.632387
     },
     "solve_qp": {
-      "mean": 3.8072560156862703,
-      "p50": 3.801045,
-      "p99": 4.30068,
-      "max": 6.380566
+      "mean": 3.804757097058825,
+      "p50": 3.796849,
+      "p99": 4.310941,
+      "max": 4.561689
     },
     "linesearch": {
-      "mean": 0.33272043039215704,
-      "p50": 0.335285,
-      "p99": 0.493251,
-      "max": 0.567705
+      "mean": 0.3518054372549016,
+      "p50": 0.347395,
+      "p99": 0.521584,
+      "max": 0.671116
     },
     "compute_controller": {
-      "mean": 0.015136796078431377,
-      "p50": 0.014609,
-      "p99": 0.022574,
-      "max": 0.02472
+      "mean": 0.015840256862745084,
+      "p50": 0.015279,
+      "p99": 0.023512,
+      "max": 0.032542
     }
   },
   "failures": {

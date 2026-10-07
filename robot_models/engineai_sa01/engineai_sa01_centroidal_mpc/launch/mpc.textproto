@@ -22,8 +22,9 @@ variables { name: "network_file" value: "config/ipc/network.textproto" }
 variables { name: "mpc_realtime_priority" value: "0" }
 # The Rerun bridge's sink, by name (humanoid_nmpc/humanoid_rerun_viewer/README.md): spawn, connect, serve_web, save;
 # save writes the recording to rrd_path.
-variables { name: "rerun_sink" value: "spawn" }
+variables { name: "rerun_sink" value: "serve_web" }
 variables { name: "rrd_path" value: "" }
+variables { name: "plot_config" value: "humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto" }
 
 # The processes: their binaries are those the Makefile's launch target of this file builds first.
 # LINT.IfChange(processes)
@@ -64,7 +65,8 @@ processes {
     "--urdf={urdf_file}",
     "--network_config={network_file}",
     "--rerun_sink={rerun_sink}",
-    "--rrd_path={rrd_path}"
+    "--rrd_path={rrd_path}",
+    "--plot_config={plot_config}"
   ]
 }
 # LINT.ThenChange(//Makefile:launch_binaries)

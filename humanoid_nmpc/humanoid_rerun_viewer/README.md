@@ -66,9 +66,15 @@ then exits without it (rerun-sdk 0.38 would wait without end).
 | `--web_port` | `9090` | `serve_web`: the web viewer's port |
 | `--grpc_port` | `9876` | `spawn`: the viewer's port; `serve_web`: the recording's port |
 | `--open_browser` | off | `serve_web`: also open a browser on this machine |
+| `--max_scene_frequency` | `12.5` (`serve_web`) / none | maximum scene messages to log per wall second (0 or none: unlimited) |
+| `--plots` / `--no-plots` | off (`serve_web`) / on | subscribe to `viz/telemetry` and show plot tabs in blueprint |
+| `--plot_config` | `humanoid_nmpc/humanoid_rerun_viewer/config/plot_config.textproto` | a configuration file (`.textproto` or text file) specifying topics/signals to plot ('none' to disable) |
+| `--terminal_state` / `--no-terminal_state` | on | draw the end-of-trajectory robot visualization in `viz/scene` |
+| `--robot_instances` | all | comma-separated robot instances to draw (e.g. `measured`, `measured,terminal_state`) |
+| `--measured_only` / `--no-measured_only` | off | log only the measured robot instance in `viz/scene` (alias for `--no-terminal_state`) |
 | `--app_id` | `humanoid_nmpc` | the Rerun application id; recordings of one id share the viewer's layout |
 | `--follow_robot` / `--no-follow_robot` | on | the 3D view's eye follows the measured robot's root link |
-| `--flush_period` | `0.05` | how often the buffered plots are sent [s] |
+| `--flush_period` | `0.1` (`serve_web`) / `0.05` | how often the buffered plots are sent [s] |
 | `--duration` | `0` | stop after this many seconds; 0 runs until Ctrl-C |
 | `--log_level` | `INFO` | of the bridge's own messages |
 <!-- LINT.ThenChange(//humanoid_nmpc/humanoid_rerun_viewer/python/humanoid_rerun_viewer/cli.py:sink_flags) -->

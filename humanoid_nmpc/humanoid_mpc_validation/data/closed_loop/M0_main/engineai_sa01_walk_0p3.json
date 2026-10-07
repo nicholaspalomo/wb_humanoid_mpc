@@ -5,17 +5,17 @@
   "formulation": "centroidal",
   "scenario": "walk_0p3",
   "provenance": {
-    "git_commit": "c331ddd76dcf3917bdd9d0578eee6f518a915ba8",
-    "worktree_state": "2010 changed paths, diff sha256 428fb8a4730b76da",
+    "git_commit": "b41650f060e24cee9b29dec4561a6dc957bc57f1",
+    "worktree_state": "2 changed paths, diff sha256 ff8d903eadc63349",
     "machine": "Intel(R) Core(TM) Ultra 7 265K, 20 logical cores, 30.2 GiB",
     "configuration_sha256": {
-      "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.yaml": "fc18f6184bba9a806a5fc0962f6da5e22f39b76e063921b3e74e39f588e24bc3",
-      "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/command/reference.yaml": "f4c2989cc6199c90b3bf40f5a2a215b874350f9bac27104a6134dd1b09398995",
-      "humanoid_nmpc/humanoid_common_mpc/config/command/gait.yaml": "df9b8154d7fe9939bc45541ee5163049b392c44880e774c5ea85653ae1ce9897",
-      "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/controller/joint_pd_gains.yaml": "0753377b002f6796f7bb7b092efa69a6310a354e63cdecaa32425fea4d9d1e75",
+      "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/task.textproto": "c9b834dea2c89bbfdab2d42649e07ef258d7a1b6c62f063e5b751fa46629f994",
+      "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/command/reference.textproto": "32e827608c44eb5181952f30bf6408ea28ba07caeef5aa23cf4b880d43d0f7ab",
+      "humanoid_nmpc/humanoid_common_mpc/config/command/gait.textproto": "656f852101595179bec1c5959eabb12e25407cac2b2ed0bb0fed4fdfa3acca47",
+      "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/controller/joint_pd_gains.textproto": "f769d1d15ff94f97c5b1dd9aa85cdbbe3a9b999ded67f07977ada4656704f493",
       "robot_models/engineai_sa01/engineai_sa01_description/urdf/zq_sa01.urdf": "fbc783619a56c4925fb378266fc69549a89c30f0cf755769749fb6c627e69744",
-      "robot_models/engineai_sa01/engineai_sa01_description/urdf/zq_sa01.xml": "30ff64fe821c60155f4292d631d00f26c46c1ce788609abbae2c9c0a634bb13e",
-      "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/contact_planning.yaml": "ad7ef8b9978bb47e00b38eae9797027b24c1999aaea6c5c9fc3a2facbea5a20e"
+      "robot_models/engineai_sa01/engineai_sa01_description/urdf/zq_sa01.xml": "3c845e2f9e92eb0f72e464cc3da6d66eb02fce09defe06d10c3944394aed6e71",
+      "robot_models/engineai_sa01/engineai_sa01_centroidal_mpc/config/mpc/contact_planning.textproto": "3104e2c27084d4c5abb3729f65d75e85134589ce10d3857bdcaf03e31e1b2dce"
     }
   },
   "settings": {
@@ -47,37 +47,37 @@
     "fall_reason": ""
   },
   "base_height": {
-    "mean_m": 0.7701065386283977,
-    "std_m": 0.018943445858681206,
-    "rms_error_m": 0.04734814284437648
+    "mean_m": 0.7701065386283973,
+    "std_m": 0.018943445858695857,
+    "rms_error_m": 0.04734814284437614
   },
   "tilt": {
-    "rms_rad": 0.09580476763264428,
+    "rms_rad": 0.09580476763264434,
     "max_rad": 0.19036012299526647
   },
   "velocity": {
-    "rms_error_mps": 0.20823249899846846
+    "rms_error_mps": 0.20823249899846855
   },
   "yaw_rate": {
-    "rms_error_radps": 0.0785969285815116
+    "rms_error_radps": 0.07859692858151185
   },
   "heading": {
-    "cumulative_final_rad": 0.05269608528454689,
-    "cumulative_max_rad": 0.06463491596616378,
-    "cumulative_min_rad": -0.005539465463696474
+    "cumulative_final_rad": 0.05269608528456006,
+    "cumulative_max_rad": 0.06463491596617063,
+    "cumulative_min_rad": -0.005539465463694175
   },
   "stance_foot_slip": {
-    "max_m": 0.003858202153549486,
-    "rms_m": 0.0013146112876649834,
+    "max_m": 0.0038582021535490596,
+    "rms_m": 0.0013146112876649555,
     "stance_phases": 27
   },
   "joint_torque": {
-    "rms_nm": 13.522271201636373
+    "rms_nm": 13.52227120163638
   },
   "initial_state_gap": {
-    "max_rotation_rad": 0.02845949978946913,
+    "max_rotation_rad": 0.02845949978946888,
     "max_rotation_time_s": 7.050499999998812,
-    "max_norm": 0.14013496736914896
+    "max_norm": 0.14013496736914366
   },
   "quaternion_norm": {
     "max_deviation": null
@@ -85,34 +85,34 @@
   "non_finite_values": 0,
   "solve_time_ms": {
     "total": {
-      "mean": 3.091205727205884,
-      "p50": 3.080814,
-      "p99": 3.39288,
-      "max": 3.689868
+      "mean": 2.8920796904411783,
+      "p50": 2.887142,
+      "p99": 3.338827,
+      "max": 3.605782
     },
     "lq_approximation": {
-      "mean": 1.7388105279411774,
-      "p50": 1.748235,
-      "p99": 1.982428,
-      "max": 2.181808
+      "mean": 1.5374598926470593,
+      "p50": 1.517259,
+      "p99": 1.874708,
+      "max": 2.02414
     },
     "solve_qp": {
-      "mean": 0.8595363522058815,
-      "p50": 0.854891,
-      "p99": 1.090953,
-      "max": 1.221591
+      "mean": 0.8750220205882352,
+      "p50": 0.863594,
+      "p99": 1.152865,
+      "max": 1.417944
     },
     "linesearch": {
-      "mean": 0.22280021617647067,
-      "p50": 0.218838,
-      "p99": 0.292727,
-      "max": 0.398761
+      "mean": 0.20402343014705873,
+      "p50": 0.22136,
+      "p99": 0.297752,
+      "max": 0.386604
     },
     "compute_controller": {
-      "mean": 0.1762803602941175,
-      "p50": 0.17324,
-      "p99": 0.214986,
-      "max": 0.253638
+      "mean": 0.18057204705882357,
+      "p50": 0.177352,
+      "p99": 0.2213,
+      "max": 0.267733
     }
   },
   "failures": {

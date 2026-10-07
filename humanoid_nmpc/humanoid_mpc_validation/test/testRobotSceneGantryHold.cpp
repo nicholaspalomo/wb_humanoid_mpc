@@ -52,7 +52,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * Every robot configuration's MuJoCo scene against the gantry hold its task file names, as the robot process starts
  * them: the task file read by loadRobotProcessSettings(), the simulator created by the mujoco backend. A task file that
  * names weld_constraint over a scene without the gantry weld starts the simulator with an ERROR on kinematic_teleport,
- * as both Unitree G1 configurations did until g1_29dof.xml declared the weld.
+ * as both Unitree G1 configurations did until g1_29dof.xml declared the weld, and the Unitree R1 until R1.xml did.
  */
 
 namespace ocs2::humanoid::validation {
@@ -79,8 +79,7 @@ std::vector<ExpectedHold> expectedHolds() {
       {.configuration = "drc_atlas", .hold = GantryHold::kWeldConstraint},
       {.configuration = "engineai_sa01", .hold = GantryHold::kWeldConstraint},
       {.configuration = "unitree_g1", .hold = GantryHold::kWeldConstraint},
-      // R1.xml declares no gantry weld (its task file says why it stays on the legacy hold).
-      {.configuration = "unitree_r1", .hold = GantryHold::kKinematicTeleport},
+      {.configuration = "unitree_r1", .hold = GantryHold::kWeldConstraint},
       {.configuration = "unitree_g1_wb", .hold = GantryHold::kWeldConstraint},
   };
 }
@@ -152,21 +151,24 @@ TEST(RobotSceneGantryHold, TheRobotProcessesSimulatorRunsOnTheHoldTheTaskFileNam
 
 TEST(RobotSceneGantryHold, EachWeldedSceneFailsTheCheckWithItsWeldTakenOut) {
   int welded = 0;
-  for (const RobotConfiguration& configuration : robotConfigurations()) {
+  for (const ExpectedHold& expected : expectedHolds()) {
+    if (expected.hold != GantryHold::kWeldConstraint) continue;
+    const absl::StatusOr<RobotConfiguration> configuration = findRobotConfiguration(expected.configuration);
+    ASSERT_TRUE(configuration.ok()) << configuration.status();
     char error[kErrorSize] = "";
-    const MjSpecPtr spec(mj_parseXML(configuration.sceneFile.c_str(), /*vfs=*/nullptr, error, kErrorSize));
-    ASSERT_NE(spec, nullptr) << configuration.sceneFile << ": " << error;
+    const MjSpecPtr spec(mj_parseXML(configuration->sceneFile.c_str(), /*vfs=*/nullptr, error, kErrorSize));
+    ASSERT_NE(spec, nullptr) << configuration->sceneFile << ": " << error;
     mjsElement* absl_nullable weld = mjs_findElement(spec.get(), mjOBJ_EQUALITY, "gantry");
-    if (weld == nullptr) continue;  // a scene of the legacy hold (expectedHolds())
+    ASSERT_NE(weld, nullptr) << configuration->sceneFile << " declares no 'gantry' weld for " << configuration->taskFile;
     ++welded;
-    ASSERT_EQ(mjs_delete(spec.get(), weld), 0) << configuration.sceneFile;
+    ASSERT_EQ(mjs_delete(spec.get(), weld), 0) << configuration->sceneFile;
     const MjModelPtr model(mj_compile(spec.get(), /*vfs=*/nullptr));
-    ASSERT_NE(model, nullptr) << configuration.sceneFile << ": " << mjs_getError(spec.get());
+    ASSERT_NE(model, nullptr) << configuration->sceneFile << ": " << mjs_getError(spec.get());
     EXPECT_THAT(checkSceneSupportsGantryHold(model.get(), GantryHold::kWeldConstraint),
                 StatusIs(absl::StatusCode::kFailedPrecondition, HasSubstr("no equality named 'gantry'")))
-        << configuration.sceneFile;
+        << configuration->sceneFile;
   }
-  EXPECT_EQ(welded, 4) << "Atlas, SA01 and the G1 scene of both G1 configurations declare the weld";
+  EXPECT_EQ(welded, 5) << "every configuration runs on the weld: Atlas, SA01, R1 and both G1 configurations";
 }
 
 }  // namespace

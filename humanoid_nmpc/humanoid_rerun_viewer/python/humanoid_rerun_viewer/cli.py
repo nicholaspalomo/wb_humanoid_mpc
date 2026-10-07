@@ -41,6 +41,7 @@ and the recording is flushed. Exit status: 0 on success, 2 for a usage or config
 import argparse
 from collections.abc import Sequence
 import logging
+import math
 import os
 import signal
 import sys
@@ -51,6 +52,7 @@ from typing import Any, NamedTuple
 from humanoid_rerun_viewer import blueprint
 from humanoid_rerun_viewer import bridge as bridge_module
 from humanoid_rerun_viewer import bus_bridge
+from humanoid_rerun_viewer import plot_config as plot_config_module
 from humanoid_rerun_viewer import rerun_sinks
 from humanoid_rerun_viewer import urdf_model
 import robot_ipc
@@ -69,7 +71,12 @@ class RunResult(NamedTuple):
 
 
 DEFAULT_NETWORK_CONFIG = os.path.join("config", "ipc", "network.textproto")
+DEFAULT_PLOT_CONFIG = os.path.join(
+    "humanoid_nmpc", "humanoid_rerun_viewer", "config", "plot_config.textproto"
+)
 DEFAULT_APP_ID = "humanoid_nmpc"
+DEFAULT_WEB_MAX_SCENE_FREQUENCY = 12.5
+DEFAULT_WEB_FLUSH_PERIOD_S = 0.1
 # How often the main thread checks for a stop request and the duration [s].
 _POLL_PERIOD_S = 0.1
 
@@ -159,6 +166,42 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="serve_web: also open the web viewer in a browser of this machine",
     )
+    parser.add_argument(
+        "--max_scene_frequency",
+        type=float,
+        default=None,
+        help="maximum scene messages to log per wall second (default: "
+        f"{DEFAULT_WEB_MAX_SCENE_FREQUENCY} for serve_web, unlimited otherwise)",
+    )
+    parser.add_argument(
+        "--plots",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="subscribe to viz/telemetry and show plot tabs in blueprint (default: off for serve_web, on otherwise)",
+    )
+    parser.add_argument(
+        "--plot_config",
+        default=DEFAULT_PLOT_CONFIG,
+        help="a plot configuration file (.textproto or text file) specifying topics/signals to plot "
+        "('none' to disable; default: %(default)s)",
+    )
+    parser.add_argument(
+        "--terminal_state",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="draw the end-of-trajectory robot visualization in viz/scene (default: on)",
+    )
+    parser.add_argument(
+        "--robot_instances",
+        default="",
+        help="comma-separated list of robot instances to draw (e.g. 'measured', 'measured,terminal_state'; default: all)",
+    )
+    parser.add_argument(
+        "--measured_only",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="log only the measured robot instance in viz/scene (alias for --no-terminal_state; default: off)",
+    )
     # LINT.ThenChange(//humanoid_nmpc/humanoid_rerun_viewer/README.md:sink_flags)
     parser.add_argument(
         "--app_id",
@@ -174,8 +217,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--flush_period",
         type=float,
-        default=bus_bridge.DEFAULT_FLUSH_PERIOD_S,
-        help="how often the buffered plots are sent [s] (default: %(default)s)",
+        default=None,
+        help="how often the buffered plots are sent [s] (default: "
+        f"{DEFAULT_WEB_FLUSH_PERIOD_S} for serve_web, {bus_bridge.DEFAULT_FLUSH_PERIOD_S} otherwise)",
     )
     parser.add_argument(
         "--duration",
@@ -261,10 +305,54 @@ def run(args: argparse.Namespace, stop: threading.Event | None = None) -> RunRes
         _LOGGER.warning("no --urdf given: the robot instances will not be drawn")
 
     recording = bridge_module.new_recording(args.app_id)
+    plot_config: plot_config_module.PlotConfig | None = None
+    plot_config_arg = getattr(args, "plot_config", "")
+    if plot_config_arg and plot_config_arg.lower() not in (
+        "none",
+        "off",
+        "false",
+        "0",
+    ):
+        config_path = resolve_input_path(plot_config_arg)
+        try:
+            plot_config = plot_config_module.load_plot_config(config_path)
+        except (plot_config_module.PlotConfigError, OSError) as error:
+            if plot_config_arg == DEFAULT_PLOT_CONFIG and isinstance(error, OSError):
+                _LOGGER.warning(
+                    "default plot config '%s' not found: %s",
+                    plot_config_arg,
+                    error,
+                )
+            else:
+                _LOGGER.error("cannot load plot config: %s", error)
+                return RunResult(EXIT_USAGE)
+
+    if getattr(args, "plots", None) is not None:
+        plots = args.plots
+    elif args.rerun_sink == "serve_web":
+        plots = bool(plot_config is not None)
+    else:
+        plots = True
+
+    cli_robot_instances = (
+        tuple(name.strip() for name in args.robot_instances.split(",") if name.strip())
+        if getattr(args, "robot_instances", "")
+        else None
+    )
+    allowed_instances = plot_config_module.resolve_allowed_instances(
+        config=plot_config,
+        cli_robot_instances=cli_robot_instances,
+        cli_terminal_state=getattr(args, "terminal_state", None),
+        cli_measured_only=bool(getattr(args, "measured_only", False)),
+    )
+
     layout = blueprint.build_blueprint(
         tracked_link=(
             model.root_link if model is not None and args.follow_robot else None
-        )
+        ),
+        plots=plots,
+        config=plot_config,
+        allowed_instances=allowed_instances,
     )
     options = rerun_sinks.SinkOptions(
         url=args.rerun_url,
@@ -273,9 +361,33 @@ def run(args: argparse.Namespace, stop: threading.Event | None = None) -> RunRes
         web_port=args.web_port,
         open_browser=args.open_browser,
     )
-    the_bridge = bridge_module.RerunBridge(recording, model)
+    if getattr(args, "max_scene_frequency", None) is not None:
+        max_scene_frequency = args.max_scene_frequency
+    elif args.rerun_sink == "serve_web":
+        max_scene_frequency = DEFAULT_WEB_MAX_SCENE_FREQUENCY
+    else:
+        max_scene_frequency = 0.0
+
+    if getattr(args, "flush_period", None) is not None:
+        flush_period = args.flush_period
+    elif args.rerun_sink == "serve_web":
+        flush_period = DEFAULT_WEB_FLUSH_PERIOD_S
+    else:
+        flush_period = bus_bridge.DEFAULT_FLUSH_PERIOD_S
+
+    the_bridge = bridge_module.RerunBridge(
+        recording,
+        model,
+        max_scene_frequency=max_scene_frequency,
+        allowed_instances=allowed_instances,
+    )
+    telemetry_enabled = plots and (
+        plot_config is None or plot_config_module.has_telemetry_signals(plot_config)
+    )
     try:
-        feed = bus_bridge.BusBridge(the_bridge, network, flush_period=args.flush_period)
+        feed = bus_bridge.BusBridge(
+            the_bridge, network, flush_period=flush_period, telemetry=telemetry_enabled
+        )
     except (ValueError, robot_ipc.BusError, robot_ipc.NetworkConfigError) as error:
         _LOGGER.error("cannot subscribe to the bus: %s", error)
         return RunResult(EXIT_USAGE)
@@ -291,7 +403,7 @@ def run(args: argparse.Namespace, stop: threading.Event | None = None) -> RunRes
     the_bridge.log_static()
     _LOGGER.info(
         "subscribed to %s on %s",
-        ", ".join(bus_bridge.SUBSCRIBED_TOPICS),
+        ", ".join(feed.subscribed_topics),
         ", ".join(feed.bus.subscriber_endpoints),
     )
     deadline = time.monotonic() + args.duration if args.duration > 0.0 else None
@@ -327,8 +439,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     if args.rerun_sink == "save" and not args.rrd_path:
         parser.error("--rerun_sink save needs --rrd_path")
+    if args.max_scene_frequency is not None and not (
+        args.max_scene_frequency >= 0.0 and math.isfinite(args.max_scene_frequency)
+    ):
+        parser.error("--max_scene_frequency must be non-negative")
     # The not-form rejects NaN, which `args.flush_period <= 0.0` would let through.
-    if not args.flush_period > 0.0:
+    if args.flush_period is not None and not args.flush_period > 0.0:
         parser.error("--flush_period must be positive")
     stop_request = _StopRequest()
     stop_request.install()

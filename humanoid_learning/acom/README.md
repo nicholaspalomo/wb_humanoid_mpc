@@ -127,7 +127,7 @@ flowchart TD
         JacReorder --> JacFull["J_aCOM/dx =<br/>[0₃ₓ₆ | 0₃ₓ₃ | I₃ₓ₃ | P·J_Δθ]"]
         ThetaErr --> Cost["½ e_com' Q_com e_com<br/>+ ½ e_aCOM' Q_aCOM e_aCOM"]
         JacFull --> GaussNewton["Gauss-Newton Hessian:<br/>J' Q J"]
-        GaussNewton --> SQP["OCS2 SQP/iLQR Solver"]
+        GaussNewton --> SQP["OCS2 SQP Solver"]
         Cost --> SQP
     end
 ```
@@ -237,7 +237,7 @@ flowchart LR
 
 ### 4.2 Gauss-Newton Quadratic Approximation
 
-The cost function provides a quadratic approximation for the SQP/iLQR solver using Jacobians w.r.t. the centroidal state $\mathbf{x}$:
+The cost function provides a quadratic approximation for the OCS2 SQP solver using Jacobians w.r.t. the centroidal state $\mathbf{x}$:
 
 $$\mathbf{x} = \begin{bmatrix} \mathbf{h}_{\text{norm}} \\ \mathbf{p}_{\text{base}} \\ \boldsymbol{\theta}_{\text{base}}^{\text{ZYX}} \\ \mathbf{q}_j \end{bmatrix} \in \mathbb{R}^{n_x}, \quad \text{indices: } [0..5, \; 6..8, \; 9..11, \; 12..12{+}n_j]$$
 

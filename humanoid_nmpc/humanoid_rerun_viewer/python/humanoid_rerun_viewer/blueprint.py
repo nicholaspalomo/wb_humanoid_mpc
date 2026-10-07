@@ -47,6 +47,7 @@ import rerun as rr
 import rerun.blueprint as rrb
 
 from humanoid_rerun_viewer import palette
+from humanoid_rerun_viewer import plot_config as plot_config_module
 from humanoid_rerun_viewer import scene_contract
 from humanoid_rerun_viewer import status_contract
 from humanoid_rerun_viewer import telemetry_contract
@@ -78,17 +79,28 @@ def _absolute(path: str) -> str:
     return path if path.startswith("/") else f"/{path}"
 
 
-def scene_view(tracked_link: str | None = None) -> rrb.Spatial3DView:
+def scene_view(
+    tracked_link: str | None = None,
+    allowed_instances: Sequence[str] | None = None,
+) -> rrb.Spatial3DView:
     """The 3D view of the world; `tracked_link`, when given, is the measured robot's link the eye follows."""
     tracking_entity = (
         _absolute(scene_contract.link_path(scene_contract.MEASURED, tracked_link))
         if tracked_link
         else None
     )
+    hidden_paths = list(scene_contract.hidden_by_default())
+    if allowed_instances is not None:
+        for style in scene_contract.ROBOT_INSTANCES:
+            if style.name not in allowed_instances:
+                hidden_paths.append(scene_contract.instance_path(style.name))
     return rrb.Spatial3DView(
         name=SCENE_VIEW_NAME,
         origin=_absolute(scene_contract.WORLD_ROOT),
-        contents="$origin/**",
+        contents=[
+            "$origin/**",
+            *[f"- {_absolute(path)}/**" for path in hidden_paths],
+        ],
         line_grid=rrb.LineGrid3D(
             visible=True,
             spacing=1.0,
@@ -102,8 +114,7 @@ def scene_view(tracked_link: str | None = None) -> rrb.Spatial3DView:
             tracking_entity=tracking_entity,
         ),
         overrides={
-            _absolute(path): rrb.EntityBehavior(visible=False)
-            for path in scene_contract.hidden_by_default()
+            _absolute(path): rrb.EntityBehavior(visible=False) for path in hidden_paths
         },
     )
 
@@ -167,6 +178,86 @@ def status_tab() -> rrb.Vertical:
     )
 
 
+def filtered_status_tab(
+    series_list: Sequence[status_contract.StatusSeries],
+) -> rrb.Vertical | None:
+    if not series_list:
+        return None
+    views = [_status_view(series) for series in series_list]
+    rows = [views[i : i + 3] for i in range(0, len(views), 3)]
+    return rrb.Vertical(
+        *[rrb.Horizontal(*row) for row in rows],
+        name=STATUS_TAB_NAME,
+    )
+
+
+def custom_signal_view(signal: str) -> rrb.TimeSeriesView:
+    clean = signal.strip().lstrip("/")
+    if clean.startswith("status/"):
+        origin = _absolute(scene_contract.STATUS_ROOT)
+        content_path = f"+ {origin}/{clean[len('status/'):]}"
+    elif clean.startswith("telemetry/"):
+        origin = _absolute(scene_contract.TELEMETRY_ROOT)
+        content_path = f"+ {origin}/{clean[len('telemetry/'):]}"
+    else:
+        origin = _absolute(scene_contract.TELEMETRY_ROOT)
+        content_path = f"+ {origin}/{clean}"
+    return rrb.TimeSeriesView(
+        name=clean,
+        origin=origin,
+        contents=[content_path],
+        axis_x=_time_axis(),
+    )
+
+
+def custom_signals_tab(
+    signals: Sequence[str],
+    title: str = plot_config_module.DEFAULT_CUSTOM_TAB_TITLE,
+) -> rrb.Vertical | None:
+    if not signals:
+        return None
+    views = [custom_signal_view(sig) for sig in signals]
+    rows = [views[i : i + 3] for i in range(0, len(views), 3)]
+    return rrb.Vertical(
+        *[rrb.Horizontal(*row) for row in rows],
+        name=title,
+    )
+
+
+def build_configured_tabs(
+    config: plot_config_module.PlotConfig,
+) -> list[rrb.Vertical]:
+    """The plot tabs filtered and constructed according to `config`."""
+    if not config.signals:
+        return []
+
+    filtered_tabs, matched = plot_config_module.filter_contract_tabs(
+        telemetry_contract.TABS, config.signals
+    )
+    status_series, status_matched = plot_config_module.filter_status_series(
+        config.signals
+    )
+    matched.update(status_matched)
+
+    tabs: list[rrb.Vertical] = [plot_tab(tab) for tab in filtered_tabs]
+    if status_series:
+        status = filtered_status_tab(status_series)
+        if status is not None:
+            tabs.append(status)
+
+    unmatched = plot_config_module.unmatched_signals(config.signals, matched)
+    if unmatched:
+        custom_tab = custom_signals_tab(
+            unmatched,
+            title=config.custom_tab_title
+            or plot_config_module.DEFAULT_CUSTOM_TAB_TITLE,
+        )
+        if custom_tab is not None:
+            tabs.append(custom_tab)
+
+    return tabs
+
+
 def events_view() -> rrb.TextLogView:
     return rrb.TextLogView(
         name=EVENTS_VIEW_NAME,
@@ -175,15 +266,42 @@ def events_view() -> rrb.TextLogView:
     )
 
 
-def build_blueprint(tracked_link: str | None = None) -> rrb.Blueprint:
+def build_blueprint(
+    tracked_link: str | None = None,
+    plots: bool = True,
+    config: plot_config_module.PlotConfig | None = None,
+    allowed_instances: Sequence[str] | None = None,
+) -> rrb.Blueprint:
     """The whole layout; `tracked_link` is the measured robot's link the 3D view follows (None: a fixed eye)."""
-    tabs = [plot_tab(tab) for tab in telemetry_contract.TABS] + [status_tab()]
+    if plots:
+        if config is not None:
+            tabs = build_configured_tabs(config)
+        else:
+            tabs = [plot_tab(tab) for tab in telemetry_contract.TABS] + [status_tab()]
+        if tabs:
+            content = rrb.Horizontal(
+                rrb.Vertical(
+                    scene_view(tracked_link, allowed_instances),
+                    events_view(),
+                    row_shares=[3, 1],
+                ),
+                rrb.Tabs(*tabs, active_tab=0),
+                column_shares=[1, 1],
+            )
+        else:
+            content = rrb.Vertical(
+                scene_view(tracked_link, allowed_instances),
+                events_view(),
+                row_shares=[4, 1],
+            )
+    else:
+        content = rrb.Vertical(
+            scene_view(tracked_link, allowed_instances),
+            events_view(),
+            row_shares=[4, 1],
+        )
     return rrb.Blueprint(
-        rrb.Horizontal(
-            rrb.Vertical(scene_view(tracked_link), events_view(), row_shares=[3, 1]),
-            rrb.Tabs(*tabs, active_tab=0),
-            column_shares=[1, 1],
-        ),
+        content,
         rrb.BlueprintPanel(state=rrb.components.PanelState.Collapsed),
         rrb.SelectionPanel(state=rrb.components.PanelState.Collapsed),
         rrb.TimePanel(

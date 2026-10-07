@@ -559,7 +559,7 @@ TEST(PolicyConversionTest, SamplesAControllerOnOtherTimeStampsWithFlatten) {
   for (const ControllerType controllerType : kControllerTypes) {
     const PolicyShape shape{.nodes = 9, .stateDim = 4, .inputDim = 2, .events = 0, .controllerType = controllerType};
     Policy policy = randomPolicy(generator, shape, /*targetNodes=*/1);
-    // A controller on twice as many time stamps as the trajectory, as a DDP rollout may have.
+    // A controller on twice as many time stamps as the trajectory, as upstream OCS2's DDP rollout may have.
     PolicyShape denser = shape;
     denser.nodes = 2 * shape.nodes;
     policy.primalSolution.controllerPtr_ = std::move(test_data::randomPrimalSolution(generator, denser).controllerPtr_);

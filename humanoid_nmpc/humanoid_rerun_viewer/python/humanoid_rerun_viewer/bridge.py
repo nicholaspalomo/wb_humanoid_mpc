@@ -116,6 +116,8 @@ class BridgeStatistics:
     link_poses_unchanged: int = 0
     # Scalar groups of viz/telemetry buffered.
     telemetry_groups: int = 0
+    # Scenes throttled due to max_scene_frequency.
+    scenes_throttled: int = 0
 
     def malformed_count(self, topic: str | None = None) -> int:
         """The malformed messages or parts counted under `topic`, or under every topic when it is None."""
@@ -214,6 +216,8 @@ class RerunBridge:
         instances: the robot instances whose meshes log_static() logs.
         clock: the wall clock [s since the epoch] of the wall_time timeline.
         max_pending_rows: per entity, before the scalar batcher sends without waiting for flush().
+        max_scene_frequency: maximum scene messages to log per wall second (0.0 means unlimited).
+        allowed_instances: if given, only these robot instance names are logged in viz/scene.
     """
 
     def __init__(
@@ -225,13 +229,30 @@ class RerunBridge:
         ] = scene_contract.ROBOT_INSTANCES,
         clock: Callable[[], float] = time.time,
         max_pending_rows: int = scalar_batcher.DEFAULT_MAX_PENDING_ROWS,
+        max_scene_frequency: float = 0.0,
+        allowed_instances: Sequence[str] | None = None,
     ) -> None:
+        if not (max_scene_frequency >= 0.0 and math.isfinite(max_scene_frequency)):
+            raise ValueError("max_scene_frequency must be non-negative and finite")
         self._recording = recording
         self._model = model
         self._meshes = robot_meshes.RobotMeshes(model) if model is not None else None
-        self._instances = tuple(instances)
+        if allowed_instances is not None:
+            self._allowed_instances: frozenset[str] | None = frozenset(
+                allowed_instances
+            )
+            self._instances = tuple(
+                style for style in instances if style.name in self._allowed_instances
+            )
+        else:
+            self._allowed_instances = None
+            self._instances = tuple(instances)
         self._clock = clock
         self._log = _RateLimitedLog(time.monotonic)
+        self._min_scene_interval = (
+            1.0 / max_scene_frequency if max_scene_frequency > 0.0 else 0.0
+        )
+        self._last_scene_wall_time: float | None = None
         # The status scalars, each entity on its own times.
         self._batcher = scalar_batcher.ScalarBatcher(recording, max_pending_rows)
         # viz/telemetry: one frame per message, every group a row of it.
@@ -332,9 +353,21 @@ class RerunBridge:
         if scene.time < self._last_scene_time:
             # The robot's clock went back (a restarted simulation): poses at the new times must all be logged.
             self._last_link_poses.clear()
+            self._last_scene_wall_time = None
         self._last_scene_time = scene.time
         self._latest_robot_time = scene.time
-        self._set_time(scene.time, self._clock())
+
+        wall_now = self._clock()
+        if (
+            self._min_scene_interval > 0.0
+            and self._last_scene_wall_time is not None
+            and (wall_now - self._last_scene_wall_time) < self._min_scene_interval
+        ):
+            self.statistics.scenes_throttled += 1
+            return
+        self._last_scene_wall_time = wall_now
+
+        self._set_time(scene.time, wall_now)
 
         for robot in scene.robots:
             self._guarded_part(topics.VIZ_SCENE, self._log_robot, robot)
@@ -379,6 +412,8 @@ class RerunBridge:
         name = robot.name
         if not scene_contract.is_valid_relative_path(name) or "/" in name:
             raise MalformedMessageError(f"invalid robot instance name '{name}'")
+        if self._allowed_instances is not None and name not in self._allowed_instances:
+            return
         if len(robot.link_names) != len(robot.link_poses):
             raise MalformedMessageError(
                 f"robot '{name}' has {len(robot.link_names)} link names but {len(robot.link_poses)} poses"

@@ -27,28 +27,38 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ******************************************************************************/
 
+#include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
 #include "absl/log/absl_check.h"
+#include "absl/log/log.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "gtest/gtest.h"
 #include "mujoco/mujoco.h"
 
 #include "mujoco_sim_interface/MujocoSimInterface.h"
+#include "mujoco_sim_interface/MujocoUtils.h"
+#include "robot_model/RobotJointAction.h"
 
 /*
  * The virtual gantry and the simulator's own resets, headless, on the shipped Atlas scene, and the weld of every shipped
- * scene that declares one. A robot caught on the gantry after walking away from the origin used to be welded back to the
- * scene's anchor at the origin; the pull made the step numerically unstable, MuJoCo's automatic reset then rewound the
- * clock, and every later MPC solve failed because the controller's plans were timestamped hundreds of seconds in the
- * future.
+ * scene. A robot caught on the gantry after walking away from the origin used to be welded back to the scene's anchor at
+ * the origin; the pull made the step numerically unstable, MuJoCo's automatic reset then rewound the clock, and every
+ * later MPC solve failed because the controller's plans were timestamped hundreds of seconds in the future.
+ *
+ * GRAVITY_COMP is operated with the robot hanging from the gantry, and its limbs should then hover where they are,
+ * neither float up nor sink. Each scene is held to that by its weld, and the legacy kinematic_teleport, which the Unitree
+ * G1 and R1 fell back to until their scenes declared the weld, is shown to fail it.
  */
 
 namespace robot::mujoco_sim_interface {
@@ -63,7 +73,7 @@ struct WeldedScene {
   std::string urdf;
 };
 
-/** Every shipped scene that declares the gantry weld (R1.xml declares none). */
+/** Every shipped scene: each declares the gantry weld. */
 std::vector<WeldedScene> weldedScenes() {
   return {
       {.scene = kAtlasScene, .urdf = kAtlasUrdf},
@@ -71,15 +81,20 @@ std::vector<WeldedScene> weldedScenes() {
        .urdf = "robot_models/engineai_sa01/engineai_sa01_description/urdf/zq_sa01.urdf"},
       {.scene = "robot_models/unitree_g1/g1_description/urdf/g1_29dof.xml",
        .urdf = "robot_models/unitree_g1/g1_description/urdf/g1_29dof.urdf"},
+      {.scene = "robot_models/unitree_r1/unitree_r1_description/urdf/R1.xml",
+       .urdf = "robot_models/unitree_r1/unitree_r1_description/urdf/R1.urdf"},
   };
 }
 
-std::unique_ptr<MujocoSimInterface> makeSimOf(const WeldedScene& robot, bool gantryLocked) {
+/** A simulator of `robot` on the gantry hold named `hold` (kWeldConstraintGantryHoldName by default). */
+std::unique_ptr<MujocoSimInterface> makeSimOf(const WeldedScene& robot,
+                                              bool gantryLocked,
+                                              absl::string_view hold = kWeldConstraintGantryHoldName) {
   MujocoSimConfig config;
   config.scenePath = robot.scene;
   config.headless = true;
   config.isGantryLocked = gantryLocked;
-  config.gantryHold = "weld_constraint";
+  config.gantryHold = std::string(hold);
   // A render snapshot after every step, so readLatestMjState shows the state of the step just taken.
   config.renderFrequencyHz = 1.0e6;
   absl::StatusOr<std::unique_ptr<MujocoSimInterface>> sim = MujocoSimInterface::Create(config, robot.urdf);
@@ -141,6 +156,87 @@ int stepsFor(const MujocoSimInterface& sim, double seconds) {
   return static_cast<int>(std::ceil(seconds / sim.getModel()->opt.timestep));
 }
 
+/** A joint of the robot description and where the scene keeps its position and velocity. */
+struct SceneJoint {
+  size_t robotJoint = 0;  // index into the RobotJointAction
+  int qposAddress = 0;
+  int dofAddress = 0;
+};
+
+/** The joints of `sim`'s robot that its scene declares, by name, as the simulator maps them. */
+std::vector<SceneJoint> sceneJoints(const MujocoSimInterface& sim) {
+  const mjModel* absl_nonnull scene = sim.getModel();
+  const std::vector<std::string>& names = sim.getRobotDescription().getJointNames();
+  std::vector<SceneJoint> joints;
+  for (size_t joint = 0; joint < names.size(); ++joint) {
+    const int id = mj_name2id(scene, mjOBJ_JOINT, names[joint].c_str());
+    if (id < 0) continue;
+    joints.push_back({.robotJoint = joint, .qposAddress = scene->jnt_qposadr[id], .dofAddress = scene->jnt_dofadr[id]});
+  }
+  return joints;
+}
+
+/** The largest excursion of any joint [rad] over a run on the gantry, from two postures. */
+struct JointDrift {
+  double sinceCaught = 0.0;   // from the posture the robot was caught in
+  double sinceSettled = 0.0;  // from its posture at the end of the settling time
+};
+
+/**
+ * Runs `robot` on the locked gantry by the hold named `hold` for `settleSeconds` and then `seconds`, with the torques on
+ * and commanding what GRAVITY_COMP commands: each joint's gravity torque at the current posture and no feedback. The
+ * gravity torque is MuJoCo's own (the bias force with the robot at rest), so the scene's model is the controller's
+ * model. Returns the joints' largest excursions over the whole run from where they were caught, and over `seconds` from
+ * where they were after `settleSeconds`.
+ */
+JointDrift jointDriftUnderGravityCompensation(const WeldedScene& robot, absl::string_view hold, double settleSeconds, double seconds) {
+  const absl::StatusOr<GantryHold> expectedHold = gantryHoldFromName(hold);
+  ABSL_CHECK_OK(expectedHold);
+  const std::unique_ptr<MujocoSimInterface> sim = makeSimOf(robot, /*gantryLocked=*/true, hold);
+  ABSL_CHECK(sim->gantryHold() == *expectedHold) << robot.scene << " fell back from " << hold;
+  const mjModel* absl_nonnull scene = sim->getModel();
+  const std::vector<SceneJoint> joints = sceneJoints(*sim);
+  ABSL_CHECK_GE(joints.size(), 12u) << robot.scene;
+  sim->enableTorques();
+  step(*sim, /*steps=*/1);  // the first snapshot: the posture the robot was caught in
+
+  MjState state(scene);
+  sim->readLatestMjState(state);
+  std::vector<double> caught;
+  caught.reserve(joints.size());
+  for (const SceneJoint& joint : joints) caught.push_back(state.data->qpos[joint.qposAddress]);
+
+  const int settleSteps = stepsFor(*sim, settleSeconds);
+  std::vector<double> settled = caught;
+  JointDrift drift;
+  for (int i = 0; i < settleSteps + stepsFor(*sim, seconds); ++i) {
+    // The gravity torque at the posture of the last step: the bias force with every velocity zero.
+    mju_zero(state.data->qvel, scene->nv);
+    mj_forward(scene, state.data);
+    model::RobotJointAction& action = sim->getRobotJointAction();
+    for (const SceneJoint& joint : joints) {
+      std::optional<model::JointAction>& slot = action[joint.robotJoint];
+      ABSL_CHECK(slot.has_value());
+      slot->kp = 0.0;
+      slot->kd = 0.0;
+      slot->feed_forward_effort = state.data->qfrc_bias[joint.dofAddress];
+    }
+    sim->applyJointAction();
+    sim->simulationStep();
+
+    sim->readLatestMjState(state);
+    for (size_t k = 0; k < joints.size(); ++k) {
+      const double position = state.data->qpos[joints[k].qposAddress];
+      if (i + 1 == settleSteps) settled[k] = position;
+      drift.sinceCaught = std::max(drift.sinceCaught, std::abs(position - caught[k]));
+      if (i >= settleSteps) drift.sinceSettled = std::max(drift.sinceSettled, std::abs(position - settled[k]));
+    }
+  }
+  LOG(INFO) << robot.scene << " on " << hold << ": largest joint drift " << drift.sinceCaught << " rad since caught, " << drift.sinceSettled
+            << " rad over " << seconds << " s after " << settleSeconds << " s";
+  return drift;
+}
+
 TEST(SimGantry, MuJoCosOwnAutomaticResetIsDisabled) {
   // The simulator recovers from a bad step itself, without rewinding the clock (see the header comment above).
   const std::unique_ptr<MujocoSimInterface> sim = makeSim(/*gantryLocked=*/true);
@@ -187,6 +283,34 @@ TEST(SimGantry, EveryWeldedSceneHoldsItsRobotWhereItWasCaught) {
     EXPECT_NEAR(held.z, height, 0.05) << robot.scene;
     EXPECT_NEAR(held.yaw, 0.7, 0.05) << robot.scene;
     EXPECT_EQ(sim->resetEpoch(), 0u) << robot.scene;
+  }
+}
+
+TEST(SimGantry, OnEveryWeldedSceneGravityCompensationHoldsTheLimbsWhereTheyHang) {
+  // The acceptance test of GRAVITY_COMP on the gantry: the limbs hover in place, neither float up nor sink. The weld
+  // carries the base while mj_step integrates the dynamics, so each joint's gravity torque holds exactly its links'
+  // weight. The weld is a soft constraint: taking the robot's weight in the first 0.1 s, it lets the base sag by under a
+  // millimeter and pitch by up to 0.4 deg, which swings the limbs by up to 0.4 deg (the R1's hips). The DRC Atlas's
+  // heavy torso then settles slowest, by 2 mrad over 8 s on its back pitch joint; the others hold to 1e-5 rad within
+  // the first second. Settled, every joint holds to the fourth decimal.
+  constexpr double kCatch = 0.01;    // [rad], 0.6 deg over the whole run: the swing of the catch and the settling
+  constexpr double kHover = 1.0e-4;  // [rad], 0.006 deg over 3 s, settled
+  for (const WeldedScene& robot : weldedScenes()) {
+    const JointDrift drift =
+        jointDriftUnderGravityCompensation(robot, kWeldConstraintGantryHoldName, /*settleSeconds=*/8.0, /*seconds=*/3.0);
+    EXPECT_LT(drift.sinceCaught, kCatch) << robot.scene;
+    EXPECT_LT(drift.sinceSettled, kHover) << robot.scene;
+  }
+}
+
+TEST(SimGantry, OnKinematicTeleportTheSameTorquesDriveTheLimbsAway) {
+  // The legacy hold leaves the base in free fall during each step, where a chain keeps its shape with no joint torque at
+  // all: the gravity torque is surplus lift, and the limbs leave their posture by tens of degrees, into the stops.
+  constexpr double kDrift = 0.5;  // [rad], 29 deg in 3 s
+  for (const WeldedScene& robot : weldedScenes()) {
+    const JointDrift drift =
+        jointDriftUnderGravityCompensation(robot, kKinematicTeleportGantryHoldName, /*settleSeconds=*/0.0, /*seconds=*/3.0);
+    EXPECT_GT(drift.sinceCaught, kDrift) << robot.scene;
   }
 }
 

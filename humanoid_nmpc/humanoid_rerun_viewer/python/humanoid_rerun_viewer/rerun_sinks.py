@@ -74,7 +74,7 @@ class SinkOptions:
     web_port: int = DEFAULT_WEB_PORT
     open_browser: bool = False
     memory_limit: str = "75%"
-    server_memory_limit: str = "1GiB"
+    server_memory_limit: str = "8MiB"
 
 
 SinkFunction = Callable[[rr.RecordingStream, rrb.Blueprint, SinkOptions], str]
@@ -127,7 +127,7 @@ def _serve_web(
         open_browser=options.open_browser,
         connect_to=grpc_url,
     )
-    return f"serving the web viewer at http://localhost:{options.web_port} (recording at {grpc_url})"
+    return f"serving the web viewer at http://localhost:{options.web_port}/?url={grpc_url} (recording at {grpc_url})"
 
 
 def _save(

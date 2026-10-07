@@ -85,10 +85,12 @@ The task file's `gantry_hold` names how the gantry holds the floating base while
 The simulator anchors it where the robot is caught and writes the gantry height into its relpose, so the values in the
 file are only a starting point. `checkSceneSupportsGantryHold()` checks a compiled scene against a hold; a simulator
 whose scene cannot hold the robot by the weld logs an ERROR saying why and falls back to `kinematic_teleport`
-(`MujocoSimInterface::gantryHold()` is the hold it runs on). The Atlas, SA01 and G1 scenes declare the weld; `R1.xml`
-does not, and the R1's task file names `kinematic_teleport`. `//humanoid_nmpc/humanoid_mpc_validation:test_robot_scene_gantry_hold`
+(`MujocoSimInterface::gantryHold()` is the hold it runs on). Every shipped scene declares the weld (Atlas, SA01, G1 and
+R1), and every task file names `weld_constraint`. `//humanoid_nmpc/humanoid_mpc_validation:test_robot_scene_gantry_hold`
 checks every robot configuration's scene against its task file, and that the robot process's simulator runs on that
-hold.
+hold. `test_mujoco_sim_interface_gantry` holds each scene's robot by its weld, and checks that gravity-compensating
+torques keep its limbs where they were caught, as GRAVITY_COMP does on a physical gantry, and that on
+`kinematic_teleport` they do not.
 
 ## Viewer visualizations
 
